@@ -623,6 +623,126 @@ operationFailed:
 * 本番再生データを作る
 
 ---
+### 第4 第1スライス: Drive確認・再発見・状態表示
+
+第4実装は、一度にDriveワークスペース作成まで進めず、最初のスライスではDrive確認・再発見・状態表示までに限定する。
+
+このスライスでは、Google Driveへの書き込みは行わない。
+`workspace.json`、`index.json`、`projects/` の作成も行わない。
+`/settings` に「Driveワークスペースを作成」ボタンも表示しない。
+
+#### 第1スライスでやること
+
+* `/settings` をGoogle接続とDrive状態確認の正式導線にする
+* `/auth-test` はOAuth単体確認用の開発ページとして残す
+* Google接続状態とDrive状態をアプリ内Providerで共有する
+* `access_token` はProvider内部の `useRef` にのみ保持する
+* `access_token` を画面、console、localStorage、IndexedDB、Cookieに出さない・保存しない
+* Google接続直後にDrive確認を自動実行しない
+* ユーザーが `/settings` で「Drive状態を確認」を押した場合のみDrive APIを呼ぶ
+* Drive APIは `gapi.client` ではなく、`fetch` でDrive REST API v3を直接呼ぶ
+* Google Driveワークスペース候補を `appProperties` で検索する
+* フォルダ名だけでは候補扱いしない
+* ゴミ箱内の項目は候補に含めない
+* root候補検索は最大2件までに絞る
+* 2件取得した場合は「2件以上」として `multipleCandidates` 扱いにする
+* root候補が1件の場合は、配下の `workspace.json`、`index.json`、`projects/` まで厳格に検証する
+* 子要素は `appProperties.role` で識別し、名前とMIME typeを検証項目にする
+* 同じroleの子要素が複数ある場合は自動選択せず `invalidWorkspace` とする
+* `/admin` と `/player` にはDrive状態の短い読み取り専用表示だけを追加する
+
+#### 第1スライスでやらないこと
+
+* Driveワークスペース作成
+* `workspace.json` 作成
+* `index.json` 作成
+* `projects/` フォルダ作成
+* Driveワークスペース削除
+* Driveワークスペース修復
+* 候補を選択して使用するUI
+* Google接続直後のDrive自動確認
+* Drive書き込みの自動リトライ
+* `gapi.client` の導入
+* APIキーの作成・利用
+* Client Secretの作成・利用
+* `/admin` や `/player` でのDrive操作ボタン表示
+* mock-data撤去
+* プロジェクト作成
+* `manifest.json` 保存
+* Google Photos Picker
+* IndexedDB保存
+* オフライン本番再生
+
+#### 第1スライスの状態管理方針
+
+Google接続状態とDrive状態は分けて管理する。
+
+Google接続状態は、Google認証スクリプトの準備、未接続、接続中、接続済み、scope不足、Client ID未設定、認証エラーを表す。
+
+Drive状態は、このセッションでは未確認、確認中、ワークスペース未作成、Driveワークスペース準備済み、候補が複数あり要確認、構造・JSON・IDに問題あり、schemaVersion非対応、再接続が必要、Drive操作失敗を表す。
+
+Google接続を解除した場合は、`access_token` だけでなくDrive確認結果も初期状態に戻す。
+過去のDrive確認結果を使って、接続解除後に「準備済み」と表示し続けない。
+
+#### 第1スライスの表示方針
+
+詳細診断と操作は `/settings` に集約する。
+
+`/settings` には、Google接続、Google接続解除、Drive状態確認、Google再接続、Drive状態、診断メッセージを表示する。
+
+`/admin` と `/player` には、Drive状態の短い読み取り専用表示だけを出す。
+Drive操作ボタン、削除ボタン、修復ボタン、候補選択UIは出さない。
+
+画面やconsoleに以下は出さない。
+
+* `access_token`
+* token response全文
+* Drive APIの生レスポンス全文
+* 生のerror object
+* fileId / folderId の全文
+* `workspace.json` / `index.json` の全文
+
+#### 第1スライスの候補検索方針
+
+root候補は、フォルダ名ではなく `appProperties` を主条件として検索する。
+
+検索条件の考え方は以下。
+
+```text
+mimeType = 'application/vnd.google-apps.folder'
+and trashed = false
+and appProperties has { key='app' and value='ipad-slideshow-pwa' }
+and appProperties has { key='role' and value='workspaceRoot' }
+```
+
+root候補は最大2件まで取得する。
+0件なら `notCreated`、1件なら中身を検証、2件取得した場合は `multipleCandidates` とする。
+
+2件取得した場合でも、画面では「候補が2件あります」と断定しない。
+実際には3件以上存在する可能性があるため、「Driveワークスペース候補が2件以上あります」と表示する。
+
+候補1件の場合は、root folderだけでは `ready` にしない。
+必ず配下の `workspace.json`、`index.json`、`projects/` を確認し、JSON本文、Drive metadata、`appProperties`、`workspaceId`、`role`、`schemaVersion` の整合が取れた場合のみ `ready` とする。
+
+#### 第1スライスの完了条件
+
+第1スライスは、以下を確認できたら完了とする。
+
+* `/settings` でGoogle接続できる
+* `drive.file` scopeを確認できる
+* `/settings` でDrive状態確認を手動実行できる
+* 正規ワークスペースがない場合に `notCreated` を表示できる
+* Drive API認証エラー時に `authRequired` を表示できる
+* Drive API失敗時に `operationFailed` を表示できる
+* `/admin` にDrive状態の短い読み取り専用表示が出る
+* `/player` にDrive状態の短い読み取り専用表示が出る
+* PWA再起動後はGoogle未接続・Drive未確認に戻る
+* `npm run lint` が成功する
+* `npm run build` が成功する
+
+第1スライスではDrive書き込みを行わないため、実Drive上で `ready` に到達することは必須完了条件にしない。
+`ready`、`invalidWorkspace`、`unsupportedVersion` の判定ロジックは実装してよいが、実Driveでの `ready` 到達確認は次の作成スライスで行う。
+
 
 ### 第4の完了条件
 
