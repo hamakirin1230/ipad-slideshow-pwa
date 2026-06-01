@@ -1,3 +1,10 @@
+# 第4ゴール Google Driveワークスペース設計決定メモ
+
+* 対象プロジェクト: ipad-slideshow-pwa
+* 対象フェーズ: 第4-1 Google Driveワークスペース設計 / 第1スライス実装前
+* ステータス: 設計判断済み・第1スライス実装準備中
+* 最終更新日: 2026-06-01
+
 ## 第4-1 Google Drive ワークスペース設計
 
 ### 目的
@@ -743,6 +750,26 @@ root候補は最大2件まで取得する。
 第1スライスではDrive書き込みを行わないため、実Drive上で `ready` に到達することは必須完了条件にしない。
 `ready`、`invalidWorkspace`、`unsupportedVersion` の判定ロジックは実装してよいが、実Driveでの `ready` 到達確認は次の作成スライスで行う。
 
+#### 第1スライス追加決定
+
+第1スライス実装前の追加・修正決定は以下。
+
+* Drive状態に `unchecked` を追加する
+* 第4中は同一 Google Web OAuth Client ID を使う
+* Drive APIでは `fields` を明示し、必要最小限だけ取得する
+* root候補はマイドライブ直下に限定しない
+* 子要素検証はrootフォルダ直下に限定する
+* Drive検索は `corpora=user` / `spaces=drive` / `pageSize=2` を明示する
+* 想定外ファイルは警告に留め、`ready` 判定を妨げない
+* 必須roleごとに最大2件検索する
+* `workspace.json` / `index.json` の `size` 上限を設ける
+* `size` 未取得なら `invalidWorkspace`
+* Drive確認は15秒程度でタイムアウトする
+* Providerは `AppProviders` client component に置く
+* `/settings` はDrive操作部分だけ client component に分離する
+* `/admin` / `/player` は状態表示だけ client component で差し込む
+* Drive確認は同時に1本だけにし、古い結果を反映しない
+
 
 ### 第4の完了条件
 
@@ -821,3 +848,4 @@ iPadホーム画面PWAで確認すること。
 * IndexedDB保存
 * オフライン本番再生前チェック
 * mock-data撤去タイミング
+
