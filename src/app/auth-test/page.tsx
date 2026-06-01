@@ -32,13 +32,13 @@ export default function AuthTestPage() {
           <CardHeader>
             <CardTitle>このページで確認すること</CardTitle>
             <CardDescription className="text-slate-300">
-              まずはClient IDがローカル環境から読めるかだけを確認します。
+            Provider経由でGoogle接続とdrive.file scopeを確認します。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-slate-300">
             <p>・Google認証用のClient IDが設定されているか</p>
             <p>・Client IDの実値を画面に表示しないこと</p>
-            <p>・アクセストークンをまだ取得しないこと</p>
+            <p>・access_token の実値を画面に表示しないこと</p>
             <p>・Drive APIによるファイル操作をまだ行わないこと</p>
           </CardContent>
         </Card>

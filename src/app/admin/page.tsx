@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DriveStatusSummary } from "@/components/drive-status-summary";
 import {
   Card,
   CardContent,
@@ -61,7 +62,7 @@ export default function AdminPage() {
             <Link href="/">トップへ戻る</Link>
           </Button>
         </div>
-
+        <DriveStatusSummary />
         <section className="grid gap-4 md:grid-cols-3">
           <Card className="bg-white text-slate-950">
             <CardHeader>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { DriveStatusSummary } from "@/components/drive-status-summary";
 import {
   Card,
   CardContent,
@@ -72,7 +73,7 @@ export default function PlayerPage() {
             <Link href="/">トップへ戻る</Link>
           </Button>
         </div>
-
+        <DriveStatusSummary />
         <section className="grid gap-4 md:grid-cols-3">
           <Card className="border-white/10 bg-white/5 text-slate-50">
             <CardHeader>

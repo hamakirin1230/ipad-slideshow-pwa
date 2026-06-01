@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DriveSettingsPanel } from "./drive-settings-panel";
 import {
   Card,
   CardContent,
@@ -97,16 +98,19 @@ export default function SettingsPage() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Badge variant="secondary">第2-3 状態整理</Badge>
+          <Badge variant="secondary">第4-1 Drive連携準備</Badge>
             <h1 className="mt-3 text-3xl font-bold">設定</h1>
             <p className="mt-2 max-w-2xl text-slate-300">
-              PWA情報、現在の実装状況、第2ゴールの範囲、第3以降の未実装項目を確認する画面です。
+            Google接続とDriveワークスペース状態を確認する正式導線です。
+            このスライスではDrive確認・作成はまだ行いません。
             </p>
           </div>
           <Button asChild variant="secondary">
             <Link href="/">トップへ戻る</Link>
           </Button>
         </div>
+
+        <DriveSettingsPanel />
 
         <section className="grid gap-4 md:grid-cols-2">
           {appSettings.map((item) => (

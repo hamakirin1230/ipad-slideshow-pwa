@@ -1,12 +1,12 @@
 export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
-export type AuthStatus =
-  | "loading_script"
-  | "ready"
-  | "missing_client_id"
-  | "requesting"
+export type GoogleConnectionStatus =
+  | "scriptLoading"
+  | "notConnected"
+  | "missingClientId"
+  | "connecting"
   | "connected"
-  | "scope_missing"
+  | "scopeMissing"
   | "error";
 
 export type GoogleTokenResponse = {
@@ -23,7 +23,7 @@ type GoogleTokenClientConfig = {
   client_id: string;
   scope: string;
   callback: (response: GoogleTokenResponse) => void;
-  error_callback?: (error: unknown) => void;
+  error_callback?: () => void;
   prompt?: string;
   include_granted_scopes?: boolean;
 };
