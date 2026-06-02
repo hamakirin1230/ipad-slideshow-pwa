@@ -1,6 +1,7 @@
 const DRIVE_API_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 
 const DRIVE_WORKSPACE_APP_ID = "ipad-slideshow-pwa";
+const DRIVE_WORKSPACE_SCHEMA_VERSION = 1;
 const DRIVE_WORKSPACE_SCHEMA_VERSION_PROPERTY = "1";
 
 const DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
@@ -12,6 +13,12 @@ const PROJECTS_ROOT_NAME = "projects";
 
 const CHILD_ROLE_SEARCH_LIMIT = 2;
 const JSON_FILE_SIZE_LIMIT_BYTES = 64 * 1024;
+
+const WORKSPACE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const ISO_8601_UTC_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 
 const WORKSPACE_ROOT_QUERY = [
   `mimeType = '${DRIVE_FOLDER_MIME_TYPE}'`,
@@ -43,15 +50,57 @@ export type DriveMetadataValidationResult =
   | {
       status: "metadataVerified";
       diagnostics: string[];
+      workspaceId: string;
+      workspaceJsonFileId: string;
+      indexJsonFileId: string;
     }
   | {
       status: "invalidWorkspace";
       diagnostics: string[];
     };
 
+export type DriveJsonBodyValidationResult =
+  | {
+      status: "ready";
+      diagnostics: string[];
+    }
+  | {
+      status: "invalidWorkspace";
+      diagnostics: string[];
+    }
+  | {
+      status: "unsupportedVersion";
+      diagnostics: string[];
+    };
+
 type DriveFilesListResponse = {
   files?: unknown[];
 };
+
+type JsonBodyValidationResult =
+  | {
+      status: "valid";
+      workspaceId: string;
+      diagnostics: string[];
+    }
+  | {
+      status: "invalid";
+      diagnostics: string[];
+    }
+  | {
+      status: "unsupportedVersion";
+      diagnostics: string[];
+    };
+
+type ParseJsonObjectResult =
+  | {
+      status: "valid";
+      value: Record<string, unknown>;
+    }
+  | {
+      status: "invalid";
+      diagnostics: string[];
+    };
 
 export class DriveApiError extends Error {
   status: number;
@@ -95,6 +144,33 @@ export async function findWorkspaceChildCandidatesByRole(
   return listDriveFiles(accessToken, params, signal);
 }
 
+export async function readDriveTextFile(
+  accessToken: string,
+  fileId: string,
+  signal: AbortSignal,
+) {
+  const params = new URLSearchParams({
+    alt: "media",
+  });
+
+  const response = await fetch(
+    `${DRIVE_API_FILES_URL}/${encodeURIComponent(fileId)}?${params.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      signal,
+    },
+  );
+
+  if (!response.ok) {
+    throw new DriveApiError(response.status);
+  }
+
+  return response.text();
+}
+
 export function validateWorkspaceMetadata(
   rootCandidate: DriveWorkspaceRootCandidate,
   childCandidatesByRole: DriveChildCandidatesByRole,
@@ -102,7 +178,7 @@ export function validateWorkspaceMetadata(
   const diagnostics: string[] = [];
   const workspaceIds: string[] = [];
 
-  validateCommonMetadata({
+  const rootWorkspaceId = validateCommonMetadata({
     item: rootCandidate,
     label: "workspace root folder",
     expectedRole: "workspaceRoot",
@@ -111,7 +187,7 @@ export function validateWorkspaceMetadata(
     workspaceIds,
   });
 
-  validateRequiredJsonChild({
+  const workspaceJson = validateRequiredJsonChild({
     candidates: childCandidatesByRole.workspace,
     label: "workspace.json",
     expectedName: WORKSPACE_JSON_NAME,
@@ -120,7 +196,7 @@ export function validateWorkspaceMetadata(
     workspaceIds,
   });
 
-  validateRequiredJsonChild({
+  const indexJson = validateRequiredJsonChild({
     candidates: childCandidatesByRole.index,
     label: "index.json",
     expectedName: INDEX_JSON_NAME,
@@ -146,6 +222,18 @@ export function validateWorkspaceMetadata(
     );
   }
 
+   if (!rootWorkspaceId) {
+    diagnostics.push("workspace root folder のworkspaceIdを確認できませんでした。");
+  }
+
+  if (!workspaceJson?.id) {
+    diagnostics.push("workspace.json のDrive fileIdを確認できませんでした。");
+  }
+
+  if (!indexJson?.id) {
+    diagnostics.push("index.json のDrive fileIdを確認できませんでした。");
+  }
+
   if (diagnostics.length > 0) {
     return {
       status: "invalidWorkspace",
@@ -153,10 +241,100 @@ export function validateWorkspaceMetadata(
     };
   }
 
+  if (!rootWorkspaceId || !workspaceJson?.id || !indexJson?.id) {
+    return {
+      status: "invalidWorkspace",
+      diagnostics: [
+        "Driveワークスペースmetadataの必須IDを確認できませんでした。",
+      ],
+    };
+  }
+
   return {
     status: "metadataVerified",
     diagnostics: [
       "workspace root folder / workspace.json / index.json / projects/ のmetadata確認が完了しました。",
+    ],
+    workspaceId: rootWorkspaceId,
+    workspaceJsonFileId: workspaceJson.id,
+    indexJsonFileId: indexJson.id,
+  };
+}
+
+export function validateWorkspaceJsonBodies(input: {
+  expectedWorkspaceId: string;
+  workspaceJsonText: string;
+  indexJsonText: string;
+}): DriveJsonBodyValidationResult {
+  const sizeDiagnostics = validateFetchedTextSizes(input);
+
+  if (sizeDiagnostics.length > 0) {
+    return {
+      status: "invalidWorkspace",
+      diagnostics: sizeDiagnostics,
+    };
+  }
+
+  const workspaceJsonResult = validateWorkspaceJsonBody(input.workspaceJsonText);
+  const indexJsonResult = validateIndexJsonBody(input.indexJsonText);
+
+  if (
+    workspaceJsonResult.status === "invalid" ||
+    indexJsonResult.status === "invalid"
+  ) {
+    return {
+      status: "invalidWorkspace",
+      diagnostics: [
+        ...getJsonDiagnostics(workspaceJsonResult),
+        ...getJsonDiagnostics(indexJsonResult),
+      ],
+    };
+  }
+
+  if (
+    workspaceJsonResult.status === "unsupportedVersion" ||
+    indexJsonResult.status === "unsupportedVersion"
+  ) {
+    return {
+      status: "unsupportedVersion",
+      diagnostics: [
+        ...getJsonDiagnostics(workspaceJsonResult),
+        ...getJsonDiagnostics(indexJsonResult),
+      ],
+    };
+  }
+
+  if (
+    workspaceJsonResult.status !== "valid" ||
+    indexJsonResult.status !== "valid"
+  ) {
+    return {
+      status: "invalidWorkspace",
+      diagnostics: ["JSON本文検証の結果を判定できませんでした。"],
+    };
+  }
+
+  const workspaceIds = [
+    input.expectedWorkspaceId,
+    workspaceJsonResult.workspaceId,
+    indexJsonResult.workspaceId,
+  ];
+
+  if (hasWorkspaceIdMismatch(workspaceIds)) {
+    return {
+      status: "invalidWorkspace",
+      diagnostics: [
+        "metadata / workspace.json / index.json の workspaceId が一致していません。",
+      ],
+    };
+  }
+
+  return {
+    status: "ready",
+    diagnostics: [
+      ...workspaceJsonResult.diagnostics,
+      ...indexJsonResult.diagnostics,
+      "DriveワークスペースのmetadataとJSON本文の整合確認が完了しました。",
     ],
   };
 }
@@ -242,7 +420,7 @@ function validateRequiredJsonChild(input: {
   const item = validateSingleChildCount(input);
 
   if (!item) {
-    return;
+    return null;
   }
 
   if (item.name !== input.expectedName) {
@@ -262,7 +440,7 @@ function validateRequiredJsonChild(input: {
 
   if (typeof item.sizeBytes !== "number") {
     input.diagnostics.push(`${input.label} のsizeを取得できませんでした。`);
-    return;
+    return item;
   }
 
   if (item.sizeBytes > JSON_FILE_SIZE_LIMIT_BYTES) {
@@ -270,6 +448,8 @@ function validateRequiredJsonChild(input: {
       `${input.label} のsizeが上限 ${JSON_FILE_SIZE_LIMIT_BYTES} bytes を超えています。`,
     );
   }
+
+  return item;
 }
 
 function validateRequiredFolderChild(input: {
@@ -283,7 +463,7 @@ function validateRequiredFolderChild(input: {
   const item = validateSingleChildCount(input);
 
   if (!item) {
-    return;
+    return null;
   }
 
   if (item.name !== input.expectedName) {
@@ -300,6 +480,8 @@ function validateRequiredFolderChild(input: {
     diagnostics: input.diagnostics,
     workspaceIds: input.workspaceIds,
   });
+
+  return item;
 }
 
 function validateSingleChildCount(input: {
@@ -351,10 +533,320 @@ function validateCommonMetadata(input: {
 
   if (!isNonEmptyString(workspaceId)) {
     input.diagnostics.push(`${input.label} のworkspaceIdが未設定です。`);
-    return;
+    return undefined;
+  }
+
+  if (!isUuidV4(workspaceId)) {
+    input.diagnostics.push(`${input.label} のworkspaceIdがUUID形式ではありません。`);
+    return undefined;
   }
 
   input.workspaceIds.push(workspaceId);
+  return workspaceId;
+}
+
+function validateWorkspaceJsonBody(text: string): JsonBodyValidationResult {
+  const parsed = parseJsonObject(text, "workspace.json");
+
+  if (parsed.status === "invalid") {
+    return parsed;
+  }
+
+  return validateBaseJsonBody({
+    body: parsed.value,
+    fileLabel: "workspace.json",
+    expectedRole: "workspace",
+    requireEmptyProjects: false,
+  });
+}
+
+function validateIndexJsonBody(text: string): JsonBodyValidationResult {
+  const parsed = parseJsonObject(text, "index.json");
+
+  if (parsed.status === "invalid") {
+    return parsed;
+  }
+
+  return validateBaseJsonBody({
+    body: parsed.value,
+    fileLabel: "index.json",
+    expectedRole: "index",
+    requireEmptyProjects: true,
+  });
+}
+
+function validateBaseJsonBody(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  expectedRole: "workspace" | "index";
+  requireEmptyProjects: boolean;
+}): JsonBodyValidationResult {
+  const invalidDiagnostics: string[] = [];
+  const unsupportedVersionDiagnostics: string[] = [];
+
+  validateRequiredLiteral({
+    body: input.body,
+    fileLabel: input.fileLabel,
+    key: "app",
+    expectedValue: DRIVE_WORKSPACE_APP_ID,
+    diagnostics: invalidDiagnostics,
+  });
+
+  validateRequiredLiteral({
+    body: input.body,
+    fileLabel: input.fileLabel,
+    key: "role",
+    expectedValue: input.expectedRole,
+    diagnostics: invalidDiagnostics,
+  });
+
+  validateSchemaVersion({
+    body: input.body,
+    fileLabel: input.fileLabel,
+    invalidDiagnostics,
+    unsupportedVersionDiagnostics,
+  });
+
+  const workspaceId = validateRequiredWorkspaceId({
+    body: input.body,
+    fileLabel: input.fileLabel,
+    diagnostics: invalidDiagnostics,
+  });
+
+  validateRequiredIsoDateString({
+    body: input.body,
+    fileLabel: input.fileLabel,
+    key: "createdAt",
+    diagnostics: invalidDiagnostics,
+  });
+
+  validateRequiredIsoDateString({
+    body: input.body,
+    fileLabel: input.fileLabel,
+    key: "updatedAt",
+    diagnostics: invalidDiagnostics,
+  });
+
+  if (input.requireEmptyProjects) {
+    validateEmptyProjectsArray({
+      body: input.body,
+      fileLabel: input.fileLabel,
+      diagnostics: invalidDiagnostics,
+    });
+  }
+
+  if (invalidDiagnostics.length > 0) {
+    return {
+      status: "invalid",
+      diagnostics: invalidDiagnostics,
+    };
+  }
+
+  if (unsupportedVersionDiagnostics.length > 0) {
+    return {
+      status: "unsupportedVersion",
+      diagnostics: unsupportedVersionDiagnostics,
+    };
+  }
+
+  if (!workspaceId) {
+    return {
+      status: "invalid",
+      diagnostics: [`${input.fileLabel} のworkspaceIdを確認できませんでした。`],
+    };
+  }
+
+  return {
+    status: "valid",
+    workspaceId,
+    diagnostics: [`${input.fileLabel} のJSON本文を確認しました。`],
+  };
+}
+
+function parseJsonObject(text: string, fileLabel: string): ParseJsonObjectResult {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+
+    if (!isJsonObject(parsed)) {
+      return {
+        status: "invalid",
+        diagnostics: [`${fileLabel} はJSON objectである必要があります。`],
+      };
+    }
+
+    return {
+      status: "valid",
+      value: parsed,
+    };
+  } catch {
+    return {
+      status: "invalid",
+      diagnostics: [`${fileLabel} はJSONとして読み取れませんでした。`],
+    };
+  }
+}
+
+function validateRequiredLiteral(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  key: string;
+  expectedValue: string;
+  diagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, input.key)) {
+    input.diagnostics.push(`${input.fileLabel} の ${input.key} がありません。`);
+    return;
+  }
+
+  if (input.body[input.key] !== input.expectedValue) {
+    input.diagnostics.push(
+      `${input.fileLabel} の ${input.key} が想定と一致していません。`,
+    );
+  }
+}
+
+function validateSchemaVersion(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  invalidDiagnostics: string[];
+  unsupportedVersionDiagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, "schemaVersion")) {
+    input.invalidDiagnostics.push(
+      `${input.fileLabel} の schemaVersion がありません。`,
+    );
+    return;
+  }
+
+  const schemaVersion = input.body.schemaVersion;
+
+  if (typeof schemaVersion !== "number") {
+    input.invalidDiagnostics.push(
+      `${input.fileLabel} の schemaVersion はnumberである必要があります。`,
+    );
+    return;
+  }
+
+  if (schemaVersion !== DRIVE_WORKSPACE_SCHEMA_VERSION) {
+    input.unsupportedVersionDiagnostics.push(
+      `${input.fileLabel} の schemaVersion はこのPWAでは対応していません。`,
+    );
+  }
+}
+
+function validateRequiredWorkspaceId(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  diagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, "workspaceId")) {
+    input.diagnostics.push(`${input.fileLabel} の workspaceId がありません。`);
+    return undefined;
+  }
+
+  const workspaceId = input.body.workspaceId;
+
+  if (typeof workspaceId !== "string") {
+    input.diagnostics.push(
+      `${input.fileLabel} の workspaceId はstringである必要があります。`,
+    );
+    return undefined;
+  }
+
+  if (!isUuidV4(workspaceId)) {
+    input.diagnostics.push(
+      `${input.fileLabel} の workspaceId がUUID形式ではありません。`,
+    );
+    return undefined;
+  }
+
+  return workspaceId;
+}
+
+function validateRequiredIsoDateString(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  key: "createdAt" | "updatedAt";
+  diagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, input.key)) {
+    input.diagnostics.push(`${input.fileLabel} の ${input.key} がありません。`);
+    return;
+  }
+
+  const value = input.body[input.key];
+
+  if (typeof value !== "string") {
+    input.diagnostics.push(
+      `${input.fileLabel} の ${input.key} はstringである必要があります。`,
+    );
+    return;
+  }
+
+  if (!ISO_8601_UTC_PATTERN.test(value)) {
+    input.diagnostics.push(
+      `${input.fileLabel} の ${input.key} はISO 8601形式の日時文字列である必要があります。`,
+    );
+  }
+}
+
+function validateEmptyProjectsArray(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  diagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, "projects")) {
+    input.diagnostics.push(`${input.fileLabel} の projects がありません。`);
+    return;
+  }
+
+  const projects = input.body.projects;
+
+  if (!Array.isArray(projects)) {
+    input.diagnostics.push(
+      `${input.fileLabel} の projects は配列である必要があります。`,
+    );
+    return;
+  }
+
+  if (projects.length !== 0) {
+    input.diagnostics.push(
+      `${input.fileLabel} の projects は空配列である必要があります。`,
+    );
+  }
+}
+
+function validateFetchedTextSizes(input: {
+  workspaceJsonText: string;
+  indexJsonText: string;
+}) {
+  const diagnostics: string[] = [];
+
+  if (getUtf8ByteLength(input.workspaceJsonText) > JSON_FILE_SIZE_LIMIT_BYTES) {
+    diagnostics.push(
+      `workspace.json の本文が上限 ${JSON_FILE_SIZE_LIMIT_BYTES} bytes を超えています。`,
+    );
+  }
+
+  if (getUtf8ByteLength(input.indexJsonText) > JSON_FILE_SIZE_LIMIT_BYTES) {
+    diagnostics.push(
+      `index.json の本文が上限 ${JSON_FILE_SIZE_LIMIT_BYTES} bytes を超えています。`,
+    );
+  }
+
+  return diagnostics;
+}
+
+function getJsonDiagnostics(result: JsonBodyValidationResult) {
+  return result.diagnostics;
+}
+
+function hasWorkspaceIdMismatch(workspaceIds: string[]) {
+  return new Set(workspaceIds).size > 1;
+}
+
+function getUtf8ByteLength(text: string) {
+  return new TextEncoder().encode(text).length;
 }
 
 function parseDriveSize(value: unknown) {
@@ -375,12 +867,24 @@ function escapeDriveQueryValue(value: string) {
   return value.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
 }
 
+function hasOwnKey(record: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && !Array.isArray(value);
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function isUuidV4(value: string) {
+  return WORKSPACE_ID_PATTERN.test(value);
 }
 
 function toStringRecord(value: unknown): Record<string, string> {

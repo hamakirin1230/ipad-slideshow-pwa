@@ -20,6 +20,8 @@ import {
   DriveApiError,
   findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
+  readDriveTextFile,
+  validateWorkspaceJsonBodies,
   validateWorkspaceMetadata,
   type DriveWorkspaceChildRole,
   type DriveWorkspaceRootCandidate,
@@ -389,7 +391,56 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setDriveStatus("metadataVerified");
       setDriveMessage(
-        "Driveワークスペース候補の構成ファイルを確認しました。このスライスでは workspace.json / index.json の本文検証はまだ行っていません。",
+        "Driveワークスペース候補の構成ファイルを確認しました。workspace.json / index.json の本文を検証しています。",
+      );
+
+      const [workspaceJsonText, indexJsonText] = await Promise.all([
+        readDriveTextFile(
+          accessToken,
+          metadataResult.workspaceJsonFileId,
+          controller.signal,
+        ),
+        readDriveTextFile(
+          accessToken,
+          metadataResult.indexJsonFileId,
+          controller.signal,
+        ),
+      ]);
+
+      if (requestId !== driveCheckRequestIdRef.current) {
+        return;
+      }
+
+      const jsonBodyResult = validateWorkspaceJsonBodies({
+        expectedWorkspaceId: metadataResult.workspaceId,
+        workspaceJsonText,
+        indexJsonText,
+      });
+
+      setDriveDiagnostics([
+        ...metadataResult.diagnostics,
+        ...jsonBodyResult.diagnostics,
+      ]);
+
+      if (jsonBodyResult.status === "invalidWorkspace") {
+        setDriveStatus("invalidWorkspace");
+        setDriveMessage(
+          "Driveワークスペース候補のJSON本文に問題があります。このスライスでは自動修復は行いません。",
+        );
+        return;
+      }
+
+      if (jsonBodyResult.status === "unsupportedVersion") {
+        setDriveStatus("unsupportedVersion");
+        setDriveMessage(
+          "Driveワークスペース候補のschemaVersionは、このPWAでは対応していません。",
+        );
+        return;
+      }
+
+      setDriveStatus("ready");
+      setDriveMessage(
+        "Driveワークスペース準備済みです。metadataとJSON本文の整合を確認しました。",
       );
     } catch (error) {
       if (requestId !== driveCheckRequestIdRef.current) {

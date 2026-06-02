@@ -54,8 +54,9 @@ export function DriveSettingsPanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          このスライスでは、root候補1件が見つかった場合に、root直下の必須構成metadataまで確認します。
-          workspace.json / index.json の本文検証、Driveワークスペース作成、ファイル保存はまだ行いません。
+          このスライスでは、root候補1件が見つかった場合に、root直下の必須構成metadataと
+          workspace.json / index.json の本文まで確認します。
+          Driveワークスペース作成、ファイル保存、自動修復はまだ行いません。
         </CardDescription>
       </CardHeader>
 
@@ -163,7 +164,7 @@ export function DriveSettingsPanel() {
 
         {driveDiagnostics.length > 0 ? (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <p className="font-semibold text-slate-50">metadata診断</p>
+            <p className="font-semibold text-slate-50">診断</p>
             <div className="mt-3 space-y-2 text-sm text-slate-300">
               {driveDiagnostics.map((diagnostic) => (
                 <p key={diagnostic}>・{diagnostic}</p>
@@ -175,7 +176,7 @@ export function DriveSettingsPanel() {
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
           <p className="font-semibold">このスライスでまだ出さない操作</p>
           <p className="mt-2">
-            workspace.json / index.json の本文検証、Driveワークスペース作成、Driveファイル削除・修復は、次以降のスライスで追加します。
+            Driveワークスペース作成、Driveファイル削除、自動修復、JSON自動補完、Driveへの書き込みは、次以降のスライスで追加します。
           </p>
         </div>
       </CardContent>
