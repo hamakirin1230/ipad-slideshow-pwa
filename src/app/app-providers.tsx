@@ -18,7 +18,10 @@ import {
 } from "@/lib/google-auth";
 import {
   DriveApiError,
+  findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
+  validateWorkspaceMetadata,
+  type DriveWorkspaceChildRole,
   type DriveWorkspaceRootCandidate,
 } from "@/lib/google-drive";
 
@@ -29,6 +32,7 @@ export type DriveWorkspaceStatus =
   | "checking"
   | "notCreated"
   | "foundCandidate"
+  | "metadataVerified"
   | "ready"
   | "multipleCandidates"
   | "invalidWorkspace"
@@ -43,6 +47,12 @@ export type DriveCandidateSummary = {
   workspaceIdPart: string;
 };
 
+const childRoles: DriveWorkspaceChildRole[] = [
+  "workspace",
+  "index",
+  "projectsRoot",
+];
+
 type AppContextValue = {
   googleStatus: GoogleConnectionStatus;
   googleStatusLabel: string;
@@ -53,6 +63,7 @@ type AppContextValue = {
   driveStatusLabel: string;
   driveMessage: string;
   driveCandidates: DriveCandidateSummary[];
+  driveDiagnostics: string[];
 
   connectGoogle: () => void;
   disconnectGoogle: () => void;
@@ -74,6 +85,7 @@ const driveStatusLabels: Record<DriveWorkspaceStatus, string> = {
   checking: "Drive確認中",
   notCreated: "Driveワークスペース未作成",
   foundCandidate: "Driveワークスペース候補を検出",
+  metadataVerified: "Driveワークスペースmetadata確認済み",
   ready: "Driveワークスペース準備済み",
   multipleCandidates: "Driveワークスペース候補が複数あり要確認",
   invalidWorkspace: "Driveワークスペース構造に問題あり",
@@ -116,6 +128,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [driveCandidates, setDriveCandidates] = useState<
     DriveCandidateSummary[]
   >([]);
+  const [driveDiagnostics, setDriveDiagnostics] = useState<string[]>([]);
 
   function clearDriveCheckTimeout() {
     if (driveCheckTimeoutRef.current) {
@@ -140,6 +153,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveStatus("unchecked");
     setDriveMessage(initialDriveMessage);
     setDriveCandidates([]);
+    setDriveDiagnostics([]);
   }
 
   function handleScriptReady() {
@@ -289,6 +303,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "Google接続が必要です。もう一度Google接続を行ってからDrive状態を確認してください。",
       );
       setDriveCandidates([]);
+      setDriveDiagnostics([]);
       return;
     }
 
@@ -307,6 +322,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveStatus("checking");
     setDriveMessage("Driveワークスペース候補を検索しています。");
     setDriveCandidates([]);
+    setDriveDiagnostics([]);
 
     try {
       const candidates = await findWorkspaceRootCandidates(
@@ -326,6 +342,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setDriveMessage(
           "Driveワークスペース候補は見つかりませんでした。このスライスでは作成はまだ行いません。",
         );
+        setDriveDiagnostics([]);
         return;
       }
 
@@ -334,12 +351,45 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setDriveMessage(
           "Driveワークスペース候補が2件以上あります。このスライスでは自動選択・削除・修復は行いません。",
         );
+        setDriveDiagnostics([
+          "Driveワークスペースroot候補が2件以上見つかりました。",
+        ]);
         return;
       }
 
       setDriveStatus("foundCandidate");
       setDriveMessage(
-        "Driveワークスペース候補を1件見つけました。このスライスでは workspace.json / index.json / projects/ の詳細検証はまだ行っていません。",
+        "Driveワークスペース候補を1件見つけました。root直下の必須構成metadataを確認しています。",
+      );
+
+      const childCandidates = await findWorkspaceChildCandidates(
+        accessToken,
+        candidates[0].id,
+        controller.signal,
+      );
+
+      if (requestId !== driveCheckRequestIdRef.current) {
+        return;
+      }
+
+      const metadataResult = validateWorkspaceMetadata(
+        candidates[0],
+        childCandidates,
+      );
+
+      setDriveDiagnostics(metadataResult.diagnostics);
+
+      if (metadataResult.status === "invalidWorkspace") {
+        setDriveStatus("invalidWorkspace");
+        setDriveMessage(
+          "Driveワークスペース候補のmetadataに問題があります。このスライスでは自動修復は行いません。",
+        );
+        return;
+      }
+
+      setDriveStatus("metadataVerified");
+      setDriveMessage(
+        "Driveワークスペース候補の構成ファイルを確認しました。このスライスでは workspace.json / index.json の本文検証はまだ行っていません。",
       );
     } catch (error) {
       if (requestId !== driveCheckRequestIdRef.current) {
@@ -347,6 +397,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       setDriveCandidates([]);
+      setDriveDiagnostics([]);
 
       if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
         accessTokenRef.current = null;
@@ -384,6 +435,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     driveStatusLabel: driveStatusLabels[driveStatus],
     driveMessage,
     driveCandidates,
+    driveDiagnostics,
     connectGoogle,
     disconnectGoogle,
     checkDriveWorkspace,
@@ -438,4 +490,27 @@ function formatWorkspaceIdPart(workspaceId: string | undefined) {
   }
 
   return `${workspaceId.slice(0, 8)}...`;
+}
+
+async function findWorkspaceChildCandidates(
+  accessToken: string,
+  rootFolderId: string,
+  signal: AbortSignal,
+) {
+  const [workspace, index, projectsRoot] = await Promise.all(
+    childRoles.map((role) =>
+      findWorkspaceChildCandidatesByRole(
+        accessToken,
+        rootFolderId,
+        role,
+        signal,
+      ),
+    ),
+  );
+
+  return {
+    workspace,
+    index,
+    projectsRoot,
+  };
 }
