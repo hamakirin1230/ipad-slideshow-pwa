@@ -154,12 +154,11 @@ export function ProjectStatusPanel() {
 
           <Button
             type="button"
+            variant={projectStatus === "notCreated" ? "default" : "secondary"}
             onClick={createProject}
             disabled={!canCreateProject}
           >
-            {projectStatus === "creating"
-              ? "プロジェクト作成中"
-              : "プロジェクトを作成"}
+            {getCreateProjectButtonLabel(projectStatus)}
           </Button>
         </div>
 
@@ -173,4 +172,16 @@ export function ProjectStatusPanel() {
       </CardContent>
     </Card>
   );
+}
+
+function getCreateProjectButtonLabel(projectStatus: string) {
+  if (projectStatus === "creating") {
+    return "プロジェクト作成中";
+  }
+
+  if (projectStatus === "ready") {
+    return "プロジェクト作成済み";
+  }
+
+  return "プロジェクトを作成";
 }
