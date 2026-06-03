@@ -67,8 +67,8 @@ export function ProjectStatusPanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          第4-2 第4コミットでは、Drive上の index.json.projects を読み取り、
-          未作成の場合は最初のプロジェクト1件を作成します。
+          第4-2 第5コミットでは、Drive上の index.json.projects と
+          project folder / manifest.json / assets/ の整合を確認します。
         </CardDescription>
       </CardHeader>
 
@@ -163,7 +163,7 @@ export function ProjectStatusPanel() {
         </div>
 
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-          <p className="font-semibold">第4-2 第4コミットでまだ扱わないこと</p>
+          <p className="font-semibold">第4-2 第5コミットでまだ扱わないこと</p>
           <p className="mt-2">
             manifest.json 本文の完全検証、project folder / assets/ の
             appProperties 検証、素材保存、オフライン再生はまだ行いません。

@@ -58,6 +58,7 @@ export type DriveFileCandidate = {
   modifiedTime?: string;
   appProperties: Record<string, string>;
   sizeBytes?: number;
+  parents?: string[];
 };
 
 export type DriveWorkspaceCandidate = DriveFileCandidate;
@@ -179,6 +180,16 @@ export type DriveMetadataValidationResult =
     }
   | {
       status: "invalidWorkspace";
+      diagnostics: string[];
+    };
+
+export type DriveProjectDetailsValidationResult =
+  | {
+      status: "ready";
+      diagnostics: string[];
+    }
+  | {
+      status: "invalid";
       diagnostics: string[];
     };
 
@@ -339,6 +350,40 @@ export async function readDriveTextFile(
 
   return response.text();
 }
+
+async function fetchDriveFileMetadata(
+  accessToken: string,
+  fileId: string,
+  signal: AbortSignal,
+): Promise<DriveFileCandidate> {
+  const params = new URLSearchParams({
+    fields: "id,name,mimeType,createdTime,modifiedTime,appProperties,size,parents",
+  });
+
+  const response = await fetch(
+    `${DRIVE_API_FILES_URL}/${encodeURIComponent(fileId)}?${params.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      signal,
+    },
+  );
+
+  if (!response.ok) {
+    throw new DriveApiError(response.status);
+  }
+
+  const file = normalizeDriveFile((await response.json()) as unknown);
+
+  if (!file) {
+    throw new Error("Drive file metadata response did not include required fields.");
+  }
+
+  return file;
+}
+
 
 export async function createDriveWorkspace(
   input: DriveWorkspaceCreateInput,
@@ -759,6 +804,103 @@ export function validateIndexJsonProjects(
   };
 }
 
+export async function validateDriveProjectDetails(input: {
+  accessToken: string;
+  expectedWorkspaceId: string;
+  expectedProjectsRootFolderId: string;
+  project: DriveProjectSummary;
+  signal: AbortSignal;
+}): Promise<DriveProjectDetailsValidationResult> {
+  const [projectRoot, manifest, assetsRoot, manifestJsonText] =
+    await Promise.all([
+      fetchDriveFileMetadata(
+        input.accessToken,
+        input.project.projectFolderId,
+        input.signal,
+      ),
+      fetchDriveFileMetadata(
+        input.accessToken,
+        input.project.manifestFileId,
+        input.signal,
+      ),
+      fetchDriveFileMetadata(
+        input.accessToken,
+        input.project.assetsFolderId,
+        input.signal,
+      ),
+      readDriveTextFile(
+        input.accessToken,
+        input.project.manifestFileId,
+        input.signal,
+      ),
+    ]);
+
+  const diagnostics: string[] = [];
+
+  validateProjectDriveFileMetadata({
+    item: projectRoot,
+    label: "project folder",
+    expectedId: input.project.projectFolderId,
+    expectedName: input.project.projectId,
+    expectedMimeType: DRIVE_FOLDER_MIME_TYPE,
+    expectedRole: "projectRoot",
+    expectedWorkspaceId: input.expectedWorkspaceId,
+    expectedProjectId: input.project.projectId,
+    expectedParentId: input.expectedProjectsRootFolderId,
+    diagnostics,
+  });
+
+  validateProjectDriveFileMetadata({
+    item: manifest,
+    label: "manifest.json",
+    expectedId: input.project.manifestFileId,
+    expectedName: PROJECT_MANIFEST_NAME,
+    expectedMimeType: JSON_MIME_TYPE,
+    expectedRole: "projectManifest",
+    expectedWorkspaceId: input.expectedWorkspaceId,
+    expectedProjectId: input.project.projectId,
+    expectedParentId: input.project.projectFolderId,
+    diagnostics,
+  });
+
+  validateProjectDriveFileMetadata({
+    item: assetsRoot,
+    label: "assets/ folder",
+    expectedId: input.project.assetsFolderId,
+    expectedName: PROJECT_ASSETS_ROOT_NAME,
+    expectedMimeType: DRIVE_FOLDER_MIME_TYPE,
+    expectedRole: "assetsRoot",
+    expectedWorkspaceId: input.expectedWorkspaceId,
+    expectedProjectId: input.project.projectId,
+    expectedParentId: input.project.projectFolderId,
+    diagnostics,
+  });
+
+  validateProjectManifestJsonBody({
+    manifestJsonText,
+    expectedWorkspaceId: input.expectedWorkspaceId,
+    project: input.project,
+    diagnostics,
+  });
+
+  if (diagnostics.length > 0) {
+    return {
+      status: "invalid",
+      diagnostics,
+    };
+  }
+
+  return {
+    status: "ready",
+    diagnostics: [
+      "project folder / manifest.json / assets/ のmetadata確認が完了しました。",
+      "manifest.json のJSON本文を確認しました。",
+      "index.json.projects[0] とDrive上のproject詳細の整合確認が完了しました。",
+    ],
+  };
+}
+
+
 export async function createDriveProject(
   input: DriveProjectCreateInput,
 ): Promise<DriveProjectCreateResult> {
@@ -996,6 +1138,39 @@ export async function createDriveProject(
     });
   }
 
+  const detailResult = await runProjectCreateStep({
+    projectId,
+    possibleChangedItems: changedItems,
+    operation: () =>
+      input.runStep((signal) =>
+        validateDriveProjectDetails({
+          accessToken: input.accessToken,
+          expectedWorkspaceId: readyContext.workspaceId,
+          expectedProjectsRootFolderId: readyContext.projectsRootFolderId,
+          project: registrationResult.project,
+          signal,
+        }),
+      ),
+    buildFailureDiagnostics: (error) =>
+      buildProjectCreateStepFailureDiagnostics({
+        stepLabel: "作成したproject詳細の検証",
+        error,
+      }),
+  });
+
+  if (detailResult.status === "invalid") {
+    throw new DriveProjectCreateError({
+      status: "invalidWorkspace",
+      projectId,
+      possibleChangedItems: changedItems,
+      diagnostics: [
+        ...detailResult.diagnostics,
+        "作成後のproject詳細検証で問題を検出しました。",
+        "自動削除・自動修復は行いません。",
+      ],
+    });
+  }
+
   return {
     project: registrationResult.project,
     indexJsonText: updatedIndexJsonText,
@@ -1005,6 +1180,7 @@ export async function createDriveProject(
       ...preUpdateIndexResult.diagnostics,
       "index.json を更新しました。",
       ...registrationResult.diagnostics,
+      ...detailResult.diagnostics,
     ],
   };
 }
@@ -1478,6 +1654,266 @@ function validateExpectedProjectValue(input: {
   }
 }
 
+function validateProjectDriveFileMetadata(input: {
+  item: DriveFileCandidate;
+  label: string;
+  expectedId: string;
+  expectedName: string;
+  expectedMimeType: string;
+  expectedRole: Exclude<DriveProjectChangedItemRole, "index">;
+  expectedWorkspaceId: string;
+  expectedProjectId: string;
+  expectedParentId: string;
+  diagnostics: string[];
+}) {
+  if (input.item.id !== input.expectedId) {
+    input.diagnostics.push(`${input.label} のDrive fileIdが想定と一致していません。`);
+  }
+
+  if (input.item.name !== input.expectedName) {
+    input.diagnostics.push(`${input.label} の名前が想定と一致していません。`);
+  }
+
+  if (input.item.mimeType !== input.expectedMimeType) {
+    input.diagnostics.push(`${input.label} のMIME typeが想定と一致していません。`);
+  }
+
+  validateProjectParentId({
+    item: input.item,
+    label: input.label,
+    expectedParentId: input.expectedParentId,
+    diagnostics: input.diagnostics,
+  });
+
+  const { appProperties } = input.item;
+
+  if (appProperties.app !== DRIVE_WORKSPACE_APP_ID) {
+    input.diagnostics.push(`${input.label} のappProperties.appが不正です。`);
+  }
+
+  if (appProperties.role !== input.expectedRole) {
+    input.diagnostics.push(`${input.label} のappProperties.roleが不正です。`);
+  }
+
+  if (appProperties.schemaVersion !== DRIVE_WORKSPACE_SCHEMA_VERSION_PROPERTY) {
+    input.diagnostics.push(
+      `${input.label} のappProperties.schemaVersionが不正です。`,
+    );
+  }
+
+  validateProjectMetadataUuidValue({
+    label: input.label,
+    key: "workspaceId",
+    actual: appProperties.workspaceId,
+    expected: input.expectedWorkspaceId,
+    diagnostics: input.diagnostics,
+  });
+
+  validateProjectMetadataUuidValue({
+    label: input.label,
+    key: "projectId",
+    actual: appProperties.projectId,
+    expected: input.expectedProjectId,
+    diagnostics: input.diagnostics,
+  });
+
+  if (
+    input.expectedMimeType === JSON_MIME_TYPE &&
+    typeof input.item.sizeBytes === "number" &&
+    input.item.sizeBytes > JSON_FILE_SIZE_LIMIT_BYTES
+  ) {
+    input.diagnostics.push(
+      `${input.label} のsizeが上限 ${JSON_FILE_SIZE_LIMIT_BYTES} bytes を超えています。`,
+    );
+  }
+}
+
+function validateProjectParentId(input: {
+  item: DriveFileCandidate;
+  label: string;
+  expectedParentId: string;
+  diagnostics: string[];
+}) {
+  if (!input.item.parents) {
+    input.diagnostics.push(`${input.label} の親folderを取得できませんでした。`);
+    return;
+  }
+
+  if (!input.item.parents.includes(input.expectedParentId)) {
+    input.diagnostics.push(`${input.label} の親folderが想定と一致していません。`);
+  }
+}
+
+function validateProjectMetadataUuidValue(input: {
+  label: string;
+  key: "workspaceId" | "projectId";
+  actual: string | undefined;
+  expected: string;
+  diagnostics: string[];
+}) {
+  if (!isNonEmptyString(input.actual)) {
+    input.diagnostics.push(`${input.label} のappProperties.${input.key}が未設定です。`);
+    return;
+  }
+
+  if (!isUuidV4(input.actual)) {
+    input.diagnostics.push(
+      `${input.label} のappProperties.${input.key}がUUID形式ではありません。`,
+    );
+    return;
+  }
+
+  if (input.actual !== input.expected) {
+    input.diagnostics.push(
+      `${input.label} のappProperties.${input.key}が想定と一致していません。`,
+    );
+  }
+}
+
+function validateProjectManifestJsonBody(input: {
+  manifestJsonText: string;
+  expectedWorkspaceId: string;
+  project: DriveProjectSummary;
+  diagnostics: string[];
+}) {
+  if (getUtf8ByteLength(input.manifestJsonText) > JSON_FILE_SIZE_LIMIT_BYTES) {
+    input.diagnostics.push(
+      `manifest.json の本文が上限 ${JSON_FILE_SIZE_LIMIT_BYTES} bytes を超えています。`,
+    );
+    return;
+  }
+
+  const parsed = parseJsonObject(input.manifestJsonText, "manifest.json");
+
+  if (parsed.status === "invalid") {
+    input.diagnostics.push(...parsed.diagnostics);
+    return;
+  }
+
+  validateRequiredLiteral({
+    body: parsed.value,
+    fileLabel: "manifest.json",
+    key: "app",
+    expectedValue: DRIVE_WORKSPACE_APP_ID,
+    diagnostics: input.diagnostics,
+  });
+
+  validateRequiredLiteral({
+    body: parsed.value,
+    fileLabel: "manifest.json",
+    key: "role",
+    expectedValue: "projectManifest",
+    diagnostics: input.diagnostics,
+  });
+
+  const schemaInvalidDiagnostics: string[] = [];
+  const schemaUnsupportedDiagnostics: string[] = [];
+
+  validateSchemaVersion({
+    body: parsed.value,
+    fileLabel: "manifest.json",
+    invalidDiagnostics: schemaInvalidDiagnostics,
+    unsupportedVersionDiagnostics: schemaUnsupportedDiagnostics,
+  });
+
+  input.diagnostics.push(
+    ...schemaInvalidDiagnostics,
+    ...schemaUnsupportedDiagnostics,
+  );
+
+  const workspaceId = readRequiredUuidString({
+    body: parsed.value,
+    fileLabel: "manifest.json",
+    key: "workspaceId",
+    diagnostics: input.diagnostics,
+  });
+  const projectId = readRequiredUuidString({
+    body: parsed.value,
+    fileLabel: "manifest.json",
+    key: "projectId",
+    diagnostics: input.diagnostics,
+  });
+  const title = readRequiredNonEmptyString({
+    body: parsed.value,
+    fileLabel: "manifest.json",
+    key: "title",
+    diagnostics: input.diagnostics,
+  });
+  const createdAt = readRequiredIsoDateString({
+    body: parsed.value,
+    fileLabel: "manifest.json",
+    key: "createdAt",
+    diagnostics: input.diagnostics,
+  });
+  const updatedAt = readRequiredIsoDateString({
+    body: parsed.value,
+    fileLabel: "manifest.json",
+    key: "updatedAt",
+    diagnostics: input.diagnostics,
+  });
+
+  validateProjectManifestSlidesArray(parsed.value, input.diagnostics);
+
+  validateExpectedProjectManifestValue({
+    diagnostics: input.diagnostics,
+    label: "workspaceId",
+    actual: workspaceId,
+    expected: input.expectedWorkspaceId,
+  });
+  validateExpectedProjectManifestValue({
+    diagnostics: input.diagnostics,
+    label: "projectId",
+    actual: projectId,
+    expected: input.project.projectId,
+  });
+  validateExpectedProjectManifestValue({
+    diagnostics: input.diagnostics,
+    label: "title",
+    actual: title,
+    expected: input.project.title,
+  });
+  validateExpectedProjectManifestValue({
+    diagnostics: input.diagnostics,
+    label: "createdAt",
+    actual: createdAt,
+    expected: input.project.createdAt,
+  });
+  validateExpectedProjectManifestValue({
+    diagnostics: input.diagnostics,
+    label: "updatedAt",
+    actual: updatedAt,
+    expected: input.project.updatedAt,
+  });
+}
+
+function validateProjectManifestSlidesArray(
+  body: Record<string, unknown>,
+  diagnostics: string[],
+) {
+  if (!hasOwnKey(body, "slides")) {
+    diagnostics.push("manifest.json の slides がありません。");
+    return;
+  }
+
+  if (!Array.isArray(body.slides)) {
+    diagnostics.push("manifest.json の slides は配列である必要があります。");
+  }
+}
+
+function validateExpectedProjectManifestValue(input: {
+  diagnostics: string[];
+  label: string;
+  actual: string | undefined;
+  expected: string;
+}) {
+  if (input.actual && input.actual !== input.expected) {
+    input.diagnostics.push(
+      `manifest.json の ${input.label} が index.json.projects[0] と一致していません。`,
+    );
+  }
+}
+
+
 function buildProjectAppProperties(input: {
   role: Exclude<DriveProjectChangedItemRole, "index">;
   workspaceId: string;
@@ -1774,6 +2210,9 @@ function normalizeDriveFile(value: unknown): DriveWorkspaceCandidate | null {
       typeof value.modifiedTime === "string" ? value.modifiedTime : undefined,
     appProperties: toStringRecord(value.appProperties),
     sizeBytes: parseDriveSize(value.size),
+    parents: Array.isArray(value.parents)
+      ? value.parents.filter((parent): parent is string => typeof parent === "string")
+      : undefined,
   };
 }
 

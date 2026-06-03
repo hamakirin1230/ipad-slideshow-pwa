@@ -26,6 +26,7 @@ import {
   findWorkspaceRootCandidates,
   readDriveTextFile,
   validateIndexJsonProjects,
+  validateDriveProjectDetails,
   validateWorkspaceJsonBodies,
   validateWorkspaceMetadata,
   type DriveCreatedWorkspaceItemRole,
@@ -110,6 +111,7 @@ const projectCreateStepMessages = [
   "index.json の更新内容を作成しています。",
   "index.json を更新しています。",
   "更新後の index.json を再確認しています。",
+  "作成したproject詳細を検証しています。",
 ];
 
 const createdRoleLabels: Record<DriveCreatedWorkspaceItemRole, string> = {
@@ -716,10 +718,39 @@ export function AppProviders({ children }: { children: ReactNode }) {
         return;
       }
 
+      const detailResult = await runDriveOperationStep(requestId, (signal) =>
+        validateDriveProjectDetails({
+          accessToken,
+          expectedWorkspaceId: readyContext.workspaceId,
+          expectedProjectsRootFolderId: readyContext.projectsRootFolderId,
+          project: result.project,
+          signal,
+        }),
+      );
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (detailResult.status === "invalid") {
+        setProjectStatus("invalid");
+        setProjectMessage(
+          "Drive上のプロジェクト詳細に問題があります。このスライスでは自動修復しません。",
+        );
+        setProjectSummary(null);
+        setProjectDiagnostics([
+          ...result.diagnostics,
+          ...detailResult.diagnostics,
+        ]);
+        return;
+      }
+
       setProjectStatus("ready");
-      setProjectMessage("index.json上のプロジェクト登録を確認しました。");
+      setProjectMessage(
+        "index.json上のプロジェクト登録とDrive上の詳細を確認しました。",
+      );
       setProjectSummary(toProjectSummary(result.project));
-      setProjectDiagnostics(result.diagnostics);
+      setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
     } catch (error) {
       if (requestId !== driveOperationRequestIdRef.current) {
         return;
@@ -734,7 +765,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "プロジェクト状態確認に失敗しました。通信状態を確認して再確認してください。",
       );
       setProjectSummary(null);
-      setProjectDiagnostics([]);
+      setProjectDiagnostics(
+        error instanceof DriveApiError
+          ? [
+              "Drive上のプロジェクト詳細確認に失敗しました。",
+              `Drive API status: ${error.status}`,
+            ]
+          : ["Drive上のプロジェクト詳細確認に失敗しました。"],
+      );
     } finally {
       if (requestId === driveOperationRequestIdRef.current) {
         clearDriveOperationTimeout();
