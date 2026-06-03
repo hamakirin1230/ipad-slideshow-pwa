@@ -25,7 +25,11 @@ export function DriveSettingsPanel() {
     connectGoogle,
     disconnectGoogle,
     checkDriveWorkspace,
+    createWorkspace,
   } = useAppState();
+
+  const isDriveChecking = driveStatus === "checking";
+  const isDriveCreating = driveStatus === "creating";
 
   const canConnect =
     googleStatus === "notConnected" ||
@@ -33,19 +37,24 @@ export function DriveSettingsPanel() {
     googleStatus === "scopeMissing";
 
   const canDisconnect =
-    googleStatus === "connected" ||
-    googleStatus === "connecting" ||
-    googleStatus === "error" ||
-    googleStatus === "scopeMissing";
+    !isDriveCreating &&
+    (googleStatus === "connected" ||
+      googleStatus === "connecting" ||
+      googleStatus === "error" ||
+      googleStatus === "scopeMissing");
 
-  const canCheckDrive =
-    googleStatus === "connected" && driveStatus !== "checking";
+  const canCheckDrive = googleStatus === "connected" && !isDriveChecking && !isDriveCreating;
+
+  const canCreateDriveWorkspace =
+    googleStatus === "connected" &&
+    driveFileGranted === true &&
+    driveStatus === "notCreated";
 
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
-          <CardTitle>第4-1 Google接続・Drive状態</CardTitle>
+          <CardTitle>第5 Driveワークスペース作成</CardTitle>
           <Badge variant={googleStatus === "connected" ? "secondary" : "outline"}>
             {googleStatusLabel}
           </Badge>
@@ -54,9 +63,9 @@ export function DriveSettingsPanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          このスライスでは、root候補1件が見つかった場合に、root直下の必須構成metadataと
-          workspace.json / index.json の本文まで確認します。
-          Driveワークスペース作成、ファイル保存、自動修復はまだ行いません。
+          Google Drive上に、このPWA用の最小ワークスペースを作成します。
+          作成後はDrive状態を再確認し、metadata と workspace.json / index.json
+          の本文検証まで通った場合だけ準備済みとして扱います。
         </CardDescription>
       </CardHeader>
 
@@ -89,6 +98,7 @@ export function DriveSettingsPanel() {
             <p className="font-semibold text-slate-50">安全方針</p>
             <p className="mt-2">
               access_token はProvider内部のuseRefだけに保持し、画面表示・console出力・永続保存は行いません。
+              Drive作成中は、作成・再確認・接続解除の操作を無効化します。
             </p>
           </div>
         </div>
@@ -109,10 +119,19 @@ export function DriveSettingsPanel() {
             onClick={checkDriveWorkspace}
             disabled={!canCheckDrive}
           >
-            {driveStatus === "checking"
-              ? "Drive状態を確認中"
-              : "Drive状態を確認"}
+            {isDriveChecking ? "Drive状態を再確認中" : "Drive状態を再確認"}
           </Button>
+
+          {canCreateDriveWorkspace ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={createWorkspace}
+              disabled={isDriveCreating}
+            >
+              Driveワークスペースを作成
+            </Button>
+          ) : null}
 
           <Button
             type="button"
@@ -126,8 +145,33 @@ export function DriveSettingsPanel() {
 
         {googleStatus !== "connected" ? (
           <p className="text-sm text-slate-400">
-            Drive状態確認は、Google接続後に実行できます。
+            Drive状態確認とDriveワークスペース作成は、Google接続後に実行できます。
           </p>
+        ) : null}
+
+        {driveStatus === "unchecked" && googleStatus === "connected" ? (
+          <p className="text-sm text-slate-400">
+            まず「Drive状態を再確認」を押して、既存ワークスペースの有無を確認してください。
+          </p>
+        ) : null}
+
+        {driveStatus === "notCreated" ? (
+          <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100">
+            <p className="font-semibold">Driveワークスペース未作成</p>
+            <p className="mt-2">
+              この状態でのみ、Driveワークスペース作成を実行できます。
+              作成ボタンを押すと、作成前にDrive状態を再確認し、未作成の場合だけ4点を作成します。
+            </p>
+          </div>
+        ) : null}
+
+        {driveStatus === "ready" ? (
+          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
+            <p className="font-semibold">Driveワークスペース準備済み</p>
+            <p className="mt-2">
+              Driveワークスペースを確認できました。本番再生データ未準備、オフライン再生未対応です。
+            </p>
+          </div>
         ) : null}
 
         {driveCandidates.length > 0 ? (
@@ -174,9 +218,10 @@ export function DriveSettingsPanel() {
         ) : null}
 
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-          <p className="font-semibold">このスライスでまだ出さない操作</p>
+          <p className="font-semibold">第5でまだ扱わないこと</p>
           <p className="mt-2">
-            Driveワークスペース作成、Driveファイル削除、自動修復、JSON自動補完、Driveへの書き込みは、次以降のスライスで追加します。
+            自動削除、自動修復、自動リトライ、プロジェクト作成、素材保存、
+            Google Photos Picker連携、IndexedDB同期、オフライン本番再生はまだ行いません。
           </p>
         </div>
       </CardContent>

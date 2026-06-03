@@ -18,11 +18,14 @@ import {
 } from "@/lib/google-auth";
 import {
   DriveApiError,
+  DriveWorkspaceCreateError,
+  createDriveWorkspace,
   findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
   readDriveTextFile,
   validateWorkspaceJsonBodies,
   validateWorkspaceMetadata,
+  type DriveCreatedWorkspaceItemRole,
   type DriveWorkspaceChildRole,
   type DriveWorkspaceRootCandidate,
 } from "@/lib/google-drive";
@@ -66,6 +69,20 @@ const childRoles: DriveWorkspaceChildRole[] = [
   "projectsRoot",
 ];
 
+const driveCreateStepMessages = [
+  "workspace root folder を作成しています。",
+  "workspace.json を作成しています。",
+  "index.json を作成しています。",
+  "projects/ folder を作成しています。",
+];
+
+const createdRoleLabels: Record<DriveCreatedWorkspaceItemRole, string> = {
+  workspaceRoot: "workspace root folder",
+  workspace: "workspace.json",
+  index: "index.json",
+  projectsRoot: "projects/ folder",
+};
+
 type AppContextValue = {
   googleStatus: GoogleConnectionStatus;
   googleStatusLabel: string;
@@ -81,6 +98,7 @@ type AppContextValue = {
   connectGoogle: () => void;
   disconnectGoogle: () => void;
   checkDriveWorkspace: () => void;
+  createWorkspace: () => void;
 };
 
 const googleStatusLabels: Record<GoogleConnectionStatus, string> = {
@@ -186,6 +204,28 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveMessage(result.message);
     setDriveCandidates(result.candidates);
     setDriveDiagnostics(result.diagnostics);
+  }
+
+  async function runDriveOperationStep<T>(
+    requestId: number,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    driveOperationAbortRef.current = controller;
+
+    clearDriveOperationTimeout();
+    driveOperationTimeoutRef.current = setTimeout(() => {
+      controller.abort();
+    }, DRIVE_OPERATION_TIMEOUT_MS);
+
+    try {
+      return await operation(controller.signal);
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+      }
+    }
   }
 
   function handleScriptReady() {
@@ -343,23 +383,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const requestId = driveOperationRequestIdRef.current + 1;
     driveOperationRequestIdRef.current = requestId;
 
-    const controller = new AbortController();
-    driveOperationAbortRef.current = controller;
-
-    clearDriveOperationTimeout();
-    driveOperationTimeoutRef.current = setTimeout(() => {
-      controller.abort();
-    }, DRIVE_OPERATION_TIMEOUT_MS);
-
     setDriveStatus("checking");
     setDriveMessage("Driveワークスペース候補を検索しています。");
     setDriveCandidates([]);
     setDriveDiagnostics([]);
 
     try {
-      const result = await runDriveWorkspaceCheck(
-        accessToken,
-        controller.signal,
+      const result = await runDriveOperationStep(requestId, (signal) =>
+        runDriveWorkspaceCheck(accessToken, signal),
       );
 
       if (requestId !== driveOperationRequestIdRef.current) {
@@ -367,6 +398,136 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       applyDriveCheckResult(result);
+    } catch {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setDriveStatus("operationFailed");
+      setDriveMessage(
+        "Drive状態確認に失敗しました。通信状態を確認して、もう一度Drive状態を確認してください。",
+      );
+      setDriveCandidates([]);
+      setDriveDiagnostics([]);
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        driveOperationInFlightRef.current = false;
+      }
+    }
+  }
+
+  async function createWorkspace() {
+    if (driveOperationInFlightRef.current) {
+      return;
+    }
+
+    const accessToken = accessTokenRef.current;
+
+    if (!accessToken) {
+      setDriveStatus("authRequired");
+      setDriveMessage(
+        "Google接続が必要です。もう一度Google接続を行ってからDriveワークスペースを作成してください。",
+      );
+      setDriveCandidates([]);
+      setDriveDiagnostics([]);
+      return;
+    }
+
+    driveOperationInFlightRef.current = true;
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+
+    setDriveStatus("creating");
+    setDriveMessage("作成前にDrive状態を再確認しています。");
+    setDriveCandidates([]);
+    setDriveDiagnostics([]);
+
+    try {
+      const beforeCheck = await runDriveOperationStep(requestId, (signal) =>
+        runDriveWorkspaceCheck(accessToken, signal),
+      );
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (beforeCheck.status !== "notCreated") {
+        applyDriveCheckResult(beforeCheck);
+        return;
+      }
+
+      let createStepIndex = 0;
+
+      await createDriveWorkspace({
+        accessToken,
+        runStep: (operation) => {
+          setDriveStatus("creating");
+          setDriveMessage(
+            driveCreateStepMessages[createStepIndex] ??
+              "Driveワークスペースを作成しています。",
+          );
+          createStepIndex += 1;
+
+          return runDriveOperationStep(requestId, operation);
+        },
+      });
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setDriveStatus("creating");
+      setDriveMessage("作成後にDrive状態を再確認しています。");
+
+      const afterCheck = await runDriveOperationStep(requestId, (signal) =>
+        runDriveWorkspaceCheck(accessToken, signal),
+      );
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (afterCheck.status === "ready") {
+        applyDriveCheckResult({
+          ...afterCheck,
+          message: "Driveワークスペースを確認できました。",
+        });
+        return;
+      }
+
+      applyDriveCheckResult({
+        ...afterCheck,
+        diagnostics: buildPostCreateNotReadyDiagnostics(afterCheck),
+      });
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setDriveCandidates([]);
+
+      if (error instanceof DriveWorkspaceCreateError) {
+        if (error.status === "authRequired") {
+          resetGoogleAfterDriveAuthFailure();
+        }
+
+        setDriveStatus(error.status);
+        setDriveMessage(
+          error.status === "authRequired"
+            ? "Driveワークスペース作成中にGoogle再接続が必要になりました。"
+            : "Driveワークスペース作成に失敗しました。",
+        );
+        setDriveDiagnostics(
+          buildWorkspaceCreateFailureDiagnostics(error.possibleCreatedRoles),
+        );
+        return;
+      }
+
+      setDriveStatus("operationFailed");
+      setDriveMessage("Driveワークスペース作成に失敗しました。");
+      setDriveDiagnostics(buildWorkspaceCreateFailureDiagnostics([]));
     } finally {
       if (requestId === driveOperationRequestIdRef.current) {
         clearDriveOperationTimeout();
@@ -389,6 +550,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     connectGoogle,
     disconnectGoogle,
     checkDriveWorkspace,
+    createWorkspace,
   };
 
   return (
@@ -435,7 +597,7 @@ async function runDriveWorkspaceCheck(
       return {
         status: "notCreated",
         message:
-          "Driveワークスペース候補は見つかりませんでした。このスライスでは作成はまだ行いません。",
+          "Driveワークスペース候補は見つかりませんでした。必要に応じてDriveワークスペースを作成できます。",
         candidates: [],
         diagnostics: [],
       };
@@ -559,6 +721,44 @@ function formatWorkspaceIdPart(workspaceId: string | undefined) {
   }
 
   return `${workspaceId.slice(0, 8)}...`;
+}
+
+function buildWorkspaceCreateFailureDiagnostics(
+  possibleCreatedRoles: DriveCreatedWorkspaceItemRole[],
+) {
+  const diagnostics = [
+    "Driveワークスペース作成に失敗しました。",
+  ];
+
+  if (possibleCreatedRoles.length > 0) {
+    diagnostics.push(
+      "この作成処理中に、一部のDrive項目が作成された可能性があります。",
+      ...possibleCreatedRoles.map(
+        (role) => `作成済みの可能性: ${createdRoleLabels[role]}`,
+      ),
+      "対応: Google Driveで「iPad Slideshow PWA Workspace」を確認してください。",
+      "不要な場合は、そのフォルダごと手動で削除してください。",
+      "削除後、この画面で「Drive状態を再確認」を押してください。",
+    );
+    return diagnostics;
+  }
+
+  diagnostics.push(
+    "Drive上に項目が作成された可能性は高くありません。",
+    "通信状態を確認してから、この画面で「Drive状態を再確認」を押してください。",
+  );
+
+  return diagnostics;
+}
+
+function buildPostCreateNotReadyDiagnostics(result: DriveWorkspaceCheckResult) {
+  return [
+    "Driveワークスペース作成APIは完了しましたが、作成後確認で ready になりませんでした。",
+    ...result.diagnostics,
+    "Google Driveで「iPad Slideshow PWA Workspace」を確認してください。",
+    "不要な場合は、そのフォルダごと手動で削除してください。",
+    "削除後、この画面で「Drive状態を再確認」を押してください。",
+  ];
 }
 
 async function findWorkspaceChildCandidates(

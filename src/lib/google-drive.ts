@@ -68,6 +68,11 @@ export type DriveWorkspaceCreateResult = {
   workspaceId: string;
 };
 
+export type DriveWorkspaceCreateInput = {
+  accessToken: string;
+  runStep: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+};
+
 export type DriveMetadataValidationResult =
   | {
       status: "metadataVerified";
@@ -216,8 +221,7 @@ export async function readDriveTextFile(
 }
 
 export async function createDriveWorkspace(
-  accessToken: string,
-  signal: AbortSignal,
+  input: DriveWorkspaceCreateInput,
 ): Promise<DriveWorkspaceCreateResult> {
   const workspaceId = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -226,45 +230,54 @@ export async function createDriveWorkspace(
   const workspaceRoot = await runWorkspaceCreateStep({
     role: "workspaceRoot",
     possibleCreatedRoles,
-    create: () => createWorkspaceRootFolder(accessToken, workspaceId, signal),
+    create: () =>
+      input.runStep((signal) =>
+        createWorkspaceRootFolder(input.accessToken, workspaceId, signal),
+      ),
   });
 
   await runWorkspaceCreateStep({
     role: "workspace",
     possibleCreatedRoles,
     create: () =>
-      createWorkspaceJsonFile({
-        accessToken,
-        workspaceRootFolderId: workspaceRoot.id,
-        workspaceId,
-        now,
-        signal,
-      }),
+      input.runStep((signal) =>
+        createWorkspaceJsonFile({
+          accessToken: input.accessToken,
+          workspaceRootFolderId: workspaceRoot.id,
+          workspaceId,
+          now,
+          signal,
+        }),
+      ),
   });
 
   await runWorkspaceCreateStep({
     role: "index",
     possibleCreatedRoles,
     create: () =>
-      createIndexJsonFile({
-        accessToken,
-        workspaceRootFolderId: workspaceRoot.id,
-        workspaceId,
-        now,
-        signal,
-      }),
+      input.runStep((signal) =>
+        createIndexJsonFile({
+          accessToken: input.accessToken,
+          workspaceRootFolderId: workspaceRoot.id,
+          workspaceId,
+          now,
+          signal,
+        }),
+      ),
   });
 
   await runWorkspaceCreateStep({
     role: "projectsRoot",
     possibleCreatedRoles,
     create: () =>
-      createProjectsFolder({
-        accessToken,
-        workspaceRootFolderId: workspaceRoot.id,
-        workspaceId,
-        signal,
-      }),
+      input.runStep((signal) =>
+        createProjectsFolder({
+          accessToken: input.accessToken,
+          workspaceRootFolderId: workspaceRoot.id,
+          workspaceId,
+          signal,
+        }),
+      ),
   });
 
   return {
