@@ -14,6 +14,7 @@ import { useAppState } from "@/app/app-providers";
 
 export function ProjectStatusPanel() {
   const {
+    googleStatus,
     driveStatus,
     projectStatus,
     projectStatusLabel,
@@ -21,12 +22,22 @@ export function ProjectStatusPanel() {
     projectSummary,
     projectDiagnostics,
     isDriveOperationInFlight,
+    checkDriveWorkspace,
     checkProject,
+    createProject,
   } = useAppState();
+
+  const canCheckDriveWorkspace =
+    googleStatus === "connected" && !isDriveOperationInFlight;
 
   const canCheckProject =
     driveStatus === "ready" &&
     projectStatus !== "checking" &&
+    !isDriveOperationInFlight;
+
+  const canCreateProject =
+    driveStatus === "ready" &&
+    projectStatus === "notCreated" &&
     !isDriveOperationInFlight;
 
   useEffect(() => {
@@ -56,8 +67,8 @@ export function ProjectStatusPanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          第4-2 第2コミットでは、Drive上の index.json.projects を読み取り、
-          プロジェクト登録の有無を確認します。プロジェクト作成はまだ行いません。
+          第4-2 第4コミットでは、Drive上の index.json.projects を読み取り、
+          未作成の場合は最初のプロジェクト1件を作成します。
         </CardDescription>
       </CardHeader>
 
@@ -122,6 +133,17 @@ export function ProjectStatusPanel() {
           <Button
             type="button"
             variant="secondary"
+            onClick={checkDriveWorkspace}
+            disabled={!canCheckDriveWorkspace}
+          >
+            {driveStatus === "checking"
+              ? "Drive状態を確認中"
+              : "Drive状態を再確認"}
+          </Button>
+
+          <Button
+            type="button"
+            variant="secondary"
             onClick={checkProject}
             disabled={!canCheckProject}
           >
@@ -129,13 +151,23 @@ export function ProjectStatusPanel() {
               ? "プロジェクト状態を確認中"
               : "プロジェクト状態を再確認"}
           </Button>
+
+          <Button
+            type="button"
+            onClick={createProject}
+            disabled={!canCreateProject}
+          >
+            {projectStatus === "creating"
+              ? "プロジェクト作成中"
+              : "プロジェクトを作成"}
+          </Button>
         </div>
 
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-          <p className="font-semibold">第4-2 第2コミットでまだ扱わないこと</p>
+          <p className="font-semibold">第4-2 第4コミットでまだ扱わないこと</p>
           <p className="mt-2">
-            プロジェクト作成、manifest.json 本文の完全検証、project folder /
-            assets/ の appProperties 検証、素材保存、オフライン再生はまだ行いません。
+            manifest.json 本文の完全検証、project folder / assets/ の
+            appProperties 検証、素材保存、オフライン再生はまだ行いません。
           </p>
         </div>
       </CardContent>

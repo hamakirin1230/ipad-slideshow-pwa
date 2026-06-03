@@ -18,7 +18,9 @@ import {
 } from "@/lib/google-auth";
 import {
   DriveApiError,
+  DriveProjectCreateError,
   DriveWorkspaceCreateError,
+  createDriveProject,
   createDriveWorkspace,
   findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
@@ -27,6 +29,8 @@ import {
   validateWorkspaceJsonBodies,
   validateWorkspaceMetadata,
   type DriveCreatedWorkspaceItemRole,
+  type DriveProjectChangedItem,
+  type DriveProjectChangedItemRole,
   type DriveProjectSummary,
   type DriveWorkspaceChildRole,
   type DriveWorkspaceReadyContext,
@@ -97,12 +101,31 @@ const driveCreateStepMessages = [
   "projects/ folder を作成しています。",
 ];
 
+const projectCreateStepMessages = [
+  "作成前に index.json を再確認しています。",
+  "project folder を作成しています。",
+  "manifest.json を作成しています。",
+  "assets/ folder を作成しています。",
+  "index.json 更新直前に競合を確認しています。",
+  "index.json の更新内容を作成しています。",
+  "index.json を更新しています。",
+  "更新後の index.json を再確認しています。",
+];
+
 const createdRoleLabels: Record<DriveCreatedWorkspaceItemRole, string> = {
   workspaceRoot: "workspace root folder",
   workspace: "workspace.json",
   index: "index.json",
   projectsRoot: "projects/ folder",
 };
+
+const projectChangedItemRoleLabels: Record<DriveProjectChangedItemRole, string> =
+  {
+    projectRoot: "project folder",
+    projectManifest: "manifest.json",
+    assetsRoot: "assets/ folder",
+    index: "index.json",
+  };
 
 type AppContextValue = {
   googleStatus: GoogleConnectionStatus;
@@ -128,6 +151,7 @@ type AppContextValue = {
   checkDriveWorkspace: () => void;
   createWorkspace: () => void;
   checkProject: () => void;
+  createProject: () => void;
 };
 
 const googleStatusLabels: Record<GoogleConnectionStatus, string> = {
@@ -160,7 +184,7 @@ const projectStatusLabels: Record<ProjectStatus, string> = {
   ready: "プロジェクト登録確認済み",
   creating: "プロジェクト作成中",
   invalid: "プロジェクト情報に問題あり",
-  error: "プロジェクト確認失敗",
+  error: "プロジェクト操作失敗",
 };
 
 const initialDriveMessage =
@@ -272,6 +296,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (result.status === "ready" && result.readyContext) {
       setWorkspaceReadyContext(result.readyContext);
+      resetProjectState();
     } else {
       setWorkspaceReadyContext(null);
       resetProjectState();
@@ -719,6 +744,155 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  async function createProject() {
+    if (driveOperationInFlightRef.current) {
+      return;
+    }
+
+    const accessToken = accessTokenRef.current;
+
+    if (!accessToken) {
+      setDriveStatus("authRequired");
+      setDriveMessage(
+        "Google接続が必要です。もう一度Google接続を行ってからプロジェクトを作成してください。",
+      );
+      setDriveCandidates([]);
+      setDriveDiagnostics([]);
+      setWorkspaceReadyContext(null);
+      setProjectStatus("error");
+      setProjectMessage(
+        "Google接続が必要です。もう一度Google接続を行ってからプロジェクトを作成してください。",
+      );
+      setProjectSummary(null);
+      setProjectDiagnostics([]);
+      return;
+    }
+
+    if (driveStatus !== "ready" || !workspaceReadyContext) {
+      setProjectStatus("idle");
+      setProjectMessage(initialProjectMessage);
+      setProjectSummary(null);
+      setProjectDiagnostics([
+        "Driveワークスペースの確認済み情報を取得できませんでした。",
+        "先にDrive状態を再確認し、ready になっていることを確認してください。",
+      ]);
+      return;
+    }
+
+    if (projectStatus !== "notCreated") {
+      setProjectDiagnostics([
+        "プロジェクト未作成を確認できていないため、作成を開始しませんでした。",
+        "先にプロジェクト状態を再確認してください。",
+      ]);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+    const readyContext = workspaceReadyContext;
+    let createStepIndex = 0;
+
+    setProjectStatus("creating");
+    setProjectMessage(projectCreateStepMessages[0]);
+    setProjectSummary(null);
+    setProjectDiagnostics([]);
+
+    try {
+      const result = await createDriveProject({
+        accessToken,
+        readyContext,
+        runStep: (operation) => {
+          setProjectStatus("creating");
+          setProjectMessage(
+            projectCreateStepMessages[createStepIndex] ??
+              "プロジェクトを作成しています。",
+          );
+          createStepIndex += 1;
+
+          return runDriveOperationStep(requestId, operation);
+        },
+      });
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setWorkspaceReadyContext({
+        ...readyContext,
+        indexJsonText: result.indexJsonText,
+      });
+      setProjectStatus("ready");
+      setProjectMessage(
+        "プロジェクトを作成し、index.json上の登録を確認しました。",
+      );
+      setProjectSummary(toProjectSummary(result.project));
+      setProjectDiagnostics(result.diagnostics);
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setProjectSummary(null);
+
+      if (error instanceof DriveProjectCreateError) {
+        if (error.status === "authRequired") {
+          resetGoogleAfterDriveAuthFailure();
+          setDriveStatus("authRequired");
+          setDriveMessage(
+            "Google再接続が必要です。再接続後にDrive状態を再確認してください。",
+          );
+          setDriveCandidates([]);
+          setDriveDiagnostics([]);
+          setProjectStatus("error");
+          setProjectMessage(
+            "プロジェクト作成中にGoogle再接続が必要になりました。",
+          );
+          setProjectSummary(null);
+          setProjectDiagnostics(buildProjectCreateFailureDiagnostics(error));
+          return;
+        }
+
+        setWorkspaceReadyContext(null);
+        setDriveStatus("unchecked");
+        setDriveMessage(
+          "プロジェクト作成結果を正しく判断するため、Drive状態を再確認してください。",
+        );
+        setDriveCandidates([]);
+        setDriveDiagnostics(buildProjectCreateDriveRecheckDiagnostics());
+        setProjectStatus(
+          error.status === "invalidWorkspace" ? "invalid" : "error",
+        );
+        setProjectMessage(
+          error.status === "notCreatable"
+            ? "既存プロジェクト、または競合作成を検知したため作成を停止しました。"
+            : error.status === "invalidWorkspace"
+              ? "Drive上のプロジェクト情報に問題があります。このスライスでは自動修復しません。"
+              : "プロジェクト作成に失敗しました。",
+        );
+        setProjectDiagnostics(buildProjectCreateFailureDiagnostics(error));
+        return;
+      }
+
+      setWorkspaceReadyContext(null);
+      setDriveStatus("unchecked");
+      setDriveMessage(
+        "プロジェクト作成結果を正しく判断するため、Drive状態を再確認してください。",
+      );
+      setDriveCandidates([]);
+      setDriveDiagnostics(buildProjectCreateDriveRecheckDiagnostics());
+      setProjectStatus("error");
+      setProjectMessage("プロジェクト作成に失敗しました。");
+      setProjectDiagnostics(buildUnknownProjectCreateFailureDiagnostics());
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+      }
+    }
+  }
+
   const value: AppContextValue = {
     googleStatus,
     googleStatusLabel: googleStatusLabels[googleStatus],
@@ -740,6 +914,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     checkDriveWorkspace,
     createWorkspace,
     checkProject,
+    createProject,
   };
 
   return (
@@ -928,6 +1103,66 @@ function formatIdPart(id: string | undefined) {
   }
 
   return `${id.slice(0, 8)}...`;
+}
+
+function buildProjectCreateDriveRecheckDiagnostics() {
+  return [
+    "プロジェクト作成中に、App内のDrive確認済み情報が古くなった可能性があります。",
+    "Drive状態を再確認すると、index.json の最新状態を読み直します。",
+  ];
+}
+
+function buildProjectCreateFailureDiagnostics(error: DriveProjectCreateError) {
+  const diagnostics = [...error.diagnostics];
+
+  if (error.projectId) {
+    diagnostics.push(`対象projectId: ${formatIdPart(error.projectId)}`);
+  }
+
+  if (error.possibleChangedItems.length > 0) {
+    diagnostics.push(
+      "この作成処理中に、一部のDrive項目が作成・更新された可能性があります。",
+      ...error.possibleChangedItems.map(toProjectChangedItemDiagnostic),
+    );
+  } else {
+    diagnostics.push(
+      "この作成処理中にDrive項目が作成・更新された可能性は高くありません。",
+    );
+  }
+
+  diagnostics.push(
+    "自動削除・自動修復は行いません。",
+    "Google Driveを確認し、必要なら手動で削除してください。",
+    "確認後、この画面で「Drive状態を再確認」を押してください。",
+  );
+
+  return dedupeDiagnostics(diagnostics);
+}
+
+function buildUnknownProjectCreateFailureDiagnostics() {
+  return [
+    "プロジェクト作成中に予期しないエラーが発生しました。",
+    "Drive上に項目が作成・更新されたかは、この画面だけでは判断できません。",
+    "自動削除・自動修復は行いません。",
+    "Google Driveを確認し、必要なら手動で削除してください。",
+    "確認後、この画面で「Drive状態を再確認」を押してください。",
+  ];
+}
+
+function toProjectChangedItemDiagnostic(item: DriveProjectChangedItem) {
+  return `変更済みの可能性: ${projectChangedItemRoleLabels[item.role]}: ${formatProjectChangedItemName(item)}`;
+}
+
+function formatProjectChangedItemName(item: DriveProjectChangedItem) {
+  if (item.role === "projectRoot") {
+    return formatIdPart(item.name);
+  }
+
+  return item.name;
+}
+
+function dedupeDiagnostics(diagnostics: string[]) {
+  return [...new Set(diagnostics)];
 }
 
 function buildWorkspaceCreateFailureDiagnostics(

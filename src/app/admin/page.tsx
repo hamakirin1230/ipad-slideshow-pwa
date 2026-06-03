@@ -52,11 +52,11 @@ export default function AdminPage() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Badge variant="secondary">第4-2 プロジェクト読み取り検証</Badge>
+            <Badge variant="secondary">第4-2 プロジェクト作成</Badge>
             <h1 className="mt-3 text-3xl font-bold">管理画面</h1>
             <p className="mt-2 max-w-2xl text-slate-300">
               Driveワークスペース ready 後に、index.json上のプロジェクト登録状態を確認します。
-              このスライスではプロジェクト作成はまだ行いません。
+              未作成の場合は、最初のプロジェクト1件を作成できます。
             </p>
           </div>
           <Button asChild variant="secondary">
