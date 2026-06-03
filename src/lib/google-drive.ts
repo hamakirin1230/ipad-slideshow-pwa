@@ -1,4 +1,6 @@
 const DRIVE_API_FILES_URL = "https://www.googleapis.com/drive/v3/files";
+const DRIVE_API_UPLOAD_FILES_URL =
+  "https://www.googleapis.com/upload/drive/v3/files";
 
 const DRIVE_WORKSPACE_APP_ID = "ipad-slideshow-pwa";
 const DRIVE_WORKSPACE_SCHEMA_VERSION = 1;
@@ -7,12 +9,18 @@ const DRIVE_WORKSPACE_SCHEMA_VERSION_PROPERTY = "1";
 const DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const JSON_MIME_TYPE = "application/json";
 
+const WORKSPACE_ROOT_NAME = "iPad Slideshow PWA Workspace";
 const WORKSPACE_JSON_NAME = "workspace.json";
 const INDEX_JSON_NAME = "index.json";
 const PROJECTS_ROOT_NAME = "projects";
 
 const CHILD_ROLE_SEARCH_LIMIT = 2;
 const JSON_FILE_SIZE_LIMIT_BYTES = 64 * 1024;
+
+const CREATE_FOLDER_FIELDS =
+  "id,name,mimeType,createdTime,modifiedTime,appProperties";
+const CREATE_JSON_FIELDS =
+  "id,name,mimeType,createdTime,modifiedTime,appProperties,size";
 
 const WORKSPACE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -28,6 +36,16 @@ const WORKSPACE_ROOT_QUERY = [
 ].join(" and ");
 
 export type DriveWorkspaceChildRole = "workspace" | "index" | "projectsRoot";
+
+export type DriveCreatedWorkspaceItemRole =
+  | "workspaceRoot"
+  | "workspace"
+  | "index"
+  | "projectsRoot";
+
+export type DriveWorkspaceCreateFailureStatus =
+  | "authRequired"
+  | "operationFailed";
 
 export type DriveWorkspaceCandidate = {
   id: string;
@@ -45,6 +63,10 @@ export type DriveChildCandidatesByRole = Record<
   DriveWorkspaceChildRole,
   DriveWorkspaceCandidate[]
 >;
+
+export type DriveWorkspaceCreateResult = {
+  workspaceId: string;
+};
 
 export type DriveMetadataValidationResult =
   | {
@@ -75,6 +97,13 @@ export type DriveJsonBodyValidationResult =
 
 type DriveFilesListResponse = {
   files?: unknown[];
+};
+
+type DriveCreateMetadata = {
+  name: string;
+  mimeType: string;
+  parents?: string[];
+  appProperties: Record<string, string>;
 };
 
 type JsonBodyValidationResult =
@@ -109,6 +138,21 @@ export class DriveApiError extends Error {
     super("Drive API request failed.");
     this.name = "DriveApiError";
     this.status = status;
+  }
+}
+
+export class DriveWorkspaceCreateError extends Error {
+  status: DriveWorkspaceCreateFailureStatus;
+  possibleCreatedRoles: DriveCreatedWorkspaceItemRole[];
+
+  constructor(input: {
+    status: DriveWorkspaceCreateFailureStatus;
+    possibleCreatedRoles: DriveCreatedWorkspaceItemRole[];
+  }) {
+    super("Drive workspace creation failed.");
+    this.name = "DriveWorkspaceCreateError";
+    this.status = input.status;
+    this.possibleCreatedRoles = [...input.possibleCreatedRoles];
   }
 }
 
@@ -171,6 +215,172 @@ export async function readDriveTextFile(
   return response.text();
 }
 
+export async function createDriveWorkspace(
+  accessToken: string,
+  signal: AbortSignal,
+): Promise<DriveWorkspaceCreateResult> {
+  const workspaceId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const possibleCreatedRoles: DriveCreatedWorkspaceItemRole[] = [];
+
+  const workspaceRoot = await runWorkspaceCreateStep({
+    role: "workspaceRoot",
+    possibleCreatedRoles,
+    create: () => createWorkspaceRootFolder(accessToken, workspaceId, signal),
+  });
+
+  await runWorkspaceCreateStep({
+    role: "workspace",
+    possibleCreatedRoles,
+    create: () =>
+      createWorkspaceJsonFile({
+        accessToken,
+        workspaceRootFolderId: workspaceRoot.id,
+        workspaceId,
+        now,
+        signal,
+      }),
+  });
+
+  await runWorkspaceCreateStep({
+    role: "index",
+    possibleCreatedRoles,
+    create: () =>
+      createIndexJsonFile({
+        accessToken,
+        workspaceRootFolderId: workspaceRoot.id,
+        workspaceId,
+        now,
+        signal,
+      }),
+  });
+
+  await runWorkspaceCreateStep({
+    role: "projectsRoot",
+    possibleCreatedRoles,
+    create: () =>
+      createProjectsFolder({
+        accessToken,
+        workspaceRootFolderId: workspaceRoot.id,
+        workspaceId,
+        signal,
+      }),
+  });
+
+  return {
+    workspaceId,
+  };
+}
+
+export async function createWorkspaceRootFolder(
+  accessToken: string,
+  workspaceId: string,
+  signal: AbortSignal,
+): Promise<DriveWorkspaceCandidate> {
+  return createDriveMetadataOnlyFile({
+    accessToken,
+    metadata: {
+      name: WORKSPACE_ROOT_NAME,
+      mimeType: DRIVE_FOLDER_MIME_TYPE,
+      appProperties: buildWorkspaceAppProperties({
+        role: "workspaceRoot",
+        workspaceId,
+      }),
+    },
+    fields: CREATE_FOLDER_FIELDS,
+    signal,
+  });
+}
+
+export async function createWorkspaceJsonFile(input: {
+  accessToken: string;
+  workspaceRootFolderId: string;
+  workspaceId: string;
+  now: string;
+  signal: AbortSignal;
+}): Promise<DriveWorkspaceCandidate> {
+  const body = {
+    app: DRIVE_WORKSPACE_APP_ID,
+    role: "workspace",
+    schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
+    workspaceId: input.workspaceId,
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+
+  return createDriveMultipartJsonFile({
+    accessToken: input.accessToken,
+    metadata: {
+      name: WORKSPACE_JSON_NAME,
+      mimeType: JSON_MIME_TYPE,
+      parents: [input.workspaceRootFolderId],
+      appProperties: buildWorkspaceAppProperties({
+        role: "workspace",
+        workspaceId: input.workspaceId,
+      }),
+    },
+    jsonText: stringifyWorkspaceJson(body),
+    fields: CREATE_JSON_FIELDS,
+    signal: input.signal,
+  });
+}
+
+export async function createIndexJsonFile(input: {
+  accessToken: string;
+  workspaceRootFolderId: string;
+  workspaceId: string;
+  now: string;
+  signal: AbortSignal;
+}): Promise<DriveWorkspaceCandidate> {
+  const body = {
+    app: DRIVE_WORKSPACE_APP_ID,
+    role: "index",
+    schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
+    workspaceId: input.workspaceId,
+    projects: [],
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+
+  return createDriveMultipartJsonFile({
+    accessToken: input.accessToken,
+    metadata: {
+      name: INDEX_JSON_NAME,
+      mimeType: JSON_MIME_TYPE,
+      parents: [input.workspaceRootFolderId],
+      appProperties: buildWorkspaceAppProperties({
+        role: "index",
+        workspaceId: input.workspaceId,
+      }),
+    },
+    jsonText: stringifyWorkspaceJson(body),
+    fields: CREATE_JSON_FIELDS,
+    signal: input.signal,
+  });
+}
+
+export async function createProjectsFolder(input: {
+  accessToken: string;
+  workspaceRootFolderId: string;
+  workspaceId: string;
+  signal: AbortSignal;
+}): Promise<DriveWorkspaceCandidate> {
+  return createDriveMetadataOnlyFile({
+    accessToken: input.accessToken,
+    metadata: {
+      name: PROJECTS_ROOT_NAME,
+      mimeType: DRIVE_FOLDER_MIME_TYPE,
+      parents: [input.workspaceRootFolderId],
+      appProperties: buildWorkspaceAppProperties({
+        role: "projectsRoot",
+        workspaceId: input.workspaceId,
+      }),
+    },
+    fields: CREATE_FOLDER_FIELDS,
+    signal: input.signal,
+  });
+}
+
 export function validateWorkspaceMetadata(
   rootCandidate: DriveWorkspaceRootCandidate,
   childCandidatesByRole: DriveChildCandidatesByRole,
@@ -222,7 +432,7 @@ export function validateWorkspaceMetadata(
     );
   }
 
-   if (!rootWorkspaceId) {
+  if (!rootWorkspaceId) {
     diagnostics.push("workspace root folder のworkspaceIdを確認できませんでした。");
   }
 
@@ -337,6 +547,168 @@ export function validateWorkspaceJsonBodies(input: {
       "DriveワークスペースのmetadataとJSON本文の整合確認が完了しました。",
     ],
   };
+}
+
+async function runWorkspaceCreateStep<T>(input: {
+  role: DriveCreatedWorkspaceItemRole;
+  possibleCreatedRoles: DriveCreatedWorkspaceItemRole[];
+  create: () => Promise<T>;
+}) {
+  try {
+    const result = await input.create();
+    input.possibleCreatedRoles.push(input.role);
+    return result;
+  } catch (error) {
+    const status = toWorkspaceCreateFailureStatus(error);
+    const possibleCreatedRoles =
+      error instanceof DriveApiError
+        ? input.possibleCreatedRoles
+        : appendCreatedRole(input.possibleCreatedRoles, input.role);
+
+    throw new DriveWorkspaceCreateError({
+      status,
+      possibleCreatedRoles,
+    });
+  }
+}
+
+function toWorkspaceCreateFailureStatus(
+  error: unknown,
+): DriveWorkspaceCreateFailureStatus {
+  if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+    return "authRequired";
+  }
+
+  return "operationFailed";
+}
+
+function appendCreatedRole(
+  roles: DriveCreatedWorkspaceItemRole[],
+  role: DriveCreatedWorkspaceItemRole,
+) {
+  if (roles.includes(role)) {
+    return [...roles];
+  }
+
+  return [...roles, role];
+}
+
+async function createDriveMetadataOnlyFile(input: {
+  accessToken: string;
+  metadata: DriveCreateMetadata;
+  fields: string;
+  signal: AbortSignal;
+}): Promise<DriveWorkspaceCandidate> {
+  const params = new URLSearchParams({
+    fields: input.fields,
+  });
+
+  const response = await fetch(`${DRIVE_API_FILES_URL}?${params.toString()}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify(input.metadata),
+    signal: input.signal,
+  });
+
+  if (!response.ok) {
+    throw new DriveApiError(response.status);
+  }
+
+  return validateCreatedDriveFileResponse({
+    responseBody: (await response.json()) as unknown,
+    expectedName: input.metadata.name,
+    expectedMimeType: input.metadata.mimeType,
+  });
+}
+
+async function createDriveMultipartJsonFile(input: {
+  accessToken: string;
+  metadata: DriveCreateMetadata;
+  jsonText: string;
+  fields: string;
+  signal: AbortSignal;
+}): Promise<DriveWorkspaceCandidate> {
+  const params = new URLSearchParams({
+    uploadType: "multipart",
+    fields: input.fields,
+  });
+  const boundary = `-------ipad-slideshow-pwa-${crypto.randomUUID()}`;
+
+  const body = [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    JSON.stringify(input.metadata),
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    input.jsonText,
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+
+  const response = await fetch(
+    `${DRIVE_API_UPLOAD_FILES_URL}?${params.toString()}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+      signal: input.signal,
+    },
+  );
+
+  if (!response.ok) {
+    throw new DriveApiError(response.status);
+  }
+
+  return validateCreatedDriveFileResponse({
+    responseBody: (await response.json()) as unknown,
+    expectedName: input.metadata.name,
+    expectedMimeType: input.metadata.mimeType,
+  });
+}
+
+function validateCreatedDriveFileResponse(input: {
+  responseBody: unknown;
+  expectedName: string;
+  expectedMimeType: string;
+}) {
+  const file = normalizeDriveFile(input.responseBody);
+
+  if (!file) {
+    throw new Error("Drive create response did not include required fields.");
+  }
+
+  if (
+    file.name !== input.expectedName ||
+    file.mimeType !== input.expectedMimeType
+  ) {
+    throw new Error("Drive create response did not match requested metadata.");
+  }
+
+  return file;
+}
+
+function buildWorkspaceAppProperties(input: {
+  role: "workspaceRoot" | DriveWorkspaceChildRole;
+  workspaceId: string;
+}) {
+  return {
+    app: DRIVE_WORKSPACE_APP_ID,
+    role: input.role,
+    schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION_PROPERTY,
+    workspaceId: input.workspaceId,
+  };
+}
+
+function stringifyWorkspaceJson(value: Record<string, unknown>) {
+  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 async function listDriveFiles(
