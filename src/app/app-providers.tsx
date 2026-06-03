@@ -23,10 +23,13 @@ import {
   findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
   readDriveTextFile,
+  validateIndexJsonProjects,
   validateWorkspaceJsonBodies,
   validateWorkspaceMetadata,
   type DriveCreatedWorkspaceItemRole,
+  type DriveProjectSummary,
   type DriveWorkspaceChildRole,
+  type DriveWorkspaceReadyContext,
   type DriveWorkspaceRootCandidate,
 } from "@/lib/google-drive";
 
@@ -49,6 +52,15 @@ type DriveWorkspaceCheckStatus = Exclude<
   "unchecked" | "checking" | "creating"
 >;
 
+export type ProjectStatus =
+  | "idle"
+  | "checking"
+  | "notCreated"
+  | "ready"
+  | "creating"
+  | "invalid"
+  | "error";
+
 export type DriveCandidateSummary = {
   name: string;
   createdTime: string;
@@ -56,11 +68,20 @@ export type DriveCandidateSummary = {
   workspaceIdPart: string;
 };
 
+export type ProjectSummary = {
+  projectIdPart: string;
+  title: string;
+  manifestPath: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type DriveWorkspaceCheckResult = {
   status: DriveWorkspaceCheckStatus;
   message: string;
   candidates: DriveCandidateSummary[];
   diagnostics: string[];
+  readyContext?: DriveWorkspaceReadyContext;
 };
 
 const childRoles: DriveWorkspaceChildRole[] = [
@@ -94,11 +115,19 @@ type AppContextValue = {
   driveMessage: string;
   driveCandidates: DriveCandidateSummary[];
   driveDiagnostics: string[];
+  isDriveOperationInFlight: boolean;
+
+  projectStatus: ProjectStatus;
+  projectStatusLabel: string;
+  projectMessage: string;
+  projectSummary: ProjectSummary | null;
+  projectDiagnostics: string[];
 
   connectGoogle: () => void;
   disconnectGoogle: () => void;
   checkDriveWorkspace: () => void;
   createWorkspace: () => void;
+  checkProject: () => void;
 };
 
 const googleStatusLabels: Record<GoogleConnectionStatus, string> = {
@@ -124,8 +153,21 @@ const driveStatusLabels: Record<DriveWorkspaceStatus, string> = {
   operationFailed: "Drive操作失敗",
 };
 
+const projectStatusLabels: Record<ProjectStatus, string> = {
+  idle: "プロジェクト未確認",
+  checking: "プロジェクト確認中",
+  notCreated: "プロジェクト未作成",
+  ready: "プロジェクト登録確認済み",
+  creating: "プロジェクト作成中",
+  invalid: "プロジェクト情報に問題あり",
+  error: "プロジェクト確認失敗",
+};
+
 const initialDriveMessage =
   "このセッションでは、まだDriveワークスペース確認を実行していません。";
+
+const initialProjectMessage =
+  "Driveワークスペース ready 後にプロジェクト状態を確認します。";
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -159,12 +201,36 @@ export function AppProviders({ children }: { children: ReactNode }) {
     DriveCandidateSummary[]
   >([]);
   const [driveDiagnostics, setDriveDiagnostics] = useState<string[]>([]);
+  const [isDriveOperationInFlight, setIsDriveOperationInFlight] =
+    useState(false);
+
+  const [workspaceReadyContext, setWorkspaceReadyContext] =
+    useState<DriveWorkspaceReadyContext | null>(null);
+
+  const [projectStatus, setProjectStatus] = useState<ProjectStatus>("idle");
+  const [projectMessage, setProjectMessage] = useState(initialProjectMessage);
+  const [projectSummary, setProjectSummary] = useState<ProjectSummary | null>(
+    null,
+  );
+  const [projectDiagnostics, setProjectDiagnostics] = useState<string[]>([]);
+
+  function setDriveOperationInFlight(value: boolean) {
+    driveOperationInFlightRef.current = value;
+    setIsDriveOperationInFlight(value);
+  }
 
   function clearDriveOperationTimeout() {
     if (driveOperationTimeoutRef.current) {
       clearTimeout(driveOperationTimeoutRef.current);
       driveOperationTimeoutRef.current = null;
     }
+  }
+
+  function resetProjectState() {
+    setProjectStatus("idle");
+    setProjectMessage(initialProjectMessage);
+    setProjectSummary(null);
+    setProjectDiagnostics([]);
   }
 
   function abortDriveOperation() {
@@ -176,7 +242,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       driveOperationAbortRef.current = null;
     }
 
-    driveOperationInFlightRef.current = false;
+    setDriveOperationInFlight(false);
   }
 
   function resetDriveState() {
@@ -184,6 +250,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveMessage(initialDriveMessage);
     setDriveCandidates([]);
     setDriveDiagnostics([]);
+    setWorkspaceReadyContext(null);
+    resetProjectState();
   }
 
   function resetGoogleAfterDriveAuthFailure() {
@@ -193,11 +261,20 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setGoogleMessage(
       "Drive APIの認証に失敗しました。Googleへ再接続してください。",
     );
+    setWorkspaceReadyContext(null);
+    resetProjectState();
   }
 
   function applyDriveCheckResult(result: DriveWorkspaceCheckResult) {
     if (result.status === "authRequired") {
       resetGoogleAfterDriveAuthFailure();
+    }
+
+    if (result.status === "ready" && result.readyContext) {
+      setWorkspaceReadyContext(result.readyContext);
+    } else {
+      setWorkspaceReadyContext(null);
+      resetProjectState();
     }
 
     setDriveStatus(result.status);
@@ -376,10 +453,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
       setDriveCandidates([]);
       setDriveDiagnostics([]);
+      setWorkspaceReadyContext(null);
+      resetProjectState();
       return;
     }
 
-    driveOperationInFlightRef.current = true;
+    setDriveOperationInFlight(true);
     const requestId = driveOperationRequestIdRef.current + 1;
     driveOperationRequestIdRef.current = requestId;
 
@@ -387,6 +466,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveMessage("Driveワークスペース候補を検索しています。");
     setDriveCandidates([]);
     setDriveDiagnostics([]);
+    setWorkspaceReadyContext(null);
+    resetProjectState();
 
     try {
       const result = await runDriveOperationStep(requestId, (signal) =>
@@ -409,11 +490,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
       setDriveCandidates([]);
       setDriveDiagnostics([]);
+      setWorkspaceReadyContext(null);
+      resetProjectState();
     } finally {
       if (requestId === driveOperationRequestIdRef.current) {
         clearDriveOperationTimeout();
         driveOperationAbortRef.current = null;
-        driveOperationInFlightRef.current = false;
+        setDriveOperationInFlight(false);
       }
     }
   }
@@ -432,10 +515,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
       setDriveCandidates([]);
       setDriveDiagnostics([]);
+      setWorkspaceReadyContext(null);
+      resetProjectState();
       return;
     }
 
-    driveOperationInFlightRef.current = true;
+    setDriveOperationInFlight(true);
     const requestId = driveOperationRequestIdRef.current + 1;
     driveOperationRequestIdRef.current = requestId;
 
@@ -443,6 +528,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveMessage("作成前にDrive状態を再確認しています。");
     setDriveCandidates([]);
     setDriveDiagnostics([]);
+    setWorkspaceReadyContext(null);
+    resetProjectState();
 
     try {
       const beforeCheck = await runDriveOperationStep(requestId, (signal) =>
@@ -507,6 +594,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       setDriveCandidates([]);
+      setWorkspaceReadyContext(null);
+      resetProjectState();
 
       if (error instanceof DriveWorkspaceCreateError) {
         if (error.status === "authRequired") {
@@ -532,7 +621,100 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (requestId === driveOperationRequestIdRef.current) {
         clearDriveOperationTimeout();
         driveOperationAbortRef.current = null;
-        driveOperationInFlightRef.current = false;
+        setDriveOperationInFlight(false);
+      }
+    }
+  }
+
+  async function checkProject() {
+    if (driveOperationInFlightRef.current) {
+      return;
+    }
+
+    const accessToken = accessTokenRef.current;
+
+    if (!accessToken) {
+      setProjectStatus("error");
+      setProjectMessage(
+        "Google接続が必要です。もう一度Google接続を行ってからプロジェクト状態を確認してください。",
+      );
+      setProjectSummary(null);
+      setProjectDiagnostics([]);
+      return;
+    }
+
+    if (driveStatus !== "ready" || !workspaceReadyContext) {
+      setProjectStatus("idle");
+      setProjectMessage(initialProjectMessage);
+      setProjectSummary(null);
+      setProjectDiagnostics([
+        "Driveワークスペースの確認済み情報を取得できませんでした。",
+        "先にDrive状態を再確認し、ready になっていることを確認してください。",
+      ]);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+    const readyContext = workspaceReadyContext;
+
+    setProjectStatus("checking");
+    setProjectMessage("Drive上のプロジェクト状態を確認しています。");
+    setProjectSummary(null);
+    setProjectDiagnostics([]);
+
+    try {
+      const result = await runDriveOperationStep(requestId, async () =>
+        validateIndexJsonProjects(readyContext.indexJsonText),
+      );
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (result.status === "notCreated") {
+        setProjectStatus("notCreated");
+        setProjectMessage("プロジェクトはまだ作成されていません。");
+        setProjectSummary(null);
+        setProjectDiagnostics(result.diagnostics);
+        return;
+      }
+
+      if (result.status === "invalid") {
+        setProjectStatus("invalid");
+        setProjectMessage(
+          "Drive上のプロジェクト情報に問題があります。このスライスでは自動修復しません。",
+        );
+        setProjectSummary(null);
+        setProjectDiagnostics(result.diagnostics);
+        return;
+      }
+
+      setProjectStatus("ready");
+      setProjectMessage("index.json上のプロジェクト登録を確認しました。");
+      setProjectSummary(toProjectSummary(result.project));
+      setProjectDiagnostics(result.diagnostics);
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+
+      setProjectStatus("error");
+      setProjectMessage(
+        "プロジェクト状態確認に失敗しました。通信状態を確認して再確認してください。",
+      );
+      setProjectSummary(null);
+      setProjectDiagnostics([]);
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
       }
     }
   }
@@ -547,10 +729,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
     driveMessage,
     driveCandidates,
     driveDiagnostics,
+    isDriveOperationInFlight,
+    projectStatus,
+    projectStatusLabel: projectStatusLabels[projectStatus],
+    projectMessage,
+    projectSummary,
+    projectDiagnostics,
     connectGoogle,
     disconnectGoogle,
     checkDriveWorkspace,
     createWorkspace,
+    checkProject,
   };
 
   return (
@@ -682,6 +871,14 @@ async function runDriveWorkspaceCheck(
         "Driveワークスペース準備済みです。metadataとJSON本文の整合を確認しました。",
       candidates: summaries,
       diagnostics,
+      readyContext: {
+        workspaceId: metadataResult.workspaceId,
+        workspaceRootFolderId: metadataResult.workspaceRootFolderId,
+        workspaceJsonFileId: metadataResult.workspaceJsonFileId,
+        indexJsonFileId: metadataResult.indexJsonFileId,
+        projectsRootFolderId: metadataResult.projectsRootFolderId,
+        indexJsonText,
+      },
     };
   } catch (error) {
     if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
@@ -711,16 +908,26 @@ function toCandidateSummary(
     name: candidate.name,
     createdTime: candidate.createdTime ?? "未取得",
     modifiedTime: candidate.modifiedTime ?? "未取得",
-    workspaceIdPart: formatWorkspaceIdPart(candidate.appProperties.workspaceId),
+    workspaceIdPart: formatIdPart(candidate.appProperties.workspaceId),
   };
 }
 
-function formatWorkspaceIdPart(workspaceId: string | undefined) {
-  if (!workspaceId) {
+function toProjectSummary(project: DriveProjectSummary): ProjectSummary {
+  return {
+    projectIdPart: formatIdPart(project.projectId),
+    title: project.title,
+    manifestPath: project.manifestPath,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+  };
+}
+
+function formatIdPart(id: string | undefined) {
+  if (!id) {
     return "未設定";
   }
 
-  return `${workspaceId.slice(0, 8)}...`;
+  return `${id.slice(0, 8)}...`;
 }
 
 function buildWorkspaceCreateFailureDiagnostics(

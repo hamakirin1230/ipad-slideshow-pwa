@@ -22,7 +22,7 @@ const CREATE_FOLDER_FIELDS =
 const CREATE_JSON_FIELDS =
   "id,name,mimeType,createdTime,modifiedTime,appProperties,size";
 
-const WORKSPACE_ID_PATTERN =
+const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ISO_8601_UTC_PATTERN =
@@ -73,13 +73,50 @@ export type DriveWorkspaceCreateInput = {
   runStep: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>;
 };
 
+export type DriveWorkspaceReadyContext = {
+  workspaceId: string;
+  workspaceRootFolderId: string;
+  workspaceJsonFileId: string;
+  indexJsonFileId: string;
+  projectsRootFolderId: string;
+  indexJsonText: string;
+};
+
+export type DriveProjectSummary = {
+  projectId: string;
+  title: string;
+  projectFolderId: string;
+  manifestFileId: string;
+  assetsFolderId: string;
+  manifestPath: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DriveProjectIndexValidationResult =
+  | {
+      status: "notCreated";
+      diagnostics: string[];
+    }
+  | {
+      status: "ready";
+      project: DriveProjectSummary;
+      diagnostics: string[];
+    }
+  | {
+      status: "invalid";
+      diagnostics: string[];
+    };
+
 export type DriveMetadataValidationResult =
   | {
       status: "metadataVerified";
       diagnostics: string[];
       workspaceId: string;
+      workspaceRootFolderId: string;
       workspaceJsonFileId: string;
       indexJsonFileId: string;
+      projectsRootFolderId: string;
     }
   | {
       status: "invalidWorkspace";
@@ -428,7 +465,7 @@ export function validateWorkspaceMetadata(
     workspaceIds,
   });
 
-  validateRequiredFolderChild({
+  const projectsRoot = validateRequiredFolderChild({
     candidates: childCandidatesByRole.projectsRoot,
     label: "projects/",
     expectedName: PROJECTS_ROOT_NAME,
@@ -457,6 +494,10 @@ export function validateWorkspaceMetadata(
     diagnostics.push("index.json のDrive fileIdを確認できませんでした。");
   }
 
+  if (!projectsRoot?.id) {
+    diagnostics.push("projects/ のDrive folderIdを確認できませんでした。");
+  }
+
   if (diagnostics.length > 0) {
     return {
       status: "invalidWorkspace",
@@ -464,7 +505,7 @@ export function validateWorkspaceMetadata(
     };
   }
 
-  if (!rootWorkspaceId || !workspaceJson?.id || !indexJson?.id) {
+  if (!rootWorkspaceId || !workspaceJson?.id || !indexJson?.id || !projectsRoot?.id) {
     return {
       status: "invalidWorkspace",
       diagnostics: [
@@ -479,8 +520,10 @@ export function validateWorkspaceMetadata(
       "workspace root folder / workspace.json / index.json / projects/ のmetadata確認が完了しました。",
     ],
     workspaceId: rootWorkspaceId,
+    workspaceRootFolderId: rootCandidate.id,
     workspaceJsonFileId: workspaceJson.id,
     indexJsonFileId: indexJson.id,
+    projectsRootFolderId: projectsRoot.id,
   };
 }
 
@@ -558,6 +601,77 @@ export function validateWorkspaceJsonBodies(input: {
       ...workspaceJsonResult.diagnostics,
       ...indexJsonResult.diagnostics,
       "DriveワークスペースのmetadataとJSON本文の整合確認が完了しました。",
+    ],
+  };
+}
+
+export function validateIndexJsonProjects(
+  indexJsonText: string,
+): DriveProjectIndexValidationResult {
+  if (getUtf8ByteLength(indexJsonText) > JSON_FILE_SIZE_LIMIT_BYTES) {
+    return {
+      status: "invalid",
+      diagnostics: [
+        `index.json の本文が上限 ${JSON_FILE_SIZE_LIMIT_BYTES} bytes を超えています。`,
+      ],
+    };
+  }
+
+  const parsed = parseJsonObject(indexJsonText, "index.json");
+
+  if (parsed.status === "invalid") {
+    return {
+      status: "invalid",
+      diagnostics: parsed.diagnostics,
+    };
+  }
+
+  if (!hasOwnKey(parsed.value, "projects")) {
+    return {
+      status: "invalid",
+      diagnostics: ["index.json の projects がありません。"],
+    };
+  }
+
+  const projects = parsed.value.projects;
+
+  if (!Array.isArray(projects)) {
+    return {
+      status: "invalid",
+      diagnostics: ["index.json の projects は配列である必要があります。"],
+    };
+  }
+
+  if (projects.length === 0) {
+    return {
+      status: "notCreated",
+      diagnostics: ["index.json.projects は空です。"],
+    };
+  }
+
+  if (projects.length >= 2) {
+    return {
+      status: "invalid",
+      diagnostics: [
+        "index.json.projects が2件以上あります。",
+        "第4-2初期版では複数プロジェクトに対応していません。",
+      ],
+    };
+  }
+
+  const projectResult = validateIndexProjectItem(projects[0]);
+
+  if (projectResult.status === "invalid") {
+    return projectResult;
+  }
+
+  return {
+    status: "ready",
+    project: projectResult.project,
+    diagnostics: [
+      "index.json.projects は1件です。",
+      "index.json上のプロジェクト登録を確認しました。",
+      "manifest.json と assets/ の詳細検証は後続コミットで追加します。",
     ],
   };
 }
@@ -941,7 +1055,7 @@ function validateWorkspaceJsonBody(text: string): JsonBodyValidationResult {
     body: parsed.value,
     fileLabel: "workspace.json",
     expectedRole: "workspace",
-    requireEmptyProjects: false,
+    validateProjectsArray: false,
   });
 }
 
@@ -956,7 +1070,7 @@ function validateIndexJsonBody(text: string): JsonBodyValidationResult {
     body: parsed.value,
     fileLabel: "index.json",
     expectedRole: "index",
-    requireEmptyProjects: true,
+    validateProjectsArray: true,
   });
 }
 
@@ -964,7 +1078,7 @@ function validateBaseJsonBody(input: {
   body: Record<string, unknown>;
   fileLabel: string;
   expectedRole: "workspace" | "index";
-  requireEmptyProjects: boolean;
+  validateProjectsArray: boolean;
 }): JsonBodyValidationResult {
   const invalidDiagnostics: string[] = [];
   const unsupportedVersionDiagnostics: string[] = [];
@@ -1012,8 +1126,8 @@ function validateBaseJsonBody(input: {
     diagnostics: invalidDiagnostics,
   });
 
-  if (input.requireEmptyProjects) {
-    validateEmptyProjectsArray({
+  if (input.validateProjectsArray) {
+    validateProjectsArray({
       body: input.body,
       fileLabel: input.fileLabel,
       diagnostics: invalidDiagnostics,
@@ -1045,6 +1159,113 @@ function validateBaseJsonBody(input: {
     status: "valid",
     workspaceId,
     diagnostics: [`${input.fileLabel} のJSON本文を確認しました。`],
+  };
+}
+
+function validateIndexProjectItem(
+  value: unknown,
+): Extract<DriveProjectIndexValidationResult, { status: "ready" | "invalid" }> {
+  if (!isRecord(value)) {
+    return {
+      status: "invalid",
+      diagnostics: ["index.json.projects[0] はJSON objectである必要があります。"],
+    };
+  }
+
+  const diagnostics: string[] = [];
+
+  const projectId = readRequiredUuidString({
+    body: value,
+    fileLabel: "index.json.projects[0]",
+    key: "projectId",
+    diagnostics,
+  });
+
+  const title = readRequiredNonEmptyString({
+    body: value,
+    fileLabel: "index.json.projects[0]",
+    key: "title",
+    diagnostics,
+  });
+
+  const projectFolderId = readRequiredNonEmptyString({
+    body: value,
+    fileLabel: "index.json.projects[0]",
+    key: "projectFolderId",
+    diagnostics,
+  });
+
+  const manifestFileId = readRequiredNonEmptyString({
+    body: value,
+    fileLabel: "index.json.projects[0]",
+    key: "manifestFileId",
+    diagnostics,
+  });
+
+  const assetsFolderId = readRequiredNonEmptyString({
+    body: value,
+    fileLabel: "index.json.projects[0]",
+    key: "assetsFolderId",
+    diagnostics,
+  });
+
+  const manifestPath = readRequiredNonEmptyString({
+    body: value,
+    fileLabel: "index.json.projects[0]",
+    key: "manifestPath",
+    diagnostics,
+  });
+
+  const createdAt = readRequiredIsoDateString({
+    body: value,
+    fileLabel: "index.json.projects[0]",
+    key: "createdAt",
+    diagnostics,
+  });
+
+  const updatedAt = readRequiredIsoDateString({
+    body: value,
+    fileLabel: "index.json.projects[0]",
+    key: "updatedAt",
+    diagnostics,
+  });
+
+  if (projectId && manifestPath !== `projects/${projectId}/manifest.json`) {
+    diagnostics.push(
+      "index.json.projects[0] の manifestPath が projectId と一致していません。",
+    );
+  }
+
+  if (
+    diagnostics.length > 0 ||
+    !projectId ||
+    !title ||
+    !projectFolderId ||
+    !manifestFileId ||
+    !assetsFolderId ||
+    !manifestPath ||
+    !createdAt ||
+    !updatedAt
+  ) {
+    return {
+      status: "invalid",
+      diagnostics,
+    };
+  }
+
+  return {
+    status: "ready",
+    project: {
+      projectId,
+      title,
+      projectFolderId,
+      manifestFileId,
+      assetsFolderId,
+      manifestPath,
+      createdAt,
+      updatedAt,
+    },
+    diagnostics: [],
   };
 }
 
@@ -1175,7 +1396,7 @@ function validateRequiredIsoDateString(input: {
   }
 }
 
-function validateEmptyProjectsArray(input: {
+function validateProjectsArray(input: {
   body: Record<string, unknown>;
   fileLabel: string;
   diagnostics: string[];
@@ -1191,14 +1412,79 @@ function validateEmptyProjectsArray(input: {
     input.diagnostics.push(
       `${input.fileLabel} の projects は配列である必要があります。`,
     );
-    return;
+  }
+}
+
+function readRequiredUuidString(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}) {
+  const value = readRequiredNonEmptyString(input);
+
+  if (!value) {
+    return undefined;
   }
 
-  if (projects.length !== 0) {
+  if (!isUuidV4(value)) {
     input.diagnostics.push(
-      `${input.fileLabel} の projects は空配列である必要があります。`,
+      `${input.fileLabel} の ${input.key} はUUID形式である必要があります。`,
     );
+    return undefined;
   }
+
+  return value;
+}
+
+function readRequiredNonEmptyString(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, input.key)) {
+    input.diagnostics.push(`${input.fileLabel} の ${input.key} がありません。`);
+    return undefined;
+  }
+
+  const value = input.body[input.key];
+
+  if (typeof value !== "string") {
+    input.diagnostics.push(
+      `${input.fileLabel} の ${input.key} はstringである必要があります。`,
+    );
+    return undefined;
+  }
+
+  if (!isNonEmptyString(value)) {
+    input.diagnostics.push(`${input.fileLabel} の ${input.key} が空です。`);
+    return undefined;
+  }
+
+  return value;
+}
+
+function readRequiredIsoDateString(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  key: "createdAt" | "updatedAt";
+  diagnostics: string[];
+}) {
+  const value = readRequiredNonEmptyString(input);
+
+  if (!value) {
+    return undefined;
+  }
+
+  if (!ISO_8601_UTC_PATTERN.test(value)) {
+    input.diagnostics.push(
+      `${input.fileLabel} の ${input.key} はISO 8601形式の日時文字列である必要があります。`,
+    );
+    return undefined;
+  }
+
+  return value;
 }
 
 function validateFetchedTextSizes(input: {
@@ -1265,11 +1551,11 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function isUuidV4(value: string) {
-  return WORKSPACE_ID_PATTERN.test(value);
+  return UUID_V4_PATTERN.test(value);
 }
 
 function toStringRecord(value: unknown): Record<string, string> {
@@ -1277,9 +1563,9 @@ function toStringRecord(value: unknown): Record<string, string> {
     return {};
   }
 
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
-    ),
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
   );
+
+  return Object.fromEntries(entries);
 }

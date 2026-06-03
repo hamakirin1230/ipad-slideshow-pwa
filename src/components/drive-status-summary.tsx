@@ -19,10 +19,24 @@ export function DriveStatusSummary() {
         <CardTitle className="text-base">Google / Drive 状態</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2 text-sm">
-        <Badge variant={googleStatus === "connected" ? "secondary" : "outline"}>
+        <Badge
+          variant={googleStatus === "connected" ? "secondary" : "outline"}
+          className={
+            googleStatus === "connected"
+              ? undefined
+              : "border-slate-500 text-slate-200"
+          }
+        >
           Google: {googleStatusLabel}
         </Badge>
-        <Badge variant={driveStatus === "ready" ? "secondary" : "outline"}>
+        <Badge
+          variant={driveStatus === "ready" ? "secondary" : "outline"}
+          className={
+            driveStatus === "ready"
+              ? undefined
+              : "border-slate-500 text-slate-200"
+          }
+        >
           Drive: {driveStatusLabel}
         </Badge>
       </CardContent>

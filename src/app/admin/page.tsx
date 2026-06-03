@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
+import { ProjectStatusPanel } from "./project-status-panel";
 import {
   Card,
   CardContent,
@@ -51,18 +52,21 @@ export default function AdminPage() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Badge variant="secondary">第2-1 仮データ表示</Badge>
+            <Badge variant="secondary">第4-2 プロジェクト読み取り検証</Badge>
             <h1 className="mt-3 text-3xl font-bold">管理画面</h1>
             <p className="mt-2 max-w-2xl text-slate-300">
-              第2ゴールでは、Google連携や保存処理に入る前に、
-              ローカル仮データでプロジェクト・素材・本編スライド順の見え方を確認します。
+              Driveワークスペース ready 後に、index.json上のプロジェクト登録状態を確認します。
+              このスライスではプロジェクト作成はまだ行いません。
             </p>
           </div>
           <Button asChild variant="secondary">
             <Link href="/">トップへ戻る</Link>
           </Button>
         </div>
+
         <DriveStatusSummary />
+        <ProjectStatusPanel />
+
         <section className="grid gap-4 md:grid-cols-3">
           <Card className="bg-white text-slate-950">
             <CardHeader>
@@ -214,9 +218,7 @@ export default function AdminPage() {
             <CardHeader>
               <CardTitle>本編スライド順</CardTitle>
               <CardDescription>
-                現在選択中の仮プロジェクト:
-                {" "}
-                {activeProject.title}
+                現在選択中の仮プロジェクト: {activeProject.title}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -244,8 +246,7 @@ export default function AdminPage() {
                           {slideItem.caption ?? "テロップなし"}
                         </p>
                         <p className="mt-1 text-sm text-slate-500">
-                          表示方法: {slideItem.fit} / テロップ:
-                          {" "}
+                          表示方法: {slideItem.fit} / テロップ:{" "}
                           {slideItem.captionPreset}
                         </p>
                       </div>
