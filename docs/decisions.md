@@ -361,3 +361,28 @@ https://hamakirin1230.github.io/ipad-slideshow-pwa/
 * Google Photos Picker連携設計
 * オフライン本番再生前チェック
 * プロジェクトmanifest設計
+
+## 第4ゴール: Google Driveワークスペース / プロジェクト作成
+
+詳細:
+
+* `docs/decisions/goal-04-drive-workspace.md`
+* `docs/decisions/goal-04-drive-workspace-create.md`
+* `docs/decisions/goal-04-2-project-create.md`
+
+決定事項:
+
+* Google Drive上に、このPWA専用のワークスペースを1つ作成する。
+* Google OAuth scopeは `https://www.googleapis.com/auth/drive.file` のみを維持する。
+* `access_token` は永続保存せず、実装上は `useRef` のみに保持する。
+* Driveワークスペースは、`workspace.json`、`index.json`、`projects/` まで整合確認できた場合のみ `ready` とする。
+* 第4-2初期版では、プロジェクト作成は1件だけに制限する。
+* プロジェクト作成では、`projects/{projectId}/`、`manifest.json`、`assets/`、`index.json` 登録を1セットとして扱う。
+* `index.json` は軽い目次、`manifest.json` はプロジェクトの正本として扱う。
+* 作成APIが成功しただけでは成功扱いにせず、Driveから再読込して整合確認できた場合のみ成功扱いにする。
+* 作成途中失敗時の自動削除、自動修復、自動リトライは第4-2初期版では行わない。
+
+完了確認:
+
+* 第4-1 Driveワークスペース作成は完了済み。
+* 第4-2 プロジェクト作成は設計判断済み・実装前。
