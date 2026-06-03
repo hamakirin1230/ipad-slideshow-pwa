@@ -27,14 +27,13 @@ import {
   type DriveWorkspaceRootCandidate,
 } from "@/lib/google-drive";
 
-const DRIVE_CHECK_TIMEOUT_MS = 15_000;
+const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 
 export type DriveWorkspaceStatus =
   | "unchecked"
   | "checking"
+  | "creating"
   | "notCreated"
-  | "foundCandidate"
-  | "metadataVerified"
   | "ready"
   | "multipleCandidates"
   | "invalidWorkspace"
@@ -42,11 +41,23 @@ export type DriveWorkspaceStatus =
   | "authRequired"
   | "operationFailed";
 
+type DriveWorkspaceCheckStatus = Exclude<
+  DriveWorkspaceStatus,
+  "unchecked" | "checking" | "creating"
+>;
+
 export type DriveCandidateSummary = {
   name: string;
   createdTime: string;
   modifiedTime: string;
   workspaceIdPart: string;
+};
+
+type DriveWorkspaceCheckResult = {
+  status: DriveWorkspaceCheckStatus;
+  message: string;
+  candidates: DriveCandidateSummary[];
+  diagnostics: string[];
 };
 
 const childRoles: DriveWorkspaceChildRole[] = [
@@ -85,9 +96,8 @@ const googleStatusLabels: Record<GoogleConnectionStatus, string> = {
 const driveStatusLabels: Record<DriveWorkspaceStatus, string> = {
   unchecked: "このセッションではDrive未確認",
   checking: "Drive確認中",
+  creating: "Driveワークスペース作成中",
   notCreated: "Driveワークスペース未作成",
-  foundCandidate: "Driveワークスペース候補を検出",
-  metadataVerified: "Driveワークスペースmetadata確認済み",
   ready: "Driveワークスペース準備済み",
   multipleCandidates: "Driveワークスペース候補が複数あり要確認",
   invalidWorkspace: "Driveワークスペース構造に問題あり",
@@ -107,12 +117,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   const accessTokenRef = useRef<string | null>(null);
   const tokenClientRef = useRef<GoogleTokenClient | null>(null);
-  const driveCheckAbortRef = useRef<AbortController | null>(null);
-  const driveCheckTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+  const driveOperationAbortRef = useRef<AbortController | null>(null);
+  const driveOperationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  const driveCheckRequestIdRef = useRef(0);
-  const driveCheckInFlightRef = useRef(false);
+  const driveOperationRequestIdRef = useRef(0);
+  const driveOperationInFlightRef = useRef(false);
 
   const [googleStatus, setGoogleStatus] = useState<GoogleConnectionStatus>(
     hasClientId ? "scriptLoading" : "missingClientId",
@@ -132,23 +142,23 @@ export function AppProviders({ children }: { children: ReactNode }) {
   >([]);
   const [driveDiagnostics, setDriveDiagnostics] = useState<string[]>([]);
 
-  function clearDriveCheckTimeout() {
-    if (driveCheckTimeoutRef.current) {
-      clearTimeout(driveCheckTimeoutRef.current);
-      driveCheckTimeoutRef.current = null;
+  function clearDriveOperationTimeout() {
+    if (driveOperationTimeoutRef.current) {
+      clearTimeout(driveOperationTimeoutRef.current);
+      driveOperationTimeoutRef.current = null;
     }
   }
 
-  function abortDriveCheck() {
-    driveCheckRequestIdRef.current += 1;
-    clearDriveCheckTimeout();
+  function abortDriveOperation() {
+    driveOperationRequestIdRef.current += 1;
+    clearDriveOperationTimeout();
 
-    if (driveCheckAbortRef.current) {
-      driveCheckAbortRef.current.abort();
-      driveCheckAbortRef.current = null;
+    if (driveOperationAbortRef.current) {
+      driveOperationAbortRef.current.abort();
+      driveOperationAbortRef.current = null;
     }
 
-    driveCheckInFlightRef.current = false;
+    driveOperationInFlightRef.current = false;
   }
 
   function resetDriveState() {
@@ -158,6 +168,26 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveDiagnostics([]);
   }
 
+  function resetGoogleAfterDriveAuthFailure() {
+    accessTokenRef.current = null;
+    setDriveFileGranted(null);
+    setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
+    setGoogleMessage(
+      "Drive APIの認証に失敗しました。Googleへ再接続してください。",
+    );
+  }
+
+  function applyDriveCheckResult(result: DriveWorkspaceCheckResult) {
+    if (result.status === "authRequired") {
+      resetGoogleAfterDriveAuthFailure();
+    }
+
+    setDriveStatus(result.status);
+    setDriveMessage(result.message);
+    setDriveCandidates(result.candidates);
+    setDriveDiagnostics(result.diagnostics);
+  }
+
   function handleScriptReady() {
     if (!hasClientId) {
       accessTokenRef.current = null;
@@ -165,7 +195,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setDriveFileGranted(null);
       setGoogleStatus("missingClientId");
       setGoogleMessage("NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。");
-      abortDriveCheck();
+      abortDriveOperation();
       resetDriveState();
       return;
     }
@@ -178,7 +208,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setDriveFileGranted(null);
       setGoogleStatus("error");
       setGoogleMessage("Google認証ライブラリを利用できませんでした。");
-      abortDriveCheck();
+      abortDriveOperation();
       resetDriveState();
       return;
     }
@@ -196,7 +226,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setGoogleMessage(
             "Google認証でエラーが返されました。もう一度試してください。",
           );
-          abortDriveCheck();
+          abortDriveOperation();
           resetDriveState();
           return;
         }
@@ -206,7 +236,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setDriveFileGranted(null);
           setGoogleStatus("error");
           setGoogleMessage("アクセストークンを受け取れませんでした。");
-          abortDriveCheck();
+          abortDriveOperation();
           resetDriveState();
           return;
         }
@@ -220,7 +250,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setGoogleMessage(
             "access_token は返されましたが、drive.file の許可を確認できませんでした。",
           );
-          abortDriveCheck();
+          abortDriveOperation();
           resetDriveState();
           return;
         }
@@ -231,7 +261,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setGoogleMessage(
           "Google接続済みです。access_token の実値は表示・保存していません。",
         );
-        abortDriveCheck();
+        abortDriveOperation();
         resetDriveState();
       },
       error_callback: () => {
@@ -241,19 +271,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setGoogleMessage(
           "Google認証のポップアップを開けない、または認証画面が閉じられた可能性があります。",
         );
-        abortDriveCheck();
+        abortDriveOperation();
         resetDriveState();
       },
     });
 
     setGoogleStatus("notConnected");
     setGoogleMessage("Google接続を開始できます。");
-    abortDriveCheck();
+    abortDriveOperation();
     resetDriveState();
   }
 
   function connectGoogle() {
-    abortDriveCheck();
+    abortDriveOperation();
 
     if (!hasClientId) {
       accessTokenRef.current = null;
@@ -280,7 +310,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function disconnectGoogle() {
-    abortDriveCheck();
+    abortDriveOperation();
     accessTokenRef.current = null;
     setDriveFileGranted(null);
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
@@ -293,7 +323,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   async function checkDriveWorkspace() {
-    if (driveCheckInFlightRef.current) {
+    if (driveOperationInFlightRef.current) {
       return;
     }
 
@@ -309,17 +339,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
 
-    driveCheckInFlightRef.current = true;
-    const requestId = driveCheckRequestIdRef.current + 1;
-    driveCheckRequestIdRef.current = requestId;
+    driveOperationInFlightRef.current = true;
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
 
     const controller = new AbortController();
-    driveCheckAbortRef.current = controller;
+    driveOperationAbortRef.current = controller;
 
-    clearDriveCheckTimeout();
-    driveCheckTimeoutRef.current = setTimeout(() => {
+    clearDriveOperationTimeout();
+    driveOperationTimeoutRef.current = setTimeout(() => {
       controller.abort();
-    }, DRIVE_CHECK_TIMEOUT_MS);
+    }, DRIVE_OPERATION_TIMEOUT_MS);
 
     setDriveStatus("checking");
     setDriveMessage("Driveワークスペース候補を検索しています。");
@@ -327,152 +357,21 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveDiagnostics([]);
 
     try {
-      const candidates = await findWorkspaceRootCandidates(
+      const result = await runDriveWorkspaceCheck(
         accessToken,
         controller.signal,
       );
 
-      if (requestId !== driveCheckRequestIdRef.current) {
+      if (requestId !== driveOperationRequestIdRef.current) {
         return;
       }
 
-      const summaries = candidates.map(toCandidateSummary);
-      setDriveCandidates(summaries);
-
-      if (candidates.length === 0) {
-        setDriveStatus("notCreated");
-        setDriveMessage(
-          "Driveワークスペース候補は見つかりませんでした。このスライスでは作成はまだ行いません。",
-        );
-        setDriveDiagnostics([]);
-        return;
-      }
-
-      if (candidates.length >= 2) {
-        setDriveStatus("multipleCandidates");
-        setDriveMessage(
-          "Driveワークスペース候補が2件以上あります。このスライスでは自動選択・削除・修復は行いません。",
-        );
-        setDriveDiagnostics([
-          "Driveワークスペースroot候補が2件以上見つかりました。",
-        ]);
-        return;
-      }
-
-      setDriveStatus("foundCandidate");
-      setDriveMessage(
-        "Driveワークスペース候補を1件見つけました。root直下の必須構成metadataを確認しています。",
-      );
-
-      const childCandidates = await findWorkspaceChildCandidates(
-        accessToken,
-        candidates[0].id,
-        controller.signal,
-      );
-
-      if (requestId !== driveCheckRequestIdRef.current) {
-        return;
-      }
-
-      const metadataResult = validateWorkspaceMetadata(
-        candidates[0],
-        childCandidates,
-      );
-
-      setDriveDiagnostics(metadataResult.diagnostics);
-
-      if (metadataResult.status === "invalidWorkspace") {
-        setDriveStatus("invalidWorkspace");
-        setDriveMessage(
-          "Driveワークスペース候補のmetadataに問題があります。このスライスでは自動修復は行いません。",
-        );
-        return;
-      }
-
-      setDriveStatus("metadataVerified");
-      setDriveMessage(
-        "Driveワークスペース候補の構成ファイルを確認しました。workspace.json / index.json の本文を検証しています。",
-      );
-
-      const [workspaceJsonText, indexJsonText] = await Promise.all([
-        readDriveTextFile(
-          accessToken,
-          metadataResult.workspaceJsonFileId,
-          controller.signal,
-        ),
-        readDriveTextFile(
-          accessToken,
-          metadataResult.indexJsonFileId,
-          controller.signal,
-        ),
-      ]);
-
-      if (requestId !== driveCheckRequestIdRef.current) {
-        return;
-      }
-
-      const jsonBodyResult = validateWorkspaceJsonBodies({
-        expectedWorkspaceId: metadataResult.workspaceId,
-        workspaceJsonText,
-        indexJsonText,
-      });
-
-      setDriveDiagnostics([
-        ...metadataResult.diagnostics,
-        ...jsonBodyResult.diagnostics,
-      ]);
-
-      if (jsonBodyResult.status === "invalidWorkspace") {
-        setDriveStatus("invalidWorkspace");
-        setDriveMessage(
-          "Driveワークスペース候補のJSON本文に問題があります。このスライスでは自動修復は行いません。",
-        );
-        return;
-      }
-
-      if (jsonBodyResult.status === "unsupportedVersion") {
-        setDriveStatus("unsupportedVersion");
-        setDriveMessage(
-          "Driveワークスペース候補のschemaVersionは、このPWAでは対応していません。",
-        );
-        return;
-      }
-
-      setDriveStatus("ready");
-      setDriveMessage(
-        "Driveワークスペース準備済みです。metadataとJSON本文の整合を確認しました。",
-      );
-    } catch (error) {
-      if (requestId !== driveCheckRequestIdRef.current) {
-        return;
-      }
-
-      setDriveCandidates([]);
-      setDriveDiagnostics([]);
-
-      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
-        accessTokenRef.current = null;
-        setDriveFileGranted(null);
-        setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
-        setGoogleMessage(
-          "Drive APIの認証に失敗しました。Googleへ再接続してください。",
-        );
-        setDriveStatus("authRequired");
-        setDriveMessage(
-          "Google再接続が必要です。再接続後にDrive状態を確認してください。",
-        );
-        return;
-      }
-
-      setDriveStatus("operationFailed");
-      setDriveMessage(
-        "Drive状態確認に失敗しました。通信状態を確認して、もう一度Drive状態を確認してください。",
-      );
+      applyDriveCheckResult(result);
     } finally {
-      if (requestId === driveCheckRequestIdRef.current) {
-        clearDriveCheckTimeout();
-        driveCheckAbortRef.current = null;
-        driveCheckInFlightRef.current = false;
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        driveOperationInFlightRef.current = false;
       }
     }
   }
@@ -504,7 +403,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             setDriveFileGranted(null);
             setGoogleStatus("error");
             setGoogleMessage("Google認証ライブラリの読み込みに失敗しました。");
-            abortDriveCheck();
+            abortDriveOperation();
             resetDriveState();
           }}
         />
@@ -522,6 +421,125 @@ export function useAppState() {
   }
 
   return value;
+}
+
+async function runDriveWorkspaceCheck(
+  accessToken: string,
+  signal: AbortSignal,
+): Promise<DriveWorkspaceCheckResult> {
+  try {
+    const candidates = await findWorkspaceRootCandidates(accessToken, signal);
+    const summaries = candidates.map(toCandidateSummary);
+
+    if (candidates.length === 0) {
+      return {
+        status: "notCreated",
+        message:
+          "Driveワークスペース候補は見つかりませんでした。このスライスでは作成はまだ行いません。",
+        candidates: [],
+        diagnostics: [],
+      };
+    }
+
+    if (candidates.length >= 2) {
+      return {
+        status: "multipleCandidates",
+        message:
+          "Driveワークスペース候補が2件以上あります。このスライスでは自動選択・削除・修復は行いません。",
+        candidates: summaries,
+        diagnostics: [
+          "Driveワークスペースroot候補が2件以上見つかりました。",
+        ],
+      };
+    }
+
+    const childCandidates = await findWorkspaceChildCandidates(
+      accessToken,
+      candidates[0].id,
+      signal,
+    );
+
+    const metadataResult = validateWorkspaceMetadata(
+      candidates[0],
+      childCandidates,
+    );
+
+    if (metadataResult.status === "invalidWorkspace") {
+      return {
+        status: "invalidWorkspace",
+        message:
+          "Driveワークスペース候補のmetadataに問題があります。このスライスでは自動修復は行いません。",
+        candidates: summaries,
+        diagnostics: metadataResult.diagnostics,
+      };
+    }
+
+    const [workspaceJsonText, indexJsonText] = await Promise.all([
+      readDriveTextFile(
+        accessToken,
+        metadataResult.workspaceJsonFileId,
+        signal,
+      ),
+      readDriveTextFile(accessToken, metadataResult.indexJsonFileId, signal),
+    ]);
+
+    const jsonBodyResult = validateWorkspaceJsonBodies({
+      expectedWorkspaceId: metadataResult.workspaceId,
+      workspaceJsonText,
+      indexJsonText,
+    });
+
+    const diagnostics = [
+      ...metadataResult.diagnostics,
+      ...jsonBodyResult.diagnostics,
+    ];
+
+    if (jsonBodyResult.status === "invalidWorkspace") {
+      return {
+        status: "invalidWorkspace",
+        message:
+          "Driveワークスペース候補のJSON本文に問題があります。このスライスでは自動修復は行いません。",
+        candidates: summaries,
+        diagnostics,
+      };
+    }
+
+    if (jsonBodyResult.status === "unsupportedVersion") {
+      return {
+        status: "unsupportedVersion",
+        message:
+          "Driveワークスペース候補のschemaVersionは、このPWAでは対応していません。",
+        candidates: summaries,
+        diagnostics,
+      };
+    }
+
+    return {
+      status: "ready",
+      message:
+        "Driveワークスペース準備済みです。metadataとJSON本文の整合を確認しました。",
+      candidates: summaries,
+      diagnostics,
+    };
+  } catch (error) {
+    if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+      return {
+        status: "authRequired",
+        message:
+          "Google再接続が必要です。再接続後にDrive状態を確認してください。",
+        candidates: [],
+        diagnostics: [],
+      };
+    }
+
+    return {
+      status: "operationFailed",
+      message:
+        "Drive状態確認に失敗しました。通信状態を確認して、もう一度Drive状態を確認してください。",
+      candidates: [],
+      diagnostics: [],
+    };
+  }
 }
 
 function toCandidateSummary(
