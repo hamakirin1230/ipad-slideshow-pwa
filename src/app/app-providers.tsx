@@ -44,8 +44,14 @@ import {
   PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
   createPhotosPickerSession,
   deletePhotosPickerSession,
+  extractSinglePickedMediaItem,
+  fetchAndValidatePickedPhoto,
   getPhotosPickerSession,
+  listPickedMediaItems,
+  normalizePickedMediaItem,
   PhotosPickerSelectionError,
+  type PhotosPickedMediaItem,
+  type PhotosPickedPhotoDownloadResult,
   type PhotosPickerCreatedSession,
   type PhotosPickerResolvedPollingTiming,
   type PhotosPickerSessionSnapshot,
@@ -1021,6 +1027,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     let finalStatus: AssetImportStatus | null = null;
     let finalMessage = "";
     let finalDiagnostics: string[] = [];
+    let finalSelection: AssetImportSelection | null = null;
 
     try {
       photosAccessToken = await requestPhotosAccessToken(requestId);
@@ -1078,12 +1085,49 @@ export function AppProviders({ children }: { children: ReactNode }) {
         return;
       }
 
-      finalStatus = "downloadingFromPhotos";
+      setAssetImportStatus("downloadingFromPhotos");
+      setAssetImportMessage("Photosから選択結果を確認しています。");
+
+      const pickedMediaItemsList = await listPickedMediaItems(
+        photosAccessToken,
+        pickerSession.id,
+        abortSignal,
+      );
+
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      const pickedMediaItem = normalizePickedMediaItem(
+        extractSinglePickedMediaItem(pickedMediaItemsList),
+      );
+
+      setAssetImportMessage("選択した写真の形式とサイズを確認しています。");
+
+      const downloadResult = await fetchAndValidatePickedPhoto({
+        accessToken: photosAccessToken,
+        baseUrl: pickedMediaItem.mediaFile.baseUrl,
+        signal: abortSignal,
+      });
+
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      finalSelection = buildAssetImportSelection(
+        pickedMediaItem,
+        downloadResult,
+      );
+      finalStatus = "selected";
       finalMessage =
-        "Photos Pickerの選択完了まで確認しました。mediaItems取得と画像検証は後続パッチで接続します。";
+        "写真を1件選択し、形式とサイズを確認しました。Drive保存とmanifest反映はまだ行っていません。";
       finalDiagnostics = [
         ...waitResult.diagnostics,
+        ...pickedMediaItemsList.diagnostics,
+        ...pickedMediaItem.diagnostics,
+        ...downloadResult.diagnostics,
         "Photos Picker selection: 完了",
+        "画像形式とサイズ確認: 完了",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ];
@@ -1139,6 +1183,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       if (requestId === assetImportRequestIdRef.current) {
         if (finalStatus) {
+          setAssetImportSelection(finalSelection);
           setAssetImportStatus(finalStatus);
           setAssetImportMessage(finalMessage);
           setSafeAssetImportDiagnostics([
@@ -1962,6 +2007,24 @@ function tokenResponseIncludesPhotosPickerScope(
       .split(/\s+/)
       .includes("https://www.googleapis.com/auth/photospicker.mediaitems.readonly")
   );
+}
+
+function buildAssetImportSelection(
+  mediaItem: PhotosPickedMediaItem,
+  downloadResult: PhotosPickedPhotoDownloadResult,
+): AssetImportSelection {
+  return {
+    mediaItemIdPart: formatIdPart(mediaItem.id),
+    mediaItemType: "PHOTO",
+    filename: mediaItem.mediaFile.filename ?? "未取得",
+    sourceMimeType: mediaItem.mediaFile.mimeType,
+    sourceCreateTime: mediaItem.createTime,
+    downloadedContentType: downloadResult.downloadedContentType,
+    downloadedSizeBytes: downloadResult.downloadedSizeBytes,
+    sizeLimitBytes: downloadResult.sizeLimitBytes,
+    driveSaved: false,
+    manifestUpdated: false,
+  };
 }
 
 type PhotosPickerWaitResult = {
