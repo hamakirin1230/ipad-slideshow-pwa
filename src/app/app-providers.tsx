@@ -42,6 +42,7 @@ import {
 } from "@/lib/google-drive";
 import {
   PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
+  createPhotosPickerSession,
   deletePhotosPickerSession,
   getPhotosPickerSession,
   PhotosPickerSelectionError,
@@ -353,6 +354,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const assetImportAbortRef = useRef<AbortController | null>(null);
   const assetImportRequestIdRef = useRef(0);
   const assetImportInFlightRef = useRef(false);
+  const assetImportPickerWindowRef = useRef<Window | null>(null);
 
   const [googleStatus, setGoogleStatus] = useState<GoogleConnectionStatus>(
     hasClientId ? "scriptLoading" : "missingClientId",
@@ -438,6 +440,21 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  function closeAssetImportPickerWindow() {
+    const pickerWindow = assetImportPickerWindowRef.current;
+    assetImportPickerWindowRef.current = null;
+
+    if (!pickerWindow || pickerWindow.closed) {
+      return;
+    }
+
+    try {
+      pickerWindow.close();
+    } catch {
+      // Window cleanup must not replace the main asset import result.
+    }
+  }
+
   function clearAssetImportRuntimeRefs(options: {
     abort: boolean;
     rejectPendingPhotosTokenRequest: boolean;
@@ -459,6 +476,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     assetImportAbortRef.current = null;
+    closeAssetImportPickerWindow();
   }
 
   function requestPhotosAccessToken(requestId: number) {
@@ -971,56 +989,169 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
 
+    const pickerWindow = window.open("about:blank", "_blank");
+
+    if (!pickerWindow) {
+      setAssetImportStatus("error");
+      setAssetImportMessage(
+        "Photos Picker用の別ウィンドウを開けませんでした。ポップアップ許可を確認してください。",
+      );
+      setSafeAssetImportDiagnostics([
+        "Photos Picker用の別ウィンドウを開けませんでした。",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ]);
+      return;
+    }
+
+    try {
+      pickerWindow.opener = null;
+    } catch {
+      // opener cleanup is best-effort only.
+    }
+
+    assetImportPickerWindowRef.current = pickerWindow;
     assetImportAbortRef.current = new AbortController();
     setAssetImportInFlightState(true);
     setAssetImportStatus("requestingPhotosPermission");
     setAssetImportMessage("Google Photosの利用許可を確認しています。");
 
+    let photosAccessToken: string | null = null;
+    let pickerSessionId: string | null = null;
+    let finalStatus: AssetImportStatus | null = null;
+    let finalMessage = "";
+    let finalDiagnostics: string[] = [];
+
     try {
-      const photosAccessToken = await requestPhotosAccessToken(requestId);
+      photosAccessToken = await requestPhotosAccessToken(requestId);
 
       if (requestId !== assetImportRequestIdRef.current) {
         return;
       }
 
       currentAssetImportAccessTokenRef.current = photosAccessToken;
-      setAssetImportStatus("error");
-      setAssetImportMessage(
-        "Google Photosの利用許可確認まで完了しました。Picker session連携は後続パッチで接続します。",
+      setAssetImportStatus("openingPicker");
+      setAssetImportMessage("Photos Picker sessionを作成しています。");
+
+      const abortSignal = assetImportAbortRef.current?.signal;
+
+      if (!abortSignal) {
+        throw createAbortError();
+      }
+
+      const pickerSession = await createPhotosPickerSession(
+        photosAccessToken,
+        abortSignal,
       );
-      setSafeAssetImportDiagnostics([
-        "Google Photosの利用許可確認: 成功",
+
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      pickerSessionId = pickerSession.id;
+      currentAssetImportSessionIdRef.current = pickerSession.id;
+
+      if (pickerWindow.closed) {
+        throw new PhotosPickerSelectionError({
+          status: "cancelled",
+          message: "Photos Picker window was closed before navigation.",
+          diagnostics: [
+            "Photos Picker用の別ウィンドウが選択画面を開く前に閉じられました。",
+            "Drive保存: 未実行",
+            "manifest反映: 未実行",
+          ],
+        });
+      }
+
+      pickerWindow.location.href = `${pickerSession.pickerUri}/autoclose`;
+
+      setAssetImportStatus("waitingForSelection");
+      setAssetImportMessage("Photos Pickerで写真を1件選択してください。");
+
+      const waitResult = await waitForPhotosPickerSelection({
+        accessToken: photosAccessToken,
+        session: pickerSession,
+        signal: abortSignal,
+      });
+
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      finalStatus = "downloadingFromPhotos";
+      finalMessage =
+        "Photos Pickerの選択完了まで確認しました。mediaItems取得と画像検証は後続パッチで接続します。";
+      finalDiagnostics = [
+        ...waitResult.diagnostics,
+        "Photos Picker selection: 完了",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
-      ]);
+      ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
         return;
       }
 
       if (error instanceof PhotosTokenRequestError) {
-        setAssetImportStatus(error.status);
-        setAssetImportMessage(
+        finalStatus = error.status;
+        finalMessage =
           error.status === "cancelled"
             ? "Google Photosの利用許可がキャンセルされました。"
-            : "Google Photosの利用許可を確認できませんでした。",
-        );
-        setSafeAssetImportDiagnostics(error.diagnostics);
-        return;
+            : "Google Photosの利用許可を確認できませんでした。";
+        finalDiagnostics = error.diagnostics;
+      } else if (error instanceof PhotosPickerSelectionError) {
+        finalStatus = error.status;
+        finalMessage =
+          error.status === "cancelled"
+            ? "Photos Pickerでの選択がキャンセルされました。"
+            : error.status === "invalid"
+              ? "Photos Pickerの選択結果に問題があります。"
+              : "Photos Picker処理に失敗しました。";
+        finalDiagnostics = error.diagnostics;
+      } else if (isAbortError(error)) {
+        finalStatus = "cancelled";
+        finalMessage = "素材追加を中止しました。";
+        finalDiagnostics = [
+          "素材追加処理を中止しました。",
+          "Drive保存: 未実行",
+          "manifest反映: 未実行",
+        ];
+      } else {
+        finalStatus = "error";
+        finalMessage = "Photos Picker処理に失敗しました。";
+        finalDiagnostics = [
+          "Photos Picker処理中に予期しないエラーが発生しました。",
+          "Drive保存: 未実行",
+          "manifest反映: 未実行",
+        ];
+      }
+    } finally {
+      let cleanupDiagnostics: string[] = [];
+
+      if (photosAccessToken && pickerSessionId) {
+        cleanupDiagnostics = (
+          await cleanupPhotosPickerSessionOnce({
+            accessToken: photosAccessToken,
+            sessionId: pickerSessionId,
+          })
+        ).diagnostics;
       }
 
-      setAssetImportStatus("error");
-      setAssetImportMessage("Google Photosの利用許可を確認できませんでした。");
-      setSafeAssetImportDiagnostics([
-        "Google Photosの利用許可確認中に予期しないエラーが発生しました。",
-        "Drive保存: 未実行",
-        "manifest反映: 未実行",
-      ]);
-    } finally {
       if (requestId === assetImportRequestIdRef.current) {
+        if (finalStatus) {
+          setAssetImportStatus(finalStatus);
+          setAssetImportMessage(finalMessage);
+          setSafeAssetImportDiagnostics([
+            ...finalDiagnostics,
+            ...cleanupDiagnostics,
+          ]);
+        }
+
         currentAssetImportAccessTokenRef.current = null;
+        currentAssetImportSessionIdRef.current = null;
         assetImportAbortRef.current = null;
         setAssetImportInFlightState(false);
+        closeAssetImportPickerWindow();
       }
     }
   }
@@ -1033,6 +1164,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     ) {
       return;
     }
+
+    const cleanupAccessToken = currentAssetImportAccessTokenRef.current;
+    const cleanupSessionId = currentAssetImportSessionIdRef.current;
 
     assetImportRequestIdRef.current += 1;
     clearAssetImportRuntimeRefs({
@@ -1048,6 +1182,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       "Drive保存: 未実行",
       "manifest反映: 未実行",
     ]);
+
+    if (cleanupAccessToken && cleanupSessionId) {
+      void cleanupPhotosPickerSessionOnce({
+        accessToken: cleanupAccessToken,
+        sessionId: cleanupSessionId,
+      });
+    }
   }
 
   async function checkDriveWorkspace() {
@@ -1984,6 +2125,10 @@ function throwIfAborted(signal: AbortSignal) {
 
 function createAbortError() {
   return new DOMException("Operation was aborted.", "AbortError");
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function sanitizeAssetImportDiagnostics(diagnostics: string[]) {
