@@ -39,6 +39,7 @@ import {
 } from "@/lib/google-drive";
 
 const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
+const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 
 export type DriveWorkspaceStatus =
   | "unchecked"
@@ -72,6 +73,7 @@ export type AssetImportStatus =
   | "openingPicker"
   | "waitingForSelection"
   | "downloadingFromPhotos"
+  | "selected"
   | "uploadingToDrive"
   | "updatingManifest"
   | "verifying"
@@ -115,12 +117,32 @@ export type ProjectDetails = {
   slides: ProjectSlideSummary[];
 };
 
+export type AssetImportSelection = {
+  mediaItemIdPart: string;
+  mediaItemType: "PHOTO";
+  filename: string;
+  sourceMimeType: string;
+  sourceCreateTime: string | null;
+  downloadedContentType: "image/jpeg" | "image/png" | "image/webp";
+  downloadedSizeBytes: number;
+  sizeLimitBytes: number;
+  driveSaved: false;
+  manifestUpdated: false;
+};
+
 type DriveWorkspaceCheckResult = {
   status: DriveWorkspaceCheckStatus;
   message: string;
   candidates: DriveCandidateSummary[];
   diagnostics: string[];
   readyContext?: DriveWorkspaceReadyContext;
+};
+
+type PendingPhotosTokenRequest = {
+  requestId: number;
+  timeoutId: ReturnType<typeof setTimeout>;
+  resolve: (accessToken: string) => void;
+  reject: (error: unknown) => void;
 };
 
 const childRoles: DriveWorkspaceChildRole[] = [
@@ -188,6 +210,10 @@ type AppContextValue = {
   assetImportStatusLabel: string;
   assetImportMessage: string;
   assetImportDiagnostics: string[];
+  assetImportSelection: AssetImportSelection | null;
+  isAssetImportInFlight: boolean;
+  canStartAssetImport: boolean;
+  assetImportBlockedReason: string | null;
 
   connectGoogle: () => void;
   disconnectGoogle: () => void;
@@ -195,6 +221,8 @@ type AppContextValue = {
   createWorkspace: () => void;
   checkProject: () => void;
   createProject: () => void;
+  startAssetImport: () => void;
+  cancelAssetImport: () => void;
 };
 
 const googleStatusLabels: Record<GoogleConnectionStatus, string> = {
@@ -236,6 +264,7 @@ const assetImportStatusLabels: Record<AssetImportStatus, string> = {
   openingPicker: "Photos Picker起動中",
   waitingForSelection: "写真選択待ち",
   downloadingFromPhotos: "Photosから取得中",
+  selected: "写真選択・検証済み",
   uploadingToDrive: "Drive保存中",
   updatingManifest: "manifest更新中",
   verifying: "素材追加結果確認中",
@@ -268,6 +297,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
   );
   const driveOperationRequestIdRef = useRef(0);
   const driveOperationInFlightRef = useRef(false);
+
+  const pendingPhotosTokenRequestRef =
+    useRef<PendingPhotosTokenRequest | null>(null);
+  const currentAssetImportAccessTokenRef = useRef<string | null>(null);
+  const currentAssetImportSessionIdRef = useRef<string | null>(null);
+  const assetImportAbortRef = useRef<AbortController | null>(null);
+  const assetImportRequestIdRef = useRef(0);
+  const assetImportInFlightRef = useRef(false);
 
   const [googleStatus, setGoogleStatus] = useState<GoogleConnectionStatus>(
     hasClientId ? "scriptLoading" : "missingClientId",
@@ -312,9 +349,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [assetImportDiagnostics, setAssetImportDiagnostics] = useState<
     string[]
   >([]);
+  const [assetImportSelection, setAssetImportSelection] =
+    useState<AssetImportSelection | null>(null);
+  const [isAssetImportInFlight, setIsAssetImportInFlight] = useState(false);
 
   const canImportAssets =
     projectStatus === "ready" && driveProjectReadyContext !== null;
+  const assetImportBlockedReason = getAssetImportBlockedReason();
+  const canStartAssetImport = assetImportBlockedReason === null;
 
   function setDriveOperationInFlight(value: boolean) {
     driveOperationInFlightRef.current = value;
@@ -328,7 +370,63 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  function setAssetImportInFlightState(value: boolean) {
+    assetImportInFlightRef.current = value;
+    setIsAssetImportInFlight(value);
+  }
+
+  function clearPendingPhotosTokenRequest() {
+    const pendingRequest = pendingPhotosTokenRequestRef.current;
+
+    if (!pendingRequest) {
+      return;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingPhotosTokenRequestRef.current = null;
+  }
+
+  function clearAssetImportRuntimeRefs(options: { abort: boolean }) {
+    clearPendingPhotosTokenRequest();
+    currentAssetImportAccessTokenRef.current = null;
+    currentAssetImportSessionIdRef.current = null;
+
+    if (options.abort && assetImportAbortRef.current) {
+      assetImportAbortRef.current.abort();
+    }
+
+    assetImportAbortRef.current = null;
+  }
+
+  function getAssetImportBlockedReason() {
+    if (assetImportInFlightRef.current || isAssetImportInFlight) {
+      return "素材追加処理中です。";
+    }
+
+    if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
+      return "Drive操作中のため、素材追加は開始できません。";
+    }
+
+    if (!canImportAssets) {
+      return "Drive project ready ではないため、素材追加は開始できません。";
+    }
+
+    if (!projectDetails) {
+      return "プロジェクト詳細を確認できないため、素材追加は開始できません。";
+    }
+
+    if (projectDetails.slideCount >= ASSET_IMPORT_MAX_SLIDE_COUNT) {
+      return "本編スライド数が上限の50件に達しています。";
+    }
+
+    return null;
+  }
+
   function resetAssetImportState() {
+    assetImportRequestIdRef.current += 1;
+    clearAssetImportRuntimeRefs({ abort: true });
+    setAssetImportInFlightState(false);
+    setAssetImportSelection(null);
     setAssetImportStatus("idle");
     setAssetImportMessage(initialAssetImportMessage);
     setAssetImportDiagnostics([]);
@@ -348,7 +446,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setProjectSummary(toProjectSummary(project, details));
     resetAssetImportState();
     setAssetImportMessage(
-      "Google Photos Picker連携は次スライスで実装します。",
+      "Google Photos Picker連携は後続パッチで実行UIに接続します。",
     );
   }
 
@@ -565,6 +663,59 @@ export function AppProviders({ children }: { children: ReactNode }) {
         : "NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。",
     );
     resetDriveState();
+  }
+
+  function startAssetImport() {
+    const blockedReason = getAssetImportBlockedReason();
+
+    assetImportRequestIdRef.current += 1;
+    clearAssetImportRuntimeRefs({ abort: true });
+    setAssetImportInFlightState(false);
+    setAssetImportSelection(null);
+    setAssetImportDiagnostics([]);
+
+    if (blockedReason) {
+      setAssetImportStatus("invalid");
+      setAssetImportMessage("素材追加を開始できませんでした。");
+      setAssetImportDiagnostics([
+        blockedReason,
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ]);
+      return;
+    }
+
+    setAssetImportStatus("error");
+    setAssetImportMessage(
+      "素材追加処理は後続パッチでPhotos Picker連携へ接続します。",
+    );
+    setAssetImportDiagnostics([
+      "第3-Aでは素材追加の状態とContext公開枠だけを追加しています。",
+      "Drive保存: 未実行",
+      "manifest反映: 未実行",
+    ]);
+  }
+
+  function cancelAssetImport() {
+    if (
+      !assetImportInFlightRef.current &&
+      !pendingPhotosTokenRequestRef.current &&
+      !assetImportAbortRef.current
+    ) {
+      return;
+    }
+
+    assetImportRequestIdRef.current += 1;
+    clearAssetImportRuntimeRefs({ abort: true });
+    setAssetImportInFlightState(false);
+    setAssetImportSelection(null);
+    setAssetImportStatus("cancelled");
+    setAssetImportMessage("素材追加を中止しました。");
+    setAssetImportDiagnostics([
+      "ユーザー操作により素材追加を中止しました。",
+      "Drive保存: 未実行",
+      "manifest反映: 未実行",
+    ]);
   }
 
   async function checkDriveWorkspace() {
@@ -1054,12 +1205,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
     assetImportStatusLabel: assetImportStatusLabels[assetImportStatus],
     assetImportMessage,
     assetImportDiagnostics,
+    assetImportSelection,
+    isAssetImportInFlight,
+    canStartAssetImport,
+    assetImportBlockedReason,
     connectGoogle,
     disconnectGoogle,
     checkDriveWorkspace,
     createWorkspace,
     checkProject,
     createProject,
+    startAssetImport,
+    cancelAssetImport,
   };
 
   return (
