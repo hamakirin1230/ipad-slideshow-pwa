@@ -9,11 +9,14 @@ import {
   type ReactNode,
 } from "react";
 import {
+  DRIVE_AND_PHOTOS_PICKER_SCOPES,
   DRIVE_FILE_SCOPE,
   type GoogleConnectionStatus,
   type GoogleTokenClient,
+  type GoogleTokenResponse,
   getGoogleClientId,
   hasGoogleClientId,
+  hasGrantedDriveFileAndPhotosPickerScopes,
   hasGrantedDriveFileScope,
 } from "@/lib/google-auth";
 import {
@@ -40,6 +43,7 @@ import {
 
 const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
+const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 120_000;
 
 export type DriveWorkspaceStatus =
   | "unchecked"
@@ -144,6 +148,26 @@ type PendingPhotosTokenRequest = {
   resolve: (accessToken: string) => void;
   reject: (error: unknown) => void;
 };
+
+type TokenRequestKind = "drive" | "photos" | null;
+
+type PhotosTokenRequestFailureStatus = "cancelled" | "error";
+
+class PhotosTokenRequestError extends Error {
+  readonly status: PhotosTokenRequestFailureStatus;
+  readonly diagnostics: string[];
+
+  constructor(input: {
+    status: PhotosTokenRequestFailureStatus;
+    message: string;
+    diagnostics: string[];
+  }) {
+    super(input.message);
+    this.name = "PhotosTokenRequestError";
+    this.status = input.status;
+    this.diagnostics = [...input.diagnostics];
+  }
+}
 
 const childRoles: DriveWorkspaceChildRole[] = [
   "workspace",
@@ -291,6 +315,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   const accessTokenRef = useRef<string | null>(null);
   const tokenClientRef = useRef<GoogleTokenClient | null>(null);
+  const tokenRequestKindRef = useRef<TokenRequestKind>(null);
   const driveOperationAbortRef = useRef<AbortController | null>(null);
   const driveOperationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -375,7 +400,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setIsAssetImportInFlight(value);
   }
 
-  function clearPendingPhotosTokenRequest() {
+  function clearPendingPhotosTokenRequest(reason?: PhotosTokenRequestError) {
     const pendingRequest = pendingPhotosTokenRequestRef.current;
 
     if (!pendingRequest) {
@@ -384,10 +409,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     clearTimeout(pendingRequest.timeoutId);
     pendingPhotosTokenRequestRef.current = null;
+
+    if (reason) {
+      pendingRequest.reject(reason);
+    }
   }
 
-  function clearAssetImportRuntimeRefs(options: { abort: boolean }) {
-    clearPendingPhotosTokenRequest();
+  function clearAssetImportRuntimeRefs(options: {
+    abort: boolean;
+    rejectPendingPhotosTokenRequest: boolean;
+  }) {
+    clearPendingPhotosTokenRequest(
+      options.rejectPendingPhotosTokenRequest
+        ? new PhotosTokenRequestError({
+            status: "cancelled",
+            message: "Photos token request was cancelled.",
+            diagnostics: ["素材追加処理を中止しました。"],
+          })
+        : undefined,
+    );
     currentAssetImportAccessTokenRef.current = null;
     currentAssetImportSessionIdRef.current = null;
 
@@ -396,6 +436,205 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     assetImportAbortRef.current = null;
+  }
+
+  function requestPhotosAccessToken(requestId: number) {
+    const tokenClient = tokenClientRef.current;
+
+    if (!tokenClient) {
+      return Promise.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Google token client was not ready.",
+          diagnostics: [
+            "Google認証ライブラリの準備が完了していません。",
+            "Drive保存: 未実行",
+            "manifest反映: 未実行",
+          ],
+        }),
+      );
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        const pendingRequest = pendingPhotosTokenRequestRef.current;
+
+        if (!pendingRequest || pendingRequest.requestId !== requestId) {
+          return;
+        }
+
+        pendingPhotosTokenRequestRef.current = null;
+        tokenRequestKindRef.current = null;
+        reject(
+          new PhotosTokenRequestError({
+            status: "cancelled",
+            message: "Photos token request timed out.",
+            diagnostics: [
+              "Google Photosの利用許可待ちが120秒でタイムアウトしました。",
+              "Drive保存: 未実行",
+              "manifest反映: 未実行",
+            ],
+          }),
+        );
+      }, PHOTOS_TOKEN_REQUEST_TIMEOUT_MS);
+
+      pendingPhotosTokenRequestRef.current = {
+        requestId,
+        timeoutId,
+        resolve,
+        reject,
+      };
+
+      tokenRequestKindRef.current = "photos";
+
+      try {
+        tokenClient.requestAccessToken({
+          scope: DRIVE_AND_PHOTOS_PICKER_SCOPES,
+          include_granted_scopes: true,
+          prompt: "consent",
+        });
+      } catch {
+        const pendingRequest = pendingPhotosTokenRequestRef.current;
+
+        if (pendingRequest?.requestId === requestId) {
+          clearTimeout(pendingRequest.timeoutId);
+          pendingPhotosTokenRequestRef.current = null;
+        }
+
+        tokenRequestKindRef.current = null;
+        reject(
+          new PhotosTokenRequestError({
+            status: "error",
+            message: "Photos token request could not be started.",
+            diagnostics: [
+              "Google Photosの利用許可要求を開始できませんでした。",
+              "Drive保存: 未実行",
+              "manifest反映: 未実行",
+            ],
+          }),
+        );
+      }
+    });
+  }
+
+  function handlePhotosTokenResponse(tokenResponse: GoogleTokenResponse) {
+    const pendingRequest = pendingPhotosTokenRequestRef.current;
+
+    if (!pendingRequest) {
+      if (
+        tokenRequestKindRef.current === "photos" ||
+        tokenResponseIncludesPhotosPickerScope(tokenResponse)
+      ) {
+        tokenRequestKindRef.current = null;
+        return true;
+      }
+
+      return false;
+    }
+
+    if (pendingRequest.requestId !== assetImportRequestIdRef.current) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingPhotosTokenRequestRef.current = null;
+      tokenRequestKindRef.current = null;
+      return true;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingPhotosTokenRequestRef.current = null;
+    tokenRequestKindRef.current = null;
+
+    if (tokenResponse.error === "access_denied") {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos permission was cancelled.",
+          diagnostics: [
+            "Google Photosの利用許可がキャンセルされました。",
+            "Drive保存: 未実行",
+            "manifest反映: 未実行",
+          ],
+        }),
+      );
+      return true;
+    }
+
+    if (tokenResponse.error) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos token request returned an error.",
+          diagnostics: [
+            "Google Photosの利用許可でエラーが返されました。",
+            "Drive保存: 未実行",
+            "manifest反映: 未実行",
+          ],
+        }),
+      );
+      return true;
+    }
+
+    if (!tokenResponse.access_token) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos access token was missing.",
+          diagnostics: [
+            "Google Photos用のaccess_tokenを受け取れませんでした。",
+            "Drive保存: 未実行",
+            "manifest反映: 未実行",
+          ],
+        }),
+      );
+      return true;
+    }
+
+    if (!hasGrantedDriveFileAndPhotosPickerScopes(tokenResponse)) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos Picker scopes were not granted.",
+          diagnostics: [
+            "Google Photos Pickerに必要なscopeを確認できませんでした。",
+            "Drive保存: 未実行",
+            "manifest反映: 未実行",
+          ],
+        }),
+      );
+      return true;
+    }
+
+    pendingRequest.resolve(tokenResponse.access_token);
+    return true;
+  }
+
+  function handlePhotosTokenErrorCallback() {
+    const pendingRequest = pendingPhotosTokenRequestRef.current;
+
+    if (!pendingRequest) {
+      if (tokenRequestKindRef.current === "photos") {
+        tokenRequestKindRef.current = null;
+        return true;
+      }
+
+      return false;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingPhotosTokenRequestRef.current = null;
+    tokenRequestKindRef.current = null;
+    pendingRequest.reject(
+      new PhotosTokenRequestError({
+        status: "cancelled",
+        message: "Photos permission did not complete.",
+        diagnostics: [
+          "Google Photosの利用許可が完了しませんでした。",
+          "Drive保存: 未実行",
+          "manifest反映: 未実行",
+        ],
+      }),
+    );
+
+    return true;
   }
 
   function getAssetImportBlockedReason() {
@@ -424,7 +663,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function resetAssetImportState() {
     assetImportRequestIdRef.current += 1;
-    clearAssetImportRuntimeRefs({ abort: true });
+    clearAssetImportRuntimeRefs({
+      abort: true,
+      rejectPendingPhotosTokenRequest: true,
+    });
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
     setAssetImportStatus("idle");
@@ -562,6 +804,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
       prompt: "select_account",
       include_granted_scopes: false,
       callback: (tokenResponse) => {
+        if (handlePhotosTokenResponse(tokenResponse)) {
+          return;
+        }
+
+        tokenRequestKindRef.current = null;
+
         if (tokenResponse.error) {
           accessTokenRef.current = null;
           setDriveFileGranted(null);
@@ -608,6 +856,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
         resetDriveState();
       },
       error_callback: () => {
+        if (handlePhotosTokenErrorCallback()) {
+          return;
+        }
+
+        tokenRequestKindRef.current = null;
         accessTokenRef.current = null;
         setDriveFileGranted(null);
         setGoogleStatus("error");
@@ -649,6 +902,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setGoogleStatus("connecting");
     setGoogleMessage("Googleアカウント選択と許可確認を行っています。");
     resetDriveState();
+    tokenRequestKindRef.current = "drive";
     tokenClientRef.current.requestAccessToken();
   }
 
@@ -665,11 +919,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetDriveState();
   }
 
-  function startAssetImport() {
+  async function startAssetImport() {
     const blockedReason = getAssetImportBlockedReason();
 
     assetImportRequestIdRef.current += 1;
-    clearAssetImportRuntimeRefs({ abort: true });
+    const requestId = assetImportRequestIdRef.current;
+
+    clearAssetImportRuntimeRefs({
+      abort: true,
+      rejectPendingPhotosTokenRequest: true,
+    });
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
     setAssetImportDiagnostics([]);
@@ -685,15 +944,58 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
 
-    setAssetImportStatus("error");
-    setAssetImportMessage(
-      "素材追加処理は後続パッチでPhotos Picker連携へ接続します。",
-    );
-    setAssetImportDiagnostics([
-      "第3-Aでは素材追加の状態とContext公開枠だけを追加しています。",
-      "Drive保存: 未実行",
-      "manifest反映: 未実行",
-    ]);
+    assetImportAbortRef.current = new AbortController();
+    setAssetImportInFlightState(true);
+    setAssetImportStatus("requestingPhotosPermission");
+    setAssetImportMessage("Google Photosの利用許可を確認しています。");
+
+    try {
+      const photosAccessToken = await requestPhotosAccessToken(requestId);
+
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      currentAssetImportAccessTokenRef.current = photosAccessToken;
+      setAssetImportStatus("error");
+      setAssetImportMessage(
+        "Photos権限つきtoken取得まで完了しました。Picker session連携は後続パッチで接続します。",
+      );
+      setAssetImportDiagnostics([
+        "Photos権限つきtoken取得: 成功",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ]);
+    } catch (error) {
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      if (error instanceof PhotosTokenRequestError) {
+        setAssetImportStatus(error.status);
+        setAssetImportMessage(
+          error.status === "cancelled"
+            ? "Google Photosの利用許可がキャンセルされました。"
+            : "Google Photosの利用許可を確認できませんでした。",
+        );
+        setAssetImportDiagnostics(error.diagnostics);
+        return;
+      }
+
+      setAssetImportStatus("error");
+      setAssetImportMessage("Google Photosの利用許可を確認できませんでした。");
+      setAssetImportDiagnostics([
+        "Google Photosの利用許可確認中に予期しないエラーが発生しました。",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ]);
+    } finally {
+      if (requestId === assetImportRequestIdRef.current) {
+        currentAssetImportAccessTokenRef.current = null;
+        assetImportAbortRef.current = null;
+        setAssetImportInFlightState(false);
+      }
+    }
   }
 
   function cancelAssetImport() {
@@ -706,7 +1008,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     assetImportRequestIdRef.current += 1;
-    clearAssetImportRuntimeRefs({ abort: true });
+    clearAssetImportRuntimeRefs({
+      abort: true,
+      rejectPendingPhotosTokenRequest: true,
+    });
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
     setAssetImportStatus("cancelled");
@@ -1478,6 +1783,17 @@ function formatProjectChangedItemName(item: DriveProjectChangedItem) {
 
 function dedupeDiagnostics(diagnostics: string[]) {
   return [...new Set(diagnostics)];
+}
+
+function tokenResponseIncludesPhotosPickerScope(
+  tokenResponse: GoogleTokenResponse,
+) {
+  return (
+    typeof tokenResponse.scope === "string" &&
+    tokenResponse.scope
+      .split(/\s+/)
+      .includes("https://www.googleapis.com/auth/photospicker.mediaitems.readonly")
+  );
 }
 
 function buildWorkspaceCreateFailureDiagnostics(
