@@ -9,11 +9,20 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAppState } from "@/app/app-providers";
+import { AssetImportPanel } from "./asset-import-panel";
 
 export function DriveProjectWorkspacePanel() {
-  const { driveStatus, projectStatus, projectSummary } = useAppState();
+  const { driveStatus, projectStatus, projectSummary, projectDetails } =
+    useAppState();
 
-  const hasReadyProject = driveStatus === "ready" && projectStatus === "ready" && projectSummary;
+  const hasReadyProject =
+    driveStatus === "ready" && projectStatus === "ready" && projectSummary;
+  const readyProjectDetails = projectStatus === "ready" ? projectDetails : null;
+  const assetCount =
+    readyProjectDetails?.assetCount ?? projectSummary?.assetCount ?? 0;
+  const slideCount =
+     readyProjectDetails?.slideCount ?? projectSummary?.slideCount ?? 0;
+  const slides = readyProjectDetails?.slides ?? [];
 
   return (
     <div className="space-y-4">
@@ -34,9 +43,9 @@ export function DriveProjectWorkspacePanel() {
             <CardDescription>Drive assets/ 配下の素材管理</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">0</p>
+            <p className="text-3xl font-bold">{assetCount}</p>
             <p className="mt-2 text-sm text-slate-500">
-              素材保存は後続コミットで追加します。
+              第4-3-1では検証済みslidesが参照するasset数だけを表示します。
             </p>
           </CardContent>
         </Card>
@@ -47,9 +56,9 @@ export function DriveProjectWorkspacePanel() {
             <CardDescription>manifest.json.slides の編集対象</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">0</p>
+            <p className="text-3xl font-bold">{slideCount}</p>
             <p className="mt-2 text-sm text-slate-500">
-              スライド編集は後続コミットで追加します。
+              第4-3-1では空のslides[]だけをreadyとして扱います。
             </p>
           </CardContent>
         </Card>
@@ -94,6 +103,14 @@ export function DriveProjectWorkspacePanel() {
                     <dd>{projectSummary.updatedAt}</dd>
                   </div>
                   <div>
+                    <dt className="font-medium text-slate-900">素材数</dt>
+                    <dd>{assetCount}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-slate-900">本編スライド数</dt>
+                    <dd>{slideCount}</dd>
+                  </div>
+                  <div>
                     <dt className="font-medium text-slate-900">スライド編集</dt>
                     <dd>後続コミットで追加</dd>
                   </div>
@@ -116,10 +133,7 @@ export function DriveProjectWorkspacePanel() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-              現時点では素材一覧をDriveから読み取りません。次の段階で Google
-              Photos Picker と assets/ 保存フローを追加します。
-            </div>
+            <AssetImportPanel />
           </CardContent>
         </Card>
       </section>
@@ -133,10 +147,45 @@ export function DriveProjectWorkspacePanel() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-              現在の第4-2では、プロジェクト作成と検証までを扱います。
-              スライド追加、並べ替え、表示秒数、テロップ設定はまだ行いません。
-            </div>
+            {slides.length > 0 ? (
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <div className="grid grid-cols-[4rem_1fr_8rem_8rem] bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <p>順番</p>
+                  <p>asset</p>
+                  <p>MIME</p>
+                  <p>秒数</p>
+                </div>
+                <div className="divide-y divide-slate-200">
+                  {slides.map((slide, index) => (
+                    <div
+                      key={`${slide.slideIdPart}-${slide.assetIdPart}`}
+                      className="grid grid-cols-[4rem_1fr_8rem_8rem] px-4 py-3 text-sm"
+                    >
+                      <p className="font-medium">{index + 1}</p>
+                      <div>
+                        <p className="font-medium">{slide.assetName}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          source: {slide.sourceMimeType} / createTime:{" "}
+                          {slide.sourceCreateTime}
+                        </p>
+                      </div>
+                      <p>{slide.mimeType}</p>
+                      <p>{slide.durationSeconds}秒</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                <p className="font-medium text-slate-900">
+                  検証済みスライドはまだありません。
+                </p>
+                <p className="mt-2">
+                  第4-3-1では、manifest.json.slides が空配列であることだけを
+                  ready として扱います。スライド追加は後続スライスで実装します。
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </section>

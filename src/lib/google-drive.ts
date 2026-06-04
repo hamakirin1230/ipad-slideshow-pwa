@@ -99,6 +99,31 @@ export type DriveProjectSummary = {
   updatedAt: string;
 };
 
+export type DriveAssetMimeType = "image/jpeg" | "image/png" | "image/webp";
+
+export type DriveSlideSummary = {
+  slideId: string;
+  assetId: string;
+  assetFileId: string;
+  assetName: string;
+  mimeType: DriveAssetMimeType;
+  source: "googlePhotosPicker";
+  sourceMimeType: string;
+  sourceMediaItemId: string;
+  sourceCreateTime?: string;
+  durationSeconds: number;
+  caption: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DriveProjectReadyDetails = {
+  project: DriveProjectSummary;
+  slides: DriveSlideSummary[];
+  slideCount: number;
+  assetCount: number;
+};
+
 export type DriveProjectChangedItemRole =
   | "projectRoot"
   | "projectManifest"
@@ -1897,6 +1922,13 @@ function validateProjectManifestSlidesArray(
 
   if (!Array.isArray(body.slides)) {
     diagnostics.push("manifest.json の slides は配列である必要があります。");
+    return;
+  }
+
+  if (body.slides.length > 0) {
+    diagnostics.push(
+      "第4-3-1では manifest.json の slides は空配列である必要があります。",
+    );
   }
 }
 

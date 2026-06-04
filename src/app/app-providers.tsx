@@ -66,6 +66,20 @@ export type ProjectStatus =
   | "invalid"
   | "error";
 
+export type AssetImportStatus =
+  | "idle"
+  | "requestingPhotosPermission"
+  | "openingPicker"
+  | "waitingForSelection"
+  | "downloadingFromPhotos"
+  | "uploadingToDrive"
+  | "updatingManifest"
+  | "verifying"
+  | "completed"
+  | "cancelled"
+  | "invalid"
+  | "error";
+
 export type DriveCandidateSummary = {
   name: string;
   createdTime: string;
@@ -79,6 +93,26 @@ export type ProjectSummary = {
   manifestPath: string;
   createdAt: string;
   updatedAt: string;
+  slideCount: number;
+  assetCount: number;
+};
+
+export type ProjectSlideSummary = {
+  slideIdPart: string;
+  assetIdPart: string;
+  assetName: string;
+  mimeType: string;
+  sourceMimeType: string;
+  sourceCreateTime: string;
+  durationSeconds: number;
+  caption: string;
+  verified: boolean;
+};
+
+export type ProjectDetails = {
+  slideCount: number;
+  assetCount: number;
+  slides: ProjectSlideSummary[];
 };
 
 type DriveWorkspaceCheckResult = {
@@ -147,6 +181,13 @@ type AppContextValue = {
   projectMessage: string;
   projectSummary: ProjectSummary | null;
   projectDiagnostics: string[];
+  projectDetails: ProjectDetails | null;
+
+  canImportAssets: boolean;
+  assetImportStatus: AssetImportStatus;
+  assetImportStatusLabel: string;
+  assetImportMessage: string;
+  assetImportDiagnostics: string[];
 
   connectGoogle: () => void;
   disconnectGoogle: () => void;
@@ -189,11 +230,29 @@ const projectStatusLabels: Record<ProjectStatus, string> = {
   error: "プロジェクト操作失敗",
 };
 
+const assetImportStatusLabels: Record<AssetImportStatus, string> = {
+  idle: "素材追加待機中",
+  requestingPhotosPermission: "Photos権限確認中",
+  openingPicker: "Photos Picker起動中",
+  waitingForSelection: "写真選択待ち",
+  downloadingFromPhotos: "Photosから取得中",
+  uploadingToDrive: "Drive保存中",
+  updatingManifest: "manifest更新中",
+  verifying: "素材追加結果確認中",
+  completed: "素材追加完了",
+  cancelled: "素材追加キャンセル",
+  invalid: "素材追加条件に問題あり",
+  error: "素材追加失敗",
+};
+
 const initialDriveMessage =
   "このセッションでは、まだDriveワークスペース確認を実行していません。";
 
 const initialProjectMessage =
   "Driveワークスペース ready 後にプロジェクト状態を確認します。";
+
+const initialAssetImportMessage =
+  "Drive project ready 後に素材追加の準備状態を確認できます。";
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -239,6 +298,23 @@ export function AppProviders({ children }: { children: ReactNode }) {
     null,
   );
   const [projectDiagnostics, setProjectDiagnostics] = useState<string[]>([]);
+  const [driveProjectReadyContext, setDriveProjectReadyContext] =
+    useState<DriveProjectSummary | null>(null);
+  const [projectDetails, setProjectDetails] = useState<ProjectDetails | null>(
+    null,
+  );
+
+  const [assetImportStatus, setAssetImportStatus] =
+    useState<AssetImportStatus>("idle");
+  const [assetImportMessage, setAssetImportMessage] = useState(
+    initialAssetImportMessage,
+  );
+  const [assetImportDiagnostics, setAssetImportDiagnostics] = useState<
+    string[]
+  >([]);
+
+  const canImportAssets =
+    projectStatus === "ready" && driveProjectReadyContext !== null;
 
   function setDriveOperationInFlight(value: boolean) {
     driveOperationInFlightRef.current = value;
@@ -252,11 +328,36 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  function resetAssetImportState() {
+    setAssetImportStatus("idle");
+    setAssetImportMessage(initialAssetImportMessage);
+    setAssetImportDiagnostics([]);
+  }
+
+  function clearProjectReadyDetails() {
+    setDriveProjectReadyContext(null);
+    setProjectDetails(null);
+    resetAssetImportState();
+  }
+
+  function applyProjectReadyState(project: DriveProjectSummary) {
+    const details = buildEmptyProjectDetails();
+
+    setDriveProjectReadyContext(project);
+    setProjectDetails(details);
+    setProjectSummary(toProjectSummary(project, details));
+    resetAssetImportState();
+    setAssetImportMessage(
+      "Google Photos Picker連携は次スライスで実装します。",
+    );
+  }
+
   function resetProjectState() {
-    setProjectStatus("idle");
-    setProjectMessage(initialProjectMessage);
-    setProjectSummary(null);
-    setProjectDiagnostics([]);
+   setProjectStatus("idle");
+   setProjectMessage(initialProjectMessage);
+   setProjectSummary(null);
+   setProjectDiagnostics([]);
+   clearProjectReadyDetails();
   }
 
   function abortDriveOperation() {
@@ -749,7 +850,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setProjectMessage(
         "index.json上のプロジェクト登録とDrive上の詳細を確認しました。",
       );
-      setProjectSummary(toProjectSummary(result.project));
+      applyProjectReadyState(result.project);
       setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
     } catch (error) {
       if (requestId !== driveOperationRequestIdRef.current) {
@@ -864,7 +965,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setProjectMessage(
         "プロジェクトを作成し、index.json上の登録を確認しました。",
       );
-      setProjectSummary(toProjectSummary(result.project));
+      applyProjectReadyState(result.project);
       setProjectDiagnostics(result.diagnostics);
     } catch (error) {
       if (requestId !== driveOperationRequestIdRef.current) {
@@ -947,6 +1048,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     projectMessage,
     projectSummary,
     projectDiagnostics,
+    projectDetails,
+    canImportAssets,
+    assetImportStatus,
+    assetImportStatusLabel: assetImportStatusLabels[assetImportStatus],
+    assetImportMessage,
+    assetImportDiagnostics,
     connectGoogle,
     disconnectGoogle,
     checkDriveWorkspace,
@@ -1125,13 +1232,26 @@ function toCandidateSummary(
   };
 }
 
-function toProjectSummary(project: DriveProjectSummary): ProjectSummary {
+function toProjectSummary(
+  project: DriveProjectSummary,
+  details?: ProjectDetails,
+): ProjectSummary {
   return {
     projectIdPart: formatIdPart(project.projectId),
     title: project.title,
     manifestPath: project.manifestPath,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
+    slideCount: details?.slideCount ?? 0,
+    assetCount: details?.assetCount ?? 0,
+  };
+}
+
+function buildEmptyProjectDetails(): ProjectDetails {
+  return {
+    slideCount: 0,
+    assetCount: 0,
+    slides: [],
   };
 }
 

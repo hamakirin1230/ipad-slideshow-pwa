@@ -1,4 +1,10 @@
 export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+export const PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE =
+  "https://www.googleapis.com/auth/photospicker.mediaitems.readonly";
+export const DRIVE_AND_PHOTOS_PICKER_SCOPES = [
+  DRIVE_FILE_SCOPE,
+  PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
+].join(" ");
 
 export type GoogleConnectionStatus =
   | "scriptLoading"
@@ -28,8 +34,14 @@ type GoogleTokenClientConfig = {
   include_granted_scopes?: boolean;
 };
 
+type GoogleTokenClientOverrideConfig = {
+  scope?: string;
+  include_granted_scopes?: boolean;
+  prompt?: string;
+};
+
 export type GoogleTokenClient = {
-  requestAccessToken: () => void;
+  requestAccessToken: (overrideConfig?: GoogleTokenClientOverrideConfig) => void;
 };
 
 type GoogleOAuth2 = {
@@ -63,6 +75,18 @@ export function hasGrantedDriveFileScope(tokenResponse: GoogleTokenResponse) {
     window.google?.accounts?.oauth2?.hasGrantedAllScopes(
       tokenResponse,
       DRIVE_FILE_SCOPE,
+    ) ?? false
+  );
+}
+
+export function hasGrantedDriveFileAndPhotosPickerScopes(
+  tokenResponse: GoogleTokenResponse,
+) {
+  return (
+    window.google?.accounts?.oauth2?.hasGrantedAllScopes(
+      tokenResponse,
+      DRIVE_FILE_SCOPE,
+      PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
     ) ?? false
   );
 }
