@@ -824,7 +824,7 @@ export function validateIndexJsonProjects(
     diagnostics: [
       "index.json.projects は1件です。",
       "index.json上のプロジェクト登録を確認しました。",
-      "manifest.json と assets/ の詳細検証は後続コミットで追加します。",
+      "manifest.json と assets/ の詳細検証は別ステップで実行します。",
     ],
   };
 }
