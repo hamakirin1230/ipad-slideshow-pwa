@@ -221,8 +221,7 @@ error:
 - 画像bytes取得失敗
 - popup blocked
 - 通信・認証・API失敗
-
-grep -n "^## 7\. assetImportSelection方針" docs/decisions/goal-04-3-asset-import.md >/dev/null && echo "Section 7 already exists. No append was done." || cat >> docs/decisions/goal-04-3-asset-import.md <<'EOF'
+```
 
 ---
 
