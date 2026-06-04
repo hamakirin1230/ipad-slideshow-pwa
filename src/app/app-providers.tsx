@@ -44,6 +44,19 @@ import {
 const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 120_000;
+const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
+
+const unsafeAssetImportDiagnosticPatterns = [
+  /access[_-]?token/i,
+  /authorization/i,
+  /bearer/i,
+  /baseurl/i,
+  /pickeruri/i,
+  /sessionid/i,
+  /mediaitem\.id/i,
+  /photospicker\.googleapis\.com/i,
+  /https?:\/\//i,
+];
 
 export type DriveWorkspaceStatus =
   | "unchecked"
@@ -661,6 +674,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return null;
   }
 
+  function setSafeAssetImportDiagnostics(diagnostics: string[]) {
+    setAssetImportDiagnostics(sanitizeAssetImportDiagnostics(diagnostics));
+  }
+
   function resetAssetImportState() {
     assetImportRequestIdRef.current += 1;
     clearAssetImportRuntimeRefs({
@@ -671,7 +688,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setAssetImportSelection(null);
     setAssetImportStatus("idle");
     setAssetImportMessage(initialAssetImportMessage);
-    setAssetImportDiagnostics([]);
+    setSafeAssetImportDiagnostics([]);
   }
 
   function clearProjectReadyDetails() {
@@ -931,12 +948,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     });
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
-    setAssetImportDiagnostics([]);
+    setSafeAssetImportDiagnostics([]);
 
     if (blockedReason) {
       setAssetImportStatus("invalid");
       setAssetImportMessage("素材追加を開始できませんでした。");
-      setAssetImportDiagnostics([
+      setSafeAssetImportDiagnostics([
         blockedReason,
         "Drive保存: 未実行",
         "manifest反映: 未実行",
@@ -959,10 +976,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       currentAssetImportAccessTokenRef.current = photosAccessToken;
       setAssetImportStatus("error");
       setAssetImportMessage(
-        "Photos権限つきtoken取得まで完了しました。Picker session連携は後続パッチで接続します。",
+        "Google Photosの利用許可確認まで完了しました。Picker session連携は後続パッチで接続します。",
       );
-      setAssetImportDiagnostics([
-        "Photos権限つきtoken取得: 成功",
+      setSafeAssetImportDiagnostics([
+        "Google Photosの利用許可確認: 成功",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ]);
@@ -978,13 +995,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
             ? "Google Photosの利用許可がキャンセルされました。"
             : "Google Photosの利用許可を確認できませんでした。",
         );
-        setAssetImportDiagnostics(error.diagnostics);
+        setSafeAssetImportDiagnostics(error.diagnostics);
         return;
       }
 
       setAssetImportStatus("error");
       setAssetImportMessage("Google Photosの利用許可を確認できませんでした。");
-      setAssetImportDiagnostics([
+      setSafeAssetImportDiagnostics([
         "Google Photosの利用許可確認中に予期しないエラーが発生しました。",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
@@ -1016,7 +1033,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setAssetImportSelection(null);
     setAssetImportStatus("cancelled");
     setAssetImportMessage("素材追加を中止しました。");
-    setAssetImportDiagnostics([
+    setSafeAssetImportDiagnostics([
       "ユーザー操作により素材追加を中止しました。",
       "Drive保存: 未実行",
       "manifest反映: 未実行",
@@ -1794,6 +1811,40 @@ function tokenResponseIncludesPhotosPickerScope(
       .split(/\s+/)
       .includes("https://www.googleapis.com/auth/photospicker.mediaitems.readonly")
   );
+}
+
+function sanitizeAssetImportDiagnostics(diagnostics: string[]) {
+  return dedupeDiagnostics(
+    diagnostics
+      .map((diagnostic) => diagnostic.trim())
+      .filter((diagnostic) => diagnostic.length > 0)
+      .filter(isSafeAssetImportDiagnostic)
+      .map(truncateAssetImportDiagnostic),
+  );
+}
+
+function isSafeAssetImportDiagnostic(diagnostic: string) {
+  if (
+    unsafeAssetImportDiagnosticPatterns.some((pattern) =>
+      pattern.test(diagnostic),
+    )
+  ) {
+    return false;
+  }
+
+  if (/^[A-Za-z0-9_-]{24,}$/.test(diagnostic)) {
+    return false;
+  }
+
+  return true;
+}
+
+function truncateAssetImportDiagnostic(diagnostic: string) {
+  if (diagnostic.length <= ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH) {
+    return diagnostic;
+  }
+
+  return `${diagnostic.slice(0, ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH)}...`;
 }
 
 function buildWorkspaceCreateFailureDiagnostics(
