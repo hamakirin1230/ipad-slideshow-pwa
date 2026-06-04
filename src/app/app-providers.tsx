@@ -40,10 +40,20 @@ import {
   type DriveWorkspaceReadyContext,
   type DriveWorkspaceRootCandidate,
 } from "@/lib/google-drive";
+import {
+  PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
+  deletePhotosPickerSession,
+  getPhotosPickerSession,
+  PhotosPickerSelectionError,
+  type PhotosPickerCreatedSession,
+  type PhotosPickerResolvedPollingTiming,
+  type PhotosPickerSessionSnapshot,
+} from "@/lib/google-photos-picker";
 
 const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 120_000;
+const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
 
 const unsafeAssetImportDiagnosticPatterns = [
@@ -1811,6 +1821,169 @@ function tokenResponseIncludesPhotosPickerScope(
       .split(/\s+/)
       .includes("https://www.googleapis.com/auth/photospicker.mediaitems.readonly")
   );
+}
+
+type PhotosPickerWaitResult = {
+  diagnostics: string[];
+};
+
+type PhotosPickerCleanupResult = {
+  diagnostics: string[];
+};
+
+export function abortableSleep(
+  delayMs: number,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(createAbortError());
+  }
+
+  return new Promise((resolve, reject) => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+
+      signal.removeEventListener("abort", handleAbort);
+    };
+
+    const handleAbort = () => {
+      cleanup();
+      reject(createAbortError());
+    };
+
+    timeoutId = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, delayMs);
+
+    signal.addEventListener("abort", handleAbort, { once: true });
+  });
+}
+
+export async function waitForPhotosPickerSelection(input: {
+  accessToken: string;
+  session: PhotosPickerCreatedSession;
+  signal: AbortSignal;
+  onSnapshot?: (snapshot: PhotosPickerSessionSnapshot) => void;
+}): Promise<PhotosPickerWaitResult> {
+  const startedAtMs = Date.now();
+  const diagnostics = [...input.session.diagnostics];
+  let pollingTiming = input.session.pollingTiming;
+
+  if (input.session.mediaItemsSet) {
+    return { diagnostics };
+  }
+
+  while (true) {
+    throwIfAborted(input.signal);
+
+    const elapsedSeconds = (Date.now() - startedAtMs) / 1000;
+    const remainingAppWaitSeconds =
+      PHOTOS_PICKER_MAX_APP_WAIT_SECONDS - elapsedSeconds;
+
+    if (remainingAppWaitSeconds <= 0) {
+      throw new PhotosPickerSelectionError({
+        status: "cancelled",
+        message: "Photos Picker polling reached the app timeout.",
+        diagnostics: [
+          "Photos Pickerの選択待ちが300秒でタイムアウトしました。",
+          "Drive保存: 未実行",
+          "manifest反映: 未実行",
+        ],
+      });
+    }
+
+    if (pollingTiming.timeoutInSeconds <= 0) {
+      throw new PhotosPickerSelectionError({
+        status: "cancelled",
+        message: "Photos Picker polling reached the session timeout.",
+        diagnostics: [
+          "Photos Pickerの選択待ちがタイムアウトしました。",
+          "Drive保存: 未実行",
+          "manifest反映: 未実行",
+        ],
+      });
+    }
+
+    await abortableSleep(
+      resolvePhotosPickerPollingDelayMs(
+        pollingTiming,
+        remainingAppWaitSeconds,
+      ),
+      input.signal,
+    );
+
+    const snapshot = await getPhotosPickerSession(
+      input.accessToken,
+      input.session.id,
+      input.signal,
+    );
+
+    input.onSnapshot?.(snapshot);
+    diagnostics.push(...snapshot.diagnostics);
+
+    if (snapshot.mediaItemsSet) {
+      return { diagnostics };
+    }
+
+    pollingTiming = snapshot.pollingTiming;
+  }
+}
+
+export async function cleanupPhotosPickerSessionOnce(input: {
+  accessToken: string;
+  sessionId: string;
+}): Promise<PhotosPickerCleanupResult> {
+  const cleanupController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    cleanupController.abort();
+  }, PHOTOS_PICKER_CLEANUP_TIMEOUT_MS);
+
+  try {
+    await deletePhotosPickerSession(
+      input.accessToken,
+      input.sessionId,
+      cleanupController.signal,
+    );
+
+    return {
+      diagnostics: ["Photos Picker session cleanup: 完了"],
+    };
+  } catch {
+    return {
+      diagnostics: ["Photos Picker session cleanup failed."],
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function resolvePhotosPickerPollingDelayMs(
+  pollingTiming: PhotosPickerResolvedPollingTiming,
+  remainingAppWaitSeconds: number,
+) {
+  const delaySeconds = Math.min(
+    pollingTiming.pollIntervalSeconds,
+    pollingTiming.timeoutInSeconds,
+    remainingAppWaitSeconds,
+  );
+
+  return Math.max(1, Math.ceil(delaySeconds * 1000));
+}
+
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) {
+    throw createAbortError();
+  }
+}
+
+function createAbortError() {
+  return new DOMException("Operation was aborted.", "AbortError");
 }
 
 function sanitizeAssetImportDiagnostics(diagnostics: string[]) {
