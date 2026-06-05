@@ -39,6 +39,9 @@ export default function PlayerPage() {
 
   const currentSlide = projectDetails?.slides[safeCurrentSlideIndex] ?? null;
 
+  const currentSlideCaption =
+    typeof currentSlide?.caption === "string" ? currentSlide.caption.trim() : "";
+
   const canFetch =
     googleStatus === "connected" &&
     driveFileGranted === true &&
@@ -128,6 +131,20 @@ export default function PlayerPage() {
                 <p className="text-slate-500">スライド画像の準備をしています。</p>
               )}
             </div>
+
+            {currentSlideCaption && (
+              <p
+                className="text-center text-lg text-slate-200"
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {currentSlideCaption}
+              </p>
+            )}
 
             {slideCount > 0 && (
               <div className="flex items-center justify-center gap-6">
