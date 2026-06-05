@@ -2,8 +2,8 @@
 
 * 対象プロジェクト: `ipad-slideshow-pwa`
 * 対象フェーズ: 第4ゴール / 第4-3 素材追加・assets保存
-* 現在のスライス: 第4-3-4 manifest反映設計
-* ステータス: 第4-3-4 実装前設計確定
+* 現在のスライス: 第4-3-5 /admin Drive画像プレビュー設計
+* ステータス: 第4-3-5 実装前設計確定
 * 最終更新日: 2026-06-05
 * 参照元:
   * `docs/decisions/goal-04-drive-workspace.md`
@@ -1130,3 +1130,217 @@ Drive保存後のmanifest反映失敗は、`status: error` として扱う。
 ```
 
 実際にDrive上のmanifest/index更新が走るのは、パッチ3でProviderに接続してからとする。
+
+---
+
+## 35. 第4-3-5 /admin Drive画像プレビュー方針
+
+第4-3-5では、/admin の本編スライド順に、Drive保存済み画像の小さなプレビューを表示する。
+
+行うこと:
+
+- `manifest.json.slides[]` に登録済みのassetを対象にする
+- /admin の本編スライド順に小さな画像プレビューを表示する
+- Drive API `files.get?alt=media` で認証付き画像Blobを取得する
+- Blobから object URL を作成して `img` に表示する
+- Preview component のunmount時や差し替え時に object URL を revoke する
+- プレビュー取得中 / 成功 / 失敗をスライド行単位で表示する
+
+行わないこと:
+
+- /player での画像表示
+- 画像プレビューの永続キャッシュ
+- IndexedDB保存
+- オフライン再生
+- Drive file公開共有
+- 公開URL生成
+- thumbnailLink依存
+- 画像リサイズ
+- 画像圧縮
+- EXIF検証
+- スライド編集UI
+- durationSeconds編集
+- caption編集
+- スライド順変更
+
+## 36. 画像取得方式
+
+Drive画像取得方式は Drive API `files.get?alt=media` に限定する。
+Drive fileは非公開のまま扱う。
+Drive fileIdを直接公開URL化しない。
+
+やること:
+
+- access tokenつきで Drive API から画像Blobを取得する
+- 取得したBlobから object URL を作る
+- object URL を `img` src に渡す
+- object URL は不要になったら必ず revoke する
+
+やらないこと:
+
+- Drive fileを公開共有にする
+- `uc?id=...` のような公開URLを組み立てる
+- thumbnailLinkに依存する
+- assetFileIdをUI表示する
+- tokenをUI表示する
+
+## 37. full assetFileId の扱い
+
+`ProjectSlideSummary` に内部用の full assetFileId を追加する。
+画像取得には full Drive fileId が必要なため。
+
+`ProjectSlideSummary`:
+
+- `assetFileId: string` を追加する
+- 画像取得用の内部値として使う
+
+UI:
+
+- full assetFileId は表示しない
+- assetIdPart / slideIdPart など短縮値だけ表示可
+
+diagnostics:
+
+- full assetFileId は出さない
+- 必要なら assetFileIdPart だけ出す
+
+full assetFileId はReact state / props内を通る。
+ただし、これはDrive上のmanifest正本にも保存済みの内部IDであり、Photos mediaItem.id や access token とは扱いを分ける。
+禁止するのは、full assetFileId を画面やdiagnosticsへ出すこと。
+
+## 38. token境界
+
+access token は `AppProviders` 内部の `useRef` に閉じ込める。
+UIコンポーネントへ access token を渡さない。
+
+責務分担:
+
+- `google-drive.ts`: `fetchDriveProjectAssetBlob(accessToken, assetFileId, expectedMimeType, signal): Promise<Blob>` を追加する
+- `app-providers.tsx`: `accessTokenRef.current` を使って `fetchDriveProjectAssetBlob()` を呼ぶ
+- `app-providers.tsx`: UI向けには `fetchProjectSlidePreviewBlob(assetFileId, expectedMimeType, signal)` のような関数だけを公開する
+- /admin Preview component: `fetchProjectSlidePreviewBlob()` を呼ぶ
+- /admin Preview component: Blobから object URL を作る
+- /admin Preview component: stateには `status` と `objectUrl` 文字列だけを持つ
+- Blob本体はReact stateに保存しない
+
+token / Authorization header / object URL / full assetFileId は diagnostics に出さない。
+
+## 39. Preview component方針
+
+スライド行ごとに小さなPreview componentを置く。
+Preview componentは、mount時に画像Blob取得を開始する。
+
+状態:
+
+- `idle`
+- `loading`
+- `ready`
+- `error`
+
+`loading`:
+
+- 小さなプレースホルダーを表示する
+
+`ready`:
+
+- object URLを `img` に渡して表示する
+
+`error`:
+
+- 該当スライド行だけに「プレビュー取得失敗」を表示する
+
+Preview componentは、unmount時に次を行う:
+
+- `AbortController.abort()`
+- `URL.revokeObjectURL()`
+
+再取得やprops変更時にも、古いobject URLをrevokeする。
+
+まだ入れないこと:
+
+- IntersectionObserver
+- 仮想スクロール
+- 手動再取得ボタン
+- 永続キャッシュ
+- IndexedDB保存
+
+スライド数上限は50件なので、まずはスライド行ごとの単純な自動取得でよい。
+
+## 40. プレビュー取得時の検証
+
+プレビュー取得時にDrive metadata再取得は行わない。
+
+理由:
+asset保存時およびmanifest反映時にmetadataとmanifest整合性を検証済みであり、プレビュー表示ではmedia取得の成否と画像Blobとしての妥当性を確認すればよいため。
+
+`fetchDriveProjectAssetBlob()` では最低限次を検証する:
+
+- Drive API `response.ok`
+- response Content-Type が `expectedMimeType` と一致する
+- Blob size が 0 ではない
+- Blob size が 10MB以下
+- Blob type が空でない場合は `expectedMimeType` と一致する
+
+まだやらないこと:
+
+- Drive file metadata再取得
+- appProperties再検証
+- parents再検証
+- assetId照合
+- manifest再読込
+- 画像の縦横ピクセル検証
+- EXIF検証
+
+10MB上限は、素材追加時の画像サイズ上限と同じ扱いにする。
+
+## 41. プレビュー失敗時の扱い
+
+プレビュー取得失敗は、プロジェクト全体のinvalid扱いにはしない。
+該当スライド行だけの失敗表示に留める。
+
+やること:
+
+- スライド行ごとに `previewStatus` を持つ
+- `loading` / `ready` / `error` を表示する
+- 失敗時はその行に「プレビュー取得失敗」と表示する
+- `projectStatus` は `ready` のまま維持する
+- `projectSummary` / `projectDetails` は変更しない
+
+やらないこと:
+
+- プレビュー失敗だけで `projectStatus` を `invalid` にする
+- Drive状態やproject状態を自動リセットする
+- manifestを再読込する
+- assetを自動削除・修復する
+
+401 / 403 の場合も、まずは該当プレビュー行の失敗として扱う。
+Google再接続が必要な可能性は表示してよいが、プレビュー失敗だけで全体状態を破壊しない。
+
+## 42. 第4-3-5の実装分割
+
+第4-3-5は、次の順に分割して実装する。
+
+```text
+パッチ1:
+- decision doc更新
+- 実コード変更なし
+
+パッチ2:
+- google-drive.ts
+- fetchDriveProjectAssetBlob() を追加
+- app-providers.tsx にはまだ接続しない
+
+パッチ3:
+- app-providers.tsx
+- fetchProjectSlidePreviewBlob() をContextに公開
+- ProjectSlideSummary に内部用 assetFileId を追加
+- UI表示はまだ大きく変えない
+
+パッチ4:
+- /admin 本編スライド順に Preview component を追加
+- object URL生成
+- revokeObjectURL
+- スライド単位のloading / error表示
+```
+
+実際にDrive画像bytesを取得するのは、パッチ4でPreview componentを接続してからとする。
