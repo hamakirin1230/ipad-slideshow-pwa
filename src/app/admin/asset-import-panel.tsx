@@ -33,7 +33,11 @@ export function AssetImportPanel() {
       <div className="mt-4 flex flex-wrap gap-3">
         <Button
           type="button"
-          variant={assetImportStatus === "selected" ? "secondary" : "default"}
+          variant={
+            assetImportStatus === "selected" || assetImportStatus === "savedToDrive"
+              ? "secondary"
+              : "default"
+          }
           onClick={startAssetImport}
           disabled={!canStartAssetImport}
         >
@@ -52,15 +56,33 @@ export function AssetImportPanel() {
       ) : null}
 
       <p className="mt-3 text-slate-500">
-        この第4パッチでは、Google Photos Pickerで写真を1件選び、形式とサイズを確認するUIまで接続します。
-        Drive assets/ への保存と manifest.json への反映はまだ実行しません。
+        この第4-3-3パッチでは、Google Photos Pickerで写真を1件選び、Drive assets/
+        への保存とmetadata検証まで実行します。manifest.json への反映はまだ実行しません。
       </p>
 
       {assetImportSelection ? (
-        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-950">
-          <p className="font-medium">保存前の選択結果サマリー</p>
-          <p className="mt-2 text-sm text-emerald-800">
-            写真を1件選択し、形式とサイズを確認しました。Drive保存とmanifest反映は未実行です。
+        <div
+          className={
+            assetImportSelection.driveSaved
+              ? "mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950"
+              : "mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-950"
+          }
+        >
+          <p className="font-medium">
+            {assetImportSelection.driveSaved
+              ? "Drive保存済み・manifest未反映サマリー"
+              : "保存前の選択結果サマリー"}
+          </p>
+          <p
+            className={
+              assetImportSelection.driveSaved
+                ? "mt-2 text-sm text-amber-800"
+                : "mt-2 text-sm text-emerald-800"
+            }
+          >
+            {assetImportSelection.driveSaved
+              ? "写真をDrive assets/ に保存し、metadataを確認しました。manifest反映は未実行です。"
+              : "写真を1件選択し、形式とサイズを確認しました。Drive保存とmanifest反映は未実行です。"}
           </p>
 
           <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
@@ -92,9 +114,39 @@ export function AssetImportPanel() {
               <dt className="font-medium">sourceCreateTime</dt>
               <dd>{formatOptionalValue(assetImportSelection.sourceCreateTime)}</dd>
             </div>
+
+            {assetImportSelection.driveSaved ? (
+              <>
+                <div>
+                  <dt className="font-medium">assetId</dt>
+                  <dd>{assetImportSelection.assetIdPart}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium">assetFileId</dt>
+                  <dd>{assetImportSelection.assetFileIdPart}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium">Driveファイル名</dt>
+                  <dd className="break-all">{assetImportSelection.driveFilename}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium">Drive MIME type</dt>
+                  <dd>{assetImportSelection.driveMimeType}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium">Drive保存サイズ</dt>
+                  <dd>{formatBytes(assetImportSelection.driveSizeBytes)}</dd>
+                </div>
+              </>
+            ) : null}
+
             <div>
               <dt className="font-medium">保存状態</dt>
-              <dd>Drive保存: 未実行 / manifest反映: 未実行</dd>
+              <dd>
+                {assetImportSelection.driveSaved
+                  ? "Drive保存: 完了 / Drive asset metadata検証: 完了 / manifest反映: 未実行"
+                  : "Drive保存: 未実行 / manifest反映: 未実行"}
+              </dd>
             </div>
           </dl>
         </div>
@@ -120,6 +172,8 @@ function getStartAssetImportButtonLabel(assetImportStatus: AssetImportStatus) {
   switch (assetImportStatus) {
     case "selected":
       return "別の写真を選ぶ";
+    case "savedToDrive":
+      return "manifest反映待ち";
     case "cancelled":
       return "もう一度選択";
     case "invalid":

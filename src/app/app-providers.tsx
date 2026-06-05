@@ -21,6 +21,7 @@ import {
 } from "@/lib/google-auth";
 import {
   DriveApiError,
+  DriveProjectAssetSaveError,
   DriveProjectCreateError,
   DriveWorkspaceCreateError,
   createDriveProject,
@@ -28,6 +29,7 @@ import {
   findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
   readDriveTextFile,
+  saveDriveProjectAsset,
   validateIndexJsonProjects,
   validateDriveProjectDetails,
   validateWorkspaceJsonBodies,
@@ -35,6 +37,7 @@ import {
   type DriveCreatedWorkspaceItemRole,
   type DriveProjectChangedItem,
   type DriveProjectChangedItemRole,
+  type DriveProjectSavedAsset,
   type DriveProjectSummary,
   type DriveWorkspaceChildRole,
   type DriveWorkspaceReadyContext,
@@ -49,6 +52,7 @@ import {
   getPhotosPickerSession,
   listPickedMediaItems,
   normalizePickedMediaItem,
+  PhotosPickerApiError,
   PhotosPickerSelectionError,
   type PhotosPickedMediaItem,
   type PhotosPickedPhotoDownloadResult,
@@ -109,6 +113,7 @@ export type AssetImportStatus =
   | "downloadingFromPhotos"
   | "selected"
   | "uploadingToDrive"
+  | "savedToDrive"
   | "updatingManifest"
   | "verifying"
   | "completed"
@@ -151,7 +156,7 @@ export type ProjectDetails = {
   slides: ProjectSlideSummary[];
 };
 
-export type AssetImportSelection = {
+type AssetImportSelectionBase = {
   mediaItemIdPart: string;
   mediaItemType: "PHOTO";
   filename: string;
@@ -160,9 +165,24 @@ export type AssetImportSelection = {
   downloadedContentType: "image/jpeg" | "image/png" | "image/webp";
   downloadedSizeBytes: number;
   sizeLimitBytes: number;
-  driveSaved: false;
-  manifestUpdated: false;
 };
+
+export type AssetImportSelection =
+  | (AssetImportSelectionBase & {
+      driveSaved: false;
+      manifestUpdated: false;
+    })
+  | (AssetImportSelectionBase & {
+      driveSaved: true;
+      manifestUpdated: false;
+      assetId: string;
+      assetIdPart: string;
+      assetFileId: string;
+      assetFileIdPart: string;
+      driveFilename: string;
+      driveMimeType: "image/jpeg" | "image/png" | "image/webp";
+      driveSizeBytes: number;
+    });
 
 type DriveWorkspaceCheckResult = {
   status: DriveWorkspaceCheckStatus;
@@ -320,6 +340,7 @@ const assetImportStatusLabels: Record<AssetImportStatus, string> = {
   downloadingFromPhotos: "Photosから取得中",
   selected: "写真選択・検証済み",
   uploadingToDrive: "Drive保存中",
+  savedToDrive: "Drive保存済み",
   updatingManifest: "manifest更新中",
   verifying: "素材追加結果確認中",
   completed: "素材追加完了",
@@ -693,8 +714,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return "Drive操作中のため、素材追加は開始できません。";
     }
 
+    if (assetImportStatus === "savedToDrive") {
+      return "Drive保存済みの素材がmanifest未反映です。後続パッチでmanifest反映を実装するまで、追加の素材追加は開始できません。";
+    }
+
     if (!canImportAssets) {
       return "Drive project ready ではないため、素材追加は開始できません。";
+    }
+
+    if (!workspaceReadyContext) {
+      return "Drive workspace ready 情報を確認できないため、素材追加は開始できません。";
     }
 
     if (!projectDetails) {
@@ -1118,17 +1147,57 @@ export function AppProviders({ children }: { children: ReactNode }) {
         pickedMediaItem,
         downloadResult,
       );
-      finalStatus = "selected";
+
+      const readyWorkspace = workspaceReadyContext;
+      const readyProject = driveProjectReadyContext;
+
+      if (!readyWorkspace || !readyProject) {
+        throw new DriveProjectAssetSaveError({
+          status: "invalidProject",
+          possibleCreatedAsset: null,
+          diagnostics: [
+            "Drive保存前にworkspace/project ready情報を確認できませんでした。",
+            "Drive保存: 未実行",
+            "manifest反映: 未実行",
+          ],
+        });
+      }
+
+      setAssetImportStatus("uploadingToDrive");
+      setAssetImportMessage("Drive assets/ に選択写真を保存しています。");
+
+      const savedAsset = await saveDriveProjectAsset({
+        accessToken: photosAccessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        project: readyProject,
+        blob: downloadResult.blob,
+        mimeType: downloadResult.downloadedContentType,
+        sizeBytes: downloadResult.downloadedSizeBytes,
+        signal: abortSignal,
+      });
+
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      finalSelection = buildAssetImportSelection(
+        pickedMediaItem,
+        downloadResult,
+        savedAsset,
+      );
+      finalStatus = "savedToDrive";
       finalMessage =
-        "写真を1件選択し、形式とサイズを確認しました。Drive保存とmanifest反映はまだ行っていません。";
+        "Drive assets/ に写真を保存し、metadataを確認しました。manifest反映はまだ行っていません。";
       finalDiagnostics = [
         ...waitResult.diagnostics,
         ...pickedMediaItemsList.diagnostics,
         ...pickedMediaItem.diagnostics,
         ...downloadResult.diagnostics,
+        ...savedAsset.diagnostics,
         "Photos Picker selection: 完了",
         "画像形式とサイズ確認: 完了",
-        "Drive保存: 未実行",
+        "Drive保存: 完了",
+        "Drive asset metadata検証: 完了",
         "manifest反映: 未実行",
       ];
     } catch (error) {
@@ -1152,6 +1221,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
               ? "Photos Pickerの選択結果に問題があります。"
               : "Photos Picker処理に失敗しました。";
         finalDiagnostics = error.diagnostics;
+      } else if (error instanceof PhotosPickerApiError) {
+        finalStatus = "error";
+        finalMessage = "Photos Picker API処理に失敗しました。";
+        finalDiagnostics = [
+          ...(error.diagnostics.length > 0
+            ? error.diagnostics
+            : [
+                `Photos Picker API operation: ${error.operation}`,
+                `Photos Picker API status: ${error.status}`,
+              ]),
+          "Drive保存: 未実行",
+          "manifest反映: 未実行",
+        ];
+      } else if (error instanceof DriveProjectAssetSaveError) {
+        finalStatus = error.status === "invalidProject" ? "invalid" : "error";
+        finalMessage = error.possibleCreatedAsset
+          ? "Drive保存結果の確認に失敗しました。Drive上にasset fileが作成済みの可能性があります。"
+          : "Drive assets/ への保存に失敗しました。";
+        finalDiagnostics = buildAssetImportDriveSaveFailureDiagnostics(error);
       } else if (isAbortError(error)) {
         finalStatus = "cancelled";
         finalMessage = "素材追加を中止しました。";
@@ -1218,15 +1306,27 @@ export function AppProviders({ children }: { children: ReactNode }) {
       abort: true,
       rejectPendingPhotosTokenRequest: true,
     });
+    const wasDriveSavePossiblyStarted =
+      assetImportStatus === "uploadingToDrive" || assetImportStatus === "verifying";
+
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
     setAssetImportStatus("cancelled");
     setAssetImportMessage("素材追加を中止しました。");
-    setSafeAssetImportDiagnostics([
-      "ユーザー操作により素材追加を中止しました。",
-      "Drive保存: 未実行",
-      "manifest反映: 未実行",
-    ]);
+    setSafeAssetImportDiagnostics(
+      wasDriveSavePossiblyStarted
+        ? [
+            "ユーザー操作により素材追加を中止しました。",
+            "Drive保存が開始済みの場合、Drive asset file が作成済みの可能性があります。",
+            "manifest反映は未実行です。",
+            "自動削除・自動修復は行いません。",
+          ]
+        : [
+            "ユーザー操作により素材追加を中止しました。",
+            "Drive保存: 未実行",
+            "manifest反映: 未実行",
+          ],
+    );
 
     if (cleanupAccessToken && cleanupSessionId) {
       void cleanupPhotosPickerSessionOnce({
@@ -2012,19 +2112,54 @@ function tokenResponseIncludesPhotosPickerScope(
 function buildAssetImportSelection(
   mediaItem: PhotosPickedMediaItem,
   downloadResult: PhotosPickedPhotoDownloadResult,
+  savedAsset?: DriveProjectSavedAsset,
 ): AssetImportSelection {
-  return {
+  const baseSelection = {
     mediaItemIdPart: formatIdPart(mediaItem.id),
-    mediaItemType: "PHOTO",
+    mediaItemType: "PHOTO" as const,
     filename: mediaItem.mediaFile.filename ?? "未取得",
     sourceMimeType: mediaItem.mediaFile.mimeType,
     sourceCreateTime: mediaItem.createTime,
     downloadedContentType: downloadResult.downloadedContentType,
     downloadedSizeBytes: downloadResult.downloadedSizeBytes,
     sizeLimitBytes: downloadResult.sizeLimitBytes,
-    driveSaved: false,
-    manifestUpdated: false,
   };
+
+  if (!savedAsset) {
+    return {
+      ...baseSelection,
+      driveSaved: false,
+      manifestUpdated: false,
+    };
+  }
+
+  return {
+    ...baseSelection,
+    driveSaved: true,
+    manifestUpdated: false,
+    assetId: savedAsset.assetId,
+    assetIdPart: savedAsset.assetIdPart,
+    assetFileId: savedAsset.assetFileId,
+    assetFileIdPart: savedAsset.assetFileIdPart,
+    driveFilename: savedAsset.driveFilename,
+    driveMimeType: savedAsset.driveMimeType,
+    driveSizeBytes: savedAsset.driveSizeBytes,
+  };
+}
+
+function buildAssetImportDriveSaveFailureDiagnostics(
+  error: DriveProjectAssetSaveError,
+) {
+  const diagnostics = [...error.diagnostics];
+
+  if (error.possibleCreatedAsset) {
+    diagnostics.push(
+      `作成済みの可能性: assetId ${error.possibleCreatedAsset.assetIdPart}`,
+      `作成済みの可能性: assetFileId ${error.possibleCreatedAsset.assetFileIdPart}`,
+    );
+  }
+
+  return dedupeDiagnostics(diagnostics);
 }
 
 type PhotosPickerWaitResult = {

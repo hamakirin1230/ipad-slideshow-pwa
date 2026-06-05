@@ -75,14 +75,90 @@ export type PhotosPickedPhotoDownloadResult = {
 export class PhotosPickerApiError extends Error {
   readonly status: number;
   readonly operation: PhotosPickerApiOperation;
+  readonly diagnostics: string[];
 
-  constructor(status: number, operation: PhotosPickerApiOperation) {
+  constructor(
+    status: number,
+    operation: PhotosPickerApiOperation,
+    diagnostics: string[] = [],
+  ) {
     super("Photos Picker API request failed.");
     this.name = "PhotosPickerApiError";
     this.status = status;
     this.operation = operation;
+    this.diagnostics = [...diagnostics];
   }
 }
+
+async function createPhotosPickerApiError(
+  response: Response,
+  operation: PhotosPickerApiOperation,
+) {
+  const diagnostics = [
+    `Photos Picker API operation: ${operation}`,
+    `Photos Picker API status: ${response.status}`,
+  ];
+
+  try {
+    const contentType = response.headers.get("content-type") ?? "";
+
+    if (contentType.toLowerCase().includes("application/json")) {
+      const body = (await response.json()) as unknown;
+      diagnostics.push(...extractPhotosPickerApiErrorDiagnostics(body));
+    } else {
+      const text = sanitizePhotosPickerApiErrorText(await response.text());
+
+      if (text) {
+        diagnostics.push(`Photos Picker API error body: ${text}`);
+      }
+    }
+  } catch {
+    diagnostics.push("Photos Picker API error body could not be read.");
+  }
+
+  return new PhotosPickerApiError(response.status, operation, diagnostics);
+}
+
+function extractPhotosPickerApiErrorDiagnostics(body: unknown) {
+  if (!isRecord(body)) {
+    return ["Photos Picker API error body was not an object."];
+  }
+
+  const error = isRecord(body.error) ? body.error : null;
+
+  if (!error) {
+    return ["Photos Picker API error body did not include error object."];
+  }
+
+  const diagnostics: string[] = [];
+  const status = readNonEmptyString(error.status);
+  const message = readNonEmptyString(error.message);
+
+  if (status) {
+    diagnostics.push(`Google API error status: ${status}`);
+  }
+
+  if (message) {
+    diagnostics.push(
+      `Google API error message: ${sanitizePhotosPickerApiErrorText(message)}`,
+    );
+  }
+
+  if (diagnostics.length === 0) {
+    diagnostics.push("Google API error object did not include status or message.");
+  }
+
+  return diagnostics;
+}
+
+function sanitizePhotosPickerApiErrorText(value: string) {
+  return value
+    .replace(/https?:\/\/\S+/g, "[url omitted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
 
 export class PhotosPickerSelectionError extends Error {
   readonly status: PhotosPickerSelectionFailureStatus;
@@ -130,7 +206,7 @@ export async function createPhotosPickerSession(
   });
 
   if (!response.ok) {
-    throw new PhotosPickerApiError(response.status, "createSession");
+    throw await createPhotosPickerApiError(response, "createSession");
   }
 
   return normalizeCreatedPickingSessionResponse(
@@ -157,7 +233,7 @@ export async function getPhotosPickerSession(
   );
 
   if (!response.ok) {
-    throw new PhotosPickerApiError(response.status, "getSession");
+    throw await createPhotosPickerApiError(response, "getSession");
   }
 
   return normalizePickingSessionSnapshotResponse(
@@ -184,7 +260,7 @@ export async function deletePhotosPickerSession(
   );
 
   if (!response.ok) {
-    throw new PhotosPickerApiError(response.status, "deleteSession");
+    throw await createPhotosPickerApiError(response, "deleteSession");
   }
 }
 
@@ -212,7 +288,7 @@ export async function listPickedMediaItems(
   );
 
   if (!response.ok) {
-    throw new PhotosPickerApiError(response.status, "listMediaItems");
+    throw await createPhotosPickerApiError(response, "listMediaItems");
   }
 
   return normalizePickedMediaItemsResponse((await response.json()) as unknown);
@@ -280,7 +356,7 @@ export async function fetchAndValidatePickedPhoto(input: {
   });
 
   if (!response.ok) {
-    throw new PhotosPickerApiError(response.status, "fetchPhotoBytes");
+    throw await createPhotosPickerApiError(response, "fetchPhotoBytes");
   }
 
   const normalizedContentType = normalizeContentType(
