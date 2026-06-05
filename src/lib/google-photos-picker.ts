@@ -65,6 +65,7 @@ export type PhotosPickedMediaItem = {
 };
 
 export type PhotosPickedPhotoDownloadResult = {
+  blob: Blob;
   downloadedContentType: PhotosDownloadedAssetMimeType;
   downloadedSizeBytes: number;
   sizeLimitBytes: number;
@@ -325,14 +326,25 @@ export async function fetchAndValidatePickedPhoto(input: {
     });
   }
 
-  const downloadedSizeBytes = await readResponseBytesForValidation(
-    response,
-    sizeLimitBytes,
-  );
+  const blob = await response.blob();
+
+  if (blob.size > sizeLimitBytes) {
+    throw new PhotosPickerSelectionError({
+      status: "invalid",
+      message: "Downloaded photo exceeded the size limit.",
+      diagnostics: [
+        `Downloaded size bytes: ${blob.size}`,
+        `Size limit bytes: ${sizeLimitBytes}`,
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ],
+    });
+  }
 
   return {
+    blob,
     downloadedContentType: normalizedContentType,
-    downloadedSizeBytes,
+    downloadedSizeBytes: blob.size,
     sizeLimitBytes,
     diagnostics,
   };
@@ -646,73 +658,6 @@ function normalizePickingSessionResponse(
     pollingTiming,
     diagnostics: [...diagnostics, ...pollingTiming.diagnostics],
   };
-}
-
-async function readResponseBytesForValidation(
-  response: Response,
-  sizeLimitBytes: number,
-) {
-  if (response.body) {
-    return readResponseStreamForValidation(response.body, sizeLimitBytes);
-  }
-
-  const blob = await response.blob();
-
-  if (blob.size > sizeLimitBytes) {
-    throw new PhotosPickerSelectionError({
-      status: "invalid",
-      message: "Downloaded photo exceeded the size limit.",
-      diagnostics: [
-        `Downloaded size bytes: ${blob.size}`,
-        `Size limit bytes: ${sizeLimitBytes}`,
-        "Drive保存: 未実行",
-        "manifest反映: 未実行",
-      ],
-    });
-  }
-
-  return blob.size;
-}
-
-async function readResponseStreamForValidation(
-  stream: ReadableStream<Uint8Array>,
-  sizeLimitBytes: number,
-) {
-  const reader = stream.getReader();
-  let downloadedBytes = 0;
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        return downloadedBytes;
-      }
-
-      downloadedBytes += value.byteLength;
-
-      if (downloadedBytes > sizeLimitBytes) {
-        try {
-          await reader.cancel();
-        } catch {
-          // The stream is already being rejected as oversize.
-        }
-
-        throw new PhotosPickerSelectionError({
-          status: "invalid",
-          message: "Downloaded photo exceeded the size limit.",
-          diagnostics: [
-            `Downloaded size bytes exceeded ${sizeLimitBytes}.`,
-            `Size limit bytes: ${sizeLimitBytes}`,
-            "Drive保存: 未実行",
-            "manifest反映: 未実行",
-          ],
-        });
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
 }
 
 function buildPickedPhotoDownloadUrl(baseUrl: string) {
