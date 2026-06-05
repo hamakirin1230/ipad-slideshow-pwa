@@ -24,6 +24,8 @@ const CREATE_FOLDER_FIELDS =
   "id,name,mimeType,createdTime,modifiedTime,appProperties";
 const CREATE_JSON_FIELDS =
   "id,name,mimeType,createdTime,modifiedTime,appProperties,size";
+const DRIVE_ASSET_FILE_FIELDS =
+  "id,name,mimeType,createdTime,modifiedTime,appProperties,size,parents";
 
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -151,6 +153,33 @@ export type DriveProjectCreateInput = {
 export type DriveProjectCreateResult = {
   project: DriveProjectSummary;
   indexJsonText: string;
+  diagnostics: string[];
+};
+
+export type DriveProjectAssetSaveFailureStatus =
+  | "authRequired"
+  | "invalidProject"
+  | "uploadFailed"
+  | "verificationFailed";
+
+export type DriveProjectAssetSaveInput = {
+  accessToken: string;
+  workspaceId: string;
+  project: DriveProjectSummary;
+  blob: Blob;
+  mimeType: DriveAssetMimeType;
+  sizeBytes: number;
+  signal: AbortSignal;
+};
+
+export type DriveProjectSavedAsset = {
+  assetId: string;
+  assetIdPart: string;
+  assetFileId: string;
+  assetFileIdPart: string;
+  driveFilename: string;
+  driveMimeType: DriveAssetMimeType;
+  driveSizeBytes: number;
   diagnostics: string[];
 };
 
@@ -317,6 +346,27 @@ export class DriveProjectCreateError extends Error {
   }
 }
 
+export class DriveProjectAssetSaveError extends Error {
+  status: DriveProjectAssetSaveFailureStatus;
+  possibleCreatedAsset: DriveProjectSavedAsset | null;
+  diagnostics: string[];
+  cause?: unknown;
+
+  constructor(input: {
+    status: DriveProjectAssetSaveFailureStatus;
+    possibleCreatedAsset: DriveProjectSavedAsset | null;
+    diagnostics: string[];
+    cause?: unknown;
+  }) {
+    super("Drive project asset save failed.");
+    this.name = "DriveProjectAssetSaveError";
+    this.status = input.status;
+    this.possibleCreatedAsset = input.possibleCreatedAsset;
+    this.diagnostics = [...input.diagnostics];
+    this.cause = input.cause;
+  }
+}
+
 export async function findWorkspaceRootCandidates(
   accessToken: string,
   signal: AbortSignal,
@@ -374,6 +424,130 @@ export async function readDriveTextFile(
   }
 
   return response.text();
+}
+
+
+export async function saveDriveProjectAsset(
+  input: DriveProjectAssetSaveInput,
+): Promise<DriveProjectSavedAsset> {
+  const assetId = crypto.randomUUID();
+  const driveFilename = `${assetId}.${getDriveAssetExtension(input.mimeType)}`;
+  const appProperties = buildDriveAssetAppProperties({
+    workspaceId: input.workspaceId,
+    projectId: input.project.projectId,
+    assetId,
+  });
+  let possibleCreatedAsset: DriveProjectSavedAsset | null = null;
+
+  const inputDiagnostics = validateDriveProjectAssetSaveInput({
+    input,
+    assetId,
+  });
+
+  if (inputDiagnostics.length > 0) {
+    throw new DriveProjectAssetSaveError({
+      status: "invalidProject",
+      possibleCreatedAsset: null,
+      diagnostics: inputDiagnostics,
+    });
+  }
+
+  try {
+    const uploadedFile = await createDriveProjectAssetFile({
+      accessToken: input.accessToken,
+      metadata: {
+        name: driveFilename,
+        mimeType: input.mimeType,
+        parents: [input.project.assetsFolderId],
+        appProperties,
+      },
+      blob: input.blob,
+      fields: DRIVE_ASSET_FILE_FIELDS,
+      signal: input.signal,
+    });
+
+    possibleCreatedAsset = toDriveProjectSavedAsset({
+      file: uploadedFile,
+      assetId,
+      driveFilename,
+      driveMimeType: input.mimeType,
+      diagnostics: [
+        "Drive assets/ へのupload応答を受け取りました。",
+        "manifest反映: 未実行",
+      ],
+    });
+
+    const verifiedFile = await fetchDriveFileMetadata(
+      input.accessToken,
+      uploadedFile.id,
+      input.signal,
+    );
+
+    const verificationDiagnostics = validateDriveProjectAssetMetadata({
+      item: verifiedFile,
+      expectedAssetId: assetId,
+      expectedName: driveFilename,
+      expectedMimeType: input.mimeType,
+      expectedParentId: input.project.assetsFolderId,
+      expectedWorkspaceId: input.workspaceId,
+      expectedProjectId: input.project.projectId,
+      expectedSizeBytes: input.sizeBytes,
+    });
+
+    if (verificationDiagnostics.length > 0) {
+      throw new DriveProjectAssetSaveError({
+        status: "verificationFailed",
+        possibleCreatedAsset,
+        diagnostics: [
+          ...verificationDiagnostics,
+          "Drive asset file が作成済みの可能性があります。",
+          "manifest反映は未実行です。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const savedAsset = toDriveProjectSavedAsset({
+      file: verifiedFile,
+      assetId,
+      driveFilename,
+      driveMimeType: input.mimeType,
+      diagnostics: [
+        "Drive assets/ へのuploadが完了しました。",
+        "Drive asset metadataの再取得と検証が完了しました。",
+        "manifest反映: 未実行",
+      ],
+    });
+
+    if (!savedAsset) {
+      throw new DriveProjectAssetSaveError({
+        status: "verificationFailed",
+        possibleCreatedAsset,
+        diagnostics: [
+          "Drive asset metadata検証後に保存結果を組み立てられませんでした。",
+          "Drive asset file が作成済みの可能性があります。",
+          "manifest反映は未実行です。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    return savedAsset;
+  } catch (error) {
+    if (error instanceof DriveProjectAssetSaveError) {
+      throw error;
+    }
+
+    throw new DriveProjectAssetSaveError({
+      status: toDriveProjectAssetSaveFailureStatus(error, possibleCreatedAsset),
+      possibleCreatedAsset,
+      diagnostics: buildDriveProjectAssetSaveFailureDiagnostics({
+        error,
+        possibleCreatedAsset,
+      }),
+      cause: error,
+    });
+  }
 }
 
 async function fetchDriveFileMetadata(
@@ -1945,6 +2119,304 @@ function validateExpectedProjectManifestValue(input: {
   }
 }
 
+
+function buildDriveAssetAppProperties(input: {
+  workspaceId: string;
+  projectId: string;
+  assetId: string;
+}) {
+  return {
+    app: DRIVE_WORKSPACE_APP_ID,
+    role: "asset",
+    schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION_PROPERTY,
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+    assetId: input.assetId,
+    source: "googlePhotosPicker",
+  };
+}
+
+function getDriveAssetExtension(mimeType: DriveAssetMimeType) {
+  switch (mimeType) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/png":
+      return "png";
+    case "image/webp":
+      return "webp";
+    default:
+      return assertNeverDriveAssetMimeType(mimeType);
+  }
+}
+
+function assertNeverDriveAssetMimeType(value: never): never {
+  throw new Error(`Unsupported Drive asset MIME type: ${value}`);
+}
+
+function validateDriveProjectAssetSaveInput(input: {
+  input: DriveProjectAssetSaveInput;
+  assetId: string;
+}) {
+  const diagnostics: string[] = [];
+
+  if (!input.input.accessToken) {
+    diagnostics.push("Drive asset保存用のaccessTokenがありません。");
+  }
+
+  if (!isUuidV4(input.input.workspaceId)) {
+    diagnostics.push("Drive asset保存対象のworkspaceIdがUUID形式ではありません。");
+  }
+
+  if (!isUuidV4(input.input.project.projectId)) {
+    diagnostics.push("Drive asset保存対象のprojectIdがUUID形式ではありません。");
+  }
+
+  if (!isNonEmptyString(input.input.project.assetsFolderId)) {
+    diagnostics.push("Drive asset保存対象のassetsFolderIdが空です。");
+  }
+
+  if (!isUuidV4(input.assetId)) {
+    diagnostics.push("Drive asset保存用のassetIdがUUID形式ではありません。");
+  }
+
+  if (!Number.isSafeInteger(input.input.sizeBytes) || input.input.sizeBytes < 0) {
+    diagnostics.push("Drive asset保存対象のsizeBytesが不正です。");
+  }
+
+  if (input.input.blob.size !== input.input.sizeBytes) {
+    diagnostics.push("Drive asset保存対象のBlob sizeが検証済みsizeBytesと一致していません。");
+  }
+
+  if (input.input.blob.type && input.input.blob.type !== input.input.mimeType) {
+    diagnostics.push("Drive asset保存対象のBlob typeが検証済みMIME typeと一致していません。");
+  }
+
+  return diagnostics;
+}
+
+async function createDriveProjectAssetFile(input: {
+  accessToken: string;
+  metadata: DriveCreateMetadata;
+  blob: Blob;
+  fields: string;
+  signal: AbortSignal;
+}): Promise<DriveFileCandidate> {
+  const params = new URLSearchParams({
+    uploadType: "multipart",
+    fields: input.fields,
+  });
+  const boundary = `-------ipad-slideshow-pwa-${crypto.randomUUID()}`;
+
+  const body = new Blob(
+    [
+      `--${boundary}\r\n`,
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n",
+      JSON.stringify(input.metadata),
+      "\r\n",
+      `--${boundary}\r\n`,
+      `Content-Type: ${input.metadata.mimeType}\r\n\r\n`,
+      input.blob,
+      "\r\n",
+      `--${boundary}--\r\n`,
+    ],
+    {
+      type: `multipart/related; boundary=${boundary}`,
+    },
+  );
+
+  const response = await fetch(
+    `${DRIVE_API_UPLOAD_FILES_URL}?${params.toString()}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+      signal: input.signal,
+    },
+  );
+
+  if (!response.ok) {
+    throw new DriveApiError(response.status);
+  }
+
+  const file = normalizeDriveFile((await response.json()) as unknown);
+
+  if (!file) {
+    throw new Error("Drive asset upload response did not include required fields.");
+  }
+
+  return file;
+}
+
+function validateDriveProjectAssetMetadata(input: {
+  item: DriveFileCandidate;
+  expectedAssetId: string;
+  expectedName: string;
+  expectedMimeType: DriveAssetMimeType;
+  expectedParentId: string;
+  expectedWorkspaceId: string;
+  expectedProjectId: string;
+  expectedSizeBytes: number;
+}) {
+  const diagnostics: string[] = [];
+
+  if (input.item.name !== input.expectedName) {
+    diagnostics.push("Drive asset file の名前が想定と一致していません。");
+  }
+
+  if (input.item.mimeType !== input.expectedMimeType) {
+    diagnostics.push("Drive asset file のMIME typeが想定と一致していません。");
+  }
+
+  validateProjectParentId({
+    item: input.item,
+    label: "Drive asset file",
+    expectedParentId: input.expectedParentId,
+    diagnostics,
+  });
+
+  const { appProperties } = input.item;
+
+  if (appProperties.app !== DRIVE_WORKSPACE_APP_ID) {
+    diagnostics.push("Drive asset file のappProperties.appが不正です。");
+  }
+
+  if (appProperties.role !== "asset") {
+    diagnostics.push("Drive asset file のappProperties.roleが不正です。");
+  }
+
+  if (appProperties.schemaVersion !== DRIVE_WORKSPACE_SCHEMA_VERSION_PROPERTY) {
+    diagnostics.push("Drive asset file のappProperties.schemaVersionが不正です。");
+  }
+
+  validateProjectMetadataUuidValue({
+    label: "Drive asset file",
+    key: "workspaceId",
+    actual: appProperties.workspaceId,
+    expected: input.expectedWorkspaceId,
+    diagnostics,
+  });
+
+  validateProjectMetadataUuidValue({
+    label: "Drive asset file",
+    key: "projectId",
+    actual: appProperties.projectId,
+    expected: input.expectedProjectId,
+    diagnostics,
+  });
+
+  validateDriveAssetMetadataAssetId({
+    actual: appProperties.assetId,
+    expected: input.expectedAssetId,
+    diagnostics,
+  });
+
+  if (appProperties.source !== "googlePhotosPicker") {
+    diagnostics.push("Drive asset file のappProperties.sourceが不正です。");
+  }
+
+  if (typeof input.item.sizeBytes !== "number") {
+    diagnostics.push("Drive asset file のsizeを取得できませんでした。");
+  } else if (input.item.sizeBytes !== input.expectedSizeBytes) {
+    diagnostics.push("Drive asset file のsizeが検証済み画像サイズと一致していません。");
+  }
+
+  return diagnostics;
+}
+
+function validateDriveAssetMetadataAssetId(input: {
+  actual: string | undefined;
+  expected: string;
+  diagnostics: string[];
+}) {
+  if (!isNonEmptyString(input.actual)) {
+    input.diagnostics.push("Drive asset file のappProperties.assetIdが未設定です。");
+    return;
+  }
+
+  if (!isUuidV4(input.actual)) {
+    input.diagnostics.push(
+      "Drive asset file のappProperties.assetIdがUUID形式ではありません。",
+    );
+    return;
+  }
+
+  if (input.actual !== input.expected) {
+    input.diagnostics.push("Drive asset file のappProperties.assetIdが想定と一致していません。");
+  }
+}
+
+function toDriveProjectSavedAsset(input: {
+  file: DriveFileCandidate;
+  assetId: string;
+  driveFilename: string;
+  driveMimeType: DriveAssetMimeType;
+  diagnostics: string[];
+}): DriveProjectSavedAsset | null {
+  if (typeof input.file.sizeBytes !== "number") {
+    return null;
+  }
+
+  return {
+    assetId: input.assetId,
+    assetIdPart: formatDriveIdPart(input.assetId),
+    assetFileId: input.file.id,
+    assetFileIdPart: formatDriveIdPart(input.file.id),
+    driveFilename: input.driveFilename,
+    driveMimeType: input.driveMimeType,
+    driveSizeBytes: input.file.sizeBytes,
+    diagnostics: [...input.diagnostics],
+  };
+}
+
+function toDriveProjectAssetSaveFailureStatus(
+  error: unknown,
+  possibleCreatedAsset: DriveProjectSavedAsset | null,
+): DriveProjectAssetSaveFailureStatus {
+  if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+    return "authRequired";
+  }
+
+  if (possibleCreatedAsset) {
+    return "verificationFailed";
+  }
+
+  return "uploadFailed";
+}
+
+function buildDriveProjectAssetSaveFailureDiagnostics(input: {
+  error: unknown;
+  possibleCreatedAsset: DriveProjectSavedAsset | null;
+}) {
+  const diagnostics = ["Drive asset保存中にエラーが発生しました。"];
+
+  if (input.error instanceof DriveApiError) {
+    diagnostics.push(`Drive API status: ${input.error.status}`);
+  }
+
+  if (input.possibleCreatedAsset) {
+    diagnostics.push(
+      "Drive asset file が作成済みの可能性があります。",
+      `assetId: ${input.possibleCreatedAsset.assetIdPart}`,
+      `assetFileId: ${input.possibleCreatedAsset.assetFileIdPart}`,
+    );
+  } else {
+    diagnostics.push("Drive asset file の作成完了は確認できていません。");
+  }
+
+  diagnostics.push(
+    "manifest反映は未実行です。",
+    "自動削除・自動修復は行いません。",
+  );
+
+  return diagnostics;
+}
+
+function formatDriveIdPart(id: string) {
+  return `${id.slice(0, 8)}...`;
+}
 
 function buildProjectAppProperties(input: {
   role: Exclude<DriveProjectChangedItemRole, "index">;
