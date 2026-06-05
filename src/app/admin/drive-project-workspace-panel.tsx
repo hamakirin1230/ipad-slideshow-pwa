@@ -45,7 +45,7 @@ export function DriveProjectWorkspacePanel() {
           <CardContent>
             <p className="text-3xl font-bold">{assetCount}</p>
             <p className="mt-2 text-sm text-slate-500">
-              第4-3-1では検証済みslidesが参照するasset数だけを表示します。
+              manifest.json.slides が参照する検証済みasset数を表示します。
             </p>
           </CardContent>
         </Card>
@@ -58,7 +58,7 @@ export function DriveProjectWorkspacePanel() {
           <CardContent>
             <p className="text-3xl font-bold">{slideCount}</p>
             <p className="mt-2 text-sm text-slate-500">
-              第4-3-1では空のslides[]だけをreadyとして扱います。
+              manifest.json.slides の件数を表示します。スライド編集UIは後続コミットで追加します。
             </p>
           </CardContent>
         </Card>
@@ -181,8 +181,8 @@ export function DriveProjectWorkspacePanel() {
                   検証済みスライドはまだありません。
                 </p>
                 <p className="mt-2">
-                  第4-3-1では、manifest.json.slides が空配列であることだけを
-                  ready として扱います。スライド追加は後続スライスで実装します。
+                  manifest.json.slides に追加済みのスライドがここに表示されます。
+                  スライド順や表示内容の編集UIは後続コミットで追加します。
                 </p>
               </div>
             )}
