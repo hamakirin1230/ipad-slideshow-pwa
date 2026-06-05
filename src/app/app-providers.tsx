@@ -739,7 +739,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setProjectSummary(toProjectSummary(project, details));
     resetAssetImportState();
     setAssetImportMessage(
-      "Google Photos Picker連携は後続パッチで実行UIに接続します。",
+      "Google Photos Pickerで写真を1件選択し、形式とサイズを確認できます。",
     );
   }
 
