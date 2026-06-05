@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -12,8 +13,13 @@ import { useAppState } from "@/app/app-providers";
 import { AssetImportPanel } from "./asset-import-panel";
 
 export function DriveProjectWorkspacePanel() {
-  const { driveStatus, projectStatus, projectSummary, projectDetails } =
-    useAppState();
+  const {
+    driveStatus,
+    projectStatus,
+    projectSummary,
+    projectDetails,
+    fetchProjectSlidePreviewBlob,
+  } = useAppState();
 
   const hasReadyProject =
     driveStatus === "ready" && projectStatus === "ready" && projectSummary;
@@ -149,8 +155,9 @@ export function DriveProjectWorkspacePanel() {
           <CardContent>
             {slides.length > 0 ? (
               <div className="overflow-hidden rounded-xl border border-slate-200">
-                <div className="grid grid-cols-[4rem_1fr_8rem_8rem] bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <div className="grid grid-cols-[4rem_8rem_1fr_8rem_8rem] bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <p>順番</p>
+                  <p>プレビュー</p>
                   <p>asset</p>
                   <p>MIME</p>
                   <p>秒数</p>
@@ -159,9 +166,15 @@ export function DriveProjectWorkspacePanel() {
                   {slides.map((slide, index) => (
                     <div
                       key={`${slide.slideIdPart}-${slide.assetIdPart}`}
-                      className="grid grid-cols-[4rem_1fr_8rem_8rem] px-4 py-3 text-sm"
+                      className="grid grid-cols-[4rem_8rem_1fr_8rem_8rem] px-4 py-3 text-sm"
                     >
                       <p className="font-medium">{index + 1}</p>
+                      <DriveSlidePreview
+                        assetFileId={slide.assetFileId}
+                        mimeType={slide.mimeType}
+                        assetName={slide.assetName}
+                        fetchProjectSlidePreviewBlob={fetchProjectSlidePreviewBlob}
+                      />
                       <div>
                         <p className="font-medium">{slide.assetName}</p>
                         <p className="mt-1 text-xs text-slate-500">
@@ -190,5 +203,104 @@ export function DriveProjectWorkspacePanel() {
         </Card>
       </section>
     </div>
+  );
+}
+
+type DriveSlidePreviewState =
+  | { status: "loading" }
+  | { status: "ready"; objectUrl: string }
+  | { status: "error" };
+
+function DriveSlidePreview({
+  assetFileId,
+  mimeType,
+  assetName,
+  fetchProjectSlidePreviewBlob,
+}: {
+  assetFileId: string;
+  mimeType: string;
+  assetName: string;
+  fetchProjectSlidePreviewBlob: (
+    assetFileId: string,
+    expectedMimeType: string,
+    signal: AbortSignal,
+  ) => Promise<Blob>;
+}) {
+  const [previewState, setPreviewState] = useState<DriveSlidePreviewState>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    let createdObjectUrl: string | null = null;
+    let isMounted = true;
+
+    fetchProjectSlidePreviewBlob(assetFileId, mimeType, abortController.signal)
+      .then((blob) => {
+        if (!isMounted || abortController.signal.aborted) {
+          return;
+        }
+
+        createdObjectUrl = URL.createObjectURL(blob);
+        setPreviewState({
+          status: "ready",
+          objectUrl: createdObjectUrl,
+        });
+      })
+      .catch((error) => {
+        if (abortController.signal.aborted) {
+          return;
+        }
+
+        if (createdObjectUrl) {
+          URL.revokeObjectURL(createdObjectUrl);
+          createdObjectUrl = null;
+        }
+
+        setPreviewState({ status: "error" });
+
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Drive slide preview fetch failed.", error);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+
+      if (createdObjectUrl) {
+        URL.revokeObjectURL(createdObjectUrl);
+        createdObjectUrl = null;
+      }
+    };
+  }, [assetFileId, fetchProjectSlidePreviewBlob, mimeType]);
+
+  if (previewState.status === "loading") {
+    return (
+      <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-500">
+        読み込み中
+      </div>
+    );
+  }
+
+  if (previewState.status === "error") {
+    return (
+      <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-2 text-center text-xs text-amber-800">
+        プレビュー取得失敗
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={previewState.objectUrl}
+        alt={`${assetName} のプレビュー`}
+        className="h-16 w-24 rounded-lg border border-slate-200 object-cover"
+        loading="lazy"
+        decoding="async"
+      />
+    </>
   );
 }
