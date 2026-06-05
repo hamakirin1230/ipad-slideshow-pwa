@@ -23,7 +23,9 @@ import {
   DriveApiError,
   DriveProjectAssetSaveError,
   DriveProjectCreateError,
+  DriveProjectManifestAppendError,
   DriveWorkspaceCreateError,
+  appendDriveProjectAssetToManifest,
   createDriveProject,
   createDriveWorkspace,
   findWorkspaceChildCandidatesByRole,
@@ -37,6 +39,7 @@ import {
   type DriveCreatedWorkspaceItemRole,
   type DriveProjectChangedItem,
   type DriveProjectChangedItemRole,
+  type DriveProjectReadyDetails,
   type DriveProjectSavedAsset,
   type DriveProjectSummary,
   type DriveWorkspaceChildRole,
@@ -167,21 +170,28 @@ type AssetImportSelectionBase = {
   sizeLimitBytes: number;
 };
 
+type AssetImportSelectionSavedAsset = AssetImportSelectionBase & {
+  driveSaved: true;
+  assetId: string;
+  assetIdPart: string;
+  assetFileId: string;
+  assetFileIdPart: string;
+  driveFilename: string;
+  driveMimeType: "image/jpeg" | "image/png" | "image/webp";
+  driveSizeBytes: number;
+};
+
 export type AssetImportSelection =
   | (AssetImportSelectionBase & {
       driveSaved: false;
       manifestUpdated: false;
     })
-  | (AssetImportSelectionBase & {
-      driveSaved: true;
+  | (AssetImportSelectionSavedAsset & {
       manifestUpdated: false;
-      assetId: string;
-      assetIdPart: string;
-      assetFileId: string;
-      assetFileIdPart: string;
-      driveFilename: string;
-      driveMimeType: "image/jpeg" | "image/png" | "image/webp";
-      driveSizeBytes: number;
+    })
+  | (AssetImportSelectionSavedAsset & {
+      manifestUpdated: true;
+      slideIdPart: string;
     });
 
 type DriveWorkspaceCheckResult = {
@@ -714,8 +724,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return "Drive操作中のため、素材追加は開始できません。";
     }
 
-    if (assetImportStatus === "savedToDrive") {
-      return "Drive保存済みの素材がmanifest未反映です。後続パッチでmanifest反映を実装するまで、追加の素材追加は開始できません。";
+    if (
+      assetImportSelection?.driveSaved === true &&
+      !assetImportSelection.manifestUpdated
+    ) {
+      return "Drive保存済みの素材がmanifest未反映、またはmanifest反映完了を確認できていません。Drive状態を再確認するまで、追加の素材追加は開始できません。";
     }
 
     if (!canImportAssets) {
@@ -1057,6 +1070,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     let finalMessage = "";
     let finalDiagnostics: string[] = [];
     let finalSelection: AssetImportSelection | null = null;
+    let finalProject: DriveProjectSummary | null = null;
+    let finalProjectDetails: ProjectDetails | null = null;
+    let finalWorkspaceReadyContext: DriveWorkspaceReadyContext | null = null;
 
     try {
       photosAccessToken = await requestPhotosAccessToken(requestId);
@@ -1185,20 +1201,63 @@ export function AppProviders({ children }: { children: ReactNode }) {
         downloadResult,
         savedAsset,
       );
-      finalStatus = "savedToDrive";
+
+      setAssetImportStatus("updatingManifest");
+      setAssetImportMessage("manifest.json に素材情報を反映しています。");
+
+      const manifestAppendResult = await appendDriveProjectAssetToManifest({
+        accessToken: photosAccessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        indexJsonFileId: readyWorkspace.indexJsonFileId,
+        project: readyProject,
+        savedAsset,
+        source: {
+          filename: pickedMediaItem.mediaFile.filename ?? null,
+          sourceMimeType: pickedMediaItem.mediaFile.mimeType,
+          sourceMediaItemId: pickedMediaItem.id,
+          sourceCreateTime: pickedMediaItem.createTime,
+        },
+        signal: abortSignal,
+      });
+
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      const nextProjectDetails = toProjectDetails(manifestAppendResult.details);
+
+      finalProject = manifestAppendResult.project;
+      finalProjectDetails = nextProjectDetails;
+      finalWorkspaceReadyContext = {
+        ...readyWorkspace,
+        indexJsonText: manifestAppendResult.indexJsonText,
+      };
+      finalSelection = buildAssetImportSelection(
+        pickedMediaItem,
+        downloadResult,
+        savedAsset,
+        {
+          manifestUpdated: true,
+          details: manifestAppendResult.details,
+        },
+      );
+      finalStatus = "completed";
       finalMessage =
-        "Drive assets/ に写真を保存し、metadataを確認しました。manifest反映はまだ行っていません。";
+        "Drive保存、manifest反映、index.json updatedAt同期、更新後再検証が完了しました。";
       finalDiagnostics = [
         ...waitResult.diagnostics,
         ...pickedMediaItemsList.diagnostics,
         ...pickedMediaItem.diagnostics,
         ...downloadResult.diagnostics,
         ...savedAsset.diagnostics,
+        ...manifestAppendResult.diagnostics,
         "Photos Picker selection: 完了",
         "画像形式とサイズ確認: 完了",
         "Drive保存: 完了",
         "Drive asset metadata検証: 完了",
-        "manifest反映: 未実行",
+        "manifest反映: 完了",
+        "index.json updatedAt同期: 完了",
+        "更新後再検証: 完了",
       ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
@@ -1240,6 +1299,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
           ? "Drive保存結果の確認に失敗しました。Drive上にasset fileが作成済みの可能性があります。"
           : "Drive assets/ への保存に失敗しました。";
         finalDiagnostics = buildAssetImportDriveSaveFailureDiagnostics(error);
+      } else if (error instanceof DriveProjectManifestAppendError) {
+        finalStatus = "error";
+        finalMessage =
+          "Drive保存後のmanifest反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
+        finalDiagnostics = buildAssetImportManifestAppendFailureDiagnostics(error);
       } else if (isAbortError(error)) {
         finalStatus = "cancelled";
         finalMessage = "素材追加を中止しました。";
@@ -1250,11 +1314,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
         ];
       } else {
         finalStatus = "error";
-        finalMessage = "Photos Picker処理に失敗しました。";
+        finalMessage = "素材追加処理に失敗しました。";
         finalDiagnostics = [
-          "Photos Picker処理中に予期しないエラーが発生しました。",
-          "Drive保存: 未実行",
-          "manifest反映: 未実行",
+          "素材追加処理中に予期しないエラーが発生しました。",
+          "Drive保存やmanifest反映が途中まで進んだかは、この画面だけでは判断できません。",
+          "Drive状態を再確認してください。",
         ];
       }
     } finally {
@@ -1271,6 +1335,21 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       if (requestId === assetImportRequestIdRef.current) {
         if (finalStatus) {
+          if (
+            finalProject &&
+            finalProjectDetails &&
+            finalWorkspaceReadyContext
+          ) {
+            setWorkspaceReadyContext(finalWorkspaceReadyContext);
+            setDriveProjectReadyContext(finalProject);
+            setProjectDetails(finalProjectDetails);
+            setProjectSummary(toProjectSummary(finalProject, finalProjectDetails));
+            setProjectStatus("ready");
+            setProjectMessage(
+              "manifest.jsonへの素材反映を更新後再検証済みの状態で反映しました。",
+            );
+          }
+
           setAssetImportSelection(finalSelection);
           setAssetImportStatus(finalStatus);
           setAssetImportMessage(finalMessage);
@@ -1306,20 +1385,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
       abort: true,
       rejectPendingPhotosTokenRequest: true,
     });
-    const wasDriveSavePossiblyStarted =
-      assetImportStatus === "uploadingToDrive" || assetImportStatus === "verifying";
+    const wasDriveOrManifestPossiblyStarted =
+      assetImportStatus === "uploadingToDrive" ||
+      assetImportStatus === "savedToDrive" ||
+      assetImportStatus === "updatingManifest" ||
+      assetImportStatus === "verifying" ||
+      assetImportSelection?.driveSaved === true;
 
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
     setAssetImportStatus("cancelled");
     setAssetImportMessage("素材追加を中止しました。");
     setSafeAssetImportDiagnostics(
-      wasDriveSavePossiblyStarted
+      wasDriveOrManifestPossiblyStarted
         ? [
             "ユーザー操作により素材追加を中止しました。",
-            "Drive保存が開始済みの場合、Drive asset file が作成済みの可能性があります。",
-            "manifest反映は未実行です。",
+            "Drive asset file が作成済みの可能性があります。",
+            "manifest.json または index.json が更新済みの可能性があります。",
             "自動削除・自動修復は行いません。",
+            "Drive状態を再確認してください。",
           ]
         : [
             "ユーザー操作により素材追加を中止しました。",
@@ -2030,6 +2114,24 @@ function buildEmptyProjectDetails(): ProjectDetails {
   };
 }
 
+function toProjectDetails(details: DriveProjectReadyDetails): ProjectDetails {
+  return {
+    slideCount: details.slideCount,
+    assetCount: details.assetCount,
+    slides: details.slides.map((slide) => ({
+      slideIdPart: formatIdPart(slide.slideId),
+      assetIdPart: formatIdPart(slide.assetId),
+      assetName: slide.assetName,
+      mimeType: slide.mimeType,
+      sourceMimeType: slide.sourceMimeType,
+      sourceCreateTime: slide.sourceCreateTime ?? "取得なし",
+      durationSeconds: slide.durationSeconds,
+      caption: slide.caption,
+      verified: true,
+    })),
+  };
+}
+
 function formatIdPart(id: string | undefined) {
   if (!id) {
     return "未設定";
@@ -2113,6 +2215,10 @@ function buildAssetImportSelection(
   mediaItem: PhotosPickedMediaItem,
   downloadResult: PhotosPickedPhotoDownloadResult,
   savedAsset?: DriveProjectSavedAsset,
+  manifestResult?: {
+    manifestUpdated: true;
+    details: DriveProjectReadyDetails;
+  },
 ): AssetImportSelection {
   const baseSelection = {
     mediaItemIdPart: formatIdPart(mediaItem.id),
@@ -2133,10 +2239,9 @@ function buildAssetImportSelection(
     };
   }
 
-  return {
+  const savedSelection = {
     ...baseSelection,
-    driveSaved: true,
-    manifestUpdated: false,
+    driveSaved: true as const,
     assetId: savedAsset.assetId,
     assetIdPart: savedAsset.assetIdPart,
     assetFileId: savedAsset.assetFileId,
@@ -2144,6 +2249,25 @@ function buildAssetImportSelection(
     driveFilename: savedAsset.driveFilename,
     driveMimeType: savedAsset.driveMimeType,
     driveSizeBytes: savedAsset.driveSizeBytes,
+  };
+
+  if (!manifestResult) {
+    return {
+      ...savedSelection,
+      manifestUpdated: false,
+    };
+  }
+
+  const addedSlide = manifestResult.details.slides.find(
+    (slide) =>
+      slide.assetId === savedAsset.assetId &&
+      slide.assetFileId === savedAsset.assetFileId,
+  );
+
+  return {
+    ...savedSelection,
+    manifestUpdated: true,
+    slideIdPart: formatIdPart(addedSlide?.slideId),
   };
 }
 
@@ -2158,6 +2282,27 @@ function buildAssetImportDriveSaveFailureDiagnostics(
       `作成済みの可能性: assetFileId ${error.possibleCreatedAsset.assetFileIdPart}`,
     );
   }
+
+  return dedupeDiagnostics(diagnostics);
+}
+
+function buildAssetImportManifestAppendFailureDiagnostics(
+  error: DriveProjectManifestAppendError,
+) {
+  const diagnostics = [
+    ...error.diagnostics,
+    `対象assetId: ${error.savedAsset.assetIdPart}`,
+    `対象assetFileId: ${error.savedAsset.assetFileIdPart}`,
+  ];
+
+  if (error.possibleChangedItems.length > 0) {
+    diagnostics.push(
+      "manifest反映中にDrive項目が更新された可能性があります。",
+      ...error.possibleChangedItems.map(toProjectChangedItemDiagnostic),
+    );
+  }
+
+  diagnostics.push("Drive状態を再確認してください。");
 
   return dedupeDiagnostics(diagnostics);
 }
