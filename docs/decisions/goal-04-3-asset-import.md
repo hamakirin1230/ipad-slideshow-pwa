@@ -2,8 +2,8 @@
 
 * 対象プロジェクト: `ipad-slideshow-pwa`
 * 対象フェーズ: 第4ゴール / 第4-3 素材追加・assets保存
-* 現在のスライス: 第4-3-2 Google Photos Picker選択まで
-* ステータス: 第4-3-2 実装前設計確定
+* 現在のスライス: 第4-3-3 Drive assets/ 保存設計
+* ステータス: 第4-3-3 実装前設計確定
 * 最終更新日: 2026-06-04
 * 参照元:
   * `docs/decisions/goal-04-drive-workspace.md`
@@ -491,4 +491,340 @@ requestingPhotosPermission / openingPicker / waitingForSelection / downloadingFr
 - baseUrl / pickerUri / full mediaItem.id / token をUIやdiagnosticsに出す
 - 第4-3-2で google-drive.ts を変更する
 - 第4-3-2で google-auth.ts を変更する
+```
+
+
+---
+
+## 15. 第4-3-3 Drive assets/ 保存方針
+
+第4-3-3では、第4-3-2で実装したGoogle Photos Picker選択フローを延長し、検証済み画像をDrive上の既存プロジェクト配下 `assets/` に保存する。
+
+第4-3-3で行うこと:
+
+```text
+- Photos Pickerで1件選択する
+- mediaItem metadataを検証する
+- Photosから画像Blobを取得する
+- Content-Typeを検証する
+- 10MB上限を検証する
+- Drive assets/ に画像ファイルをuploadする
+- upload後にDrive files.getでasset metadataを再取得する
+- Drive asset metadataを検証する
+- assetImportStatusを savedToDrive にする
+- assetImportSelectionにDrive保存済み情報を保持する
+```
+
+第4-3-3で行わないこと:
+
+```text
+- manifest.json を読む
+- manifest.json を更新する
+- manifest.json.slides[] append
+- 保存後manifest再読込検証
+- projectSummary / projectDetails の楽観更新
+- Drive保存済みassetの自動削除
+- Drive保存済みassetの自動修復
+- リロード後の未反映asset復旧
+- 未反映assetの再検出
+- 複数素材の連続追加
+```
+
+第4-3-3では、Drive保存は成功しても、manifest反映は未実行である。
+
+そのため、第4-3-3の正常終了状態は `completed` ではなく `savedToDrive` とする。
+
+---
+
+## 16. Drive保存フロー
+
+第4-3-3では、Drive保存は `startAssetImport()` の同一フロー内で行う。
+
+```text
+素材を追加
+→ Photos権限つきtoken取得
+→ Picker session作成
+→ 1件選択
+→ 画像Blob取得・検証
+→ Drive assets/ upload
+→ Drive files.get
+→ Drive asset metadata検証
+→ savedToDrive
+```
+
+「写真を選んだ後、別ボタンでDrive保存する」方式にはしない。
+
+理由は、第4-3-2の安全設計として、画像bytes、baseUrl、Photos token、full mediaItem.id をReact stateに保持していないため。
+
+Drive uploadには、同一フローで取得したPhotos権限つきtokenを使う。
+
+Photos権限つきtokenは、引き続き `accessTokenRef` には保存しない。
+
+---
+
+## 17. 画像Blob方針
+
+第4-3-3では、Photosから取得した画像本体を、一時的な `Blob` として扱う。
+
+`Blob` は `startAssetImport()` 実行中のローカル変数としてだけ保持する。
+
+React stateには保存しない。
+
+```text
+Photos画像fetch
+→ response.ok確認
+→ Content-Type検証
+→ response.blob()
+→ blob.sizeで10MB上限検証
+→ Drive uploadへ渡す
+→ 処理終了後に保持しない
+```
+
+`Content-Length` が取得できる場合は早期検証に使ってよい。
+
+ただし、最終的なサイズ判定は `blob.size` を使う。
+
+---
+
+## 18. Drive asset metadata方針
+
+Drive `assets/` に保存する画像ファイルには、アプリ管理用metadataを付ける。
+
+Drive上の保存ファイル名は、Photos元ファイル名ではなく、アプリ側で発行する `assetId` を使う。
+
+```text
+<assetId>.<ext>
+```
+
+拡張子は、検証済みContent-Typeから決める。
+
+```text
+image/jpeg -> .jpg
+image/png  -> .png
+image/webp -> .webp
+```
+
+Drive asset file の `appProperties` は最小限にする。
+
+```text
+app: ipad-slideshow-pwa
+role: asset
+schemaVersion: 1
+workspaceId: <workspaceId>
+projectId: <projectId>
+assetId: <assetId>
+source: googlePhotosPicker
+```
+
+`appProperties` に入れないもの:
+
+```text
+- sourceFilename
+- sourceMimeType
+- sourceCreateTime
+- mediaItemId
+- baseUrl
+- pickerUri
+- token
+```
+
+Photos由来の表示情報は、第4-3-3ではDrive metadataに保存しない。
+
+元ファイル名、sourceMimeType、sourceCreateTime は、後続のmanifest反映パッチで扱う。
+
+---
+
+## 19. Drive asset metadata検証
+
+Drive upload後は、uploadレスポンスだけで成功扱いにしない。
+
+Drive `files.get` で作成済みasset metadataを再取得し、期待値と照合する。
+
+検証する項目:
+
+```text
+- fileId を取得できる
+- name が <assetId>.<ext> と一致する
+- mimeType が期待した画像MIME typeと一致する
+- parents に project.assetsFolderId が含まれる
+- appProperties.app が ipad-slideshow-pwa
+- appProperties.role が asset
+- appProperties.schemaVersion が 1
+- appProperties.workspaceId が一致する
+- appProperties.projectId が一致する
+- appProperties.assetId が一致する
+- size を取得できる
+- size が検証済みdownloadedSizeBytesと一致する
+```
+
+この検証が成功した場合だけ、`assetImportStatus` を `savedToDrive` にする。
+
+---
+
+## 20. savedToDrive状態
+
+第4-3-3で `AssetImportStatus` に `savedToDrive` を追加する。
+
+`savedToDrive` の意味:
+
+```text
+- Photos選択済み
+- 画像形式・サイズ検証済み
+- Drive assets/ upload 完了
+- Drive asset metadata検証完了
+- manifest反映: 未実行
+```
+
+`completed` は第4-3-4以降まで温存する。
+
+`completed` は、Drive保存、manifest反映、保存後の再読込・再検証まで成功した状態として扱う。
+
+`savedToDrive` は完全完了ではなく、manifest未反映の中間状態として扱う。
+
+`savedToDrive` 後は、追加の素材追加を開始できないようにする。
+
+ブロック理由:
+
+```text
+Drive保存済みの素材がmanifest未反映です。後続パッチでmanifest反映を実装するまで、追加の素材追加は開始できません。
+```
+
+---
+
+## 21. assetImportSelection拡張方針
+
+第4-3-3では、`assetImportSelection` にDrive保存済み情報を追加する。
+
+Drive保存前:
+
+```text
+driveSaved: false
+manifestUpdated: false
+```
+
+Drive保存後:
+
+```text
+driveSaved: true
+manifestUpdated: false
+assetId
+assetIdPart
+assetFileId
+assetFileIdPart
+driveFilename
+driveMimeType
+driveSizeBytes
+```
+
+UIに表示してよいもの:
+
+```text
+- assetIdPart
+- assetFileIdPart
+- driveFilename
+- driveMimeType
+- driveSizeBytes
+- Drive保存: 完了
+- Drive asset metadata検証: 完了
+- manifest反映: 未実行
+```
+
+UIに表示しないもの:
+
+```text
+- full Drive fileId
+- full mediaItem.id
+- baseUrl
+- pickerUri
+- token
+- Blob
+- 画像bytes本体
+```
+
+full `assetFileId` は後続manifest反映で使う可能性があるため、内部状態としては保持する。
+
+ただし、UIには `assetFileIdPart` だけ表示する。
+
+---
+
+## 22. 失敗・中止・自動削除方針
+
+第4-3-3では、Drive asset保存専用のエラー型を追加する。
+
+想定名:
+
+```text
+DriveProjectAssetSaveError
+```
+
+このエラーでは、次を区別できるようにする。
+
+```text
+- Drive asset file が作成されていない失敗
+- Drive asset file が作成済みの可能性がある失敗
+```
+
+Drive asset file が作成済みの可能性がある場合でも、自動削除はしない。
+
+自動修復もしない。
+
+diagnostics には次の趣旨を出す。
+
+```text
+Drive asset file が作成済みの可能性があります。
+manifest反映は未実行です。
+自動削除・自動修復は行いません。
+```
+
+中止ボタンはDrive upload中も維持する。
+
+ただし、Drive upload開始後に中止しても、作成済みassetの自動削除はしない。
+
+---
+
+## 23. リロード後の扱い
+
+`savedToDrive` は現在セッション内の一時状態として扱う。
+
+ページリロード後に、Drive上の未反映assetを自動復旧・再検出しない。
+
+第4-3-3で行わないこと:
+
+```text
+- Drive assets/ 内の未反映asset検索
+- manifestとの照合
+- 未反映assetのUI復元
+- 未反映assetの自動削除
+- 未反映assetの自動修復
+```
+
+リロード後の未反映asset検出や復旧は、後続パッチで扱う。
+
+---
+
+## 24. 第4-3-3の実装分割
+
+第4-3-3は、次の順に分割して実装する。
+
+```text
+パッチ1:
+- decision doc更新
+- 実コード変更なし
+
+パッチ2:
+- google-photos-picker.ts
+- fetchAndValidatePickedPhoto() が一時Blobを返せるようにする
+- Driveにはまだ触らない
+
+パッチ3:
+- google-drive.ts
+- saveDriveProjectAsset() を追加
+- DriveProjectAssetSaveError を追加
+- app-providers.tsx にはまだ接続しない
+
+パッチ4:
+- app-providers.tsx にDrive保存フローを接続
+- AssetImportStatus に savedToDrive を追加
+- assetImportSelection を拡張
+- AssetImportPanel を savedToDrive 表示に対応する
 ```
