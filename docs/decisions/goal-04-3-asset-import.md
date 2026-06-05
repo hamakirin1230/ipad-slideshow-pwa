@@ -2,9 +2,9 @@
 
 * 対象プロジェクト: `ipad-slideshow-pwa`
 * 対象フェーズ: 第4ゴール / 第4-3 素材追加・assets保存
-* 現在のスライス: 第4-3-3 Drive assets/ 保存設計
-* ステータス: 第4-3-3 実装前設計確定
-* 最終更新日: 2026-06-04
+* 現在のスライス: 第4-3-4 manifest反映設計
+* ステータス: 第4-3-4 実装前設計確定
+* 最終更新日: 2026-06-05
 * 参照元:
   * `docs/decisions/goal-04-drive-workspace.md`
   * `docs/decisions/goal-04-drive-workspace-create.md`
@@ -828,3 +828,305 @@ manifest反映は未実行です。
 - assetImportSelection を拡張
 - AssetImportPanel を savedToDrive 表示に対応する
 ```
+
+
+---
+
+## 25. 第4-3-4 manifest反映方針
+
+第4-3-4では、第4-3-3でDrive `assets/` に保存したassetを、プロジェクト正本である `manifest.json.slides[]` に反映する。
+
+第4-3-4で行うこと:
+
+```text
+- Drive保存済みassetをmanifestへ登録する
+- manifest.json をDriveから読む
+- manifest本文を検証する
+- slides[] が50件未満であることを確認する
+- slides[] に1件appendする
+- manifest.json をDrive files.update multipartで更新する
+- index.json の対象project.updatedAtを同じ時刻に更新する
+- 更新後にmanifest.jsonとindex.jsonを再読込する
+- 再読込済み本文を再検証する
+- projectSummary / projectDetailsを再検証済みmanifest由来で更新する
+- assetImportStatusを completed にする
+```
+
+第4-3-4で行わないこと:
+
+```text
+- 画像プレビュー表示
+- /player での画像表示
+- 複数素材一括追加
+- Drive assets/ の未反映asset自動探索
+- リロード後の savedToDrive 復旧
+- 自動削除
+- 自動修復
+- ETag / revisionId による強い同時編集制御
+- 競合merge UI
+- rollback
+```
+
+第4-3-4の正常終了状態は `completed` とする。
+
+`completed` は、Drive保存、manifest反映、index updatedAt同期、保存後の再読込・再検証まで成功した状態として扱う。
+
+---
+
+## 26. 第4-3-4の同一フロー方針
+
+第4-3-4では、manifest反映を別ボタンにはしない。
+
+`startAssetImport()` の同一フロー内で、Drive保存後にmanifest反映まで続ける。
+
+```text
+素材を追加
+→ Photos権限つきtoken取得
+→ Picker session作成
+→ 1件選択
+→ 画像Blob取得・検証
+→ Drive assets/ upload
+→ Drive asset metadata検証
+→ manifest.json 読込
+→ manifest本文検証
+→ slides[] append
+→ manifest.json 更新
+→ index.json updatedAt 更新
+→ manifest.json / index.json 再読込
+→ 再検証
+→ completed
+```
+
+第4-3-3の `savedToDrive` は、第4-3-4では途中状態として扱う。
+
+Drive保存後にmanifest反映へ進むことで、manifest未反映assetが残る余地を減らす。
+
+ただし、manifest反映に失敗した場合でも、Drive保存済みassetは自動削除しない。
+
+---
+
+## 27. manifest slide初期値
+
+第4-3-4で `manifest.json.slides[]` にappendするslide objectの初期値は固定する。
+
+```text
+slideId:
+- 新規UUID
+
+assetId:
+- Drive保存時に発行した assetId
+
+assetFileId:
+- Drive保存済みassetの full Drive fileId
+
+assetName:
+- Photos元ファイル名
+- 取得できない場合は Driveファイル名
+
+mimeType:
+- Drive保存済みassetの MIME type
+
+source:
+- googlePhotosPicker
+
+sourceMimeType:
+- Photos mediaFile.mimeType
+
+sourceMediaItemId:
+- full mediaItem.id
+- UI / diagnostics には出さない
+
+sourceCreateTime:
+- Photos createTime がある場合だけ保存
+
+durationSeconds:
+- 10
+
+caption:
+- 空文字
+
+createdAt / updatedAt:
+- manifest更新時刻の同一ISO文字列
+```
+
+full `sourceMediaItemId` はmanifest内部の正本データとして保存する。
+
+ただし、React state、UI、diagnosticsには full `mediaItem.id` を保存・表示しない。
+
+`assetImportSelection` には引き続き `mediaItemIdPart` だけを保持する。
+
+---
+
+## 28. manifest更新前検証
+
+manifest更新前には、Driveから最新の `manifest.json` を読む。
+
+Provider上の `projectDetails` は正本として扱わない。
+
+Driveから読んだmanifest本文に対して、最低限次を検証する。
+
+```text
+- JSONとして読める
+- JSON objectである
+- app が ipad-slideshow-pwa
+- role が projectManifest
+- schemaVersion が対応範囲内
+- workspaceId が期待値と一致する
+- projectId が期待値と一致する
+- title / createdAt / updatedAt が取得できる
+- slides が配列である
+- slides.length < 50
+```
+
+`slides.length >= 50` の場合はappendしない。
+
+この場合、Drive asset保存済みであっても、manifest反映は失敗として扱う。
+
+---
+
+## 29. manifest.json 更新方式
+
+`manifest.json` は既存Drive fileなので、新規作成ではなく既存 `project.manifestFileId` を更新する。
+
+更新には Drive `files.update` の multipart upload を使う。
+
+更新対象:
+
+```text
+fileId:
+- project.manifestFileId
+
+metadata:
+- name: manifest.json
+- mimeType: application/json
+- appProperties は projectManifest として期待値を維持する
+
+body:
+- slides[] に1件appendした新しいmanifest JSON本文
+```
+
+更新後は、upload responseだけで成功扱いにしない。
+
+Driveから `manifest.json` を再読込し、本文を再検証する。
+
+---
+
+## 30. index.json updatedAt同期
+
+manifestにslideを追加する場合、`manifest.json.updatedAt` と `index.json.projects[0].updatedAt` を同じ時刻に更新する。
+
+理由は、project summary側の `updatedAt` とmanifest本文の `updatedAt` を整合させるため。
+
+更新対象:
+
+```text
+manifest.json:
+- slides[] に1件append
+- updatedAt を更新
+
+index.json:
+- projects[0].updatedAt を同じ時刻に更新
+```
+
+`projectSummary / projectDetails` は楽観更新しない。
+
+Drive上の `manifest.json` と `index.json` を更新し、その後の再読込・再検証に成功してからUI状態へ反映する。
+
+---
+
+## 31. 2ファイル更新順序
+
+第4-3-4では、Drive上の2ファイルを次の順で更新する。
+
+```text
+1. manifest.json
+2. index.json
+```
+
+理由は、Drive API上ではこの2更新を1つのトランザクションにしないため。
+
+途中失敗時は、`index.json` だけ先に更新されてmanifestにslideが無い状態より、manifestにslideが入っていてindexの `updatedAt` だけ古い状態の方がまだ実データとして自然である。
+
+想定する中間状態:
+
+```text
+manifest更新前に失敗:
+- Drive asset保存済み
+- manifest未反映
+- index未更新
+
+manifest更新後 / index更新前後に失敗:
+- Drive asset保存済み
+- manifest反映済みの可能性あり
+- index updatedAt 不整合の可能性あり
+- 自動削除・自動修復はしない
+```
+
+---
+
+## 32. 更新後再検証とUI反映
+
+manifest更新後は、Driveから `manifest.json` と `index.json` を再読込する。
+
+再読込した本文を検証し、次を確認する。
+
+```text
+- manifest.json本文が有効である
+- index.json本文が有効である
+- index.json.projects[0] が対象projectである
+- manifest.json.updatedAt と index.json.projects[0].updatedAt が一致する
+- slides[] に今回追加したslideが存在する
+- slide.assetId が保存済みassetIdと一致する
+- slide.assetFileId が保存済みasset fileIdと一致する
+- slide.source が googlePhotosPicker
+- slide.mimeType が保存済みDrive asset MIME typeと一致する
+```
+
+再検証に成功した場合だけ、`projectSummary / projectDetails` を更新する。
+
+`projectSummary / projectDetails` は、再読込済みmanifest由来の結果から作る。
+
+---
+
+## 33. manifest反映失敗時の扱い
+
+manifest反映や再検証に失敗しても、Drive保存済みassetは自動削除しない。
+
+自動修復もしない。
+
+失敗時diagnosticsには、次の趣旨を出す。
+
+```text
+Drive asset file は作成済みです。
+manifest反映は完了していません、または完了確認できていません。
+index.json updatedAt が未更新または不整合の可能性があります。
+自動削除・自動修復は行いません。
+```
+
+Drive保存後のmanifest反映失敗は、`status: error` として扱う。
+
+ただし、ユーザーに「何も起きなかった」と誤解させない。
+
+---
+
+## 34. 第4-3-4の実装分割
+
+第4-3-4は、次の順に分割して実装する。
+
+```text
+パッチ1:
+- decision doc更新
+- 実コード変更なし
+
+パッチ2:
+- google-drive.ts
+- manifest/index 更新用の高レベル関数を追加
+- app-providers.tsx にはまだ接続しない
+
+パッチ3:
+- app-providers.tsx
+- startAssetImport() を completed まで延長
+- AssetImportPanel の completed 表示を整える
+```
+
+実際にDrive上のmanifest/index更新が走るのは、パッチ3でProviderに接続してからとする。
