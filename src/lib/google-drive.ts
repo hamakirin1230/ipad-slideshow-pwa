@@ -20,6 +20,7 @@ const PROJECT_ASSETS_ROOT_NAME = "assets";
 const CHILD_ROLE_SEARCH_LIMIT = 2;
 const JSON_FILE_SIZE_LIMIT_BYTES = 64 * 1024;
 const DRIVE_PROJECT_MAX_SLIDE_COUNT = 50;
+const DRIVE_PROJECT_ASSET_PREVIEW_SIZE_LIMIT_BYTES = 10 * 1024 * 1024;
 const DRIVE_PROJECT_DEFAULT_SLIDE_DURATION_SECONDS = 10;
 
 const CREATE_FOLDER_FIELDS =
@@ -517,6 +518,69 @@ export async function readDriveTextFile(
   return response.text();
 }
 
+export async function fetchDriveProjectAssetBlob(input: {
+  accessToken: string;
+  assetFileId: string;
+  expectedMimeType: DriveAssetMimeType;
+  signal: AbortSignal;
+}): Promise<Blob> {
+  const inputDiagnostics = validateDriveProjectAssetBlobFetchInput(input);
+
+  if (inputDiagnostics.length > 0) {
+    throw new Error(inputDiagnostics.join(" "));
+  }
+
+  const params = new URLSearchParams({
+    alt: "media",
+  });
+
+  const response = await fetch(
+    `${DRIVE_API_FILES_URL}/${encodeURIComponent(input.assetFileId)}?${params.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+      },
+      cache: "no-store",
+      credentials: "omit",
+      signal: input.signal,
+    },
+  );
+
+  if (!response.ok) {
+    throw new DriveApiError(response.status);
+  }
+
+  const responseContentType = normalizeDriveAssetContentType(
+    response.headers.get("Content-Type"),
+  );
+
+  if (responseContentType !== input.expectedMimeType) {
+    throw new Error(
+      "Drive asset preview response Content-Type did not match the expected MIME type.",
+    );
+  }
+
+  const blob = await response.blob();
+
+  if (blob.size <= 0) {
+    throw new Error("Drive asset preview Blob was empty.");
+  }
+
+  if (blob.size > DRIVE_PROJECT_ASSET_PREVIEW_SIZE_LIMIT_BYTES) {
+    throw new Error("Drive asset preview Blob exceeded the size limit.");
+  }
+
+  if (blob.type) {
+    const blobContentType = normalizeDriveAssetContentType(blob.type);
+
+    if (blobContentType !== input.expectedMimeType) {
+      throw new Error("Drive asset preview Blob type did not match the expected MIME type.");
+    }
+  }
+
+  return blob;
+}
 
 export async function saveDriveProjectAsset(
   input: DriveProjectAssetSaveInput,
@@ -3090,6 +3154,36 @@ function buildDriveProjectManifestAppendFailureDiagnostics(input: {
 
 function isDriveAssetMimeType(value: string): value is DriveAssetMimeType {
   return value === "image/jpeg" || value === "image/png" || value === "image/webp";
+}
+
+function validateDriveProjectAssetBlobFetchInput(input: {
+  accessToken: string;
+  assetFileId: string;
+  expectedMimeType: DriveAssetMimeType;
+}) {
+  const diagnostics: string[] = [];
+
+  if (!input.accessToken) {
+    diagnostics.push("Drive asset preview用のaccessTokenがありません。");
+  }
+
+  if (!isNonEmptyString(input.assetFileId)) {
+    diagnostics.push("Drive asset preview対象のassetFileIdが空です。");
+  }
+
+  if (!isDriveAssetMimeType(input.expectedMimeType)) {
+    diagnostics.push("Drive asset preview対象のexpectedMimeTypeが対応外です。");
+  }
+
+  return diagnostics;
+}
+
+function normalizeDriveAssetContentType(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  return value.split(";")[0]?.trim().toLowerCase() ?? "";
 }
 
 function isRfc3339UtcTimestamp(value: string) {
