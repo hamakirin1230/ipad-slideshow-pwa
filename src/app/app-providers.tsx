@@ -28,6 +28,7 @@ import {
   appendDriveProjectAssetToManifest,
   createDriveProject,
   createDriveWorkspace,
+  fetchDriveProjectAssetBlob,
   findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
   readDriveTextFile,
@@ -144,6 +145,7 @@ export type ProjectSummary = {
 export type ProjectSlideSummary = {
   slideIdPart: string;
   assetIdPart: string;
+  assetFileId: string;
   assetName: string;
   mimeType: string;
   sourceMimeType: string;
@@ -307,6 +309,11 @@ type AppContextValue = {
   createProject: () => void;
   startAssetImport: () => void;
   cancelAssetImport: () => void;
+  fetchProjectSlidePreviewBlob: (
+    assetFileId: string,
+    expectedMimeType: ProjectSlideSummary["mimeType"],
+    signal: AbortSignal,
+  ) => Promise<Blob>;
 };
 
 const googleStatusLabels: Record<GoogleConnectionStatus, string> = {
@@ -1368,6 +1375,29 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  async function fetchProjectSlidePreviewBlob(
+    assetFileId: string,
+    expectedMimeType: ProjectSlideSummary["mimeType"],
+    signal: AbortSignal,
+  ) {
+    const accessToken = accessTokenRef.current;
+
+    if (!accessToken) {
+      throw new DriveApiError(401);
+    }
+
+    if (!isDrivePreviewMimeType(expectedMimeType)) {
+      throw new Error("Drive asset preview expected MIME type is not supported.");
+    }
+
+    return fetchDriveProjectAssetBlob({
+      accessToken,
+      assetFileId,
+      expectedMimeType,
+      signal,
+    });
+  }
+
   function cancelAssetImport() {
     if (
       !assetImportInFlightRef.current &&
@@ -1919,6 +1949,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     createProject,
     startAssetImport,
     cancelAssetImport,
+    fetchProjectSlidePreviewBlob,
   };
 
   return (
@@ -2121,6 +2152,7 @@ function toProjectDetails(details: DriveProjectReadyDetails): ProjectDetails {
     slides: details.slides.map((slide) => ({
       slideIdPart: formatIdPart(slide.slideId),
       assetIdPart: formatIdPart(slide.assetId),
+      assetFileId: slide.assetFileId,
       assetName: slide.assetName,
       mimeType: slide.mimeType,
       sourceMimeType: slide.sourceMimeType,
@@ -2544,6 +2576,12 @@ function buildPostCreateNotReadyDiagnostics(result: DriveWorkspaceCheckResult) {
     "不要な場合は、そのフォルダごと手動で削除してください。",
     "削除後、この画面で「Drive状態を再確認」を押してください。",
   ];
+}
+
+function isDrivePreviewMimeType(
+  value: ProjectSlideSummary["mimeType"],
+): value is "image/jpeg" | "image/png" | "image/webp" {
+  return value === "image/jpeg" || value === "image/png" || value === "image/webp";
 }
 
 async function findWorkspaceChildCandidates(
