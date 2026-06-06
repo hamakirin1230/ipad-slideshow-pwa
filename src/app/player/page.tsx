@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
@@ -21,6 +21,53 @@ export default function PlayerPage() {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
 
   const slideCount = projectDetails?.slides.length ?? 0;
+
+  const goToPreviousSlide = () => {
+    if (slideCount === 0) return;
+    setCurrentSlideIndex((current) => Math.max(0, current - 1));
+  };
+
+  const goToNextSlide = () => {
+    if (slideCount === 0) return;
+    setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
+  };
+
+  type SwipeStart = { clientX: number; clientY: number; pointerId: number };
+  const swipeStartRef = useRef<SwipeStart | null>(null);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    swipeStartRef.current = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      pointerId: e.pointerId,
+    };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+    if (!start || start.pointerId !== e.pointerId) return;
+    const dx = e.clientX - start.clientX;
+    const dy = e.clientY - start.clientY;
+    swipeStartRef.current = null;
+    if (Math.abs(dx) < 50) return;
+    if (Math.abs(dx) <= Math.abs(dy)) return;
+    if (dx < 0) {
+      goToNextSlide();
+    } else {
+      goToPreviousSlide();
+    }
+  };
+
+  const handlePointerCancel = () => {
+    swipeStartRef.current = null;
+  };
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -113,38 +160,45 @@ export default function PlayerPage() {
 
         {!notConnected && !notReady && !noSlides && (
           <>
-            <div className="flex aspect-[16/9] items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
-              {status === "loading" && (
-                <p className="text-slate-400">スライド画像を読み込んでいます。</p>
-              )}
-              {status === "error" && (
-                <p className="text-slate-400">スライド画像を表示できません。</p>
-              )}
-              {status === "ready" && objectUrl && (
-                <img
-                  src={objectUrl}
-                  alt="現在のスライド画像"
-                  style={{ objectFit: "contain", width: "100%", height: "100%" }}
-                />
-              )}
-              {status === "idle" && (
-                <p className="text-slate-500">スライド画像の準備をしています。</p>
+            <div
+              onPointerDown={handlePointerDown}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerCancel}
+              style={{ touchAction: "pan-y" }}
+            >
+              <div className="flex aspect-[16/9] items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
+                {status === "loading" && (
+                  <p className="text-slate-400">スライド画像を読み込んでいます。</p>
+                )}
+                {status === "error" && (
+                  <p className="text-slate-400">スライド画像を表示できません。</p>
+                )}
+                {status === "ready" && objectUrl && (
+                  <img
+                    src={objectUrl}
+                    alt="現在のスライド画像"
+                    style={{ objectFit: "contain", width: "100%", height: "100%" }}
+                  />
+                )}
+                {status === "idle" && (
+                  <p className="text-slate-500">スライド画像の準備をしています。</p>
+                )}
+              </div>
+
+              {currentSlideCaption && (
+                <p
+                  className="text-center text-lg text-slate-200"
+                  style={{
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  {currentSlideCaption}
+                </p>
               )}
             </div>
-
-            {currentSlideCaption && (
-              <p
-                className="text-center text-lg text-slate-200"
-                style={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
-                {currentSlideCaption}
-              </p>
-            )}
 
             {slideCount > 0 && (
               <div className="flex items-center justify-center gap-6">
@@ -154,9 +208,7 @@ export default function PlayerPage() {
                   className="rounded-full"
                   aria-label="前のスライドへ"
                   disabled={safeCurrentSlideIndex === 0}
-                  onClick={() =>
-                    setCurrentSlideIndex((current) => Math.max(0, current - 1))
-                  }
+                  onClick={goToPreviousSlide}
                 >
                   ＜
                 </Button>
@@ -169,11 +221,7 @@ export default function PlayerPage() {
                   className="rounded-full"
                   aria-label="次のスライドへ"
                   disabled={safeCurrentSlideIndex === slideCount - 1}
-                  onClick={() =>
-                    setCurrentSlideIndex((current) =>
-                      Math.min(slideCount - 1, current + 1),
-                    )
-                  }
+                  onClick={goToNextSlide}
                 >
                   ＞
                 </Button>
