@@ -1,12 +1,29 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
 import { useAppState } from "@/app/app-providers";
 import { usePlayerCurrentSlideImage } from "./use-player-current-slide-image";
+
+const DEFAULT_SLIDE_DURATION_SECONDS = 5;
+const MIN_SLIDE_DURATION_SECONDS = 1;
+const MAX_SLIDE_DURATION_SECONDS = 60;
+
+function normalizeDurationSeconds(value: unknown): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    isNaN(value) ||
+    value < MIN_SLIDE_DURATION_SECONDS ||
+    value > MAX_SLIDE_DURATION_SECONDS
+  ) {
+    return DEFAULT_SLIDE_DURATION_SECONDS;
+  }
+  return value;
+}
 
 export default function PlayerPage() {
   const {
@@ -22,15 +39,15 @@ export default function PlayerPage() {
 
   const slideCount = projectDetails?.slides.length ?? 0;
 
-  const goToPreviousSlide = () => {
+  const goToPreviousSlide = useCallback(() => {
     if (slideCount === 0) return;
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
-  };
+  }, [slideCount]);
 
-  const goToNextSlide = () => {
+  const goToNextSlide = useCallback(() => {
     if (slideCount === 0) return;
     setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
-  };
+  }, [slideCount]);
 
   type SwipeStart = { clientX: number; clientY: number; pointerId: number };
   const swipeStartRef = useRef<SwipeStart | null>(null);
@@ -104,6 +121,39 @@ export default function PlayerPage() {
     fetchProjectSlidePreviewBlob,
   });
 
+  const currentSlideDurationSeconds = normalizeDurationSeconds(
+    currentSlide?.durationSeconds,
+  );
+
+  const [loadedImageObjectUrl, setLoadedImageObjectUrl] = useState<string | null>(null);
+
+  const isCurrentImageLoaded =
+    typeof objectUrl === "string" && loadedImageObjectUrl === objectUrl;
+
+  useEffect(() => {
+    if (
+      status !== "ready" ||
+      !objectUrl ||
+      !isCurrentImageLoaded ||
+      slideCount === 0 ||
+      safeCurrentSlideIndex >= slideCount - 1
+    ) {
+      return;
+    }
+    const timeoutId = setTimeout(() => {
+      goToNextSlide();
+    }, currentSlideDurationSeconds * 1000);
+    return () => clearTimeout(timeoutId);
+  }, [
+    status,
+    objectUrl,
+    isCurrentImageLoaded,
+    slideCount,
+    safeCurrentSlideIndex,
+    currentSlideDurationSeconds,
+    goToNextSlide,
+  ]);
+
   const notConnected =
     googleStatus !== "connected" || driveFileGranted !== true;
 
@@ -175,8 +225,10 @@ export default function PlayerPage() {
                 )}
                 {status === "ready" && objectUrl && (
                   <img
+                    key={objectUrl}
                     src={objectUrl}
                     alt="現在のスライド画像"
+                    onLoad={() => setLoadedImageObjectUrl(objectUrl)}
                     style={{ objectFit: "contain", width: "100%", height: "100%" }}
                   />
                 )}
