@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DriveSettingsPanel } from "./drive-settings-panel";
+import { OfflineDbCheckPanel } from "./offline-db-check-panel";
 import {
   Card,
   CardContent,
@@ -111,6 +112,8 @@ export default function SettingsPage() {
         </div>
 
         <DriveSettingsPanel />
+
+        <OfflineDbCheckPanel />
 
         <section className="grid gap-4 md:grid-cols-2">
           {appSettings.map((item) => (
