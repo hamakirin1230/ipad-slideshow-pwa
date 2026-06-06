@@ -102,13 +102,16 @@ export type OfflineSyncState = {
 };
 
 export type OfflineStagingProject = OfflineProject & {
+  stagingId: string;
   syncRunId: string;
 };
 
 export type OfflineStagingAsset = OfflineAsset & {
+  stagingId: string;
   syncRunId: string;
 };
 
 export type OfflineStagingAssetBlobRecord = OfflineAssetBlobRecord & {
+  stagingId: string;
   syncRunId: string;
 };
