@@ -139,3 +139,75 @@ export async function closeOfflineDb(): Promise<void> {
   const db = await promise.catch(() => null);
   db?.close();
 }
+
+export type OfflineTransactionMode = "readonly" | "readwrite";
+
+export function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+
+    request.onerror = () => {
+      reject(request.error ?? new Error("IndexedDB request failed."));
+    };
+  });
+}
+
+export async function runOfflineTransaction<T>(
+  storeNames: string[],
+  mode: OfflineTransactionMode,
+  callback: (context: {
+    transaction: IDBTransaction;
+    stores: Record<string, IDBObjectStore>;
+  }) => T | Promise<T>,
+): Promise<T> {
+  const uniqueStoreNames = Array.from(new Set(storeNames));
+
+  if (uniqueStoreNames.length === 0) {
+    throw new Error("At least one object store name is required.");
+  }
+
+  const db = await openOfflineDb();
+
+  try {
+    const transaction = db.transaction(uniqueStoreNames, mode);
+
+    const transactionDone = new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => {
+        resolve();
+      };
+
+      transaction.onerror = () => {
+        reject(transaction.error ?? new Error("IndexedDB transaction failed."));
+      };
+
+      transaction.onabort = () => {
+        reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
+      };
+    });
+
+    const stores: Record<string, IDBObjectStore> = {};
+
+    for (const storeName of uniqueStoreNames) {
+      stores[storeName] = transaction.objectStore(storeName);
+    }
+
+    try {
+      const callbackResult = await callback({ transaction, stores });
+      await transactionDone;
+      return callbackResult;
+    } catch (error) {
+      try {
+        transaction.abort();
+      } catch {
+        // Ignore abort failures and preserve the original error.
+      }
+
+      void transactionDone.catch(() => undefined);
+      throw error;
+    }
+  } finally {
+    await closeOfflineDb().catch(() => undefined);
+  }
+}
