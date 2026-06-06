@@ -571,6 +571,212 @@ staging検証成功後、IndexedDB全体を削除して作り直さない。
 
 project JSONだけ保存できた状態は `ready` ではない。
 
+## `offlineSyncState` 安全運用ルール
+
+`offlineSyncState.status` は、単なる表示用文字列ではなく、`/player` が将来オフライン再生可否を判断するための重要な状態である。
+
+そのため、`ready` / `syncing` / `failed` / `corrupt` の意味を混ぜない。
+
+### `ready` を設定してよい経路
+
+`offlineSyncState.status = "ready"` を設定してよいのは、staging検証と確定store昇格が成功した経路だけに限定する。
+
+許可する経路:
+
+1. Driveからproject、asset metadata、画像Blobを取得する
+2. staging storeへ保存する
+3. staging一式を検証する
+4. project本体、全asset metadata、全画像Blobが揃っていることを確認する
+5. 対象project 1件の確定storeをトランザクション内で置き換える
+6. 確定store昇格が成功した場合だけ `status = "ready"` にする
+
+禁止すること:
+
+- `putOfflineSyncState()` の単発呼び出しで安易に `ready` を作る
+- projectだけ保存した状態で `ready` にする
+- asset metadataだけ保存した状態で `ready` にする
+- Blobが欠けた状態で `ready` にする
+- UI操作や開発用確認ボタンから直接 `ready` にする
+- staging検証を通さずに `ready` にする
+
+理由:
+
+`ready` は「IndexedDB内の確定storeを本番再生元として使ってよい」という宣言に近い。
+
+低レベル保存関数から自由に作れる状態にすると、不完全なprojectやBlob欠損状態を `/player` が再生可能と誤認する危険がある。
+
+### `syncing` の運用
+
+`syncing` は、新しい同期処理が進行中であることを表す。
+
+`syncing` は、既存の確定済み再生データを無効化する意味ではない。
+
+同期開始時の運用:
+
+- `status` を `syncing` にする
+- `syncRunId` を今回の同期試行IDに更新する
+- 既存の `offlineProjects` / `offlineAssets` / `offlineAssetBlobs` は消さない
+- 既存の確定storeを上書きしない
+- 新しい同期データは staging store に保存する
+- `syncedAt` は前回成功同期時刻として保持する
+- `sourceUpdatedAt` は前回成功同期時のDrive側更新時刻として保持する
+- `slideCount` / `assetCount` は前回成功同期時の値として保持する
+- 前回の `lastErrorCode` / `lastErrorMessage` / `lastFailedAt` はクリアする
+
+理由:
+
+同期開始時点では、新しいデータはまだ確定していない。
+
+この段階で前回成功同期情報を消すと、同期失敗時に「最後に使えるデータがいつのものか」が分からなくなる。
+
+### `failed` の運用
+
+`failed` は、直近の同期処理に失敗したことを表す。
+
+`failed` は、既存の確定storeデータが再生不可であることを必ずしも意味しない。
+
+同期失敗時の運用:
+
+- `status` を `failed` にする
+- `syncRunId` は失敗した直近同期試行IDとして残す
+- `lastErrorCode` / `lastErrorMessage` / `lastFailedAt` を保存する
+- `syncedAt` は前回成功同期時刻として保持する
+- `sourceUpdatedAt` は前回成功同期時のDrive側更新時刻として保持する
+- `slideCount` / `assetCount` は前回成功同期時の値として保持する
+- 既存の `offlineProjects` / `offlineAssets` / `offlineAssetBlobs` は残す
+- 失敗したstagingデータは削除またはcleanup対象にする
+
+理由:
+
+同期失敗は「新しいデータへの更新に失敗した」という意味であり、既存の確定済みデータが壊れたとは限らない。
+
+最新化に失敗しても、前回同期済みデータで再生できる可能性を残す。
+
+### `corrupt` の運用
+
+`corrupt` は、同期失敗ではなく、確定store内の保存済みデータが信用できない状態を表す。
+
+`corrupt` の例:
+
+- `offlineProjects` は存在するが、slideが参照する `offlineAssets` が欠けている
+- `offlineAssets` は存在するが、対応する `offlineAssetBlobs` が欠けている
+- Blob metadataが大きく矛盾している
+- 保存済みBlobが破損している
+- 確定store検証で再生に必要なデータ欠損が見つかった
+
+`corrupt` 時の運用:
+
+- `status` を `corrupt` にする
+- `/player` はそのprojectをオフライン再生元として使わない
+- `syncedAt` は最後に信用できた成功同期時刻として保持する
+- `sourceUpdatedAt` は最後に信用できたDrive側更新時刻として保持する
+- `slideCount` / `assetCount` は最後に信用できた確定データの値として保持する
+- `lastErrorCode` / `lastErrorMessage` に破損理由を保存する
+- `lastFailedAt` は更新しない
+
+理由:
+
+`failed` は同期処理の失敗であり、`corrupt` は保存済み確定データの破損である。
+
+この2つを混ぜると、既存データで再生してよいのか、再同期や復旧が必要なのか判断できなくなる。
+
+### `syncedAt` / `lastFailedAt` の意味
+
+`syncedAt` と `lastFailedAt` は意味を分ける。
+
+`syncedAt`:
+
+- 最後に確定storeが正常に同期・昇格された時刻
+- `syncing` 開始時には更新しない
+- `failed` 時には更新しない
+- `corrupt` 時にも消さない
+- `ready` 成功時に今回成功同期時刻へ更新する
+
+`lastFailedAt`:
+
+- 直近の同期失敗時刻
+- `failed` 時だけ更新する
+- `syncing` 開始時には前回値をクリアする
+- `ready` 成功時にはクリアする
+- `corrupt` 検知時刻としては使わない
+
+`corrupt` 検知時刻が必要になった場合は、将来 `corruptDetectedAt` のような別フィールド追加を検討する。
+
+### `syncRunId` の意味
+
+初期運用では、`syncRunId` は直近の同期試行IDとして扱う。
+
+状態別の扱い:
+
+- `syncing`: 現在進行中の同期試行ID
+- `failed`: 失敗した直近同期試行ID
+- `ready`: 成功して確定storeへ昇格された同期ID
+- `corrupt`: 原則として直近状態の `syncRunId` を保持する
+
+将来、最後に成功した同期IDと直近試行IDを明確に分ける必要が出た場合は、`lastSuccessfulSyncRunId` のような別フィールド追加を検討する。
+
+### `ready` 成功時に更新する情報
+
+staging検証と確定store昇格が成功し、`ready` にする場合は、同期成功情報を今回の確定データに更新する。
+
+更新するもの:
+
+- `status = "ready"`
+- `syncRunId`: 成功した同期ID
+- `syncedAt`: 今回の成功同期時刻
+- `sourceUpdatedAt`: 今回同期元Driveの更新時刻
+- `slideCount`: 今回の確定データのslide数
+- `assetCount`: 今回の確定データのasset数
+
+クリアするもの:
+
+- `lastErrorCode`
+- `lastErrorMessage`
+- `lastFailedAt`
+
+理由:
+
+`ready` は「この時点の確定storeを再生元として使ってよい」という状態である。
+
+そのため、件数や時刻は前回成功分ではなく、今回昇格に成功した確定データの情報に更新する。
+
+### `/player` での扱い
+
+将来の `/player` では、`offlineSyncState.status === "ready"` だけに依存しすぎない。
+
+初期方針:
+
+- `ready` は再生開始の強い候補条件にする
+- `corrupt` は再生不可として扱う
+- `syncing` / `failed` は、既存確定store検証の結果と組み合わせて扱う余地を残す
+- 前回readyデータが残っているかどうかは、後続の確定store検証関数で判断する
+
+理由:
+
+`syncing` や `failed` は、直近同期状態を表す。
+
+それだけで既存確定データが再生可能かどうかまでは断定しない。
+
+### 低レベル保存関数との関係
+
+`putOfflineSyncState()` は、`offlineSyncState` store に1件保存する低レベル関数である。
+
+注意:
+
+- `putOfflineSyncState()` 自体は `ready` の安全性を検証しない
+- `putOfflineSyncState()` をUIから直接呼ばない
+- `putOfflineSyncState()` で `ready` を作るのは、staging検証・確定store昇格の成功経路だけにする
+- `syncing` / `failed` / `corrupt` への状態更新も、後続の専用関数で安全に包むことを検討する
+
+将来の候補:
+
+- `markOfflineSyncing(...)`
+- `markOfflineSyncFailed(...)`
+- `markOfflineSyncReadyAfterPromotion(...)`
+- `markOfflineSyncCorrupt(...)`
+
+ただし、これらの関数は今回のdecision追記では実装しない。
+
 ## 同期元Driveスナップショット情報
 
 `offlineSyncState` には、同期元Driveのスナップショット情報を保存する。
