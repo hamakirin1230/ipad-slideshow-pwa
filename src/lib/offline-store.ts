@@ -6,10 +6,16 @@ import {
   OFFLINE_ASSETS_STORE,
   OFFLINE_ASSET_BLOBS_STORE,
   OFFLINE_PROJECTS_STORE,
+  OFFLINE_STAGING_ASSETS_STORE,
+  OFFLINE_STAGING_ASSET_BLOBS_STORE,
+  OFFLINE_STAGING_PROJECTS_STORE,
   OFFLINE_SYNC_STATE_STORE,
   type OfflineAsset,
   type OfflineAssetBlobRecord,
   type OfflineProject,
+  type OfflineStagingAsset,
+  type OfflineStagingAssetBlobRecord,
+  type OfflineStagingProject,
   type OfflineSyncState,
 } from "@/lib/offline-schema";
 
@@ -119,6 +125,46 @@ export function putOfflineSyncState(
     "readwrite",
     async ({ stores }) => {
       await requestToPromise(stores[OFFLINE_SYNC_STATE_STORE].put(syncState));
+    },
+  );
+}
+
+export function putOfflineStagingProject(
+  project: OfflineStagingProject,
+): Promise<void> {
+  return runOfflineTransaction(
+    [OFFLINE_STAGING_PROJECTS_STORE],
+    "readwrite",
+    async ({ stores }) => {
+      await requestToPromise(
+        stores[OFFLINE_STAGING_PROJECTS_STORE].put(project),
+      );
+    },
+  );
+}
+
+export function putOfflineStagingAsset(
+  asset: OfflineStagingAsset,
+): Promise<void> {
+  return runOfflineTransaction(
+    [OFFLINE_STAGING_ASSETS_STORE],
+    "readwrite",
+    async ({ stores }) => {
+      await requestToPromise(stores[OFFLINE_STAGING_ASSETS_STORE].put(asset));
+    },
+  );
+}
+
+export function putOfflineStagingAssetBlobRecord(
+  blobRecord: OfflineStagingAssetBlobRecord,
+): Promise<void> {
+  return runOfflineTransaction(
+    [OFFLINE_STAGING_ASSET_BLOBS_STORE],
+    "readwrite",
+    async ({ stores }) => {
+      await requestToPromise(
+        stores[OFFLINE_STAGING_ASSET_BLOBS_STORE].put(blobRecord),
+      );
     },
   );
 }
