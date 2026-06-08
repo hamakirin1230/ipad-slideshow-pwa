@@ -58,6 +58,11 @@ export type PromoteOfflineStagingForSyncRunResult =
   | {
       ok: false;
       reason: "stale-sync-run";
+    }
+  | {
+      ok: false;
+      reason: "promotion-or-cleanup-failed";
+      syncStateUpdate: OfflineSyncStateUpdateResult;
     };
 
 async function markValidationFailureSyncState(args: {
@@ -75,6 +80,20 @@ async function markValidationFailureSyncState(args: {
     });
   }
 
+  return markOfflineSyncFailed({
+    projectId: args.projectId,
+    syncRunId: args.syncRunId,
+    failedAt: args.failedAt,
+    context: args.context,
+  });
+}
+
+async function markPromotionOrCleanupFailureSyncState(args: {
+  projectId: string;
+  syncRunId: string;
+  failedAt: IsoDateTimeString;
+  context: OfflineSyncStateContext;
+}): Promise<OfflineSyncStateUpdateResult> {
   return markOfflineSyncFailed({
     projectId: args.projectId,
     syncRunId: args.syncRunId,
@@ -110,49 +129,64 @@ export async function promoteOfflineStagingForSyncRun(
     };
   }
 
-  return runOfflineTransaction(
-    [
-      OFFLINE_SYNC_STATE_STORE,
-      OFFLINE_ASSET_BLOBS_STORE,
-      OFFLINE_ASSETS_STORE,
-      OFFLINE_PROJECTS_STORE,
-      OFFLINE_STAGING_ASSET_BLOBS_STORE,
-      OFFLINE_STAGING_ASSETS_STORE,
-      OFFLINE_STAGING_PROJECTS_STORE,
-    ],
-    "readwrite",
-    async ({ stores }) => {
-      const syncStateUpdate = await markOfflineSyncReadyInTransaction(stores, {
-        projectId: validatedStaging.project.projectId,
-        syncRunId: args.syncRunId,
-        readyAt: args.readyAt,
-        context: args.context,
-      });
+  try {
+    return await runOfflineTransaction(
+      [
+        OFFLINE_SYNC_STATE_STORE,
+        OFFLINE_ASSET_BLOBS_STORE,
+        OFFLINE_ASSETS_STORE,
+        OFFLINE_PROJECTS_STORE,
+        OFFLINE_STAGING_ASSET_BLOBS_STORE,
+        OFFLINE_STAGING_ASSETS_STORE,
+        OFFLINE_STAGING_PROJECTS_STORE,
+      ],
+      "readwrite",
+      async ({ stores }) => {
+        const syncStateUpdate = await markOfflineSyncReadyInTransaction(stores, {
+          projectId: validatedStaging.project.projectId,
+          syncRunId: args.syncRunId,
+          readyAt: args.readyAt,
+          context: args.context,
+        });
 
-      if (!syncStateUpdate.updated) {
-        return {
-          ok: false,
-          reason: "stale-sync-run",
-        };
-      }
+        if (!syncStateUpdate.updated) {
+          return {
+            ok: false,
+            reason: "stale-sync-run",
+          };
+        }
 
-      const promotion =
-        await promoteValidatedOfflineStagingToConfirmedStoresInTransaction(
+        const promotion =
+          await promoteValidatedOfflineStagingToConfirmedStoresInTransaction(
+            stores,
+            validatedStaging,
+          );
+
+        const cleanup = await clearOfflineStagingBySyncRunIdInTransaction(
           stores,
-          validatedStaging,
+          args.syncRunId,
         );
 
-      const cleanup = await clearOfflineStagingBySyncRunIdInTransaction(
-        stores,
-        args.syncRunId,
-      );
+        return {
+          ok: true,
+          promotion,
+          cleanup,
+          syncStateUpdate,
+        };
+      },
+    );
+  } catch {
+    const syncStateUpdate = await markPromotionOrCleanupFailureSyncState({
+      projectId: args.projectId,
+      syncRunId: args.syncRunId,
+      failedAt: args.failedAt,
+      context: args.context,
+    });
 
-      return {
-        ok: true,
-        promotion,
-        cleanup,
-        syncStateUpdate,
-      };
-    },
-  );
+    return {
+      ok: false,
+      reason: "promotion-or-cleanup-failed",
+      syncStateUpdate,
+    };
+  }
 }
