@@ -53,7 +53,7 @@ export type PromoteOfflineStagingForSyncRunResult =
       reason: "validation-failed";
       validationReason: OfflineStagingValidationFailureReason;
       validationClassification: OfflineStagingValidationFailureClassification;
-      syncStateUpdate: OfflineSyncStateUpdateResult;
+      syncStateUpdate: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
     }
   | {
       ok: false;
@@ -62,7 +62,7 @@ export type PromoteOfflineStagingForSyncRunResult =
   | {
       ok: false;
       reason: "promotion-or-cleanup-failed";
-      syncStateUpdate: OfflineSyncStateUpdateResult;
+      syncStateUpdate: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
     };
 
 async function markValidationFailureSyncState(args: {
@@ -119,6 +119,13 @@ export async function promoteOfflineStagingForSyncRun(
       context: args.context,
       classification: validationClassification,
     });
+
+    if (!syncStateUpdate.updated) {
+      return {
+        ok: false,
+        reason: "stale-sync-run",
+      };
+    }
 
     return {
       ok: false,
@@ -182,6 +189,13 @@ export async function promoteOfflineStagingForSyncRun(
       failedAt: args.failedAt,
       context: args.context,
     });
+
+    if (!syncStateUpdate.updated) {
+      return {
+        ok: false,
+        reason: "stale-sync-run",
+      };
+    }
 
     return {
       ok: false,
