@@ -30,7 +30,7 @@ import {
   classifyOfflineStagingValidationFailure,
   type OfflineStagingValidationFailureClassification,
 } from "@/lib/offline-staging-validation-failure-classification";
-import { validateOfflineStagingForSyncRun } from "@/lib/offline-staging-validation-integration";
+import { validateOfflineStagingForSyncRunInTransaction } from "@/lib/offline-staging-validation-integration";
 import type { OfflineStagingValidationFailureReason } from "@/lib/offline-staging-validation";
 
 export type PromoteOfflineStagingForSyncRunArgs = {
@@ -105,37 +105,6 @@ async function markPromotionOrCleanupFailureSyncState(args: {
 export async function promoteOfflineStagingForSyncRun(
   args: PromoteOfflineStagingForSyncRunArgs,
 ): Promise<PromoteOfflineStagingForSyncRunResult> {
-  const validatedStaging = await validateOfflineStagingForSyncRun(args.syncRunId);
-
-  if (!validatedStaging.ok) {
-    const validationClassification = classifyOfflineStagingValidationFailure(
-      validatedStaging.validation.reason,
-    );
-
-    const syncStateUpdate = await markValidationFailureSyncState({
-      projectId: args.projectId,
-      syncRunId: args.syncRunId,
-      failedAt: args.failedAt,
-      context: args.context,
-      classification: validationClassification,
-    });
-
-    if (!syncStateUpdate.updated) {
-      return {
-        ok: false,
-        reason: "stale-sync-run",
-      };
-    }
-
-    return {
-      ok: false,
-      reason: "validation-failed",
-      validationReason: validatedStaging.validation.reason,
-      validationClassification,
-      syncStateUpdate,
-    };
-  }
-
   try {
     return await runOfflineTransaction(
       [
@@ -149,6 +118,42 @@ export async function promoteOfflineStagingForSyncRun(
       ],
       "readwrite",
       async ({ stores }) => {
+        const validatedStaging =
+          await validateOfflineStagingForSyncRunInTransaction(
+            stores,
+            args.syncRunId,
+          );
+
+        if (!validatedStaging.ok) {
+          const validationClassification =
+            classifyOfflineStagingValidationFailure(
+              validatedStaging.validation.reason,
+            );
+
+          const syncStateUpdate = await markValidationFailureSyncState({
+            projectId: args.projectId,
+            syncRunId: args.syncRunId,
+            failedAt: args.failedAt,
+            context: args.context,
+            classification: validationClassification,
+          });
+
+          if (!syncStateUpdate.updated) {
+            return {
+              ok: false,
+              reason: "stale-sync-run",
+            };
+          }
+
+          return {
+            ok: false,
+            reason: "validation-failed",
+            validationReason: validatedStaging.validation.reason,
+            validationClassification,
+            syncStateUpdate,
+          };
+        }
+
         const syncStateUpdate = await markOfflineSyncReadyInTransaction(stores, {
           projectId: validatedStaging.project.projectId,
           syncRunId: args.syncRunId,
