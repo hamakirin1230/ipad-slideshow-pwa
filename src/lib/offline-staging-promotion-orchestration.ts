@@ -66,6 +66,23 @@ export type PromoteOfflineStagingForSyncRunResult =
       syncStateUpdate: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
     };
 
+function assertNonBlankInternalId(name: string, value: string): void {
+  if (value.length === 0) {
+    throw new Error(`${name} is required.`);
+  }
+
+  if (value !== value.trim()) {
+    throw new Error(`${name} must not include leading or trailing whitespace.`);
+  }
+}
+
+function assertValidPromoteOfflineStagingArgs(
+  args: PromoteOfflineStagingForSyncRunArgs,
+): void {
+  assertNonBlankInternalId("projectId", args.projectId);
+  assertNonBlankInternalId("syncRunId", args.syncRunId);
+}
+
 async function markValidationFailureSyncStateInTransaction(args: {
   stores: Record<string, IDBObjectStore>;
   projectId: string;
@@ -107,6 +124,8 @@ async function markPromotionOrCleanupFailureSyncState(args: {
 export async function promoteOfflineStagingForSyncRun(
   args: PromoteOfflineStagingForSyncRunArgs,
 ): Promise<PromoteOfflineStagingForSyncRunResult> {
+  assertValidPromoteOfflineStagingArgs(args);
+
   try {
     return await runOfflineTransaction(
       [
@@ -158,8 +177,14 @@ export async function promoteOfflineStagingForSyncRun(
           };
         }
 
+        if (validatedStaging.project.projectId !== args.projectId) {
+          throw new Error(
+            "Validated staging projectId does not match the requested projectId.",
+          );
+        }
+
         const syncStateUpdate = await markOfflineSyncReadyInTransaction(stores, {
-          projectId: validatedStaging.project.projectId,
+          projectId: args.projectId,
           syncRunId: args.syncRunId,
           readyAt: args.readyAt,
           context: args.context,
