@@ -27,6 +27,8 @@ import {
     | { updated: true }
     | { updated: false; reason: "stale-sync-run" };
 
+  export type OfflineSyncStateStores = Record<string, IDBObjectStore>;
+
   type MarkOfflineSyncingArgs = {
     projectId: string;
     syncRunId: string;
@@ -109,36 +111,41 @@ import {
     );
   }
 
+  export async function markOfflineSyncReadyInTransaction(
+    stores: OfflineSyncStateStores,
+    args: MarkOfflineSyncReadyArgs,
+  ): Promise<OfflineSyncStateUpdateResult> {
+    const store = stores[OFFLINE_SYNC_STATE_STORE];
+    const previous = await requestToPromise<OfflineSyncState | undefined>(
+      store.get(args.projectId),
+    );
+
+    if (previous && previous.syncRunId !== args.syncRunId) {
+      return { updated: false, reason: "stale-sync-run" };
+    }
+
+    const next = buildOfflineSyncState({
+      projectId: args.projectId,
+      syncRunId: args.syncRunId,
+      context: args.context,
+      previous,
+      status: previous?.status === "corrupt" ? "corrupt" : "ready",
+      syncedAt: args.readyAt,
+      lastFailedAt: previous?.lastFailedAt,
+    });
+
+    await requestToPromise(store.put(next));
+
+    return { updated: true };
+  }
+
   export function markOfflineSyncReady(
     args: MarkOfflineSyncReadyArgs,
   ): Promise<OfflineSyncStateUpdateResult> {
     return runOfflineTransaction(
       [OFFLINE_SYNC_STATE_STORE],
       "readwrite",
-      async ({ stores }) => {
-        const store = stores[OFFLINE_SYNC_STATE_STORE];
-        const previous = await requestToPromise<OfflineSyncState | undefined>(
-          store.get(args.projectId),
-        );
-
-        if (previous && previous.syncRunId !== args.syncRunId) {
-          return { updated: false, reason: "stale-sync-run" };
-        }
-
-        const next = buildOfflineSyncState({
-          projectId: args.projectId,
-          syncRunId: args.syncRunId,
-          context: args.context,
-          previous,
-          status: previous?.status === "corrupt" ? "corrupt" : "ready",
-          syncedAt: args.readyAt,
-          lastFailedAt: previous?.lastFailedAt,
-        });
-
-        await requestToPromise(store.put(next));
-
-        return { updated: true };
-      },
+      async ({ stores }) => markOfflineSyncReadyInTransaction(stores, args),
     );
   }
 
