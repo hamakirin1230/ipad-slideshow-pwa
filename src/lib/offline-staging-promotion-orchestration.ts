@@ -24,6 +24,10 @@ import {
   promoteValidatedOfflineStagingToConfirmedStoresInTransaction,
   type PromoteOfflineStagingResult,
 } from "@/lib/offline-staging-promotion";
+import {
+  classifyOfflineStagingValidationFailure,
+  type OfflineStagingValidationFailureClassification,
+} from "@/lib/offline-staging-validation-failure-classification";
 import { validateOfflineStagingForSyncRun } from "@/lib/offline-staging-validation-integration";
 import type { OfflineStagingValidationFailureReason } from "@/lib/offline-staging-validation";
 
@@ -44,6 +48,7 @@ export type PromoteOfflineStagingForSyncRunResult =
       ok: false;
       reason: "validation-failed";
       validationReason: OfflineStagingValidationFailureReason;
+      validationClassification: OfflineStagingValidationFailureClassification;
     }
   | {
       ok: false;
@@ -60,6 +65,9 @@ export async function promoteOfflineStagingForSyncRun(
       ok: false,
       reason: "validation-failed",
       validationReason: validatedStaging.validation.reason,
+      validationClassification: classifyOfflineStagingValidationFailure(
+        validatedStaging.validation.reason,
+      ),
     };
   }
 
