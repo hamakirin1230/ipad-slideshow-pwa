@@ -3,6 +3,8 @@
 import type { OfflineStagingProject } from "@/lib/offline-schema";
 import {
   getOfflineStagingRecordsBySyncRunId,
+  getOfflineStagingRecordsBySyncRunIdInTransaction,
+  type OfflineStagingReadStores,
   type OfflineStagingRecordsForSyncRun,
 } from "@/lib/offline-staging-read";
 import {
@@ -38,12 +40,9 @@ function assertValidSyncRunId(syncRunId: string): void {
   }
 }
 
-export async function validateOfflineStagingForSyncRun(
-  syncRunId: string,
-): Promise<OfflineStagingValidationIntegrationResult> {
-  assertValidSyncRunId(syncRunId);
-
-  const records = await getOfflineStagingRecordsBySyncRunId(syncRunId);
+function buildOfflineStagingValidationIntegrationResult(
+  records: OfflineStagingRecordsForSyncRun,
+): OfflineStagingValidationIntegrationResult {
   const validation = validateOfflineStagingRecordsForSyncRun(records);
 
   if (!validation.ok) {
@@ -66,4 +65,28 @@ export async function validateOfflineStagingForSyncRun(
     project,
     validation,
   };
+}
+
+export async function validateOfflineStagingForSyncRunInTransaction(
+  stores: OfflineStagingReadStores,
+  syncRunId: string,
+): Promise<OfflineStagingValidationIntegrationResult> {
+  assertValidSyncRunId(syncRunId);
+
+  const records = await getOfflineStagingRecordsBySyncRunIdInTransaction(
+    stores,
+    syncRunId,
+  );
+
+  return buildOfflineStagingValidationIntegrationResult(records);
+}
+
+export async function validateOfflineStagingForSyncRun(
+  syncRunId: string,
+): Promise<OfflineStagingValidationIntegrationResult> {
+  assertValidSyncRunId(syncRunId);
+
+  const records = await getOfflineStagingRecordsBySyncRunId(syncRunId);
+
+  return buildOfflineStagingValidationIntegrationResult(records);
 }
