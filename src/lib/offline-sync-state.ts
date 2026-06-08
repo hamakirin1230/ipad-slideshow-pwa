@@ -149,36 +149,68 @@ import {
     );
   }
 
+  export async function markOfflineSyncFailedInTransaction(
+    stores: OfflineSyncStateStores,
+    args: MarkOfflineSyncFailedArgs,
+  ): Promise<OfflineSyncStateUpdateResult> {
+    const store = stores[OFFLINE_SYNC_STATE_STORE];
+    const previous = await requestToPromise<OfflineSyncState | undefined>(
+      store.get(args.projectId),
+    );
+
+    if (previous && previous.syncRunId !== args.syncRunId) {
+      return { updated: false, reason: "stale-sync-run" };
+    }
+
+    const next = buildOfflineSyncState({
+      projectId: args.projectId,
+      syncRunId: args.syncRunId,
+      context: args.context,
+      previous,
+      status: previous?.status === "corrupt" ? "corrupt" : "failed",
+      lastFailedAt: args.failedAt,
+    });
+
+    await requestToPromise(store.put(next));
+
+    return { updated: true };
+  }
+
   export function markOfflineSyncFailed(
     args: MarkOfflineSyncFailedArgs,
   ): Promise<OfflineSyncStateUpdateResult> {
     return runOfflineTransaction(
       [OFFLINE_SYNC_STATE_STORE],
       "readwrite",
-      async ({ stores }) => {
-        const store = stores[OFFLINE_SYNC_STATE_STORE];
-        const previous = await requestToPromise<OfflineSyncState | undefined>(
-          store.get(args.projectId),
-        );
-
-        if (previous && previous.syncRunId !== args.syncRunId) {
-          return { updated: false, reason: "stale-sync-run" };
-        }
-
-        const next = buildOfflineSyncState({
-          projectId: args.projectId,
-          syncRunId: args.syncRunId,
-          context: args.context,
-          previous,
-          status: previous?.status === "corrupt" ? "corrupt" : "failed",
-          lastFailedAt: args.failedAt,
-        });
-
-        await requestToPromise(store.put(next));
-
-        return { updated: true };
-      },
+      async ({ stores }) => markOfflineSyncFailedInTransaction(stores, args),
     );
+  }
+
+  export async function markOfflineStoreCorruptInTransaction(
+    stores: OfflineSyncStateStores,
+    args: MarkOfflineStoreCorruptArgs,
+  ): Promise<OfflineSyncStateUpdateResult> {
+    const store = stores[OFFLINE_SYNC_STATE_STORE];
+    const previous = await requestToPromise<OfflineSyncState | undefined>(
+      store.get(args.projectId),
+    );
+
+    if (previous && previous.syncRunId !== args.syncRunId) {
+      return { updated: false, reason: "stale-sync-run" };
+    }
+
+    const next = buildOfflineSyncState({
+      projectId: args.projectId,
+      syncRunId: args.syncRunId,
+      context: args.context,
+      previous,
+      status: "corrupt",
+      lastFailedAt: previous?.lastFailedAt,
+    });
+
+    await requestToPromise(store.put(next));
+
+    return { updated: true };
   }
 
   export function markOfflineStoreCorrupt(
@@ -187,28 +219,6 @@ import {
     return runOfflineTransaction(
       [OFFLINE_SYNC_STATE_STORE],
       "readwrite",
-      async ({ stores }) => {
-        const store = stores[OFFLINE_SYNC_STATE_STORE];
-        const previous = await requestToPromise<OfflineSyncState | undefined>(
-          store.get(args.projectId),
-        );
-
-        if (previous && previous.syncRunId !== args.syncRunId) {
-          return { updated: false, reason: "stale-sync-run" };
-        }
-
-        const next = buildOfflineSyncState({
-          projectId: args.projectId,
-          syncRunId: args.syncRunId,
-          context: args.context,
-          previous,
-          status: "corrupt",
-          lastFailedAt: previous?.lastFailedAt,
-        });
-
-        await requestToPromise(store.put(next));
-
-        return { updated: true };
-      },
+      async ({ stores }) => markOfflineStoreCorruptInTransaction(stores, args),
     );
   }
