@@ -2,327 +2,59 @@
 
 Date: 2026-06-08
 
-## Purpose
+## 現在の位置づけ
 
-This handoff is for continuing the iPad slideshow PWA project in a new ChatGPT chat.
+この handoff は、Goal 04-5 の staging pipeline 実装完了後、次チャットへ引き継ぐためのものです。
 
-The current workstream is Goal 04-5: IndexedDB / offline playback staging pipeline.
+Goal 04-5 では、Drive API や UI 接続にはまだ入らず、IndexedDB 内部の staging pipeline を中心に実装した。
 
-The next recommended topic is:
+現在、以下の流れは実装済み。
 
 ```txt
-Goal 04-5 staging validation integration strategy
+staging read
+-> staging validation
+-> validation failure classification
+-> confirmed store promotion
+-> obsolete confirmed asset/blob deletion
+-> offlineSyncState ready / failed / corrupt 更新
+-> staging cleanup
+-> stale-sync-run handling
+-> precondition error handling
 ```
 
-Do not start with implementation immediately. Continue with design grilling first.
-
-## Current completed state
-
-The following Goal 04-5 items are complete and pushed.
+詳細は次の handoff を参照すること。
 
 ```txt
-- offlineSyncState transition helpers
-- offlineSyncState transition helpers handoff
-- staging store write helpers
-- staging store write helpers handoff
+docs/handoffs/2026-06-08-goal-04-5-staging-pipeline-completion-handoff.md
+```
+
+## 直近で完了したこと
+
+Goal 04-5 では、以下を実装済み。
+
+```txt
 - staging cleanup helper
-- staging cleanup helper handoff
+- staging cleanup helper transaction reuse
 - staging read helper
-- staging read helper handoff
+- staging read helper transaction reuse
 - staging validation rules
-- staging validation rules handoff
+- staging validation integration helper
+- staging validation integration transaction reuse
+- validation failure classification helper
+- staging promotion helper
+- obsolete confirmed asset/blob deletion
+- promotion helper transaction reuse
+- offlineSyncState ready helper
+- offlineSyncState failed / corrupt transaction helpers
+- promotion orchestration helper
+- promotion success path cleanup
+- validation failure -> failed / corrupt state update
+- promotion / cleanup failure -> failed fallback
+- stale-sync-run result normalization
+- orchestration precondition error handling
 ```
 
-GitHub Desktop Commit -> Push completed.
-GitHub Actions deploy completed.
-
-## Recently added implementation files
-
-```txt
-src/lib/offline-staging-cleanup.ts
-src/lib/offline-staging-read.ts
-src/lib/offline-staging-validation.ts
-```
-
-## Recently added handoff files
-
-```txt
-docs/handoffs/2026-06-08-goal-04-5-staging-cleanup-helper-handoff.md
-docs/handoffs/2026-06-08-goal-04-5-staging-read-helper-handoff.md
-docs/handoffs/2026-06-08-goal-04-5-staging-validation-rules-handoff.md
-```
-
-## staging cleanup helper summary
-
-Added:
-
-```ts
-ClearOfflineStagingResult
-clearOfflineStagingBySyncRunId(syncRunId)
-```
-
-Responsibility:
-
-```txt
-指定 syncRunId に一致する staging records だけを削除する。
-```
-
-Target stores only:
-
-```txt
-offlineStagingAssetBlobs
-offlineStagingAssets
-offlineStagingProjects
-```
-
-Delete order:
-
-```txt
-offlineStagingAssetBlobs
-offlineStagingAssets
-offlineStagingProjects
-```
-
-Safety boundaries:
-
-```txt
-- 確定storeは触らない
-- offlineSyncState は触らない
-- ready / failed / corrupt は更新しない
-- record.syncRunId === syncRunId のものだけ削除
-- syncRunId 欠落・想定外レコードは残す
-- cursor.delete() 成功後に件数加算
-- Promise.all で並列化しない
-- IndexedDB version upgrade / syncRunId index 追加は含めない
-```
-
-## staging read helper summary
-
-Added:
-
-```ts
-OfflineStagingRecordsForSyncRun
-getOfflineStagingRecordsBySyncRunId(syncRunId)
-```
-
-Return type:
-
-```ts
-type OfflineStagingRecordsForSyncRun = {
-  projects: OfflineStagingProject[];
-  assets: OfflineStagingAsset[];
-  assetBlobRecords: OfflineStagingAssetBlobRecord[];
-};
-```
-
-Responsibility:
-
-```txt
-指定 syncRunId に一致する staging project / asset / asset blob record を収集する。
-```
-
-Target stores only:
-
-```txt
-offlineStagingProjects
-offlineStagingAssets
-offlineStagingAssetBlobs
-```
-
-Read order:
-
-```txt
-offlineStagingProjects
-offlineStagingAssets
-offlineStagingAssetBlobs
-```
-
-Safety boundaries:
-
-```txt
-- readonly transaction で読む
-- 確定storeは触らない
-- offlineSyncState は触らない
-- cleanup helper は呼ばない
-- validation 判定はしない
-- record.syncRunId === syncRunId のものだけ収集
-- syncRunId 欠落・想定外レコードは無視
-- cursor scan error は空配列にせず reject
-- Promise.all で並列化しない
-- 返却配列の意味上の順序は保証しない
-- Blob record は返すが UI / diagnostics 用には使わない
-```
-
-## staging validation rules summary
-
-Added:
-
-```ts
-OfflineStagingValidationFailureReason
-OfflineStagingValidationResult
-validateOfflineStagingRecordsForSyncRun(records)
-```
-
-Failure reasons are limited to:
-
-```ts
-type OfflineStagingValidationFailureReason =
-  | "missing-project"
-  | "multiple-projects"
-  | "schema-version-mismatch"
-  | "duplicate-asset"
-  | "duplicate-asset-blob"
-  | "missing-asset"
-  | "unexpected-asset"
-  | "missing-asset-blob"
-  | "unexpected-asset-blob";
-```
-
-Result type:
-
-```ts
-type OfflineStagingValidationResult =
-  | { ok: true }
-  | { ok: false; reason: OfflineStagingValidationFailureReason };
-```
-
-Validation rule order:
-
-```txt
-1. projects.length === 1
-   - 0件: missing-project
-   - 2件以上: multiple-projects
-
-2. project / assets / assetBlobRecords の schemaVersion を確認
-   - どれか OFFLINE_SCHEMA_VERSION と不一致: schema-version-mismatch
-
-3. staging assets の assetId 重複を確認
-   - 重複あり: duplicate-asset
-
-4. staging asset blob records の assetId 重複を確認
-   - 重複あり: duplicate-asset-blob
-
-5. project.slides から requiredAssetIds を Set で作る
-   - requiredAssetIds にあるが assets にない: missing-asset
-   - assets にあるが requiredAssetIds にない: unexpected-asset
-
-6. staging assets の assetId 集合を基準に blob records を確認
-   - assets にあるが blob records にない: missing-asset-blob
-   - blob records にあるが assets にない: unexpected-asset-blob
-
-7. すべて通れば { ok: true }
-```
-
-Validation safety boundaries:
-
-```txt
-- 同期関数
-- IndexedDB を読まない
-- Drive API を呼ばない
-- cleanup helper を呼ばない
-- 確定storeへ昇格しない
-- offlineSyncState を更新しない
-- ready / failed / corrupt を更新しない
-- failed / corrupt への分類をしない
-- Blob 本体の存在 / size / type / decode 検査はしない
-- assetId / stagingId / projectId / Blob情報を result に含めない
-- 複数 failure reason は返さない
-- 最初の failure 1件だけ返す
-- 入力 records を mutate しない
-- project.slides の assetId 重複は許可し Set 化する
-- project.slides.length === 0 自体は failure にしない
-```
-
-## Important current design boundary
-
-Do not create the `ready` success path yet.
-
-`ready` should only be added after both of the following are designed:
-
-```txt
-- staging validation integration strategy
-- staging -> confirmed store promotion strategy
-```
-
-The confirmed stores are still protected from staging cleanup/read/validation helpers.
-
-Confirmed stores:
-
-```txt
-offlineProjects
-offlineAssets
-offlineAssetBlobs
-offlineSyncState
-```
-
-## Next recommended design grill
-
-Next topic:
-
-```txt
-Goal 04-5 staging validation integration strategy
-```
-
-Start by grilling the integration boundaries. Suggested first decisions:
-
-```txt
-1. Whether to create a new integration helper file.
-2. Whether the integration helper should read staging by syncRunId and call validation.
-3. Whether validation failure should call markOfflineSyncFailed immediately or only return a result.
-4. Whether cleanup should run automatically on validation failure or be left to the orchestration layer.
-5. Whether failed / corrupt classification belongs in integration or later orchestration.
-6. Whether the integration result should include validation reason only, or also cleanup result.
-7. Whether the integration helper should remain separate from promotion.
-8. Whether confirmed store promotion should be a separate future helper.
-```
-
-Recommended initial position:
-
-```txt
-Create a separate integration strategy, but do not implement yet.
-
-The integration should probably compose:
-- getOfflineStagingRecordsBySyncRunId(syncRunId)
-- validateOfflineStagingRecordsForSyncRun(records)
-
-But it should not yet:
-- promote to confirmed stores
-- set ready
-- update offlineSyncState
-- call cleanup automatically
-- classify failed vs corrupt
-```
-
-Rationale:
-
-```txt
-The current helpers are intentionally narrow:
-- read collects staging records
-- validation judges records
-- cleanup removes staging records
-
-The next layer should decide how those pieces are composed, but should not collapse validation, cleanup, promotion, and state transition into one oversized helper.
-```
-
-## New chat start prompt
-
-Use this prompt at the beginning of the next chat:
-
-```txt
-このチャットは、iPad用スライドショーPWA制作プロジェクト（ipad-slideshow-pwa）の続きです。
-
-まず docs/handoffs/2026-06-08-goal-04-5-next-chat-handoff.md を読んでください。
-
-直近では Goal 04-5 の staging cleanup helper / staging read helper / staging validation rules と各 handoff まで完了し、GitHub Desktop Commit -> Push、GitHub Actions deploy まで完了しています。
-
-次は Goal 04-5 staging validation integration strategy の設計グリルから進めてください。
-
-まだ実装には入らず、ready 成功経路、確定store昇格、offlineSyncState 更新、cleanup 自動実行は作らない前提で、read helper と validation rules をどう接続するかから1問ずつ詰めてください。
-```
-
-## Verification convention
-
-For each implementation or handoff commit, continue using:
+各ステップで次を確認済み。
 
 ```bash
 npm run lint
@@ -330,10 +62,374 @@ npm run build
 git diff --check
 ```
 
-Do not commit if `git diff --check` fails, even if lint/build pass.
+各ステップは GitHub Desktop で Commit -> Push 済み。
 
-## Commit message suggestion for this handoff
+GitHub Actions deploy も完了済み。
+
+## 主要な実装ファイル
 
 ```txt
-Add next chat handoff for staging validation integration
+src/lib/offline-staging-read.ts
+src/lib/offline-staging-validation.ts
+src/lib/offline-staging-validation-integration.ts
+src/lib/offline-staging-validation-failure-classification.ts
+src/lib/offline-staging-promotion.ts
+src/lib/offline-staging-cleanup.ts
+src/lib/offline-sync-state.ts
+src/lib/offline-staging-promotion-orchestration.ts
 ```
+
+## 最終的な内部入口
+
+現在の staging pipeline の主要入口はこれ。
+
+```ts
+promoteOfflineStagingForSyncRun(args)
+```
+
+場所:
+
+```txt
+src/lib/offline-staging-promotion-orchestration.ts
+```
+
+入力:
+
+```ts
+export type PromoteOfflineStagingForSyncRunArgs = {
+  projectId: string;
+  syncRunId: string;
+  readyAt: IsoDateTimeString;
+  failedAt: IsoDateTimeString;
+  context: OfflineSyncStateContext;
+};
+```
+
+この helper は、すでに staging records が IndexedDB の staging stores に書き込まれている前提で動く。
+
+この helper は Drive API を呼ばない。
+
+この helper は UI から直接呼ぶ最終 API ではなく、今後作る上位同期 orchestration から呼ぶ内部 helper として扱う。
+
+## 現在の成功経路
+
+成功経路は、概ね次の流れ。
+
+```txt
+runOfflineTransaction(readwrite)
+  -> staging records を syncRunId で読む
+  -> staging validation
+  -> validated projectId と args.projectId の一致確認
+  -> offlineSyncState を ready に更新
+  -> obsolete confirmed asset/blob を削除
+  -> staging records を confirmed stores に昇格
+  -> 指定 syncRunId の staging records を cleanup
+  -> ok:true を返す
+```
+
+成功時の戻り値:
+
+```ts
+{
+  ok: true;
+  promotion: PromoteOfflineStagingResult;
+  cleanup: ClearOfflineStagingResult;
+  syncStateUpdate: { updated: true };
+}
+```
+
+## validation failure 経路
+
+validation failure 時は、validation reason を分類する。
+
+現在の分類はすべて `corrupt`。
+
+```ts
+classifyOfflineStagingValidationFailure(reason)
+```
+
+validation failure 時の流れ:
+
+```txt
+staging read
+-> staging validation
+-> validation reason を corrupt に分類
+-> markOfflineStoreCorruptInTransaction(...)
+-> ok:false / reason:"validation-failed" を返す
+```
+
+戻り値:
+
+```ts
+{
+  ok: false;
+  reason: "validation-failed";
+  validationReason: OfflineStagingValidationFailureReason;
+  validationClassification: "corrupt";
+  syncStateUpdate: { updated: true };
+}
+```
+
+## stale-sync-run handling
+
+offlineSyncState 更新時、既存 state の `syncRunId` が現在の `syncRunId` と異なる場合は stale とする。
+
+```txt
+previous.syncRunId !== args.syncRunId
+-> { updated: false, reason: "stale-sync-run" }
+```
+
+orchestration helper は、state update helper から stale が返った場合、常に次の戻り値へ寄せる。
+
+```ts
+{
+  ok: false;
+  reason: "stale-sync-run";
+}
+```
+
+これにより、上位層は stale を一貫して「古い同期実行結果なので無視可能」と扱える。
+
+## promotion / cleanup failure 経路
+
+promotion / cleanup / transaction 中に throw した場合、transaction は abort される。
+
+その後、別 transaction で `markOfflineSyncFailed(...)` を呼び、失敗を記録する。
+
+戻り値:
+
+```ts
+{
+  ok: false;
+  reason: "promotion-or-cleanup-failed";
+  syncStateUpdate: { updated: true };
+}
+```
+
+ただし、failed 更新時に stale-sync-run が返った場合は、最終戻り値も stale-sync-run に寄せる。
+
+## precondition error handling
+
+呼び出し側バグは offlineSyncState の failed / corrupt に変換しない。
+
+対象:
+
+```txt
+projectId が空文字
+projectId に前後空白がある
+syncRunId が空文字
+syncRunId に前後空白がある
+validated staging projectId と args.projectId が一致しない
+```
+
+これらは `OfflineStagingPromotionPreconditionError` として throw される。
+
+この error は orchestration helper 内の catch で握りつぶさず、再 throw する。
+
+理由:
+
+```txt
+これらは staging data の不整合ではなく、呼び出し側の接続ミスまたは内部IDの扱いミスだから。
+```
+
+## confirmed store promotion
+
+promotion helper は次を行う。
+
+```txt
+- staging project を offlineProjects に put
+- staging assets を offlineAssets に put
+- staging asset blob records を offlineAssetBlobs に put
+- stagingId / syncRunId は confirmed records に保存しない
+```
+
+対象ファイル:
+
+```txt
+src/lib/offline-staging-promotion.ts
+```
+
+公開関数:
+
+```ts
+promoteValidatedOfflineStagingToConfirmedStores(validatedStaging)
+promoteValidatedOfflineStagingToConfirmedStoresInTransaction(stores, validatedStaging)
+```
+
+## obsolete confirmed asset/blob deletion
+
+promotion helper は、同じ projectId の古い confirmed asset / blob を削除する。
+
+削除対象:
+
+```txt
+offlineAssets
+offlineAssetBlobs
+```
+
+削除ルール:
+
+```txt
+confirmed record の projectId が今回の projectId と一致する
+かつ
+confirmed record の assetId が今回の staging records に存在しない
+-> 削除
+```
+
+削除しないもの:
+
+```txt
+offlineProjects
+他 projectId の records
+```
+
+## cleanup
+
+promotion 成功後、同じ transaction 内で staging cleanup を実行する。
+
+対象:
+
+```txt
+offlineStagingProjects
+offlineStagingAssets
+offlineStagingAssetBlobs
+```
+
+条件:
+
+```txt
+record.syncRunId === args.syncRunId
+```
+
+公開関数:
+
+```ts
+clearOfflineStagingBySyncRunId(syncRunId)
+clearOfflineStagingBySyncRunIdInTransaction(stores, syncRunId)
+```
+
+## offlineSyncState
+
+`offline-sync-state.ts` には、外部向け helper と transaction 内 helper の両方がある。
+
+外部向け:
+
+```ts
+markOfflineSyncing(args)
+markOfflineSyncReady(args)
+markOfflineSyncFailed(args)
+markOfflineStoreCorrupt(args)
+```
+
+transaction 内:
+
+```ts
+markOfflineSyncReadyInTransaction(stores, args)
+markOfflineSyncFailedInTransaction(stores, args)
+markOfflineStoreCorruptInTransaction(stores, args)
+```
+
+corrupt 維持方針:
+
+```txt
+previous.status === "corrupt" の場合、
+syncing / ready / failed へ勝手に戻さない。
+```
+
+corrupt 解除は、別途明示的な recovery strategy が必要。
+
+## まだ未実装のもの
+
+Goal 04-5 では次はまだ実装していない。
+
+```txt
+Drive API 呼び出し
+Drive 取得データから staging records への書き込み
+上位同期 orchestration
+UI 接続
+user-facing error 表示
+diagnostics 出力
+retry policy
+実機 IndexedDB 動作確認
+```
+
+## 次チャットで最初に進めるべきこと
+
+次チャットでは、いきなり UI に接続しない。
+
+まず次を設計する。
+
+```txt
+Goal 04-6 Drive fetch -> staging write -> staging promotion orchestration strategy
+```
+
+最初に詰めるべき論点:
+
+```txt
+Drive API 取得結果を、どの単位で staging records に書き込むか。
+```
+
+具体的には、次の既存 pipeline に入る前段を設計する。
+
+```txt
+Drive API
+-> workspace/index/manifest/assets 取得
+-> staging write
+-> promoteOfflineStagingForSyncRun(args)
+```
+
+## 次に設計すべき主な論点
+
+```txt
+- syncRunId をどこで生成するか
+- projectId をどこで確定するか
+- Drive 取得結果から staging project / assets / asset blob records をどう作るか
+- staging write helper を新規に作るか
+- staging write を1 transaction にするか
+- asset blob 取得失敗時に staging を incomplete のまま残すか
+- staging write 成功後すぐ promoteOfflineStagingForSyncRun を呼ぶか
+- Drive API 失敗を offlineSyncState failed にする層はどこか
+- markOfflineSyncing をいつ呼ぶか
+- 古い syncRunId の staging cleanup をいつ行うか
+```
+
+## 次チャットでまだ避けるべきこと
+
+次チャット冒頭では、次をまだやらない。
+
+```txt
+UI 接続
+ボタン実装
+user-facing error copy
+大きな diagnostics 仕様
+retry policy
+実機 IndexedDB デバッグ
+```
+
+まずは、Drive fetch から staging write までの責務境界を設計する。
+
+## 推奨する次の作業順
+
+```txt
+1. 現在の Goal 04-5 staging pipeline completion handoff を読む
+2. 現在の offline-staging-promotion-orchestration.ts を確認する
+3. Drive fetch -> staging write の責務境界を設計する
+4. staging write helper の型を設計する
+5. staging write helper を実装する
+6. staging write -> promoteOfflineStagingForSyncRun を接続する上位 orchestration helper を設計する
+7. その後に UI 接続へ進む
+```
+
+## 確認済み
+
+直近の各実装ステップで次を確認済み。
+
+```bash
+npm run lint
+npm run build
+git diff --check
+```
+
+GitHub Desktop で Commit -> Push 済み。
+
+GitHub Actions deploy 完了済み。
