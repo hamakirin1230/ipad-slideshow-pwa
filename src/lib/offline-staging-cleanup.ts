@@ -14,6 +14,8 @@ export type ClearOfflineStagingResult = {
   deletedAssetBlobs: number;
 };
 
+export type OfflineStagingCleanupStores = Record<string, IDBObjectStore>;
+
 type MaybeStagingRecord = {
   syncRunId?: unknown;
 };
@@ -57,6 +59,32 @@ function deleteStagingRecordsBySyncRunId(
   });
 }
 
+export async function clearOfflineStagingBySyncRunIdInTransaction(
+  stores: OfflineStagingCleanupStores,
+  syncRunId: string,
+): Promise<ClearOfflineStagingResult> {
+  const deletedAssetBlobs = await deleteStagingRecordsBySyncRunId(
+    stores[OFFLINE_STAGING_ASSET_BLOBS_STORE],
+    syncRunId,
+  );
+
+  const deletedAssets = await deleteStagingRecordsBySyncRunId(
+    stores[OFFLINE_STAGING_ASSETS_STORE],
+    syncRunId,
+  );
+
+  const deletedProjects = await deleteStagingRecordsBySyncRunId(
+    stores[OFFLINE_STAGING_PROJECTS_STORE],
+    syncRunId,
+  );
+
+  return {
+    deletedProjects,
+    deletedAssets,
+    deletedAssetBlobs,
+  };
+}
+
 export function clearOfflineStagingBySyncRunId(
   syncRunId: string,
 ): Promise<ClearOfflineStagingResult> {
@@ -67,27 +95,7 @@ export function clearOfflineStagingBySyncRunId(
       OFFLINE_STAGING_PROJECTS_STORE,
     ],
     "readwrite",
-    async ({ stores }) => {
-      const deletedAssetBlobs = await deleteStagingRecordsBySyncRunId(
-        stores[OFFLINE_STAGING_ASSET_BLOBS_STORE],
-        syncRunId,
-      );
-
-      const deletedAssets = await deleteStagingRecordsBySyncRunId(
-        stores[OFFLINE_STAGING_ASSETS_STORE],
-        syncRunId,
-      );
-
-      const deletedProjects = await deleteStagingRecordsBySyncRunId(
-        stores[OFFLINE_STAGING_PROJECTS_STORE],
-        syncRunId,
-      );
-
-      return {
-        deletedProjects,
-        deletedAssets,
-        deletedAssetBlobs,
-      };
-    },
+    async ({ stores }) =>
+      clearOfflineStagingBySyncRunIdInTransaction(stores, syncRunId),
   );
 }
