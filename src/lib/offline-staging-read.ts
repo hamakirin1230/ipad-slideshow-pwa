@@ -1,3 +1,5 @@
+// src/lib/offline-staging-read.ts
+
 import { runOfflineTransaction } from "@/lib/offline-db";
 import {
   OFFLINE_STAGING_ASSETS_STORE,
@@ -13,6 +15,8 @@ export type OfflineStagingRecordsForSyncRun = {
   assets: OfflineStagingAsset[];
   assetBlobRecords: OfflineStagingAssetBlobRecord[];
 };
+
+export type OfflineStagingReadStores = Record<string, IDBObjectStore>;
 
 type MaybeStagingRecord = {
   syncRunId?: unknown;
@@ -49,6 +53,33 @@ function collectStagingRecordsBySyncRunId<T extends MaybeStagingRecord>(
   });
 }
 
+export async function getOfflineStagingRecordsBySyncRunIdInTransaction(
+  stores: OfflineStagingReadStores,
+  syncRunId: string,
+): Promise<OfflineStagingRecordsForSyncRun> {
+  const projects = await collectStagingRecordsBySyncRunId<OfflineStagingProject>(
+    stores[OFFLINE_STAGING_PROJECTS_STORE],
+    syncRunId,
+  );
+
+  const assets = await collectStagingRecordsBySyncRunId<OfflineStagingAsset>(
+    stores[OFFLINE_STAGING_ASSETS_STORE],
+    syncRunId,
+  );
+
+  const assetBlobRecords =
+    await collectStagingRecordsBySyncRunId<OfflineStagingAssetBlobRecord>(
+      stores[OFFLINE_STAGING_ASSET_BLOBS_STORE],
+      syncRunId,
+    );
+
+  return {
+    projects,
+    assets,
+    assetBlobRecords,
+  };
+}
+
 export function getOfflineStagingRecordsBySyncRunId(
   syncRunId: string,
 ): Promise<OfflineStagingRecordsForSyncRun> {
@@ -59,28 +90,7 @@ export function getOfflineStagingRecordsBySyncRunId(
       OFFLINE_STAGING_ASSET_BLOBS_STORE,
     ],
     "readonly",
-    async ({ stores }) => {
-      const projects = await collectStagingRecordsBySyncRunId<OfflineStagingProject>(
-        stores[OFFLINE_STAGING_PROJECTS_STORE],
-        syncRunId,
-      );
-
-      const assets = await collectStagingRecordsBySyncRunId<OfflineStagingAsset>(
-        stores[OFFLINE_STAGING_ASSETS_STORE],
-        syncRunId,
-      );
-
-      const assetBlobRecords =
-        await collectStagingRecordsBySyncRunId<OfflineStagingAssetBlobRecord>(
-          stores[OFFLINE_STAGING_ASSET_BLOBS_STORE],
-          syncRunId,
-        );
-
-      return {
-        projects,
-        assets,
-        assetBlobRecords,
-      };
-    },
+    async ({ stores }) =>
+      getOfflineStagingRecordsBySyncRunIdInTransaction(stores, syncRunId),
   );
 }
