@@ -5,6 +5,9 @@ import {
   OFFLINE_ASSETS_STORE,
   OFFLINE_ASSET_BLOBS_STORE,
   OFFLINE_PROJECTS_STORE,
+  OFFLINE_STAGING_ASSETS_STORE,
+  OFFLINE_STAGING_ASSET_BLOBS_STORE,
+  OFFLINE_STAGING_PROJECTS_STORE,
   OFFLINE_SYNC_STATE_STORE,
   type IsoDateTimeString,
 } from "@/lib/offline-schema";
@@ -13,6 +16,10 @@ import {
   type OfflineSyncStateContext,
   type OfflineSyncStateUpdateResult,
 } from "@/lib/offline-sync-state";
+import {
+  clearOfflineStagingBySyncRunIdInTransaction,
+  type ClearOfflineStagingResult,
+} from "@/lib/offline-staging-cleanup";
 import {
   promoteValidatedOfflineStagingToConfirmedStoresInTransaction,
   type PromoteOfflineStagingResult,
@@ -30,6 +37,7 @@ export type PromoteOfflineStagingForSyncRunResult =
   | {
       ok: true;
       promotion: PromoteOfflineStagingResult;
+      cleanup: ClearOfflineStagingResult;
       syncStateUpdate: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
     }
   | {
@@ -61,6 +69,9 @@ export async function promoteOfflineStagingForSyncRun(
       OFFLINE_ASSET_BLOBS_STORE,
       OFFLINE_ASSETS_STORE,
       OFFLINE_PROJECTS_STORE,
+      OFFLINE_STAGING_ASSET_BLOBS_STORE,
+      OFFLINE_STAGING_ASSETS_STORE,
+      OFFLINE_STAGING_PROJECTS_STORE,
     ],
     "readwrite",
     async ({ stores }) => {
@@ -84,9 +95,15 @@ export async function promoteOfflineStagingForSyncRun(
           validatedStaging,
         );
 
+      const cleanup = await clearOfflineStagingBySyncRunIdInTransaction(
+        stores,
+        args.syncRunId,
+      );
+
       return {
         ok: true,
         promotion,
+        cleanup,
         syncStateUpdate,
       };
     },
