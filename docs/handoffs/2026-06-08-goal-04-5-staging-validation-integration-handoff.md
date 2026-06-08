@@ -2,13 +2,19 @@
 
 Date: 2026-06-08
 
-## Purpose
+## 目的
 
-This handoff records the staging validation integration helper added for Goal 04-5.
+この handoff は、Goal 04-5 で追加した staging validation integration helper の内容を記録するためのものです。
 
-The helper connects the existing staging read helper and staging validation rules without introducing cleanup, promotion, sync state updates, Drive API calls, or UI wiring.
+今回の helper は、既存の staging read helper と staging validation rules を接続します。
 
-## Added implementation file
+ただし、次の処理はまだ行いません。
 
 ```txt
-src/lib/offline-staging-validation-integration.ts
+- cleanup
+- staging -> 確定store昇格
+- offlineSyncState 更新
+- ready 化
+- failed / corrupt 分類
+- Drive API 呼び出し
+- UI 接続
