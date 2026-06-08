@@ -16,18 +16,20 @@ import {
     type OfflineStagingProject,
   } from "@/lib/offline-schema";
   import type { OfflineStagingValidationIntegrationResult } from "@/lib/offline-staging-validation-integration";
-  
+
   type ValidOfflineStagingForPromotion = Extract<
     OfflineStagingValidationIntegrationResult,
     { ok: true }
   >;
-  
+
+  export type OfflineStagingPromotionStores = Record<string, IDBObjectStore>;
+
   export type PromoteOfflineStagingResult = {
     promotedProjects: number;
     promotedAssets: number;
     promotedAssetBlobs: number;
   };
-  
+
   function toOfflineProject(
     stagingProject: OfflineStagingProject,
   ): OfflineProject {
@@ -41,7 +43,7 @@ import {
       syncedAt: stagingProject.syncedAt,
     };
   }
-  
+
   function toOfflineAsset(stagingAsset: OfflineStagingAsset): OfflineAsset {
     return {
       schemaVersion: stagingAsset.schemaVersion,
@@ -62,7 +64,7 @@ import {
       syncedAt: stagingAsset.syncedAt,
     };
   }
-  
+
   function toOfflineAssetBlobRecord(
     stagingAssetBlobRecord: OfflineStagingAssetBlobRecord,
   ): OfflineAssetBlobRecord {
@@ -77,7 +79,46 @@ import {
       syncedAt: stagingAssetBlobRecord.syncedAt,
     };
   }
-  
+
+  export async function promoteValidatedOfflineStagingToConfirmedStoresInTransaction(
+    stores: OfflineStagingPromotionStores,
+    validatedStaging: ValidOfflineStagingForPromotion,
+  ): Promise<PromoteOfflineStagingResult> {
+    let promotedAssetBlobs = 0;
+    let promotedAssets = 0;
+    let promotedProjects = 0;
+
+    for (const stagingAssetBlobRecord of validatedStaging.records
+      .assetBlobRecords) {
+      await requestToPromise(
+        stores[OFFLINE_ASSET_BLOBS_STORE].put(
+          toOfflineAssetBlobRecord(stagingAssetBlobRecord),
+        ),
+      );
+      promotedAssetBlobs += 1;
+    }
+
+    for (const stagingAsset of validatedStaging.records.assets) {
+      await requestToPromise(
+        stores[OFFLINE_ASSETS_STORE].put(toOfflineAsset(stagingAsset)),
+      );
+      promotedAssets += 1;
+    }
+
+    await requestToPromise(
+      stores[OFFLINE_PROJECTS_STORE].put(
+        toOfflineProject(validatedStaging.project),
+      ),
+    );
+    promotedProjects += 1;
+
+    return {
+      promotedProjects,
+      promotedAssets,
+      promotedAssetBlobs,
+    };
+  }
+
   export function promoteValidatedOfflineStagingToConfirmedStores(
     validatedStaging: ValidOfflineStagingForPromotion,
   ): Promise<PromoteOfflineStagingResult> {
@@ -88,41 +129,10 @@ import {
         OFFLINE_PROJECTS_STORE,
       ],
       "readwrite",
-      async ({ stores }) => {
-        let promotedAssetBlobs = 0;
-        let promotedAssets = 0;
-        let promotedProjects = 0;
-  
-        for (const stagingAssetBlobRecord of validatedStaging.records
-          .assetBlobRecords) {
-          await requestToPromise(
-            stores[OFFLINE_ASSET_BLOBS_STORE].put(
-              toOfflineAssetBlobRecord(stagingAssetBlobRecord),
-            ),
-          );
-          promotedAssetBlobs += 1;
-        }
-  
-        for (const stagingAsset of validatedStaging.records.assets) {
-          await requestToPromise(
-            stores[OFFLINE_ASSETS_STORE].put(toOfflineAsset(stagingAsset)),
-          );
-          promotedAssets += 1;
-        }
-  
-        await requestToPromise(
-          stores[OFFLINE_PROJECTS_STORE].put(
-            toOfflineProject(validatedStaging.project),
-          ),
-        );
-        promotedProjects += 1;
-  
-        return {
-          promotedProjects,
-          promotedAssets,
-          promotedAssetBlobs,
-        };
-      },
+      async ({ stores }) =>
+        promoteValidatedOfflineStagingToConfirmedStoresInTransaction(
+          stores,
+          validatedStaging,
+        ),
     );
   }
-  

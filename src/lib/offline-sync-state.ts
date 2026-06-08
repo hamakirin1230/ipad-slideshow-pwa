@@ -10,7 +10,7 @@ import {
     type IsoDateTimeString,
     type OfflineSyncState,
   } from "@/lib/offline-schema";
-  
+
   export type OfflineSyncStateContext = {
     rootFolderId: string;
     workspaceFileId: string;
@@ -22,36 +22,44 @@ import {
     sourceRevisionId?: string;
     sourceETag?: string;
   };
-  
+
   export type OfflineSyncStateUpdateResult =
     | { updated: true }
     | { updated: false; reason: "stale-sync-run" };
-  
+
   type MarkOfflineSyncingArgs = {
     projectId: string;
     syncRunId: string;
     context: OfflineSyncStateContext;
   };
-  
+
+  type MarkOfflineSyncReadyArgs = {
+    projectId: string;
+    syncRunId: string;
+    readyAt: IsoDateTimeString;
+    context: OfflineSyncStateContext;
+  };
+
   type MarkOfflineSyncFailedArgs = {
     projectId: string;
     syncRunId: string;
     failedAt: IsoDateTimeString;
     context: OfflineSyncStateContext;
   };
-  
+
   type MarkOfflineStoreCorruptArgs = {
     projectId: string;
     syncRunId: string;
     context: OfflineSyncStateContext;
   };
-  
+
   function buildOfflineSyncState(args: {
     projectId: string;
     syncRunId: string;
     context: OfflineSyncStateContext;
     previous?: OfflineSyncState;
     status: OfflineSyncState["status"];
+    syncedAt?: IsoDateTimeString;
     lastFailedAt?: IsoDateTimeString;
   }): OfflineSyncState {
     return {
@@ -63,7 +71,7 @@ import {
       workspaceFileId: args.context.workspaceFileId,
       indexFileId: args.context.indexFileId,
       manifestFileId: args.context.manifestFileId,
-      syncedAt: args.previous?.syncedAt,
+      syncedAt: args.syncedAt ?? args.previous?.syncedAt,
       sourceUpdatedAt: args.context.sourceUpdatedAt,
       slideCount: args.context.slideCount,
       assetCount: args.context.assetCount,
@@ -72,7 +80,7 @@ import {
       sourceETag: args.context.sourceETag,
     };
   }
-  
+
   export function markOfflineSyncing(
     args: MarkOfflineSyncingArgs,
   ): Promise<OfflineSyncStateUpdateResult> {
@@ -84,7 +92,7 @@ import {
         const previous = await requestToPromise<OfflineSyncState | undefined>(
           store.get(args.projectId),
         );
-  
+
         const next = buildOfflineSyncState({
           projectId: args.projectId,
           syncRunId: args.syncRunId,
@@ -93,14 +101,47 @@ import {
           status: previous?.status === "corrupt" ? "corrupt" : "syncing",
           lastFailedAt: previous?.lastFailedAt,
         });
-  
+
         await requestToPromise(store.put(next));
-  
+
         return { updated: true };
       },
     );
   }
-  
+
+  export function markOfflineSyncReady(
+    args: MarkOfflineSyncReadyArgs,
+  ): Promise<OfflineSyncStateUpdateResult> {
+    return runOfflineTransaction(
+      [OFFLINE_SYNC_STATE_STORE],
+      "readwrite",
+      async ({ stores }) => {
+        const store = stores[OFFLINE_SYNC_STATE_STORE];
+        const previous = await requestToPromise<OfflineSyncState | undefined>(
+          store.get(args.projectId),
+        );
+
+        if (previous && previous.syncRunId !== args.syncRunId) {
+          return { updated: false, reason: "stale-sync-run" };
+        }
+
+        const next = buildOfflineSyncState({
+          projectId: args.projectId,
+          syncRunId: args.syncRunId,
+          context: args.context,
+          previous,
+          status: previous?.status === "corrupt" ? "corrupt" : "ready",
+          syncedAt: args.readyAt,
+          lastFailedAt: previous?.lastFailedAt,
+        });
+
+        await requestToPromise(store.put(next));
+
+        return { updated: true };
+      },
+    );
+  }
+
   export function markOfflineSyncFailed(
     args: MarkOfflineSyncFailedArgs,
   ): Promise<OfflineSyncStateUpdateResult> {
@@ -112,11 +153,11 @@ import {
         const previous = await requestToPromise<OfflineSyncState | undefined>(
           store.get(args.projectId),
         );
-  
+
         if (previous && previous.syncRunId !== args.syncRunId) {
           return { updated: false, reason: "stale-sync-run" };
         }
-  
+
         const next = buildOfflineSyncState({
           projectId: args.projectId,
           syncRunId: args.syncRunId,
@@ -125,14 +166,14 @@ import {
           status: previous?.status === "corrupt" ? "corrupt" : "failed",
           lastFailedAt: args.failedAt,
         });
-  
+
         await requestToPromise(store.put(next));
-  
+
         return { updated: true };
       },
     );
   }
-  
+
   export function markOfflineStoreCorrupt(
     args: MarkOfflineStoreCorruptArgs,
   ): Promise<OfflineSyncStateUpdateResult> {
@@ -144,11 +185,11 @@ import {
         const previous = await requestToPromise<OfflineSyncState | undefined>(
           store.get(args.projectId),
         );
-  
+
         if (previous && previous.syncRunId !== args.syncRunId) {
           return { updated: false, reason: "stale-sync-run" };
         }
-  
+
         const next = buildOfflineSyncState({
           projectId: args.projectId,
           syncRunId: args.syncRunId,
@@ -157,11 +198,10 @@ import {
           status: "corrupt",
           lastFailedAt: previous?.lastFailedAt,
         });
-  
+
         await requestToPromise(store.put(next));
-  
+
         return { updated: true };
       },
     );
   }
-  
