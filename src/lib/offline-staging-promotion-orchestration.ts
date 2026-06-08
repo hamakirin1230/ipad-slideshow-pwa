@@ -12,8 +12,9 @@ import {
   type IsoDateTimeString,
 } from "@/lib/offline-schema";
 import {
-  markOfflineStoreCorrupt,
+  markOfflineStoreCorruptInTransaction,
   markOfflineSyncFailed,
+  markOfflineSyncFailedInTransaction,
   markOfflineSyncReadyInTransaction,
   type OfflineSyncStateContext,
   type OfflineSyncStateUpdateResult,
@@ -65,7 +66,8 @@ export type PromoteOfflineStagingForSyncRunResult =
       syncStateUpdate: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
     };
 
-async function markValidationFailureSyncState(args: {
+async function markValidationFailureSyncStateInTransaction(args: {
+  stores: Record<string, IDBObjectStore>;
   projectId: string;
   syncRunId: string;
   failedAt: IsoDateTimeString;
@@ -73,14 +75,14 @@ async function markValidationFailureSyncState(args: {
   classification: OfflineStagingValidationFailureClassification;
 }): Promise<OfflineSyncStateUpdateResult> {
   if (args.classification === "corrupt") {
-    return markOfflineStoreCorrupt({
+    return markOfflineStoreCorruptInTransaction(args.stores, {
       projectId: args.projectId,
       syncRunId: args.syncRunId,
       context: args.context,
     });
   }
 
-  return markOfflineSyncFailed({
+  return markOfflineSyncFailedInTransaction(args.stores, {
     projectId: args.projectId,
     syncRunId: args.syncRunId,
     failedAt: args.failedAt,
@@ -130,13 +132,15 @@ export async function promoteOfflineStagingForSyncRun(
               validatedStaging.validation.reason,
             );
 
-          const syncStateUpdate = await markValidationFailureSyncState({
-            projectId: args.projectId,
-            syncRunId: args.syncRunId,
-            failedAt: args.failedAt,
-            context: args.context,
-            classification: validationClassification,
-          });
+          const syncStateUpdate =
+            await markValidationFailureSyncStateInTransaction({
+              stores,
+              projectId: args.projectId,
+              syncRunId: args.syncRunId,
+              failedAt: args.failedAt,
+              context: args.context,
+              classification: validationClassification,
+            });
 
           if (!syncStateUpdate.updated) {
             return {
