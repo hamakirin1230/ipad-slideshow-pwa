@@ -66,13 +66,22 @@ export type PromoteOfflineStagingForSyncRunResult =
       syncStateUpdate: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
     };
 
+class OfflineStagingPromotionPreconditionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OfflineStagingPromotionPreconditionError";
+  }
+}
+
 function assertNonBlankInternalId(name: string, value: string): void {
   if (value.length === 0) {
-    throw new Error(`${name} is required.`);
+    throw new OfflineStagingPromotionPreconditionError(`${name} is required.`);
   }
 
   if (value !== value.trim()) {
-    throw new Error(`${name} must not include leading or trailing whitespace.`);
+    throw new OfflineStagingPromotionPreconditionError(
+      `${name} must not include leading or trailing whitespace.`,
+    );
   }
 }
 
@@ -81,6 +90,17 @@ function assertValidPromoteOfflineStagingArgs(
 ): void {
   assertNonBlankInternalId("projectId", args.projectId);
   assertNonBlankInternalId("syncRunId", args.syncRunId);
+}
+
+function assertValidatedProjectMatchesRequestedProject(args: {
+  validatedProjectId: string;
+  requestedProjectId: string;
+}): void {
+  if (args.validatedProjectId !== args.requestedProjectId) {
+    throw new OfflineStagingPromotionPreconditionError(
+      "Validated staging projectId does not match the requested projectId.",
+    );
+  }
 }
 
 async function markValidationFailureSyncStateInTransaction(args: {
@@ -177,11 +197,10 @@ export async function promoteOfflineStagingForSyncRun(
           };
         }
 
-        if (validatedStaging.project.projectId !== args.projectId) {
-          throw new Error(
-            "Validated staging projectId does not match the requested projectId.",
-          );
-        }
+        assertValidatedProjectMatchesRequestedProject({
+          validatedProjectId: validatedStaging.project.projectId,
+          requestedProjectId: args.projectId,
+        });
 
         const syncStateUpdate = await markOfflineSyncReadyInTransaction(stores, {
           projectId: args.projectId,
@@ -216,7 +235,11 @@ export async function promoteOfflineStagingForSyncRun(
         };
       },
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof OfflineStagingPromotionPreconditionError) {
+      throw error;
+    }
+
     const syncStateUpdate = await markPromotionOrCleanupFailureSyncState({
       projectId: args.projectId,
       syncRunId: args.syncRunId,
