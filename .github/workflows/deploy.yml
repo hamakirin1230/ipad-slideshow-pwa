@@ -39,6 +39,7 @@ jobs:
       - name: Build static site
         run: npm run build
         env:
+          GITHUB_PAGES: "true"
           NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
 
       - name: Upload Pages artifact
