@@ -899,9 +899,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetOfflineSyncState();
   }
 
-  function applyProjectReadyState(project: DriveProjectSummary) {
-    const details = buildEmptyProjectDetails();
-
+  function applyProjectReadyState(
+    project: DriveProjectSummary,
+    details: ProjectDetails = buildEmptyProjectDetails(),
+  ) {
     setDriveProjectReadyContext(project);
     setProjectDetails(details);
     setProjectSummary(toProjectSummary(project, details));
@@ -1938,12 +1939,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
         return;
       }
 
-      setProjectStatus("ready");
-      setProjectMessage(
-        "index.json上のプロジェクト登録とDrive上の詳細を確認しました。",
-      );
-      applyProjectReadyState(result.project);
-      setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
+      const nextProjectDetails = toProjectDetails(detailResult.details);
+
+        setProjectStatus("ready");
+        setProjectMessage(
+          "index.json上のプロジェクト登録とDrive上の詳細を確認しました。",
+        );
+        applyProjectReadyState(result.project, nextProjectDetails);
+        setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
     } catch (error) {
       if (requestId !== driveOperationRequestIdRef.current) {
         return;

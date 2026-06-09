@@ -308,6 +308,7 @@ export type DriveMetadataValidationResult =
 export type DriveProjectDetailsValidationResult =
   | {
       status: "ready";
+      details: DriveProjectReadyDetails;
       diagnostics: string[];
     }
   | {
@@ -1490,12 +1491,18 @@ export async function validateDriveProjectDetails(input: {
     diagnostics,
   });
 
-  validateProjectManifestJsonBody({
+  const manifestResult = parseDriveProjectManifestJson({
     manifestJsonText,
     expectedWorkspaceId: input.expectedWorkspaceId,
     project: input.project,
-    diagnostics,
   });
+
+  if (manifestResult.status === "invalid") {
+    return {
+      status: "invalid",
+      diagnostics: [...diagnostics, ...manifestResult.diagnostics],
+    };
+  }
 
   if (diagnostics.length > 0) {
     return {
@@ -1506,14 +1513,15 @@ export async function validateDriveProjectDetails(input: {
 
   return {
     status: "ready",
+    details: manifestResult.details,
     diagnostics: [
       "project folder / manifest.json / assets/ のmetadata確認が完了しました。",
       "manifest.json のJSON本文を確認しました。",
+      ...manifestResult.diagnostics,
       "index.json.projects[0] とDrive上のproject詳細の整合確認が完了しました。",
     ],
   };
 }
-
 
 export async function createDriveProject(
   input: DriveProjectCreateInput,
@@ -2435,122 +2443,6 @@ function validateProjectMetadataUuidValue(input: {
       `${input.label} のappProperties.${input.key}が想定と一致していません。`,
     );
   }
-}
-
-function validateProjectManifestJsonBody(input: {
-  manifestJsonText: string;
-  expectedWorkspaceId: string;
-  project: DriveProjectSummary;
-  diagnostics: string[];
-}) {
-  if (getUtf8ByteLength(input.manifestJsonText) > JSON_FILE_SIZE_LIMIT_BYTES) {
-    input.diagnostics.push(
-      `manifest.json の本文が上限 ${JSON_FILE_SIZE_LIMIT_BYTES} bytes を超えています。`,
-    );
-    return;
-  }
-
-  const parsed = parseJsonObject(input.manifestJsonText, "manifest.json");
-
-  if (parsed.status === "invalid") {
-    input.diagnostics.push(...parsed.diagnostics);
-    return;
-  }
-
-  validateRequiredLiteral({
-    body: parsed.value,
-    fileLabel: "manifest.json",
-    key: "app",
-    expectedValue: DRIVE_WORKSPACE_APP_ID,
-    diagnostics: input.diagnostics,
-  });
-
-  validateRequiredLiteral({
-    body: parsed.value,
-    fileLabel: "manifest.json",
-    key: "role",
-    expectedValue: "projectManifest",
-    diagnostics: input.diagnostics,
-  });
-
-  const schemaInvalidDiagnostics: string[] = [];
-  const schemaUnsupportedDiagnostics: string[] = [];
-
-  validateSchemaVersion({
-    body: parsed.value,
-    fileLabel: "manifest.json",
-    invalidDiagnostics: schemaInvalidDiagnostics,
-    unsupportedVersionDiagnostics: schemaUnsupportedDiagnostics,
-  });
-
-  input.diagnostics.push(
-    ...schemaInvalidDiagnostics,
-    ...schemaUnsupportedDiagnostics,
-  );
-
-  const workspaceId = readRequiredUuidString({
-    body: parsed.value,
-    fileLabel: "manifest.json",
-    key: "workspaceId",
-    diagnostics: input.diagnostics,
-  });
-  const projectId = readRequiredUuidString({
-    body: parsed.value,
-    fileLabel: "manifest.json",
-    key: "projectId",
-    diagnostics: input.diagnostics,
-  });
-  const title = readRequiredNonEmptyString({
-    body: parsed.value,
-    fileLabel: "manifest.json",
-    key: "title",
-    diagnostics: input.diagnostics,
-  });
-  const createdAt = readRequiredIsoDateString({
-    body: parsed.value,
-    fileLabel: "manifest.json",
-    key: "createdAt",
-    diagnostics: input.diagnostics,
-  });
-  const updatedAt = readRequiredIsoDateString({
-    body: parsed.value,
-    fileLabel: "manifest.json",
-    key: "updatedAt",
-    diagnostics: input.diagnostics,
-  });
-
-  validateProjectManifestSlidesArray(parsed.value, input.diagnostics);
-
-  validateExpectedProjectManifestValue({
-    diagnostics: input.diagnostics,
-    label: "workspaceId",
-    actual: workspaceId,
-    expected: input.expectedWorkspaceId,
-  });
-  validateExpectedProjectManifestValue({
-    diagnostics: input.diagnostics,
-    label: "projectId",
-    actual: projectId,
-    expected: input.project.projectId,
-  });
-  validateExpectedProjectManifestValue({
-    diagnostics: input.diagnostics,
-    label: "title",
-    actual: title,
-    expected: input.project.title,
-  });
-  validateExpectedProjectManifestValue({
-    diagnostics: input.diagnostics,
-    label: "createdAt",
-    actual: createdAt,
-    expected: input.project.createdAt,
-  });
-  validateExpectedProjectManifestValue({
-    diagnostics: input.diagnostics,
-    label: "updatedAt",
-    actual: updatedAt,
-    expected: input.project.updatedAt,
-  });
 }
 
 function validateProjectManifestSlidesArray(
