@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
 import { ProjectStatusPanel } from "./project-status-panel";
 import { OfflineSyncPanel } from "./offline-sync-panel";
+import { OfflineConfirmedStorePanel } from "./offline-confirmed-store-panel";
 import { DriveProjectWorkspacePanel } from "./drive-project-workspace-panel";
 
 export default function AdminPage() {
@@ -17,7 +18,8 @@ export default function AdminPage() {
             <p className="mt-2 max-w-2xl text-slate-300">
               DriveワークスペースとDrive projectを確認し、Drive上のmanifestと素材を
               IndexedDB offline store へ同期する管理導線です。
-              このスライスでは同期実行と診断表示までを扱い、再生UIへの接続はまだ行いません。
+              このスライスでは同期実行、confirmed store 確認、診断表示までを扱い、
+              再生UIへの接続はまだ行いません。
             </p>
           </div>
           <Button asChild variant="secondary">
@@ -28,6 +30,7 @@ export default function AdminPage() {
         <DriveStatusSummary />
         <ProjectStatusPanel />
         <OfflineSyncPanel />
+        <OfflineConfirmedStorePanel />
         <DriveProjectWorkspacePanel />
       </div>
     </main>
