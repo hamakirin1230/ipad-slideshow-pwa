@@ -42,51 +42,94 @@ export default function PlayerPage() {
     setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
   }, [slideCount]);
 
-  type SwipeStart = { clientX: number; clientY: number; pointerId: number };
-  const swipeStartRef = useRef<SwipeStart | null>(null);
+  type SwipeStart = {
+  clientX: number;
+  clientY: number;
+  pointerId: number;
+  didTrigger: boolean;
+};
 
-  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (!event.isPrimary) return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+const swipeStartRef = useRef<SwipeStart | null>(null);
 
-    swipeStartRef.current = {
-      clientX: event.clientX,
-      clientY: event.clientY,
-      pointerId: event.pointerId,
-    };
+const resetSwipeStart = () => {
+  swipeStartRef.current = null;
+};
 
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture is best-effort only.
-    }
+const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+  if (!event.isPrimary) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  event.preventDefault();
+
+  swipeStartRef.current = {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    pointerId: event.pointerId,
+    didTrigger: false,
   };
 
-  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    const start = swipeStartRef.current;
+  try {
+    event.currentTarget.setPointerCapture(event.pointerId);
+  } catch {
+    // Pointer capture is best-effort only.
+  }
+};
 
-    if (!start || start.pointerId !== event.pointerId) {
-      return;
-    }
+const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  const start = swipeStartRef.current;
 
+  if (!start || start.pointerId !== event.pointerId || start.didTrigger) {
+    return;
+  }
+
+  const dx = event.clientX - start.clientX;
+  const dy = event.clientY - start.clientY;
+
+  if (Math.abs(dx) < 50) return;
+  if (Math.abs(dx) <= Math.abs(dy)) return;
+
+  event.preventDefault();
+
+  swipeStartRef.current = {
+    ...start,
+    didTrigger: true,
+  };
+
+  if (dx < 0) {
+    goToNextSlide();
+  } else {
+    goToPreviousSlide();
+  }
+};
+
+const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+  const start = swipeStartRef.current;
+
+  if (!start || start.pointerId !== event.pointerId) {
+    return;
+  }
+
+  if (!start.didTrigger) {
     const dx = event.clientX - start.clientX;
     const dy = event.clientY - start.clientY;
 
-    swipeStartRef.current = null;
+    if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) {
+      event.preventDefault();
 
-    if (Math.abs(dx) < 50) return;
-    if (Math.abs(dx) <= Math.abs(dy)) return;
-
-    if (dx < 0) {
-      goToNextSlide();
-    } else {
-      goToPreviousSlide();
+      if (dx < 0) {
+        goToNextSlide();
+      } else {
+        goToPreviousSlide();
+      }
     }
-  };
+  }
 
-  const handlePointerCancel = () => {
-    swipeStartRef.current = null;
-  };
+  resetSwipeStart();
+};
+
+const handlePointerCancel = () => {
+  resetSwipeStart();
+};
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -268,9 +311,13 @@ export default function PlayerPage() {
 
             <div
               onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerCancel}
-              style={{ touchAction: "pan-y" }}
+              style={{
+                touchAction: "pan-y",
+                userSelect: "none",
+              }}
             >
               <div className="flex aspect-[16/9] items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
                 {imageStatus === "error" ? (
@@ -284,11 +331,15 @@ export default function PlayerPage() {
                     key={objectUrl}
                     src={objectUrl}
                     alt={currentSlide.assetName ?? "現在のスライド画像"}
+                    draggable={false}
+                    onDragStart={(event) => event.preventDefault()}
                     onLoad={() => setLoadedImageObjectUrl(objectUrl)}
                     style={{
                       objectFit: "contain",
                       width: "100%",
                       height: "100%",
+                      userSelect: "none",
+                      WebkitUserSelect: "none",
                     }}
                   />
                 ) : null}
