@@ -64,12 +64,18 @@ import {
   type PhotosPickerResolvedPollingTiming,
   type PhotosPickerSessionSnapshot,
 } from "@/lib/google-photos-picker";
+import {
+  createDriveOfflineStagingSyncRuntime,
+  type DriveOfflineStagingSyncRuntime,
+  type DriveOfflineStagingSyncRuntimeResult,
+} from "@/lib/drive-offline-staging-sync-runtime";
 
 const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 120_000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
+const OFFLINE_SYNC_DIAGNOSTIC_MAX_LENGTH = 160;
 
 const unsafeAssetImportDiagnosticPatterns = [
   /access[_-]?token/i,
@@ -124,6 +130,15 @@ export type AssetImportStatus =
   | "cancelled"
   | "invalid"
   | "error";
+
+export type OfflineSyncStatus =
+  | "idle"
+  | "syncing"
+  | "ready"
+  | "stale"
+  | "failed"
+  | "cancelled"
+  | "blocked";
 
 export type DriveCandidateSummary = {
   name: string;
@@ -301,6 +316,15 @@ type AppContextValue = {
   canStartAssetImport: boolean;
   assetImportBlockedReason: string | null;
 
+  offlineSyncStatus: OfflineSyncStatus;
+  offlineSyncStatusLabel: string;
+  offlineSyncMessage: string;
+  offlineSyncDiagnostics: string[];
+  offlineSyncLastResult: DriveOfflineStagingSyncRuntimeResult | null;
+  isOfflineSyncInFlight: boolean;
+  canStartOfflineSync: boolean;
+  offlineSyncBlockedReason: string | null;
+
   connectGoogle: () => void;
   disconnectGoogle: () => void;
   checkDriveWorkspace: () => void;
@@ -309,6 +333,8 @@ type AppContextValue = {
   createProject: () => void;
   startAssetImport: () => void;
   cancelAssetImport: () => void;
+  startOfflineSync: () => void;
+  cancelOfflineSync: () => void;
   fetchProjectSlidePreviewBlob: (
     assetFileId: string,
     expectedMimeType: ProjectSlideSummary["mimeType"],
@@ -366,6 +392,16 @@ const assetImportStatusLabels: Record<AssetImportStatus, string> = {
   error: "素材追加失敗",
 };
 
+const offlineSyncStatusLabels: Record<OfflineSyncStatus, string> = {
+  idle: "offline sync 待機中",
+  syncing: "offline sync 実行中",
+  ready: "offline sync 完了",
+  stale: "offline sync stale",
+  failed: "offline sync 失敗",
+  cancelled: "offline sync 中止",
+  blocked: "offline sync 開始不可",
+};
+
 const initialDriveMessage =
   "このセッションでは、まだDriveワークスペース確認を実行していません。";
 
@@ -374,6 +410,9 @@ const initialProjectMessage =
 
 const initialAssetImportMessage =
   "Drive project ready 後に素材追加の準備状態を確認できます。";
+
+const initialOfflineSyncMessage =
+  "Drive project ready 後に offline sync を実行できます。";
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -399,6 +438,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const assetImportRequestIdRef = useRef(0);
   const assetImportInFlightRef = useRef(false);
   const assetImportPickerWindowRef = useRef<Window | null>(null);
+
+  const offlineSyncRuntimeRef =
+    useRef<DriveOfflineStagingSyncRuntime | null>(null);
+  const offlineSyncRequestIdRef = useRef(0);
+  const offlineSyncInFlightRef = useRef(false);
+
+  if (offlineSyncRuntimeRef.current === null) {
+    offlineSyncRuntimeRef.current = createDriveOfflineStagingSyncRuntime();
+  }
 
   const [googleStatus, setGoogleStatus] = useState<GoogleConnectionStatus>(
     hasClientId ? "scriptLoading" : "missingClientId",
@@ -447,10 +495,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
     useState<AssetImportSelection | null>(null);
   const [isAssetImportInFlight, setIsAssetImportInFlight] = useState(false);
 
+  const [offlineSyncStatus, setOfflineSyncStatus] =
+    useState<OfflineSyncStatus>("idle");
+  const [offlineSyncMessage, setOfflineSyncMessage] = useState(
+    initialOfflineSyncMessage,
+  );
+  const [offlineSyncDiagnostics, setOfflineSyncDiagnostics] = useState<string[]>(
+    [],
+  );
+  const [offlineSyncLastResult, setOfflineSyncLastResult] =
+    useState<DriveOfflineStagingSyncRuntimeResult | null>(null);
+  const [isOfflineSyncInFlight, setIsOfflineSyncInFlight] = useState(false);
+
   const canImportAssets =
     projectStatus === "ready" && driveProjectReadyContext !== null;
   const assetImportBlockedReason = getAssetImportBlockedReason();
   const canStartAssetImport = assetImportBlockedReason === null;
+
+  const offlineSyncBlockedReason = getOfflineSyncBlockedReason();
+  const canStartOfflineSync = offlineSyncBlockedReason === null;
 
   function setDriveOperationInFlight(value: boolean) {
     driveOperationInFlightRef.current = value;
@@ -467,6 +530,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   function setAssetImportInFlightState(value: boolean) {
     assetImportInFlightRef.current = value;
     setIsAssetImportInFlight(value);
+  }
+
+  function setOfflineSyncInFlightState(value: boolean) {
+    offlineSyncInFlightRef.current = value;
+    setIsOfflineSyncInFlight(value);
   }
 
   function clearPendingPhotosTokenRequest(reason?: PhotosTokenRequestError) {
@@ -731,6 +799,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return "Drive操作中のため、素材追加は開始できません。";
     }
 
+    if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
+      return "offline sync 実行中のため、素材追加は開始できません。";
+    }
+
     if (
       assetImportSelection?.driveSaved === true &&
       !assetImportSelection.manifestUpdated
@@ -761,6 +833,52 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setAssetImportDiagnostics(sanitizeAssetImportDiagnostics(diagnostics));
   }
 
+  function getOfflineSyncBlockedReason() {
+    if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
+      return "offline sync 実行中です。";
+    }
+
+    if (assetImportInFlightRef.current || isAssetImportInFlight) {
+      return "素材追加処理中のため、offline sync は開始できません。";
+    }
+
+    if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
+      return "Drive操作中のため、offline sync は開始できません。";
+    }
+
+    if (googleStatus !== "connected" || driveFileGranted !== true) {
+      return "Google接続と drive.file 許可が必要です。";
+    }
+
+    if (!accessTokenRef.current) {
+      return "Google access_token を確認できません。Googleへ再接続してください。";
+    }
+
+    if (driveStatus !== "ready" || !workspaceReadyContext) {
+      return "Drive workspace ready 情報が必要です。";
+    }
+
+    if (projectStatus !== "ready" || !driveProjectReadyContext) {
+      return "Drive project ready 情報が必要です。";
+    }
+
+    return null;
+  }
+
+  function setSafeOfflineSyncDiagnostics(diagnostics: string[]) {
+    setOfflineSyncDiagnostics(sanitizeOfflineSyncDiagnostics(diagnostics));
+  }
+
+  function resetOfflineSyncState() {
+    offlineSyncRequestIdRef.current += 1;
+    offlineSyncRuntimeRef.current?.cancelCurrentRun();
+    setOfflineSyncInFlightState(false);
+    setOfflineSyncStatus("idle");
+    setOfflineSyncMessage(initialOfflineSyncMessage);
+    setSafeOfflineSyncDiagnostics([]);
+    setOfflineSyncLastResult(null);
+  }
+
   function resetAssetImportState() {
     assetImportRequestIdRef.current += 1;
     clearAssetImportRuntimeRefs({
@@ -778,6 +896,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveProjectReadyContext(null);
     setProjectDetails(null);
     resetAssetImportState();
+    resetOfflineSyncState();
   }
 
   function applyProjectReadyState(project: DriveProjectSummary) {
@@ -1450,6 +1569,96 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  async function startOfflineSync() {
+    const runtime = offlineSyncRuntimeRef.current;
+    const blockedReason = getOfflineSyncBlockedReason();
+
+    if (!runtime) {
+      setOfflineSyncStatus("failed");
+      setOfflineSyncMessage("offline sync runtime を初期化できませんでした。");
+      setSafeOfflineSyncDiagnostics([
+        "Drive offline staging sync runtime が初期化されていません。",
+      ]);
+      return;
+    }
+
+    if (blockedReason) {
+      setOfflineSyncStatus("blocked");
+      setOfflineSyncMessage("offline sync を開始できませんでした。");
+      setSafeOfflineSyncDiagnostics([blockedReason]);
+      return;
+    }
+
+    const accessToken = accessTokenRef.current;
+    const readyContext = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    if (!accessToken || !readyContext || !readyProject) {
+      setOfflineSyncStatus("blocked");
+      setOfflineSyncMessage("offline sync に必要な ready 情報が不足しています。");
+      setSafeOfflineSyncDiagnostics([
+        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Drive状態とプロジェクト状態を再確認してください。",
+      ]);
+      return;
+    }
+
+    offlineSyncRequestIdRef.current += 1;
+    const requestId = offlineSyncRequestIdRef.current;
+
+    setOfflineSyncInFlightState(true);
+    setOfflineSyncStatus("syncing");
+    setOfflineSyncMessage("Driveからoffline staging snapshotを取得しています。");
+    setSafeOfflineSyncDiagnostics([]);
+    setOfflineSyncLastResult(null);
+
+    try {
+      const result = await runtime.run({
+        accessToken,
+        readyContext,
+        project: readyProject,
+      });
+
+      if (requestId !== offlineSyncRequestIdRef.current) {
+        return;
+      }
+
+      setOfflineSyncLastResult(result);
+      setOfflineSyncStatus(getOfflineSyncStatusFromResult(result));
+      setOfflineSyncMessage(buildOfflineSyncResultMessage(result));
+      setSafeOfflineSyncDiagnostics(buildOfflineSyncResultDiagnostics(result));
+    } finally {
+      if (requestId === offlineSyncRequestIdRef.current) {
+        setOfflineSyncInFlightState(false);
+      }
+    }
+  }
+
+  function cancelOfflineSync() {
+    const runtime = offlineSyncRuntimeRef.current;
+
+    if (
+      !offlineSyncInFlightRef.current &&
+      !isOfflineSyncInFlight &&
+      !runtime?.isInFlight()
+    ) {
+      return;
+    }
+
+    offlineSyncRequestIdRef.current += 1;
+    runtime?.cancelCurrentRun();
+
+    setOfflineSyncInFlightState(false);
+    setOfflineSyncStatus("cancelled");
+    setOfflineSyncMessage("offline sync を中止しました。");
+    setSafeOfflineSyncDiagnostics([
+      "ユーザー操作により offline sync を中止しました。",
+      "Drive fetch / staging write / promotion のどこまで進んだかは、この状態だけでは判断しません。",
+      "必要に応じて Drive状態とプロジェクト状態を再確認してください。",
+    ]);
+    setOfflineSyncLastResult(null);
+  }
+
   async function checkDriveWorkspace() {
     if (driveOperationInFlightRef.current) {
       return;
@@ -1941,6 +2150,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
     isAssetImportInFlight,
     canStartAssetImport,
     assetImportBlockedReason,
+    offlineSyncStatus,
+    offlineSyncStatusLabel: offlineSyncStatusLabels[offlineSyncStatus],
+    offlineSyncMessage,
+    offlineSyncDiagnostics,
+    offlineSyncLastResult,
+    isOfflineSyncInFlight,
+    canStartOfflineSync,
+    offlineSyncBlockedReason,
     connectGoogle,
     disconnectGoogle,
     checkDriveWorkspace,
@@ -1949,6 +2166,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     createProject,
     startAssetImport,
     cancelAssetImport,
+    startOfflineSync,
+    cancelOfflineSync,
     fetchProjectSlidePreviewBlob,
   };
 
@@ -1982,6 +2201,160 @@ export function useAppState() {
   }
 
   return value;
+}
+
+function getOfflineSyncStatusFromResult(
+  result: DriveOfflineStagingSyncRuntimeResult,
+): OfflineSyncStatus {
+  switch (result.status) {
+    case "ready":
+      return "ready";
+
+    case "stale":
+      return "stale";
+
+    case "syncRuntimeCancelled":
+      return "cancelled";
+
+    case "syncAlreadyInFlight":
+    case "orchestrationPreconditionFailed":
+      return "blocked";
+
+    case "driveFetchOrStagingWriteFailed":
+    case "promotionFailed":
+    case "orchestrationUnexpectedFailure":
+      return "failed";
+
+    default:
+      return assertNeverOfflineSyncResultStatus(result);
+  }
+}
+
+function buildOfflineSyncResultMessage(
+  result: DriveOfflineStagingSyncRuntimeResult,
+): string {
+  switch (result.status) {
+    case "ready":
+      return "Drive取得、staging write、confirmed promotion が完了しました。";
+
+    case "stale":
+      return "offline sync は stale として無視されました。";
+
+    case "driveFetchOrStagingWriteFailed":
+      return "Drive取得、または staging write に失敗しました。";
+
+    case "promotionFailed":
+      return "staging promotion に失敗しました。";
+
+    case "orchestrationPreconditionFailed":
+      return "offline sync の前提条件を満たしていません。";
+
+    case "orchestrationUnexpectedFailure":
+      return "offline sync 中に予期しない失敗が発生しました。";
+
+    case "syncAlreadyInFlight":
+      return "offline sync はすでに実行中です。";
+
+    case "syncRuntimeCancelled":
+      return "offline sync は中止されました。";
+
+    default:
+      return assertNeverOfflineSyncResultStatus(result);
+  }
+}
+
+function buildOfflineSyncResultDiagnostics(
+  result: DriveOfflineStagingSyncRuntimeResult,
+): string[] {
+  switch (result.status) {
+    case "ready":
+      return [
+        `syncRunId: ${result.syncRunId}`,
+        `projectId: ${result.projectId}`,
+        `slides: ${result.slideCount}`,
+        `assets: ${result.assetCount}`,
+        `staging written projects: ${result.stagingWrite.writtenProjects}`,
+        `staging written assets: ${result.stagingWrite.writtenAssets}`,
+        `staging written asset blobs: ${result.stagingWrite.writtenAssetBlobs}`,
+        `promoted projects: ${result.promotion.promotedProjects}`,
+        `promoted assets: ${result.promotion.promotedAssets}`,
+        `promoted asset blobs: ${result.promotion.promotedAssetBlobs}`,
+      ];
+
+    case "stale":
+      return [
+        `syncRunId: ${result.syncRunId}`,
+        "この syncRun は stale-sync-run として無視されました。",
+      ];
+
+    case "driveFetchOrStagingWriteFailed":
+      return appendOmittedDiagnosticCount(
+        result.diagnostics,
+        result.omittedDiagnosticCount,
+      );
+
+    case "promotionFailed":
+      if (result.promotionFailure.reason === "validation-failed") {
+        return [
+          `syncRunId: ${result.syncRunId}`,
+          "promotion validation failed.",
+          `validationReason: ${result.promotionFailure.validationReason}`,
+          `validationClassification: ${result.promotionFailure.validationClassification}`,
+        ];
+      }
+
+      return [
+        `syncRunId: ${result.syncRunId}`,
+        "promotion or cleanup failed.",
+      ];
+
+    case "orchestrationPreconditionFailed":
+    case "orchestrationUnexpectedFailure":
+    case "syncAlreadyInFlight":
+    case "syncRuntimeCancelled":
+      return appendOmittedDiagnosticCount(
+        result.diagnostics,
+        result.omittedDiagnosticCount,
+      );
+
+    default:
+      return assertNeverOfflineSyncResultStatus(result);
+  }
+}
+
+function appendOmittedDiagnosticCount(
+  diagnostics: string[],
+  omittedDiagnosticCount: number,
+): string[] {
+  if (omittedDiagnosticCount <= 0) {
+    return diagnostics;
+  }
+
+  return [...diagnostics, `omitted diagnostics: ${omittedDiagnosticCount}`];
+}
+
+function sanitizeOfflineSyncDiagnostics(diagnostics: string[]): string[] {
+  return diagnostics.map((diagnostic) =>
+    truncateOfflineSyncDiagnostic(
+      diagnostic,
+      OFFLINE_SYNC_DIAGNOSTIC_MAX_LENGTH,
+    ),
+  );
+}
+
+function truncateOfflineSyncDiagnostic(
+  value: string,
+  maxLength: number,
+): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function assertNeverOfflineSyncResultStatus(value: never): never {
+  throw new Error(`Unexpected offline sync result: ${JSON.stringify(value)}`);
 }
 
 async function runDriveWorkspaceCheck(
