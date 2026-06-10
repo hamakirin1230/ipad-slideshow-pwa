@@ -11,7 +11,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  clearLocalOfflineProjectData,
+  type ClearLocalOfflineProjectDataResult,
+} from "@/lib/offline-local-project-clear";
+import {
   readOfflineConfirmedStoreSnapshot,
+  type OfflineConfirmedProjectSummary,
   type OfflineConfirmedStoreSnapshot,
 } from "@/lib/offline-confirmed-store-snapshot";
 
@@ -33,12 +38,38 @@ type OfflineConfirmedStorePanelState =
       checkedAt: string;
     };
 
+type LocalOfflineProjectClearState =
+  | {
+      status: "idle";
+    }
+  | {
+      status: "clearing";
+      projectId: string;
+    }
+  | {
+      status: "cleared";
+      result: ClearLocalOfflineProjectDataResult;
+    }
+  | {
+      status: "error";
+      projectId: string;
+      errorName: string;
+      message: string;
+      failedAt: string;
+    };
+
 export function OfflineConfirmedStorePanel() {
   const [state, setState] = useState<OfflineConfirmedStorePanelState>({
     status: "idle",
   });
+  const [clearState, setClearState] = useState<LocalOfflineProjectClearState>({
+    status: "idle",
+  });
 
   const isChecking = state.status === "checking";
+  const isClearingProject = clearState.status === "clearing";
+  const clearingProjectId =
+    clearState.status === "clearing" ? clearState.projectId : null;
 
   async function handleCheckConfirmedStore() {
     setState({ status: "checking" });
@@ -60,6 +91,75 @@ export function OfflineConfirmedStorePanel() {
     }
   }
 
+  async function handleClearLocalOfflineProject(
+    project: OfflineConfirmedProjectSummary,
+  ) {
+    const projectLabel = project.projectTitle ?? formatIdPart(project.projectId);
+
+    const shouldClear = window.confirm(
+      [
+        "この端末に保存された対象プロジェクトのオフライン再生用データを削除します。",
+        "",
+        `対象 project: ${projectLabel}`,
+        `projectId: ${project.projectId}`,
+        "",
+        "削除対象:",
+        "・confirmed project",
+        "・asset metadata",
+        "・asset Blob、つまりローカル保存写真",
+        "・sync state",
+        "・staging records",
+        "",
+        "Google Drive 上の project / manifest / assets は削除しません。",
+        "削除後にこのプロジェクトを再生するには、管理画面で offline sync を再実行してください。",
+        "",
+        "削除しますか？",
+      ].join("\n"),
+    );
+
+    if (!shouldClear) {
+      return;
+    }
+
+    setClearState({
+      status: "clearing",
+      projectId: project.projectId,
+    });
+
+    try {
+      const result = await clearLocalOfflineProjectData(project.projectId);
+
+      setClearState({
+        status: "cleared",
+        result,
+      });
+
+      try {
+        const snapshot = await readOfflineConfirmedStoreSnapshot();
+
+        setState({
+          status: "ready",
+          snapshot,
+        });
+      } catch (error) {
+        setState({
+          status: "error",
+          errorName: getErrorName(error),
+          message: getErrorMessage(error),
+          checkedAt: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      setClearState({
+        status: "error",
+        projectId: project.projectId,
+        errorName: getErrorName(error),
+        message: getErrorMessage(error),
+        failedAt: new Date().toISOString(),
+      });
+    }
+  }
+
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
       <CardHeader>
@@ -71,7 +171,7 @@ export function OfflineConfirmedStorePanel() {
         </div>
         <CardDescription className="text-slate-300">
           offline sync 後に IndexedDB confirmed stores の project / assets /
-          asset blobs / sync state を読み取り専用で確認します。
+          asset blobs / sync state を確認します。
           Blob本体は画面表示せず、metadata と件数だけを表示します。
         </CardDescription>
       </CardHeader>
@@ -81,7 +181,7 @@ export function OfflineConfirmedStorePanel() {
           type="button"
           variant="secondary"
           onClick={handleCheckConfirmedStore}
-          disabled={isChecking}
+          disabled={isChecking || isClearingProject}
         >
           {isChecking
             ? "confirmed store を確認中"
@@ -92,6 +192,24 @@ export function OfflineConfirmedStorePanel() {
           <p className="text-sm text-slate-400">
             offline sync 完了後に押すと、confirmed offline store の保存結果を確認できます。
           </p>
+        ) : null}
+
+        {clearState.status === "cleared" ? (
+          <ClearLocalOfflineProjectDataResultView result={clearState.result} />
+        ) : null}
+
+        {clearState.status === "error" ? (
+          <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-red-100">
+            <p className="font-semibold">
+              プロジェクト単位のローカル保存データを削除できませんでした。
+            </p>
+            <div className="mt-3 space-y-1">
+              <p>projectId: {formatIdPart(clearState.projectId)}</p>
+              <p>error name: {clearState.errorName}</p>
+              <p>{clearState.message}</p>
+              <p>failedAt: {clearState.failedAt}</p>
+            </div>
+          </div>
         ) : null}
 
         {state.status === "error" ? (
@@ -106,14 +224,20 @@ export function OfflineConfirmedStorePanel() {
         ) : null}
 
         {state.status === "ready" ? (
-          <ConfirmedStoreSnapshotView snapshot={state.snapshot} />
+          <ConfirmedStoreSnapshotView
+            snapshot={state.snapshot}
+            clearingProjectId={clearingProjectId}
+            onClearProject={handleClearLocalOfflineProject}
+          />
         ) : null}
 
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-          <p className="font-semibold">このパネルで行わないこと</p>
+          <p className="font-semibold">プロジェクト単位のローカル削除について</p>
           <p className="mt-2">
-            confirmed store の修復・削除・再同期・Blob内容の表示は行いません。
-            問題がある場合は Drive状態とプロジェクト状態を再確認してから offline sync を再実行します。
+            削除するのは、この端末の IndexedDB に保存された対象 project の
+            offline playback 用コピーだけです。Google Drive 上の workspace /
+            project / manifest / assets は削除しません。
+            Blob本体は画面表示せず、metadata と件数だけを表示します。
           </p>
         </div>
       </CardContent>
@@ -121,10 +245,45 @@ export function OfflineConfirmedStorePanel() {
   );
 }
 
+function ClearLocalOfflineProjectDataResultView({
+  result,
+}: {
+  result: ClearLocalOfflineProjectDataResult;
+}) {
+  return (
+    <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
+      <p className="font-semibold">
+        プロジェクト単位のローカル保存データを削除しました。
+      </p>
+      <dl className="mt-3 grid gap-1 text-xs sm:grid-cols-2">
+        <SummaryRow label="projectId" value={formatIdPart(result.projectId)} />
+        <SummaryRow label="clearedAt" value={result.clearedAt} />
+        <SummaryRow label="projects" value={result.deletedProjects} />
+        <SummaryRow label="assets" value={result.deletedAssets} />
+        <SummaryRow label="asset blobs" value={result.deletedAssetBlobs} />
+        <SummaryRow label="sync states" value={result.deletedSyncStates} />
+        <SummaryRow
+          label="staging projects"
+          value={result.deletedStagingProjects}
+        />
+        <SummaryRow label="staging assets" value={result.deletedStagingAssets} />
+        <SummaryRow
+          label="staging asset blobs"
+          value={result.deletedStagingAssetBlobs}
+        />
+      </dl>
+    </div>
+  );
+}
+
 function ConfirmedStoreSnapshotView({
   snapshot,
+  clearingProjectId,
+  onClearProject,
 }: {
   snapshot: OfflineConfirmedStoreSnapshot;
+  clearingProjectId: string | null;
+  onClearProject: (project: OfflineConfirmedProjectSummary) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -149,9 +308,21 @@ function ConfirmedStoreSnapshotView({
                 key={project.projectId}
                 className="rounded-xl border border-white/10 p-3"
               >
-                <p className="font-medium text-slate-50">
-                  {project.projectTitle ?? "名称未設定"}
-                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <p className="font-medium text-slate-50">
+                    {project.projectTitle ?? "名称未設定"}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => onClearProject(project)}
+                    disabled={clearingProjectId !== null}
+                  >
+                    {clearingProjectId === project.projectId
+                      ? "このprojectを削除中"
+                      : "このprojectのローカル保存を削除"}
+                  </Button>
+                </div>
                 <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
                   <SummaryRow label="projectId" value={formatIdPart(project.projectId)} />
                   <SummaryRow label="slides" value={project.slideCount} />
@@ -313,7 +484,7 @@ function getErrorMessage(error: unknown) {
     return error.message;
   }
 
-  return "confirmed offline store の確認中に不明なエラーが発生しました。";
+  return "confirmed offline store の操作中に不明なエラーが発生しました。";
 }
 
 function formatIdPart(id: string | undefined) {
