@@ -11,46 +11,79 @@ import {
 
 const navigationItems = [
   {
+    href: "/settings",
+    title: "設定",
+    description:
+      "Google接続、Drive workspace 状態、OAuth scope、現在の接続状態を確認します。",
+    badge: "Google / Drive",
+  },
+  {
     href: "/admin",
     title: "管理画面",
     description:
-      "仮データでプロジェクト一覧、素材一覧、本編スライド順を確認します。",
-    badge: "第2-1対応済み",
+      "Drive project、Photos Picker、offline sync、confirmed store、project単位のローカル削除を扱います。",
+    badge: "同期 / 保存管理",
   },
   {
     href: "/player",
     title: "再生画面",
     description:
-      "仮データで再生プレビュー、再生前チェック、スライド順リストを確認します。",
-    badge: "第2-2対応済み",
-  },
-  {
-    href: "/settings",
-    title: "設定",
-    description:
-      "現在の実装状況、公開URL、未実装範囲、後続ゴールを確認します。",
-    badge: "第2-3で更新",
+      "この端末に保存済みの IndexedDB confirmed Blob から、offline-first でスライドを再生します。",
+    badge: "iPad再生",
   },
 ];
 
 const completedItems = [
-  "GitHub PagesでPWAを公開済み",
-  "iPadのホーム画面からPWAとして起動確認済み",
-  "Project / Asset / SlideItem の3層mock-dataを追加済み",
-  "管理画面で仮データを表示済み",
-  "再生画面で仮データによる基本UIを表示済み",
+  "Vercel production で公開中",
+  "Google OAuth / drive.file scope 接続済み",
+  "Google Drive workspace / project 検証済み",
+  "Google Photos Picker から素材追加済み",
+  "manifest.json / index.json 反映済み",
+  "IndexedDB confirmed store への offline sync 済み",
+  "confirmed asset Blob から /player 画像再生済み",
+  "next / previous / 自動送り / swipe 操作確認済み",
+  "Service Worker による app shell cache 追加済み",
+  "project 単位のローカル保存削除を追加済み",
+  "iPad 実機 PWA offline shell / player recovery 確認済み",
 ];
 
-const deferredItems = [
-  "Google OAuth",
-  "Google Driveワークスペース",
-  "Google Photos Picker",
-  "IndexedDB保存",
-  "iPad同期",
-  "オフライン再生",
-  "動画再生",
-  "テロップ編集",
-  "本番モード",
+const storageItems = [
+  {
+    title: "Cache Storage",
+    description:
+      "Service Worker が app shell、manifest、icons、Next.js static chunks を保存します。",
+    detail: "cache: ipad-slideshow-pwa-app-shell-v1",
+  },
+  {
+    title: "IndexedDB",
+    description:
+      "project snapshot、asset metadata、asset Blob、sync state を保存します。",
+    detail: "db: ipad-slideshow-offline",
+  },
+  {
+    title: "Google Drive",
+    description:
+      "workspace、project folder、manifest、assets の本体を保持します。ローカル削除では消しません。",
+    detail: "source of truth",
+  },
+];
+
+const nextStepItems = [
+  {
+    title: "iPad再生UX polish",
+    description:
+      "横向き表示、操作ボタンの自動フェード、全画面寄せ、safe area 対応を整えます。",
+  },
+  {
+    title: "offline storage 管理UI",
+    description:
+      "projectごとの保存容量、Blob合計サイズ、cache clear、last synced 表示を追加します。",
+  },
+  {
+    title: "multi-project playback",
+    description:
+      "複数projectを正式に扱うため、player側にproject選択導線を追加します。",
+  },
 ];
 
 export default function Home() {
@@ -60,7 +93,7 @@ export default function Home() {
         <section className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl">
           <div className="flex flex-col gap-4">
             <Badge className="w-fit" variant="secondary">
-              第2ゴール進行中
+              Vercel production / iPad PWA
             </Badge>
             <div className="space-y-3">
               <h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
@@ -68,9 +101,17 @@ export default function Home() {
               </h1>
               <p className="max-w-3xl text-base leading-7 text-slate-300">
                 iPadで安定して再生するためのスライドショーPWAです。
-                第2ゴールでは、Google連携や保存処理に入る前に、
-                ローカル仮データで管理画面と再生画面の情報設計を確認しています。
+                Google Drive上のprojectと素材を同期し、この端末のIndexedDBに保存した
+                confirmed Blobからoffline-firstで再生します。
               </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button asChild variant="secondary">
+                <Link href="/player">再生画面を開く</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/admin">管理画面を開く</Link>
+              </Button>
             </div>
           </div>
         </section>
@@ -97,15 +138,15 @@ export default function Home() {
           ))}
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+        <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
           <Card className="border-white/10 bg-white/5 text-slate-50">
             <CardHeader>
               <CardTitle>現在の到達点</CardTitle>
               <CardDescription className="text-slate-300">
-                第1ゴール完了後、第2ゴールの画面設計を進めています。
+                Vercel production、Drive連携、offline sync、iPad実機確認まで進んでいます。
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm text-slate-300">
+            <CardContent className="grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
               {completedItems.map((item) => (
                 <p key={item}>・{item}</p>
               ))}
@@ -114,20 +155,21 @@ export default function Home() {
 
           <Card className="border-white/10 bg-white/5 text-slate-50">
             <CardHeader>
-              <CardTitle>まだ実装しないこと</CardTitle>
+              <CardTitle>ローカル保存の扱い</CardTitle>
               <CardDescription className="text-slate-300">
-                第2ゴールでは、外部連携・保存・同期・本番再生機能は扱いません。
+                offline再生に必要なデータは、用途ごとに保存先を分けています。
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
-              {deferredItems.map((item) => (
-                <Badge
-                  key={item}
-                  variant="outline"
-                  className="border-slate-500 text-slate-200"
+            <CardContent className="space-y-3 text-sm text-slate-300">
+              {storageItems.map((item) => (
+                <div
+                  key={item.title}
+                  className="rounded-2xl border border-white/10 bg-black/30 p-4"
                 >
-                  {item}
-                </Badge>
+                  <p className="font-semibold text-slate-50">{item.title}</p>
+                  <p className="mt-2 leading-6">{item.description}</p>
+                  <p className="mt-2 text-xs text-slate-500">{item.detail}</p>
+                </div>
               ))}
             </CardContent>
           </Card>
@@ -136,24 +178,21 @@ export default function Home() {
         <section>
           <Card className="border-white/10 bg-white/5 text-slate-50">
             <CardHeader>
-              <CardTitle>次の開発段階</CardTitle>
+              <CardTitle>次の開発候補</CardTitle>
               <CardDescription className="text-slate-300">
-                第2ゴール完了後は、第3ゴールとしてGoogle OAuthの検証に進みます。
+                iPad実機でのoffline shell確認後は、再生体験と保存管理を磨く段階です。
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm text-slate-300 md:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                <p className="font-semibold text-slate-50">第3ゴール</p>
-                <p className="mt-2">Google OAuthを導入し、アクセストークンを永続保存しない方針を検証します。</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                <p className="font-semibold text-slate-50">第4ゴール</p>
-                <p className="mt-2">Google Drive上にワークスペース、プロジェクト、manifestを作ります。</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                <p className="font-semibold text-slate-50">第5ゴール以降</p>
-                <p className="mt-2">Googleフォト取り込み、iPad同期、オフライン再生、本番向け機能を順番に追加します。</p>
-              </div>
+              {nextStepItems.map((item) => (
+                <div
+                  key={item.title}
+                  className="rounded-2xl border border-white/10 bg-black/30 p-4"
+                >
+                  <p className="font-semibold text-slate-50">{item.title}</p>
+                  <p className="mt-2 leading-6">{item.description}</p>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </section>
