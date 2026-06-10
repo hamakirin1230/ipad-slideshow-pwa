@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   title: "スライドショー",
   description: "iPadで安定して再生するためのスライドショーPWAです。",
   applicationName: "スライドショー",
-  manifest: "/ipad-slideshow-pwa/manifest.json",
+  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     title: "スライドショー",
