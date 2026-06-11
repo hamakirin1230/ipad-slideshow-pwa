@@ -27,6 +27,11 @@ type SwipeStart = {
 
 type PlayerStatusTone = "neutral" | "warning" | "danger";
 
+type PlayerGuidanceItem = {
+  title: string;
+  description: string;
+};
+
 export default function PlayerPage() {
   const {
     status: snapshotLoadStatus,
@@ -183,10 +188,6 @@ export default function PlayerPage() {
     slide: currentSlide,
   });
 
-  useEffect(() => {
-    setLoadedImageObjectUrl(null);
-  }, [objectUrl]);
-
   const isCurrentImageLoaded =
     typeof objectUrl === "string" && loadedImageObjectUrl === objectUrl;
 
@@ -230,6 +231,90 @@ export default function PlayerPage() {
     slideCount > 0 &&
     currentSlide !== null;
 
+  const loadErrorGuidance: PlayerGuidanceItem[] = [
+    {
+      title: "まず再読み込みします",
+      description:
+        "一時的な IndexedDB 読み込み失敗であれば、再読み込みで復帰できます。",
+    },
+    {
+      title: "直らない場合は管理画面で確認します",
+      description:
+        "confirmed store の件数と診断を確認し、必要に応じて対象 project のローカル保存を削除してから offline sync を再実行してください。",
+    },
+  ];
+
+  const emptySnapshotGuidance: PlayerGuidanceItem[] =
+    isOnline === false
+      ? [
+          {
+            title: "オンラインに戻します",
+            description:
+              "この端末に再生用コピーがない状態では、オフラインのまま素材を取得できません。",
+          },
+          {
+            title: "管理画面で offline sync を実行します",
+            description:
+              "オンライン復帰後、Google接続、Drive状態、project状態を確認してから offline sync を実行してください。",
+          },
+        ]
+      : [
+          {
+            title: "管理画面で offline sync を実行します",
+            description:
+              "初回利用時、または project 単位のローカル削除後は、この端末に再生用コピーを作り直す必要があります。",
+          },
+          {
+            title: "削除後なら正常な状態です",
+            description:
+              "ローカル保存を削除した直後にこの画面が表示されるのは正常です。Drive上の project や写真は削除されていません。",
+          },
+        ];
+
+  const invalidSnapshotGuidance: PlayerGuidanceItem[] = [
+    {
+      title: "管理画面で confirmed store を確認します",
+      description:
+        "project / assets / asset blobs / sync state の件数や参照関係に不一致があります。",
+    },
+    {
+      title: "対象 project のローカル保存を削除します",
+      description:
+        "端末内の壊れた再生用コピーだけを削除します。Google Drive 上の project / manifest / assets は削除されません。",
+    },
+    {
+      title: "online 状態で offline sync を再実行します",
+      description:
+        "Drive から正しい snapshot と画像 Blob を取得し直し、confirmed store を作り直します。",
+    },
+  ];
+
+  const noSlidesGuidance: PlayerGuidanceItem[] = [
+    {
+      title: "管理画面で project 状態を再確認します",
+      description:
+        "project は保存されていますが、再生対象の slide がありません。manifest の内容を確認してください。",
+    },
+    {
+      title: "必要なら写真を追加します",
+      description:
+        "Google Photos Picker から素材を追加し、manifest 反映後に offline sync を実行してください。",
+    },
+  ];
+
+  const imageErrorGuidance: PlayerGuidanceItem[] = [
+    {
+      title: "まず再読み込みします",
+      description:
+        "一時的な Blob 読み込み失敗であれば、再読み込みで復帰できる場合があります。",
+    },
+    {
+      title: "直らない場合はローカル保存を作り直します",
+      description:
+        "管理画面で対象 project のローカル保存を削除し、online 状態で offline sync を再実行してください。",
+    },
+  ];
+
   return (
     <main className="min-h-screen bg-black px-6 py-8 text-slate-50">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
@@ -250,9 +335,10 @@ export default function PlayerPage() {
                     : "オフライン"}
               </Badge>
             </div>
-            <p className="mt-2 text-sm text-slate-400">
-              この画面は、この端末に保存済みの IndexedDB confirmed offline
-              store から再生データを読み込みます。
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+              この画面は、この端末に保存済みの再生用コピーだけを使います。
+              Driveから直接読み込む画面ではないため、初回利用時やローカル削除後は管理画面で
+              offline sync を実行してください。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -278,19 +364,20 @@ export default function PlayerPage() {
         {isSnapshotLoading ? (
           <PlayerStatusCard
             tone="neutral"
-            title="ローカル保存データを確認しています"
-            description="この端末の IndexedDB confirmed offline store から、再生に必要な project / slides / asset Blob を読み込んでいます。"
+            title="このiPadの再生用コピーを確認しています"
+            description="端末内の IndexedDB confirmed store から、project / slides / asset Blob を読み込んでいます。"
           />
         ) : null}
 
         {hasSnapshotLoadError ? (
           <PlayerStatusCard
             tone="danger"
-            title="ローカル保存データを読み込めませんでした"
+            title="このiPadの再生用コピーを読み込めませんでした"
             description={
               errorMessage ??
-              "IndexedDB の読み込み中に問題が発生しました。ページを再読み込みしても直らない場合は、管理画面で confirmed store を確認してください。"
+              "IndexedDB の読み込み中に問題が発生しました。再読み込みで直らない場合は、管理画面で confirmed store を確認してください。"
             }
+            guidanceItems={loadErrorGuidance}
           >
             <PlayerActionRow>
               <Button type="button" variant="secondary" onClick={reload}>
@@ -306,12 +393,17 @@ export default function PlayerPage() {
         {emptySnapshot ? (
           <PlayerStatusCard
             tone="warning"
-            title="この端末には再生データが保存されていません"
+            title={
+              isOnline === false
+                ? "オフライン再生に必要なデータがこのiPadにありません"
+                : "このiPadにはまだ再生用コピーがありません"
+            }
             description={
               isOnline === false
-                ? "現在オフラインのため、Drive から素材を取得できません。オンラインに戻してから、管理画面で offline sync を実行してください。"
-                : "まだ offline sync が完了していないか、プロジェクト単位のローカル削除によって、この端末の再生用コピーが削除されています。"
+                ? "現在オフラインのため、Drive から project や写真を取得できません。オンラインに戻してから offline sync を実行してください。"
+                : "初回利用、または project 単位のローカル削除後の状態です。管理画面で offline sync を実行すると、このiPadに再生用コピーを作成できます。"
             }
+            guidanceItems={emptySnapshotGuidance}
             diagnostics={snapshot.diagnostics}
           >
             <PlayerActionRow>
@@ -328,8 +420,9 @@ export default function PlayerPage() {
         {invalidSnapshot ? (
           <PlayerStatusCard
             tone="danger"
-            title="ローカル保存データの整合性に問題があります"
-            description="project / asset metadata / asset Blob / sync state の件数や参照関係が一致していません。管理画面で対象 project のローカル保存を削除し、online 状態で offline sync を再実行してください。"
+            title="このiPadの再生用コピーを修復する必要があります"
+            description="端末内の project / asset metadata / asset Blob / sync state の対応関係が崩れています。壊れたローカルコピーを削除してから、offline sync で作り直してください。"
+            guidanceItems={invalidSnapshotGuidance}
             diagnostics={snapshot.diagnostics}
           >
             <PlayerActionRow>
@@ -347,7 +440,8 @@ export default function PlayerPage() {
           <PlayerStatusCard
             tone="warning"
             title="再生できるスライドがありません"
-            description="この project はローカル保存されていますが、本編スライドとして再生できる項目がありません。Drive 側の manifest を確認するか、管理画面で project 状態を再確認してください。"
+            description="project のローカル保存はありますが、本編スライドとして再生できる項目がありません。Drive 側の manifest や素材追加状態を確認してください。"
+            guidanceItems={noSlidesGuidance}
           >
             <PlayerActionRow>
               <Button type="button" variant="secondary" onClick={reload}>
@@ -391,15 +485,30 @@ export default function PlayerPage() {
             >
               <div className="flex aspect-[16/9] items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
                 {imageStatus === "error" ? (
-                  <div className="space-y-3 p-6 text-center text-slate-300">
-                    <p className="font-semibold text-slate-100">
+                  <div className="max-w-xl space-y-4 p-6 text-center text-slate-300">
+                    <p className="text-lg font-semibold text-slate-100">
                       このスライド画像を表示できません
                     </p>
-                    <p className="text-sm text-slate-400">
-                      ローカル保存された asset Blob が見つからないか、読み込みに失敗しました。
-                      管理画面で対象 project のローカル保存を削除し、online 状態で offline
-                      sync を再実行してください。
+                    <p className="text-sm leading-6 text-slate-400">
+                      このスライドが参照しているローカル保存写真を読み込めませんでした。
+                      再読み込みで直らない場合は、管理画面でこの project のローカル保存を削除し、
+                      online 状態で offline sync を再実行してください。
                     </p>
+                    <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-left text-sm">
+                      <p className="font-semibold text-slate-100">次の操作</p>
+                      <div className="mt-3 space-y-3">
+                        {imageErrorGuidance.map((item) => (
+                          <div key={item.title}>
+                            <p className="font-medium text-slate-200">
+                              {item.title}
+                            </p>
+                            <p className="mt-1 leading-6 text-slate-400">
+                              {item.description}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                     <PlayerActionRow>
                       <Button type="button" variant="secondary" onClick={reload}>
                         再読み込み
@@ -438,7 +547,7 @@ export default function PlayerPage() {
 
               {currentSlideCaption ? (
                 <p
-                  className="mt-4 text-center text-lg text-slate-200"
+                  className="mt-4 text-center text-lg leading-8 text-slate-200"
                   style={{
                     display: "-webkit-box",
                     WebkitLineClamp: 2,
@@ -487,12 +596,14 @@ function PlayerStatusCard({
   tone,
   title,
   description,
+  guidanceItems,
   diagnostics,
   children,
 }: {
   tone: PlayerStatusTone;
   title: string;
   description: string;
+  guidanceItems?: PlayerGuidanceItem[];
   diagnostics?: string[];
   children?: ReactNode;
 }) {
@@ -500,18 +611,37 @@ function PlayerStatusCard({
 
   return (
     <div className={`rounded-2xl border p-6 ${className}`}>
-      <p className="font-semibold">{title}</p>
+      <p className="text-lg font-semibold">{title}</p>
       <p className="mt-2 text-sm leading-6">{description}</p>
 
-      {diagnostics && diagnostics.length > 0 ? (
-        <div className="mt-4 space-y-2 text-sm">
-          {diagnostics.map((diagnostic, index) => (
-            <p key={`${diagnostic}-${index}`}>・{diagnostic}</p>
-          ))}
+      {guidanceItems && guidanceItems.length > 0 ? (
+        <div className="mt-5 rounded-2xl border border-current/20 bg-black/20 p-4">
+          <p className="font-semibold">次の操作</p>
+          <div className="mt-3 space-y-3 text-sm">
+            {guidanceItems.map((item) => (
+              <div key={item.title}>
+                <p className="font-medium">{item.title}</p>
+                <p className="mt-1 leading-6 opacity-80">{item.description}</p>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
 
-      {children ? <div className="mt-4">{children}</div> : null}
+      {diagnostics && diagnostics.length > 0 ? (
+        <details className="mt-5 rounded-2xl border border-current/20 bg-black/20 p-4 text-sm">
+          <summary className="cursor-pointer font-semibold">
+            技術診断を表示
+          </summary>
+          <div className="mt-3 space-y-2">
+            {diagnostics.map((diagnostic, index) => (
+              <p key={`${diagnostic}-${index}`}>・{diagnostic}</p>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
+      {children ? <div className="mt-5">{children}</div> : null}
     </div>
   );
 }
