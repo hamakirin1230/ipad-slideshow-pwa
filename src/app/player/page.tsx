@@ -7,14 +7,25 @@ import {
   useRef,
   useState,
   type PointerEvent,
+  type ReactNode,
 } from "react";
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
 import { useOfflineCurrentSlideImage } from "./use-offline-current-slide-image";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
+
+type SwipeStart = {
+  clientX: number;
+  clientY: number;
+  pointerId: number;
+  didTrigger: boolean;
+};
+
+type PlayerStatusTone = "neutral" | "warning" | "danger";
 
 export default function PlayerPage() {
   const {
@@ -28,6 +39,7 @@ export default function PlayerPage() {
   const [loadedImageObjectUrl, setLoadedImageObjectUrl] = useState<string | null>(
     null,
   );
+  const [isOnline, setIsOnline] = useState<boolean | null>(null);
 
   const readySnapshot = snapshot?.status === "ready" ? snapshot : null;
   const slideCount = readySnapshot?.slides.length ?? 0;
@@ -42,94 +54,103 @@ export default function PlayerPage() {
     setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
   }, [slideCount]);
 
-  type SwipeStart = {
-  clientX: number;
-  clientY: number;
-  pointerId: number;
-  didTrigger: boolean;
-};
+  const swipeStartRef = useRef<SwipeStart | null>(null);
 
-const swipeStartRef = useRef<SwipeStart | null>(null);
-
-const resetSwipeStart = () => {
-  swipeStartRef.current = null;
-};
-
-const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-  if (!event.isPrimary) return;
-  if (event.pointerType === "mouse" && event.button !== 0) return;
-
-  event.preventDefault();
-
-  swipeStartRef.current = {
-    clientX: event.clientX,
-    clientY: event.clientY,
-    pointerId: event.pointerId,
-    didTrigger: false,
+  const resetSwipeStart = () => {
+    swipeStartRef.current = null;
   };
 
-  try {
-    event.currentTarget.setPointerCapture(event.pointerId);
-  } catch {
-    // Pointer capture is best-effort only.
-  }
-};
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
 
-const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-  const start = swipeStartRef.current;
+    event.preventDefault();
 
-  if (!start || start.pointerId !== event.pointerId || start.didTrigger) {
-    return;
-  }
+    swipeStartRef.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      pointerId: event.pointerId,
+      didTrigger: false,
+    };
 
-  const dx = event.clientX - start.clientX;
-  const dy = event.clientY - start.clientY;
-
-  if (Math.abs(dx) < 50) return;
-  if (Math.abs(dx) <= Math.abs(dy)) return;
-
-  event.preventDefault();
-
-  swipeStartRef.current = {
-    ...start,
-    didTrigger: true,
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is best-effort only.
+    }
   };
 
-  if (dx < 0) {
-    goToNextSlide();
-  } else {
-    goToPreviousSlide();
-  }
-};
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
 
-const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
-  const start = swipeStartRef.current;
+    if (!start || start.pointerId !== event.pointerId || start.didTrigger) {
+      return;
+    }
 
-  if (!start || start.pointerId !== event.pointerId) {
-    return;
-  }
-
-  if (!start.didTrigger) {
     const dx = event.clientX - start.clientX;
     const dy = event.clientY - start.clientY;
 
-    if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) {
-      event.preventDefault();
+    if (Math.abs(dx) < 50) return;
+    if (Math.abs(dx) <= Math.abs(dy)) return;
 
-      if (dx < 0) {
-        goToNextSlide();
-      } else {
-        goToPreviousSlide();
+    event.preventDefault();
+
+    swipeStartRef.current = {
+      ...start,
+      didTrigger: true,
+    };
+
+    if (dx < 0) {
+      goToNextSlide();
+    } else {
+      goToPreviousSlide();
+    }
+  };
+
+  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+
+    if (!start || start.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (!start.didTrigger) {
+      const dx = event.clientX - start.clientX;
+      const dy = event.clientY - start.clientY;
+
+      if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) {
+        event.preventDefault();
+
+        if (dx < 0) {
+          goToNextSlide();
+        } else {
+          goToPreviousSlide();
+        }
       }
     }
-  }
 
-  resetSwipeStart();
-};
+    resetSwipeStart();
+  };
 
-const handlePointerCancel = () => {
-  resetSwipeStart();
-};
+  const handlePointerCancel = () => {
+    resetSwipeStart();
+  };
+
+  useEffect(() => {
+    const updateOnlineStatus = () => {
+      setIsOnline(navigator.onLine);
+    };
+
+    updateOnlineStatus();
+
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+
+    return () => {
+      window.removeEventListener("online", updateOnlineStatus);
+      window.removeEventListener("offline", updateOnlineStatus);
+    };
+  }, []);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -161,6 +182,10 @@ const handlePointerCancel = () => {
     canRender: canRenderCurrentSlide,
     slide: currentSlide,
   });
+
+  useEffect(() => {
+    setLoadedImageObjectUrl(null);
+  }, [objectUrl]);
 
   const isCurrentImageLoaded =
     typeof objectUrl === "string" && loadedImageObjectUrl === objectUrl;
@@ -210,10 +235,24 @@ const handlePointerCancel = () => {
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">再生画面</h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-3xl font-bold">再生画面</h1>
+              <Badge
+                variant={isOnline === false ? "outline" : "secondary"}
+                className={
+                  isOnline === false ? "border-amber-300 text-amber-100" : undefined
+                }
+              >
+                {isOnline === null
+                  ? "接続状態確認中"
+                  : isOnline
+                    ? "オンライン"
+                    : "オフライン"}
+              </Badge>
+            </div>
             <p className="mt-2 text-sm text-slate-400">
-              IndexedDB confirmed offline store から読み込む offline-first player
-              です。
+              この画面は、この端末に保存済みの IndexedDB confirmed offline
+              store から再生データを読み込みます。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -223,7 +262,10 @@ const handlePointerCancel = () => {
               onClick={reload}
               disabled={isSnapshotLoading}
             >
-              {isSnapshotLoading ? "読み込み中" : "offline snapshot を再読み込み"}
+              {isSnapshotLoading ? "読み込み中" : "再読み込み"}
+            </Button>
+            <Button asChild variant="secondary">
+              <Link href="/admin">管理画面へ</Link>
             </Button>
             <Button asChild variant="secondary">
               <Link href="/">トップへ戻る</Link>
@@ -234,60 +276,88 @@ const handlePointerCancel = () => {
         <DriveStatusSummary />
 
         {isSnapshotLoading ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
-            <p className="text-slate-300">
-              confirmed offline store から再生用snapshotを読み込んでいます。
-            </p>
-          </div>
+          <PlayerStatusCard
+            tone="neutral"
+            title="ローカル保存データを確認しています"
+            description="この端末の IndexedDB confirmed offline store から、再生に必要な project / slides / asset Blob を読み込んでいます。"
+          />
         ) : null}
 
         {hasSnapshotLoadError ? (
-          <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-6 text-center text-red-100">
-            <p className="font-semibold">offline snapshot を読み込めませんでした。</p>
-            <p className="mt-2">{errorMessage}</p>
-            <Button asChild variant="secondary" className="mt-4">
-              <Link href="/admin">管理画面へ</Link>
-            </Button>
-          </div>
+          <PlayerStatusCard
+            tone="danger"
+            title="ローカル保存データを読み込めませんでした"
+            description={
+              errorMessage ??
+              "IndexedDB の読み込み中に問題が発生しました。ページを再読み込みしても直らない場合は、管理画面で confirmed store を確認してください。"
+            }
+          >
+            <PlayerActionRow>
+              <Button type="button" variant="secondary" onClick={reload}>
+                もう一度読み込む
+              </Button>
+              <Button asChild variant="secondary">
+                <Link href="/admin">管理画面で確認する</Link>
+              </Button>
+            </PlayerActionRow>
+          </PlayerStatusCard>
         ) : null}
 
         {emptySnapshot ? (
-          <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-6 text-amber-100">
-            <p className="font-semibold">offline再生データがありません。</p>
-            <div className="mt-3 space-y-2 text-sm">
-              {snapshot.diagnostics.map((diagnostic) => (
-                <p key={diagnostic}>・{diagnostic}</p>
-              ))}
-            </div>
-            <Button asChild variant="secondary" className="mt-4">
-              <Link href="/admin">管理画面で offline sync を実行</Link>
-            </Button>
-          </div>
+          <PlayerStatusCard
+            tone="warning"
+            title="この端末には再生データが保存されていません"
+            description={
+              isOnline === false
+                ? "現在オフラインのため、Drive から素材を取得できません。オンラインに戻してから、管理画面で offline sync を実行してください。"
+                : "まだ offline sync が完了していないか、プロジェクト単位のローカル削除によって、この端末の再生用コピーが削除されています。"
+            }
+            diagnostics={snapshot.diagnostics}
+          >
+            <PlayerActionRow>
+              <Button type="button" variant="secondary" onClick={reload}>
+                再読み込み
+              </Button>
+              <Button asChild variant="secondary">
+                <Link href="/admin">管理画面で offline sync を実行</Link>
+              </Button>
+            </PlayerActionRow>
+          </PlayerStatusCard>
         ) : null}
 
         {invalidSnapshot ? (
-          <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-6 text-red-100">
-            <p className="font-semibold">offline再生データに問題があります。</p>
-            <div className="mt-3 space-y-2 text-sm">
-              {snapshot.diagnostics.map((diagnostic, index) => (
-                <p key={`${diagnostic}-${index}`}>・{diagnostic}</p>
-              ))}
-            </div>
-            <Button asChild variant="secondary" className="mt-4">
-              <Link href="/admin">管理画面で confirmed store を確認</Link>
-            </Button>
-          </div>
+          <PlayerStatusCard
+            tone="danger"
+            title="ローカル保存データの整合性に問題があります"
+            description="project / asset metadata / asset Blob / sync state の件数や参照関係が一致していません。管理画面で対象 project のローカル保存を削除し、online 状態で offline sync を再実行してください。"
+            diagnostics={snapshot.diagnostics}
+          >
+            <PlayerActionRow>
+              <Button type="button" variant="secondary" onClick={reload}>
+                再読み込み
+              </Button>
+              <Button asChild variant="secondary">
+                <Link href="/admin">管理画面で修復する</Link>
+              </Button>
+            </PlayerActionRow>
+          </PlayerStatusCard>
         ) : null}
 
         {noSlides ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
-            <p className="text-slate-300">
-              confirmed offline store に表示できる本編スライドがありません。
-            </p>
-            <Button asChild variant="secondary" className="mt-4">
-              <Link href="/admin">管理画面へ</Link>
-            </Button>
-          </div>
+          <PlayerStatusCard
+            tone="warning"
+            title="再生できるスライドがありません"
+            description="この project はローカル保存されていますが、本編スライドとして再生できる項目がありません。Drive 側の manifest を確認するか、管理画面で project 状態を再確認してください。"
+          >
+            <PlayerActionRow>
+              <Button type="button" variant="secondary" onClick={reload}>
+                再読み込み
+              </Button>
+              <Button asChild variant="secondary">
+                <Link href="/admin">管理画面へ</Link>
+              </Button>
+            </PlayerActionRow>
+          </PlayerStatusCard>
         ) : null}
 
         {canPlay ? (
@@ -321,9 +391,24 @@ const handlePointerCancel = () => {
             >
               <div className="flex aspect-[16/9] items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
                 {imageStatus === "error" ? (
-                  <p className="text-slate-400">
-                    offline store のスライド画像を表示できません。
-                  </p>
+                  <div className="space-y-3 p-6 text-center text-slate-300">
+                    <p className="font-semibold text-slate-100">
+                      このスライド画像を表示できません
+                    </p>
+                    <p className="text-sm text-slate-400">
+                      ローカル保存された asset Blob が見つからないか、読み込みに失敗しました。
+                      管理画面で対象 project のローカル保存を削除し、online 状態で offline
+                      sync を再実行してください。
+                    </p>
+                    <PlayerActionRow>
+                      <Button type="button" variant="secondary" onClick={reload}>
+                        再読み込み
+                      </Button>
+                      <Button asChild variant="secondary">
+                        <Link href="/admin">管理画面で修復する</Link>
+                      </Button>
+                    </PlayerActionRow>
+                  </div>
                 ) : null}
 
                 {imageStatus === "ready" && objectUrl ? (
@@ -346,7 +431,7 @@ const handlePointerCancel = () => {
 
                 {imageStatus === "idle" ? (
                   <p className="text-slate-500">
-                    offline store のスライド画像を準備しています。
+                    ローカル保存されたスライド画像を準備しています。
                   </p>
                 ) : null}
               </div>
@@ -396,4 +481,54 @@ const handlePointerCancel = () => {
       </div>
     </main>
   );
+}
+
+function PlayerStatusCard({
+  tone,
+  title,
+  description,
+  diagnostics,
+  children,
+}: {
+  tone: PlayerStatusTone;
+  title: string;
+  description: string;
+  diagnostics?: string[];
+  children?: ReactNode;
+}) {
+  const className = getPlayerStatusCardClassName(tone);
+
+  return (
+    <div className={`rounded-2xl border p-6 ${className}`}>
+      <p className="font-semibold">{title}</p>
+      <p className="mt-2 text-sm leading-6">{description}</p>
+
+      {diagnostics && diagnostics.length > 0 ? (
+        <div className="mt-4 space-y-2 text-sm">
+          {diagnostics.map((diagnostic, index) => (
+            <p key={`${diagnostic}-${index}`}>・{diagnostic}</p>
+          ))}
+        </div>
+      ) : null}
+
+      {children ? <div className="mt-4">{children}</div> : null}
+    </div>
+  );
+}
+
+function PlayerActionRow({ children }: { children: ReactNode }) {
+  return <div className="flex flex-wrap justify-center gap-3">{children}</div>;
+}
+
+function getPlayerStatusCardClassName(tone: PlayerStatusTone) {
+  switch (tone) {
+    case "danger":
+      return "border-red-400/30 bg-red-400/10 text-red-100";
+    case "warning":
+      return "border-amber-400/30 bg-amber-400/10 text-amber-100";
+    case "neutral":
+      return "border-white/10 bg-white/5 text-slate-300";
+    default:
+      return "border-white/10 bg-white/5 text-slate-300";
+  }
 }

@@ -58,6 +58,19 @@ type LocalOfflineProjectClearState =
       failedAt: string;
     };
 
+type ProjectStorageSummary = {
+  projectId: string;
+  projectTitle?: string;
+  slideCount: number;
+  assetCount: number;
+  assetBlobCount: number;
+  totalBlobSizeBytes: number;
+  sourceTotalSizeBytes: number | null;
+  syncStatus: string;
+  lastSyncedAt: string;
+  sourceUpdatedAt: string;
+};
+
 export function OfflineConfirmedStorePanel() {
   const [state, setState] = useState<OfflineConfirmedStorePanelState>({
     status: "idle",
@@ -190,7 +203,8 @@ export function OfflineConfirmedStorePanel() {
 
         {state.status === "idle" ? (
           <p className="text-sm text-slate-400">
-            offline sync 完了後に押すと、confirmed offline store の保存結果を確認できます。
+            offline sync 完了後に押すと、confirmed offline store の保存結果と
+            project ごとのローカル保存容量を確認できます。
           </p>
         ) : null}
 
@@ -237,7 +251,7 @@ export function OfflineConfirmedStorePanel() {
             削除するのは、この端末の IndexedDB に保存された対象 project の
             offline playback 用コピーだけです。Google Drive 上の workspace /
             project / manifest / assets は削除しません。
-            Blob本体は画面表示せず、metadata と件数だけを表示します。
+            Blob本体は画面表示せず、metadata・件数・保存容量だけを表示します。
           </p>
         </div>
       </CardContent>
@@ -285,13 +299,22 @@ function ConfirmedStoreSnapshotView({
   clearingProjectId: string | null;
   onClearProject: (project: OfflineConfirmedProjectSummary) => void;
 }) {
+  const totalAssetBlobSizeBytes = getTotalAssetBlobSizeBytes(snapshot);
+  const projectStorageSummaries = snapshot.projects.map((project) =>
+    buildProjectStorageSummary(snapshot, project),
+  );
+
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-5">
         <CountCard label="projects" value={snapshot.projectCount} />
         <CountCard label="assets" value={snapshot.assetCount} />
         <CountCard label="asset blobs" value={snapshot.assetBlobCount} />
         <CountCard label="sync states" value={snapshot.syncStateCount} />
+        <CountCard
+          label="blob bytes"
+          value={formatBytes(totalAssetBlobSizeBytes)}
+        />
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
@@ -299,45 +322,132 @@ function ConfirmedStoreSnapshotView({
         <p className="mt-2 text-slate-300">{snapshot.checkedAt}</p>
       </div>
 
-      {snapshot.projects.length > 0 ? (
+      {projectStorageSummaries.length > 0 ? (
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-          <p className="font-semibold text-slate-50">confirmed projects</p>
+          <div className="flex flex-col gap-1">
+            <p className="font-semibold text-slate-50">
+              project storage summary
+            </p>
+            <p className="text-xs text-slate-500">
+              project ごとの asset metadata / asset Blob 件数、保存容量、最終同期状態です。
+            </p>
+          </div>
+
           <div className="mt-3 space-y-3">
-            {snapshot.projects.map((project) => (
+            {projectStorageSummaries.map((summary) => (
               <div
-                key={project.projectId}
+                key={summary.projectId}
                 className="rounded-xl border border-white/10 p-3"
               >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <p className="font-medium text-slate-50">
-                    {project.projectTitle ?? "名称未設定"}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={() => onClearProject(project)}
-                    disabled={clearingProjectId !== null}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-medium text-slate-50">
+                      {summary.projectTitle ?? "名称未設定"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {formatIdPart(summary.projectId)}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={summary.syncStatus === "ready" ? "secondary" : "outline"}
+                    className={
+                      summary.syncStatus === "ready"
+                        ? undefined
+                        : "border-slate-500 text-slate-200"
+                    }
                   >
-                    {clearingProjectId === project.projectId
-                      ? "このprojectを削除中"
-                      : "このprojectのローカル保存を削除"}
-                  </Button>
+                    {summary.syncStatus}
+                  </Badge>
                 </div>
-                <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
-                  <SummaryRow label="projectId" value={formatIdPart(project.projectId)} />
-                  <SummaryRow label="slides" value={project.slideCount} />
+
+                <dl className="mt-3 grid gap-1 text-xs text-slate-400 sm:grid-cols-2 lg:grid-cols-3">
+                  <SummaryRow label="slides" value={summary.slideCount} />
+                  <SummaryRow label="assets" value={summary.assetCount} />
                   <SummaryRow
-                    label="manifestFileId"
-                    value={formatIdPart(project.sourceManifestFileId)}
+                    label="asset blobs"
+                    value={summary.assetBlobCount}
                   />
-                  <SummaryRow label="syncedAt" value={project.syncedAt} />
+                  <SummaryRow
+                    label="local blob size"
+                    value={formatBytes(summary.totalBlobSizeBytes)}
+                  />
+                  <SummaryRow
+                    label="source size"
+                    value={
+                      summary.sourceTotalSizeBytes === null
+                        ? "未取得"
+                        : formatBytes(summary.sourceTotalSizeBytes)
+                    }
+                  />
+                  <SummaryRow label="last synced" value={summary.lastSyncedAt} />
                   <SummaryRow
                     label="sourceUpdatedAt"
-                    value={project.sourceUpdatedAt ?? "未取得"}
+                    value={summary.sourceUpdatedAt}
                   />
                 </dl>
               </div>
             ))}
+          </div>
+        </div>
+      ) : null}
+
+      {snapshot.projects.length > 0 ? (
+        <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+          <p className="font-semibold text-slate-50">confirmed projects</p>
+          <div className="mt-3 space-y-3">
+            {snapshot.projects.map((project) => {
+              const projectStorageSummary = buildProjectStorageSummary(
+                snapshot,
+                project,
+              );
+
+              return (
+                <div
+                  key={project.projectId}
+                  className="rounded-xl border border-white/10 p-3"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <p className="font-medium text-slate-50">
+                      {project.projectTitle ?? "名称未設定"}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={() => onClearProject(project)}
+                      disabled={clearingProjectId !== null}
+                    >
+                      {clearingProjectId === project.projectId
+                        ? "このprojectを削除中"
+                        : "このprojectのローカル保存を削除"}
+                    </Button>
+                  </div>
+                  <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
+                    <SummaryRow
+                      label="projectId"
+                      value={formatIdPart(project.projectId)}
+                    />
+                    <SummaryRow label="slides" value={project.slideCount} />
+                    <SummaryRow
+                      label="local blob size"
+                      value={formatBytes(projectStorageSummary.totalBlobSizeBytes)}
+                    />
+                    <SummaryRow
+                      label="asset blobs"
+                      value={projectStorageSummary.assetBlobCount}
+                    />
+                    <SummaryRow
+                      label="manifestFileId"
+                      value={formatIdPart(project.sourceManifestFileId)}
+                    />
+                    <SummaryRow label="syncedAt" value={project.syncedAt} />
+                    <SummaryRow
+                      label="sourceUpdatedAt"
+                      value={project.sourceUpdatedAt ?? "未取得"}
+                    />
+                  </dl>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -375,6 +485,10 @@ function ConfirmedStoreSnapshotView({
                   <SummaryRow label="assets" value={syncState.assetCount} />
                   <SummaryRow label="syncedAt" value={syncState.syncedAt ?? "未取得"} />
                   <SummaryRow
+                    label="sourceUpdatedAt"
+                    value={syncState.sourceUpdatedAt ?? "未取得"}
+                  />
+                  <SummaryRow
                     label="lastErrorCode"
                     value={syncState.lastErrorCode ?? "なし"}
                   />
@@ -404,11 +518,26 @@ function ConfirmedStoreSnapshotView({
                 <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
                   <SummaryRow label="assetId" value={formatIdPart(asset.assetId)} />
                   <SummaryRow
+                    label="projectId"
+                    value={formatIdPart(asset.projectId)}
+                  />
+                  <SummaryRow
                     label="sourceDriveFileId"
                     value={formatIdPart(asset.sourceDriveFileId)}
                   />
                   <SummaryRow label="mimeType" value={asset.blobMimeType} />
-                  <SummaryRow label="sizeBytes" value={asset.blobSizeBytes} />
+                  <SummaryRow
+                    label="blobSize"
+                    value={formatBytes(asset.blobSizeBytes)}
+                  />
+                  <SummaryRow
+                    label="sourceSize"
+                    value={
+                      asset.sourceSizeBytes === undefined
+                        ? "未取得"
+                        : formatBytes(asset.sourceSizeBytes)
+                    }
+                  />
                   <SummaryRow label="variant" value={asset.blobVariant} />
                   <SummaryRow label="blobStatus" value={asset.blobStatus} />
                 </dl>
@@ -432,7 +561,13 @@ function ConfirmedStoreSnapshotView({
   );
 }
 
-function CountCard({ label, value }: { label: string; value: number }) {
+function CountCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
@@ -454,6 +589,72 @@ function SummaryRow({
       <dd className="break-all font-medium text-slate-200">{value}</dd>
     </div>
   );
+}
+
+function buildProjectStorageSummary(
+  snapshot: OfflineConfirmedStoreSnapshot,
+  project: OfflineConfirmedProjectSummary,
+): ProjectStorageSummary {
+  const projectAssets = snapshot.assets.filter(
+    (asset) => asset.projectId === project.projectId,
+  );
+  const projectAssetBlobs = snapshot.assetBlobs.filter(
+    (assetBlob) => assetBlob.projectId === project.projectId,
+  );
+  const projectSyncState = snapshot.syncStates.find(
+    (syncState) => syncState.projectId === project.projectId,
+  );
+
+  const sourceSizeBytesValues = projectAssets
+    .map((asset) => asset.sourceSizeBytes)
+    .filter((sizeBytes): sizeBytes is number => typeof sizeBytes === "number");
+
+  return {
+    projectId: project.projectId,
+    projectTitle: project.projectTitle,
+    slideCount: project.slideCount,
+    assetCount: projectAssets.length,
+    assetBlobCount: projectAssetBlobs.length,
+    totalBlobSizeBytes: projectAssetBlobs.reduce(
+      (total, assetBlob) => total + assetBlob.blobSizeBytes,
+      0,
+    ),
+    sourceTotalSizeBytes:
+      sourceSizeBytesValues.length === 0
+        ? null
+        : sourceSizeBytesValues.reduce((total, sizeBytes) => total + sizeBytes, 0),
+    syncStatus: projectSyncState?.status ?? "missing",
+    lastSyncedAt: projectSyncState?.syncedAt ?? project.syncedAt,
+    sourceUpdatedAt:
+      projectSyncState?.sourceUpdatedAt ?? project.sourceUpdatedAt ?? "未取得",
+  };
+}
+
+function getTotalAssetBlobSizeBytes(snapshot: OfflineConfirmedStoreSnapshot) {
+  return snapshot.assetBlobs.reduce(
+    (total, assetBlob) => total + assetBlob.blobSizeBytes,
+    0,
+  );
+}
+
+function formatBytes(sizeBytes: number) {
+  if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+    return "未取得";
+  }
+
+  if (sizeBytes === 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const unitIndex = Math.min(
+    Math.floor(Math.log(sizeBytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = sizeBytes / 1024 ** unitIndex;
+  const fractionDigits = unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
+
+  return `${value.toFixed(fractionDigits)} ${units[unitIndex]}`;
 }
 
 function getStateLabel(state: OfflineConfirmedStorePanelState["status"]) {
