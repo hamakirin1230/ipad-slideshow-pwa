@@ -18,6 +18,7 @@ export function AuthTestPanel() {
     googleMessage,
     driveFileGranted,
     connectGoogle,
+    resetGoogleAuthFlow,
     disconnectGoogle,
   } = useAppState();
 
@@ -28,6 +29,11 @@ export function AuthTestPanel() {
 
   const canDisconnect =
     googleStatus === "connected" ||
+    googleStatus === "connecting" ||
+    googleStatus === "error" ||
+    googleStatus === "scopeMissing";
+
+  const canResetGoogleAuth =
     googleStatus === "connecting" ||
     googleStatus === "error" ||
     googleStatus === "scopeMissing";
@@ -76,12 +82,31 @@ export function AuthTestPanel() {
           <Button
             type="button"
             variant="outline"
+            onClick={resetGoogleAuthFlow}
+            disabled={!canResetGoogleAuth}
+          >
+            Google認証状態をリセット
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
             onClick={disconnectGoogle}
             disabled={!canDisconnect}
           >
             このセッションの接続を解除
           </Button>
         </div>
+
+        {googleStatus === "connecting" || googleStatus === "error" ? (
+          <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
+            <p className="font-semibold">iPad PWAで認証画面が戻らない場合</p>
+            <p className="mt-2">
+              iPadのApp SwitcherでGoogle認証画面、Safari、または空白の別ウィンドウが残っていれば閉じてください。
+              その後「Google認証状態をリセット」を押してから、もう一度Google認証を開始してください。
+            </p>
+          </div>
+        ) : null}
 
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
           <p className="font-semibold text-slate-50">安全確認</p>

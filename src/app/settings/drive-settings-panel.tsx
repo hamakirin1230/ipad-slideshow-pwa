@@ -23,6 +23,7 @@ export function DriveSettingsPanel() {
     driveCandidates,
     driveDiagnostics,
     connectGoogle,
+    resetGoogleAuthFlow,
     disconnectGoogle,
     checkDriveWorkspace,
     createWorkspace,
@@ -43,7 +44,14 @@ export function DriveSettingsPanel() {
       googleStatus === "error" ||
       googleStatus === "scopeMissing");
 
-  const canCheckDrive = googleStatus === "connected" && !isDriveChecking && !isDriveCreating;
+  const canResetGoogleAuth =
+    !isDriveCreating &&
+    (googleStatus === "connecting" ||
+      googleStatus === "error" ||
+      googleStatus === "scopeMissing");
+
+  const canCheckDrive =
+    googleStatus === "connected" && !isDriveChecking && !isDriveCreating;
 
   const canCreateDriveWorkspace =
     googleStatus === "connected" &&
@@ -122,6 +130,15 @@ export function DriveSettingsPanel() {
             {isDriveChecking ? "Drive状態を再確認中" : "Drive状態を再確認"}
           </Button>
 
+          <Button
+            type="button"
+            variant="outline"
+            onClick={resetGoogleAuthFlow}
+            disabled={!canResetGoogleAuth}
+          >
+            Google認証状態をリセット
+          </Button>
+
           {canCreateDriveWorkspace ? (
             <Button
               type="button"
@@ -143,10 +160,14 @@ export function DriveSettingsPanel() {
           </Button>
         </div>
 
-        {googleStatus !== "connected" ? (
-          <p className="text-sm text-slate-400">
-            Drive状態確認とDriveワークスペース作成は、Google接続後に実行できます。
-          </p>
+        {googleStatus === "connecting" || googleStatus === "error" ? (
+          <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
+            <p className="font-semibold">iPad PWAで認証画面が戻らない場合</p>
+            <p className="mt-2">
+              iPadのApp SwitcherでGoogle認証画面、Safari、または空白の別ウィンドウが残っていれば閉じてください。
+              その後「Google認証状態をリセット」を押してから、もう一度Google接続を開始してください。
+            </p>
+          </div>
         ) : null}
 
         {driveStatus === "unchecked" && googleStatus === "connected" ? (

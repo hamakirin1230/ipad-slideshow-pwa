@@ -25,11 +25,15 @@ export type GoogleTokenResponse = {
   error_uri?: string;
 };
 
+export type GoogleTokenError = {
+  type?: "popup_failed_to_open" | "popup_closed" | "unknown";
+};
+
 type GoogleTokenClientConfig = {
   client_id: string;
   scope: string;
   callback: (response: GoogleTokenResponse) => void;
-  error_callback?: () => void;
+  error_callback?: (error?: GoogleTokenError) => void;
   prompt?: string;
   include_granted_scopes?: boolean;
 };

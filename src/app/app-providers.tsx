@@ -13,6 +13,7 @@ import {
   DRIVE_FILE_SCOPE,
   type GoogleConnectionStatus,
   type GoogleTokenClient,
+  type GoogleTokenError,
   type GoogleTokenResponse,
   getGoogleClientId,
   hasGoogleClientId,
@@ -71,6 +72,7 @@ import {
 } from "@/lib/drive-offline-staging-sync-runtime";
 
 const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
+const GOOGLE_DRIVE_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 120_000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
@@ -326,6 +328,7 @@ type AppContextValue = {
   offlineSyncBlockedReason: string | null;
 
   connectGoogle: () => void;
+  resetGoogleAuthFlow: () => void;
   disconnectGoogle: () => void;
   checkDriveWorkspace: () => void;
   createWorkspace: () => void;
@@ -423,6 +426,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const accessTokenRef = useRef<string | null>(null);
   const tokenClientRef = useRef<GoogleTokenClient | null>(null);
   const tokenRequestKindRef = useRef<TokenRequestKind>(null);
+  const googleAuthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const driveOperationAbortRef = useRef<AbortController | null>(null);
   const driveOperationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -524,6 +530,29 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (driveOperationTimeoutRef.current) {
       clearTimeout(driveOperationTimeoutRef.current);
       driveOperationTimeoutRef.current = null;
+    }
+  }
+
+  function clearGoogleAuthTimeout() {
+    if (googleAuthTimeoutRef.current) {
+      clearTimeout(googleAuthTimeoutRef.current);
+      googleAuthTimeoutRef.current = null;
+    }
+  }
+
+  function getGoogleAuthPopupFailureMessage(error?: GoogleTokenError) {
+    switch (error?.type) {
+      case "popup_failed_to_open":
+        return "Google認証のポップアップを開けませんでした。iPadのポップアップ許可、またはSafari側に残った認証画面を確認してください。";
+
+      case "popup_closed":
+        return "Google認証画面が完了前に閉じられました。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。";
+
+      case "unknown":
+        return "Google認証で不明なpopupエラーが発生しました。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。";
+
+      default:
+        return "Google認証のポップアップを開けない、または認証画面が閉じられた可能性があります。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。";
     }
   }
 
@@ -942,6 +971,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function resetGoogleAfterDriveAuthFailure() {
+    clearGoogleAuthTimeout();
+    tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
     setDriveFileGranted(null);
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
@@ -1028,6 +1059,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           return;
         }
 
+        clearGoogleAuthTimeout();
         tokenRequestKindRef.current = null;
 
         if (tokenResponse.error) {
@@ -1035,7 +1067,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setDriveFileGranted(null);
           setGoogleStatus("error");
           setGoogleMessage(
-            "Google認証でエラーが返されました。もう一度試してください。",
+            "Google認証でエラーが返されました。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。",
           );
           abortDriveOperation();
           resetDriveState();
@@ -1046,7 +1078,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
           accessTokenRef.current = null;
           setDriveFileGranted(null);
           setGoogleStatus("error");
-          setGoogleMessage("アクセストークンを受け取れませんでした。");
+          setGoogleMessage(
+            "アクセストークンを受け取れませんでした。認証状態をリセットしてから再試行してください。",
+          );
           abortDriveOperation();
           resetDriveState();
           return;
@@ -1059,7 +1093,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setDriveFileGranted(false);
           setGoogleStatus("scopeMissing");
           setGoogleMessage(
-            "access_token は返されましたが、drive.file の許可を確認できませんでした。",
+            "access_token は返されましたが、drive.file の許可を確認できませんでした。認証状態をリセットしてから再試行してください。",
           );
           abortDriveOperation();
           resetDriveState();
@@ -1075,18 +1109,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
         abortDriveOperation();
         resetDriveState();
       },
-      error_callback: () => {
+      error_callback: (error) => {
         if (handlePhotosTokenErrorCallback()) {
           return;
         }
 
+        clearGoogleAuthTimeout();
         tokenRequestKindRef.current = null;
         accessTokenRef.current = null;
         setDriveFileGranted(null);
         setGoogleStatus("error");
-        setGoogleMessage(
-          "Google認証のポップアップを開けない、または認証画面が閉じられた可能性があります。",
-        );
+        setGoogleMessage(getGoogleAuthPopupFailureMessage(error));
         abortDriveOperation();
         resetDriveState();
       },
@@ -1098,11 +1131,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetDriveState();
   }
 
-  function connectGoogle() {
+   function connectGoogle() {
     abortDriveOperation();
+    clearGoogleAuthTimeout();
 
     if (!hasClientId) {
       accessTokenRef.current = null;
+      tokenRequestKindRef.current = null;
       setDriveFileGranted(null);
       setGoogleStatus("missingClientId");
       setGoogleMessage("NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。");
@@ -1111,6 +1146,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (!tokenClientRef.current) {
+      accessTokenRef.current = null;
+      tokenRequestKindRef.current = null;
       setGoogleStatus("scriptLoading");
       setGoogleMessage(
         "Google認証ライブラリの準備がまだ終わっていません。少し待ってから再試行してください。",
@@ -1119,15 +1156,67 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
 
+    accessTokenRef.current = null;
+    setDriveFileGranted(null);
     setGoogleStatus("connecting");
-    setGoogleMessage("Googleアカウント選択と許可確認を行っています。");
+    setGoogleMessage(
+      "Googleアカウント選択と許可確認を行っています。iPadで認証画面が戻らない場合は、App SwitcherでGoogle認証画面やSafariを閉じてから、認証状態をリセットしてください。",
+    );
     resetDriveState();
     tokenRequestKindRef.current = "drive";
-    tokenClientRef.current.requestAccessToken();
+
+    googleAuthTimeoutRef.current = setTimeout(() => {
+      if (tokenRequestKindRef.current !== "drive") {
+        return;
+      }
+
+      tokenRequestKindRef.current = null;
+      accessTokenRef.current = null;
+      setDriveFileGranted(null);
+      setGoogleStatus("error");
+      setGoogleMessage(
+        "Google認証が時間内に完了しませんでした。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。",
+      );
+      abortDriveOperation();
+      resetDriveState();
+    }, GOOGLE_DRIVE_TOKEN_REQUEST_TIMEOUT_MS);
+
+    try {
+      tokenClientRef.current.requestAccessToken({
+        prompt: "select_account",
+      });
+    } catch {
+      clearGoogleAuthTimeout();
+      tokenRequestKindRef.current = null;
+      accessTokenRef.current = null;
+      setDriveFileGranted(null);
+      setGoogleStatus("error");
+      setGoogleMessage(
+        "Google認証要求を開始できませんでした。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。",
+      );
+      resetDriveState();
+    }
+  }
+  function resetGoogleAuthFlow() {
+    clearGoogleAuthTimeout();
+    tokenRequestKindRef.current = null;
+    accessTokenRef.current = null;
+    setDriveFileGranted(null);
+    abortDriveOperation();
+    resetDriveState();
+
+    setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
+    setGoogleMessage(
+      hasClientId
+        ? "Google認証状態をリセットしました。iPadの場合は、App SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、もう一度Google接続を開始してください。"
+        : "NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。",
+    );
   }
 
   function disconnectGoogle() {
     abortDriveOperation();
+    clearGoogleAuthTimeout();
+    tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
     setDriveFileGranted(null);
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
@@ -2162,6 +2251,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     canStartOfflineSync,
     offlineSyncBlockedReason,
     connectGoogle,
+    resetGoogleAuthFlow,
     disconnectGoogle,
     checkDriveWorkspace,
     createWorkspace,
@@ -2182,6 +2272,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
           strategy="afterInteractive"
           onReady={handleScriptReady}
           onError={() => {
+            clearGoogleAuthTimeout();
+            tokenRequestKindRef.current = null;
             accessTokenRef.current = null;
             setDriveFileGranted(null);
             setGoogleStatus("error");
