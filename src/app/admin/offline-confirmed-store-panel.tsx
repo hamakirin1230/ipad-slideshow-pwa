@@ -19,6 +19,12 @@ import {
   type OfflineConfirmedProjectSummary,
   type OfflineConfirmedStoreSnapshot,
 } from "@/lib/offline-confirmed-store-snapshot";
+import {
+  clearAppShellCache,
+  readOfflineStorageManagementSnapshot,
+  type ClearAppShellCacheResult,
+  type OfflineStorageManagementSnapshot,
+} from "@/lib/offline-storage-management";
 
 type OfflineConfirmedStorePanelState =
   | {
@@ -58,6 +64,33 @@ type LocalOfflineProjectClearState =
       failedAt: string;
     };
 
+type OfflineStorageManagementState =
+  | {
+      status: "idle";
+    }
+  | {
+      status: "checking";
+    }
+  | {
+      status: "ready";
+      snapshot: OfflineStorageManagementSnapshot;
+    }
+  | {
+      status: "clearingCache";
+      snapshot: OfflineStorageManagementSnapshot | null;
+    }
+  | {
+      status: "cacheCleared";
+      snapshot: OfflineStorageManagementSnapshot;
+      result: ClearAppShellCacheResult;
+    }
+  | {
+      status: "error";
+      errorName: string;
+      message: string;
+      failedAt: string;
+    };
+
 type ProjectStorageSummary = {
   projectId: string;
   projectTitle?: string;
@@ -78,9 +111,15 @@ export function OfflineConfirmedStorePanel() {
   const [clearState, setClearState] = useState<LocalOfflineProjectClearState>({
     status: "idle",
   });
+  const [storageManagementState, setStorageManagementState] =
+    useState<OfflineStorageManagementState>({
+      status: "idle",
+    });
 
   const isChecking = state.status === "checking";
   const isClearingProject = clearState.status === "clearing";
+  const isCheckingStorage = storageManagementState.status === "checking";
+  const isClearingCache = storageManagementState.status === "clearingCache";
   const clearingProjectId =
     clearState.status === "clearing" ? clearState.projectId : null;
 
@@ -173,6 +212,80 @@ export function OfflineConfirmedStorePanel() {
     }
   }
 
+  async function handleCheckStorageManagement() {
+    setStorageManagementState({ status: "checking" });
+
+    try {
+      const snapshot = await readOfflineStorageManagementSnapshot();
+
+      setStorageManagementState({
+        status: "ready",
+        snapshot,
+      });
+    } catch (error) {
+      setStorageManagementState({
+        status: "error",
+        errorName: getErrorName(error),
+        message: getErrorMessage(error),
+        failedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  async function handleClearAppShellCache() {
+    const currentSnapshot =
+      storageManagementState.status === "ready" ||
+      storageManagementState.status === "cacheCleared"
+        ? storageManagementState.snapshot
+        : null;
+
+    const shouldClear = window.confirm(
+      [
+        "Service Worker の app shell cache を削除します。",
+        "",
+        "削除対象:",
+        "・画面本体の cache",
+        "・manifest / icons / Next.js static chunks の cache",
+        "",
+        "削除しないもの:",
+        "・IndexedDB の project / asset metadata / asset Blob",
+        "・Google Drive 上の workspace / project / manifest / assets",
+        "",
+        "削除後もオンラインなら画面は再取得できます。",
+        "オフライン起動確認をやり直す場合は、オンラインで各画面を一度開いて cache を作り直してください。",
+        "",
+        "削除しますか？",
+      ].join("\n"),
+    );
+
+    if (!shouldClear) {
+      return;
+    }
+
+    setStorageManagementState({
+      status: "clearingCache",
+      snapshot: currentSnapshot,
+    });
+
+    try {
+      const result = await clearAppShellCache();
+      const snapshot = await readOfflineStorageManagementSnapshot();
+
+      setStorageManagementState({
+        status: "cacheCleared",
+        result,
+        snapshot,
+      });
+    } catch (error) {
+      setStorageManagementState({
+        status: "error",
+        errorName: getErrorName(error),
+        message: getErrorMessage(error),
+        failedAt: new Date().toISOString(),
+      });
+    }
+  }
+
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
       <CardHeader>
@@ -200,6 +313,13 @@ export function OfflineConfirmedStorePanel() {
             ? "confirmed store を確認中"
             : "confirmed store を確認"}
         </Button>
+
+        <OfflineStorageManagementView
+          state={storageManagementState}
+          isBusy={isCheckingStorage || isClearingCache || isClearingProject}
+          onCheck={handleCheckStorageManagement}
+          onClearAppShellCache={handleClearAppShellCache}
+        />
 
         {state.status === "idle" ? (
           <p className="text-sm text-slate-400">
@@ -256,6 +376,196 @@ export function OfflineConfirmedStorePanel() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function OfflineStorageManagementView({
+  state,
+  isBusy,
+  onCheck,
+  onClearAppShellCache,
+}: {
+  state: OfflineStorageManagementState;
+  isBusy: boolean;
+  onCheck: () => void;
+  onClearAppShellCache: () => void;
+}) {
+  const snapshot =
+    state.status === "ready" ||
+    state.status === "cacheCleared" ||
+    state.status === "clearingCache"
+      ? state.snapshot
+      : null;
+  const canClearAppShellCache =
+    snapshot?.cacheStorage.supported === true &&
+    snapshot.cacheStorage.appShellCacheExists;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="font-semibold text-slate-50">端末ストレージ概要</p>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-400">
+            ブラウザが報告する保存使用量と Service Worker の app shell cache
+            を確認します。IndexedDB の asset Blob 管理とは別の、PWA 起動用 cache
+            の状態です。
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onCheck}
+            disabled={isBusy}
+          >
+            {state.status === "checking"
+              ? "ストレージ確認中"
+              : "端末ストレージを確認"}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={onClearAppShellCache}
+            disabled={isBusy || !canClearAppShellCache}
+          >
+            {state.status === "clearingCache"
+              ? "cache 削除中"
+              : "app shell cache を削除"}
+          </Button>
+        </div>
+      </div>
+
+      {state.status === "idle" ? (
+        <p className="mt-3 text-xs leading-5 text-slate-500">
+          Cache Storage の容量はブラウザが個別 bytes を返さないため、件数と
+          browser storage estimate を併記します。
+        </p>
+      ) : null}
+
+      {state.status === "error" ? (
+        <div className="mt-4 rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-red-100">
+          <p className="font-semibold">
+            端末ストレージ情報を操作できませんでした。
+          </p>
+          <div className="mt-3 space-y-1 text-xs">
+            <p>error name: {state.errorName}</p>
+            <p>{state.message}</p>
+            <p>failedAt: {state.failedAt}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {state.status === "cacheCleared" ? (
+        <div className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
+          <p className="font-semibold">app shell cache を削除しました。</p>
+          <dl className="mt-3 grid gap-1 text-xs sm:grid-cols-2">
+            <SummaryRow label="cache" value={state.result.cacheName} />
+            <SummaryRow
+              label="deleted"
+              value={state.result.deleted ? "削除済み" : "対象なし"}
+            />
+            <SummaryRow label="clearedAt" value={state.result.clearedAt} />
+          </dl>
+        </div>
+      ) : null}
+
+      {snapshot ? (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <CountCard
+              label="storage usage"
+              value={formatBytes(snapshot.storageEstimate.usageBytes)}
+            />
+            <CountCard
+              label="storage quota"
+              value={formatBytes(snapshot.storageEstimate.quotaBytes)}
+            />
+            <CountCard
+              label="usage ratio"
+              value={formatPercent(snapshot.storageEstimate.usageRatio)}
+            />
+            <CountCard
+              label="app cache entries"
+              value={snapshot.cacheStorage.appShellRequestCount}
+            />
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border border-white/10 p-3">
+              <p className="font-medium text-slate-50">browser storage</p>
+              <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
+                <SummaryRow
+                  label="estimate"
+                  value={snapshot.storageEstimate.supported ? "対応" : "未対応"}
+                />
+                <SummaryRow
+                  label="persistent"
+                  value={formatNullableBoolean(snapshot.storageEstimate.persisted)}
+                />
+                {Object.entries(snapshot.storageEstimate.usageDetails).map(
+                  ([name, sizeBytes]) => (
+                    <SummaryRow
+                      key={name}
+                      label={`usage.${name}`}
+                      value={formatBytes(sizeBytes)}
+                    />
+                  ),
+                )}
+              </dl>
+            </div>
+
+            <div className="rounded-xl border border-white/10 p-3">
+              <p className="font-medium text-slate-50">Cache Storage</p>
+              <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
+                <SummaryRow
+                  label="cache API"
+                  value={snapshot.cacheStorage.supported ? "対応" : "未対応"}
+                />
+                <SummaryRow
+                  label="cache count"
+                  value={snapshot.cacheStorage.cacheNames.length}
+                />
+                <SummaryRow
+                  label="total entries"
+                  value={snapshot.cacheStorage.totalRequestCount}
+                />
+                <SummaryRow
+                  label="app shell cache"
+                  value={
+                    snapshot.cacheStorage.appShellCacheExists ? "あり" : "なし"
+                  }
+                />
+              </dl>
+
+              <div className="mt-3 rounded-lg border border-white/10 bg-black/30 p-3">
+                <p className="text-xs font-medium text-slate-200">
+                  {snapshot.cacheStorage.appShellCacheName}
+                </p>
+                {snapshot.cacheStorage.appShellSampleUrls.length > 0 ? (
+                  <div className="mt-2 space-y-1 text-xs text-slate-500">
+                    {snapshot.cacheStorage.appShellSampleUrls.map((url) => (
+                      <p key={url} className="break-all">
+                        {url}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-500">
+                    app shell cache の保存リクエストはまだ確認できません。
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <p className="text-xs leading-5 text-slate-500">
+            app shell cache を削除しても、IndexedDB に保存された project / asset
+            metadata / asset Blob は残ります。offline 再生用データを消す場合は、
+            project 単位のローカル削除を使います。
+          </p>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -637,8 +947,8 @@ function getTotalAssetBlobSizeBytes(snapshot: OfflineConfirmedStoreSnapshot) {
   );
 }
 
-function formatBytes(sizeBytes: number) {
-  if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+function formatBytes(sizeBytes: number | null) {
+  if (sizeBytes === null || !Number.isFinite(sizeBytes) || sizeBytes < 0) {
     return "未取得";
   }
 
@@ -655,6 +965,22 @@ function formatBytes(sizeBytes: number) {
   const fractionDigits = unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
 
   return `${value.toFixed(fractionDigits)} ${units[unitIndex]}`;
+}
+
+function formatPercent(ratio: number | null) {
+  if (ratio === null || !Number.isFinite(ratio) || ratio < 0) {
+    return "未取得";
+  }
+
+  return `${(ratio * 100).toFixed(ratio < 0.1 ? 2 : 1)}%`;
+}
+
+function formatNullableBoolean(value: boolean | null) {
+  if (value === null) {
+    return "未取得";
+  }
+
+  return value ? "はい" : "いいえ";
 }
 
 function getStateLabel(state: OfflineConfirmedStorePanelState["status"]) {
