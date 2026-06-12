@@ -957,8 +957,11 @@ export default function PlayerPage() {
             }
           >
             <p
-              className="mx-auto max-w-4xl rounded-xl bg-black/45 px-4 py-2 text-center text-base leading-7 text-slate-100 shadow-2xl drop-shadow backdrop-blur-sm sm:text-xl sm:leading-8"
+              className="mx-auto max-w-4xl rounded-xl px-4 py-2 text-center text-base leading-7 text-white shadow-2xl sm:text-xl sm:leading-8"
               style={{
+                backgroundColor: "rgba(0, 0, 0, 0.62)",
+                WebkitBackdropFilter: "blur(4px)",
+                backdropFilter: "blur(4px)",
                 display: "-webkit-box",
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: "vertical",

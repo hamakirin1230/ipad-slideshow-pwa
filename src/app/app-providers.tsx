@@ -86,7 +86,7 @@ const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 const GOOGLE_DRIVE_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 const ASSET_IMPORT_MAX_BATCH_COUNT = 10;
-const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 120_000;
+const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
 const OFFLINE_SYNC_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -816,7 +816,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             status: "cancelled",
             message: "Photos token request timed out.",
             diagnostics: [
-              "Google Photosの利用許可待ちが120秒でタイムアウトしました。",
+              "Google Photosの利用許可または写真選択待ちが30分でタイムアウトしました。",
               "Drive保存: 未実行",
               "manifest反映: 未実行",
             ],
@@ -4269,7 +4269,7 @@ export async function waitForPhotosPickerSelection(input: {
         status: "cancelled",
         message: "Photos Picker polling reached the app timeout.",
         diagnostics: [
-          "Photos Pickerの選択待ちが300秒でタイムアウトしました。",
+          "Photos Pickerの選択待ちが30分でタイムアウトしました。",
           "Drive保存: 未実行",
           "manifest反映: 未実行",
         ],

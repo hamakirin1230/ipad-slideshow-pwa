@@ -1481,6 +1481,24 @@ export async function appendDriveProjectAssetsToManifest(
       });
     }
 
+    const appendedSlideIds = slides.map((slide) => slide.slideId);
+    const verifiedTailSlideIds = verifiedManifestResult.details.slides
+      .slice(-appendedSlideIds.length)
+      .map((slide) => slide.slideId);
+
+    if (!areStringArraysEqual(verifiedTailSlideIds, appendedSlideIds)) {
+      throw new DriveProjectManifestBatchAppendError({
+        status: "verificationFailed",
+        savedAssets,
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          "manifest.json 更新後に今回追加したslidesが末尾へ追加されたことを確認できませんでした。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
     return {
       project: registrationResult.project,
       details: verifiedManifestResult.details,

@@ -1,8 +1,8 @@
 # iPad用スライドショーPWA 現在の引き継ぎ
 
-Date: 2026-06-12
+Date: 2026-06-13
 
-このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-06-12時点の実装状態を正とします。
+このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-06-13時点の実装状態を正とします。
 
 ## 最重要方針
 
@@ -75,6 +75,7 @@ confirmed store promotion
 /admin slide drag-and-drop reorder
 /admin slide bulk delete
 /admin slide duplicate
+/admin drag handle compact display
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
 ```
@@ -156,6 +157,7 @@ ipad-slideshow-pwa-app-shell-v1
 - `/player/` はconfirmed storeからoffline-firstで読む
 - `/player/` はconfirmed store内のslide順をそのまま再生順として使う
 - Drive上の画像順の正は`manifest.json.slides[]`の配列順
+- Photos Pickerから追加したslideは現在の`manifest.json.slides[]`末尾へ、選択順のままappendする
 - Drive上のslide削除・複製も`manifest.json.slides[]`だけを変更し、Drive assets/内の画像ファイルは削除・コピーしない
 - project単位ローカル削除ではDrive上のデータを削除しない
 - app shell cache削除ではIndexedDBのproject / asset / Blobを削除しない
@@ -219,9 +221,12 @@ caption更新はDrive manifest.jsonをsource of truthにする
 caption更新後、iPad再生に反映するには対象projectのoffline syncが必要
 /player/ではnormal / production / lock中の全てでテロップoverlayを表示
 テロップoverlayはpointer-events-noneでswipe操作を邪魔しない
+テロップ下帯はiPad PWAでbackdrop-filterが効かなくても残るよう、rgba背景をinline styleで指定する
 Photos Pickerは1回最大10件、かつproject全体50 slides上限まで
+Photos Pickerのユーザー認証・選択待ちのアプリ側timeoutは30分
 download / Drive uploadはitemごとに順次処理
 Drive保存成功分が1件以上あればmanifest.jsonへbatch append
+batch append後は追加slide群がmanifest末尾に同じ順序で入ったことを再検証する
 途中失敗時もDrive保存済みassetの自動削除・自動修復はしない
 ```
 
@@ -253,6 +258,7 @@ index.json.projects[].updatedAtも更新し、更新後にmanifest / indexを再
 ```text
 /admin/の本編スライド順でdrag-and-dropによる画像順変更
 drag handleのみでdrag開始し、checkbox / button / textarea操作ではdrag開始しない
+drag handleの表示テキストは「≡」のみ、aria-label / titleは「ドラッグして並び替え」を維持する
 drag over中に暫定順を表示し、drop時にDrive manifestへ保存
 保存失敗時はDrive由来の最新slide順へ戻す
 上へ / 下へボタンによるreorderは維持
@@ -312,6 +318,7 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 読む順:
 
 ```text
+docs/handoffs/2026-06-13-player-admin-polish-fixes-handoff.md
 docs/handoffs/2026-06-12-slide-dnd-delete-duplicate-handoff.md
 docs/handoffs/2026-06-12-player-auto-advance-transition-and-slide-reorder-handoff.md
 docs/handoffs/2026-06-12-caption-telop-and-batch-asset-import-handoff.md

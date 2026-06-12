@@ -31,6 +31,9 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/player/` slide transition animation、next / previous / swipe / 自動送りでfade + slight horizontal slide
 - `/admin/` slide順の上へ/下へ変更、drag-and-drop並び替え、複数slide一括削除、slide複製
 - `manifest.json.slides[]` 配列順を再生順のsource of truthとして保存
+- `/admin/` drag handle表示を「≡」のみへ簡略化し、aria-label / titleは維持
+- `/player/` のcaptionテロップ下帯をiPad PWAでも残るように背景指定を強化
+- Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
 
 ## 公開URL
 
@@ -57,6 +60,7 @@ https://ipad-slideshow-pwa.vercel.app/
 - Client SecretとAPIキーは作らない、使わない
 - Drive上のworkspace / project / manifest / assetsをsource of truthにする
 - slide再生順はDrive `manifest.json.slides[]` の配列順をsource of truthにする
+- Photos Pickerから追加したslideは現在のDrive `manifest.json.slides[]` の末尾へ選択順でappendする
 - IndexedDBはiPad端末内のoffline playback用コピーとして扱う
 - Cache StorageはService Workerのapp shell cacheとして扱う
 - iPad側のローカル削除ではGoogle Drive上のデータを削除しない
@@ -91,6 +95,7 @@ npm run build
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-06-13-player-admin-polish-fixes-handoff.md`
 - `docs/handoffs/2026-06-12-slide-dnd-delete-duplicate-handoff.md`
 - `docs/handoffs/2026-06-12-player-auto-advance-transition-and-slide-reorder-handoff.md`
 - `docs/handoffs/2026-06-12-caption-telop-and-batch-asset-import-handoff.md`

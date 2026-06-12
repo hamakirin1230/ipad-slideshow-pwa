@@ -627,11 +627,13 @@ function SortableSlideRow({
       ref={setActivatorNodeRef}
       type="button"
       disabled={isDisabled}
-      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-left text-xs text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      aria-label="ドラッグして並び替え"
+      title="ドラッグして並び替え"
+      className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-base font-semibold leading-none text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
       {...attributes}
       {...listeners}
     >
-      ☰ ドラッグして並び替え
+      ≡
     </button>
   );
 
