@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Home,
+  List,
   Pause,
   Play,
   RefreshCw,
@@ -50,6 +51,9 @@ export default function PlayerPage() {
     status: snapshotLoadStatus,
     snapshot,
     errorMessage,
+    selectedProjectId,
+    selectProject,
+    clearSelectedProject,
     reload,
   } = useOfflinePlaybackSnapshot();
 
@@ -62,6 +66,8 @@ export default function PlayerPage() {
   const [isPlaybackPaused, setIsPlaybackPaused] = useState(false);
 
   const readySnapshot = snapshot?.status === "ready" ? snapshot : null;
+  const projectSelectionSnapshot =
+    snapshot?.status === "projectSelectionRequired" ? snapshot : null;
   const slideCount = readySnapshot?.slides.length ?? 0;
 
   const revealControls = useCallback(() => {
@@ -460,6 +466,22 @@ export default function PlayerPage() {
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
+              {readySnapshot.availableProjects.length >= 2 ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
+                  aria-label="再生projectを選び直す"
+                  title="再生projectを選び直す"
+                  onClick={() => {
+                    revealControls();
+                    clearSelectedProject();
+                  }}
+                >
+                  <List />
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="secondary"
@@ -716,6 +738,16 @@ export default function PlayerPage() {
           </PlayerStatusCard>
         ) : null}
 
+        {projectSelectionSnapshot ? (
+          <ProjectSelectionCard
+            projects={projectSelectionSnapshot.availableProjects}
+            selectedProjectId={selectedProjectId}
+            diagnostics={projectSelectionSnapshot.diagnostics}
+            onSelectProject={selectProject}
+            onReload={reload}
+          />
+        ) : null}
+
         {invalidSnapshot ? (
           <PlayerStatusCard
             tone="danger"
@@ -755,6 +787,107 @@ export default function PlayerPage() {
 
       </div>
     </main>
+  );
+}
+
+function ProjectSelectionCard({
+  projects,
+  selectedProjectId,
+  diagnostics,
+  onSelectProject,
+  onReload,
+}: {
+  projects: Array<{
+    projectId: string;
+    projectTitle?: string;
+    slideCount: number;
+    assetCount: number;
+    assetBlobCount: number;
+    syncedAt?: string;
+    sourceUpdatedAt?: string;
+  }>;
+  selectedProjectId: string | null;
+  diagnostics: string[];
+  onSelectProject: (projectId: string) => void;
+  onReload: () => void;
+}) {
+  return (
+    <PlayerStatusCard
+      tone="neutral"
+      title="再生するprojectを選択してください"
+      description="このiPadには複数の offline playback 用 project が保存されています。本番再生に使う project を選ぶと、次回から同じ project を優先して開きます。"
+      diagnostics={diagnostics}
+    >
+      <div className="space-y-3">
+        {projects.map((project) => (
+          <div
+            key={project.projectId}
+            className="rounded-xl border border-white/10 bg-black/30 p-4"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="font-semibold text-slate-50">
+                  {project.projectTitle ?? "名称未設定"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {formatIdPart(project.projectId)}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant={
+                  selectedProjectId === project.projectId ? "default" : "secondary"
+                }
+                onClick={() => onSelectProject(project.projectId)}
+              >
+                {selectedProjectId === project.projectId
+                  ? "選択中のprojectを再読み込み"
+                  : "このprojectを再生"}
+              </Button>
+            </div>
+
+            <dl className="mt-3 grid gap-1 text-xs text-slate-400 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <dt>slides</dt>
+                <dd className="font-medium text-slate-200">
+                  {project.slideCount}
+                </dd>
+              </div>
+              <div>
+                <dt>assets</dt>
+                <dd className="font-medium text-slate-200">
+                  {project.assetCount}
+                </dd>
+              </div>
+              <div>
+                <dt>asset blobs</dt>
+                <dd className="font-medium text-slate-200">
+                  {project.assetBlobCount}
+                </dd>
+              </div>
+              <div>
+                <dt>syncedAt</dt>
+                <dd className="break-all font-medium text-slate-200">
+                  {project.syncedAt ?? "未取得"}
+                </dd>
+              </div>
+              <div>
+                <dt>sourceUpdatedAt</dt>
+                <dd className="break-all font-medium text-slate-200">
+                  {project.sourceUpdatedAt ?? "未取得"}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        ))}
+      </div>
+
+      <PlayerActionRow>
+        <Button type="button" variant="secondary" onClick={onReload}>
+          再読み込み
+        </Button>
+      </PlayerActionRow>
+    </PlayerStatusCard>
   );
 }
 
@@ -827,4 +960,12 @@ function getPlayerStatusCardClassName(tone: PlayerStatusTone) {
     default:
       return "border-white/10 bg-white/5 text-slate-300";
   }
+}
+
+function formatIdPart(id: string | undefined) {
+  if (!id) {
+    return "未設定";
+  }
+
+  return `${id.slice(0, 8)}...`;
 }

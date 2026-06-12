@@ -38,10 +38,6 @@ type MaybeConfirmedAssetRecord = {
   projectId?: unknown;
 };
 
-type MaybeProjectScopedRecord = {
-  projectId?: unknown;
-};
-
 function toOfflineProject(
   stagingProject: OfflineStagingProject,
 ): OfflineProject {
@@ -138,51 +134,6 @@ function deleteObsoleteConfirmedRecordsByProjectId(
   });
 }
 
-function deleteStaleConfirmedRecordsExceptProjectId(
-  store: IDBObjectStore,
-  keepProjectId: string,
-): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
-    let deleted = 0;
-    const request = store.openCursor();
-
-    request.onerror = () => {
-      reject(
-        request.error ??
-          new Error("Failed to scan stale confirmed offline records."),
-      );
-    };
-
-    request.onsuccess = () => {
-      const cursor = request.result;
-
-      if (!cursor) {
-        resolve(deleted);
-        return;
-      }
-
-      const value = cursor.value as MaybeProjectScopedRecord | null | undefined;
-
-      if (
-        typeof value?.projectId !== "string" ||
-        value.projectId === keepProjectId
-      ) {
-        cursor.continue();
-        return;
-      }
-
-      void requestToPromise(cursor.delete())
-        .then(() => {
-          deleted += 1;
-          cursor.continue();
-        })
-        .catch((error: unknown) => {
-          reject(error);
-        });
-    };
-  });
-}
-
 export async function promoteValidatedOfflineStagingToConfirmedStoresInTransaction(
   stores: OfflineStagingPromotionStores,
   validatedStaging: ValidOfflineStagingForPromotion,
@@ -195,26 +146,6 @@ export async function promoteValidatedOfflineStagingToConfirmedStoresInTransacti
     validatedStaging.records.assetBlobRecords.map(
       (assetBlobRecord) => assetBlobRecord.assetId,
     ),
-  );
-
-  await deleteStaleConfirmedRecordsExceptProjectId(
-    stores[OFFLINE_ASSET_BLOBS_STORE],
-    projectId,
-  );
-
-  await deleteStaleConfirmedRecordsExceptProjectId(
-    stores[OFFLINE_ASSETS_STORE],
-    projectId,
-  );
-
-  await deleteStaleConfirmedRecordsExceptProjectId(
-    stores[OFFLINE_PROJECTS_STORE],
-    projectId,
-  );
-
-  await deleteStaleConfirmedRecordsExceptProjectId(
-    stores[OFFLINE_SYNC_STATE_STORE],
-    projectId,
   );
 
   const deletedObsoleteAssetBlobs =

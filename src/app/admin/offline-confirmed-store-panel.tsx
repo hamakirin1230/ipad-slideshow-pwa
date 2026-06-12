@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -720,16 +721,23 @@ function ConfirmedStoreSnapshotView({
                     <p className="font-medium text-slate-50">
                       {project.projectTitle ?? "名称未設定"}
                     </p>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      onClick={() => onClearProject(project)}
-                      disabled={clearingProjectId !== null}
-                    >
-                      {clearingProjectId === project.projectId
-                        ? "このprojectを削除中"
-                        : "このprojectのローカル保存を削除"}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild variant="secondary">
+                        <Link href={createPlayerProjectHref(project.projectId)}>
+                          このprojectを再生
+                        </Link>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={() => onClearProject(project)}
+                        disabled={clearingProjectId !== null}
+                      >
+                        {clearingProjectId === project.projectId
+                          ? "このprojectを削除中"
+                          : "このprojectのローカル保存を削除"}
+                      </Button>
+                    </div>
                   </div>
                   <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
                     <SummaryRow
@@ -1028,4 +1036,8 @@ function formatDiagnostic(diagnostic: string) {
   }
 
   return `${diagnostic.slice(0, 179)}…`;
+}
+
+function createPlayerProjectHref(projectId: string) {
+  return `/player?projectId=${encodeURIComponent(projectId)}`;
 }

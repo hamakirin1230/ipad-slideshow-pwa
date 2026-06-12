@@ -38,6 +38,17 @@ export type OfflinePlaybackSlide = {
   blobSizeBytes: number;
 };
 
+export type OfflinePlaybackProjectOption = {
+  projectId: string;
+  projectTitle?: string;
+  slideCount: number;
+  assetCount: number;
+  assetBlobCount: number;
+  syncedAt?: string;
+  sourceUpdatedAt?: string;
+  syncRunId?: string;
+};
+
 export type OfflinePlaybackSnapshot =
   | {
       status: "empty";
@@ -47,6 +58,14 @@ export type OfflinePlaybackSnapshot =
   | {
       status: "invalid";
       checkedAt: string;
+      availableProjects?: OfflinePlaybackProjectOption[];
+      diagnostics: string[];
+    }
+  | {
+      status: "projectSelectionRequired";
+      checkedAt: string;
+      selectedProjectId?: string;
+      availableProjects: OfflinePlaybackProjectOption[];
       diagnostics: string[];
     }
   | {
@@ -59,10 +78,17 @@ export type OfflinePlaybackSnapshot =
       slideCount: number;
       assetCount: number;
       slides: OfflinePlaybackSlide[];
+      availableProjects: OfflinePlaybackProjectOption[];
       diagnostics: string[];
     };
 
-export async function readOfflinePlaybackSnapshot(): Promise<OfflinePlaybackSnapshot> {
+export type ReadOfflinePlaybackSnapshotOptions = {
+  projectId?: string | null;
+};
+
+export async function readOfflinePlaybackSnapshot(
+  options: ReadOfflinePlaybackSnapshotOptions = {},
+): Promise<OfflinePlaybackSnapshot> {
   return runOfflineTransaction(
     [
       OFFLINE_PROJECTS_STORE,
@@ -85,6 +111,7 @@ export async function readOfflinePlaybackSnapshot(): Promise<OfflinePlaybackSnap
 
       return buildOfflinePlaybackSnapshot({
         checkedAt: new Date().toISOString(),
+        selectedProjectId: normalizeOptionalProjectId(options.projectId),
         projects,
         assets,
         assetBlobs,
@@ -100,6 +127,7 @@ async function getAllRecords<T>(store: IDBObjectStore): Promise<T[]> {
 
 function buildOfflinePlaybackSnapshot(input: {
   checkedAt: string;
+  selectedProjectId: string | null;
   projects: OfflineProject[];
   assets: OfflineAsset[];
   assetBlobs: OfflineAssetBlobRecord[];
@@ -120,18 +148,55 @@ function buildOfflinePlaybackSnapshot(input: {
     };
   }
 
-  if (readySyncStates.length >= 2) {
+  const availableProjects = buildPlaybackProjectOptions({
+    projects: input.projects,
+    assets: input.assets,
+    assetBlobs: input.assetBlobs,
+    readySyncStates,
+  });
+
+  if (availableProjects.length === 0) {
     return {
       status: "invalid",
       checkedAt: input.checkedAt,
       diagnostics: [
-        "ready な offline sync state が2件以上見つかりました。",
-        "この helper は現時点では単一 project の offline playback のみを扱います。",
+        "ready な offline sync state に対応する confirmed project が見つかりません。",
       ],
     };
   }
 
-  const syncState = readySyncStates[0];
+  if (!input.selectedProjectId && availableProjects.length >= 2) {
+    return {
+      status: "projectSelectionRequired",
+      checkedAt: input.checkedAt,
+      availableProjects,
+      diagnostics: [
+        "ready な offline playback project が2件以上見つかりました。",
+        "再生する project を選択してください。",
+      ],
+    };
+  }
+
+  const syncState =
+    input.selectedProjectId === null
+      ? readySyncStates[0]
+      : readySyncStates.find(
+          (candidate) => candidate.projectId === input.selectedProjectId,
+        );
+
+  if (!syncState) {
+    return {
+      status: "projectSelectionRequired",
+      checkedAt: input.checkedAt,
+      selectedProjectId: input.selectedProjectId ?? undefined,
+      availableProjects,
+      diagnostics: [
+        `選択中の projectId ${input.selectedProjectId} は、この端末の ready project ではありません。`,
+        "再生する project を選択し直してください。",
+      ],
+    };
+  }
+
   const project = input.projects.find(
     (candidate) => candidate.projectId === syncState.projectId,
   );
@@ -140,6 +205,7 @@ function buildOfflinePlaybackSnapshot(input: {
     return {
       status: "invalid",
       checkedAt: input.checkedAt,
+      availableProjects,
       diagnostics: [
         `projectId ${syncState.projectId} の confirmed project が見つかりません。`,
       ],
@@ -164,6 +230,7 @@ function buildOfflinePlaybackSnapshot(input: {
     return {
       status: "invalid",
       checkedAt: input.checkedAt,
+      availableProjects,
       diagnostics: validationDiagnostics,
     };
   }
@@ -202,6 +269,7 @@ function buildOfflinePlaybackSnapshot(input: {
     slideCount: slides.length,
     assetCount: projectAssets.length,
     slides,
+    availableProjects,
     diagnostics: [
       "offline playback snapshot を confirmed store から構築しました。",
       `slides: ${slides.length}`,
@@ -209,6 +277,56 @@ function buildOfflinePlaybackSnapshot(input: {
       `assetBlobs: ${projectAssetBlobs.length}`,
     ],
   };
+}
+
+function buildPlaybackProjectOptions(input: {
+  projects: OfflineProject[];
+  assets: OfflineAsset[];
+  assetBlobs: OfflineAssetBlobRecord[];
+  readySyncStates: OfflineSyncState[];
+}): OfflinePlaybackProjectOption[] {
+  const options: OfflinePlaybackProjectOption[] = [];
+
+  for (const syncState of input.readySyncStates) {
+    const project = input.projects.find(
+      (candidate) => candidate.projectId === syncState.projectId,
+    );
+
+    if (!project) {
+      continue;
+    }
+
+    options.push({
+      projectId: project.projectId,
+      projectTitle: project.projectTitle,
+      slideCount: project.slides.length,
+      assetCount: input.assets.filter(
+        (asset) => asset.projectId === project.projectId,
+      ).length,
+      assetBlobCount: input.assetBlobs.filter(
+        (assetBlob) => assetBlob.projectId === project.projectId,
+      ).length,
+      syncedAt: syncState.syncedAt ?? project.syncedAt,
+      sourceUpdatedAt: syncState.sourceUpdatedAt ?? project.sourceUpdatedAt,
+      syncRunId: syncState.syncRunId,
+    });
+  }
+
+  return options.sort(comparePlaybackProjectOptions);
+}
+
+function comparePlaybackProjectOptions(
+  left: OfflinePlaybackProjectOption,
+  right: OfflinePlaybackProjectOption,
+) {
+  const leftSyncedAt = left.syncedAt ?? "";
+  const rightSyncedAt = right.syncedAt ?? "";
+
+  if (leftSyncedAt !== rightSyncedAt) {
+    return rightSyncedAt.localeCompare(leftSyncedAt);
+  }
+
+  return left.projectId.localeCompare(right.projectId);
 }
 
 function validatePlaybackRecords(input: {
@@ -341,6 +459,15 @@ function compareOfflineProjectSlides(
   }
 
   return left.slideId.localeCompare(right.slideId);
+}
+
+function normalizeOptionalProjectId(projectId: string | null | undefined) {
+  if (typeof projectId !== "string") {
+    return null;
+  }
+
+  const trimmedProjectId = projectId.trim();
+  return trimmedProjectId.length === 0 ? null : trimmedProjectId;
 }
 
 function toOfflinePlaybackSlide(input: {
