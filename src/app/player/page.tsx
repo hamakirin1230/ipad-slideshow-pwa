@@ -10,6 +10,17 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Home,
+  Pause,
+  Play,
+  RefreshCw,
+  Settings,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
@@ -17,12 +28,14 @@ import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
 import { useOfflineCurrentSlideImage } from "./use-offline-current-slide-image";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
+const PLAYER_CONTROLS_HIDE_DELAY_MS = 4_000;
 
 type SwipeStart = {
   clientX: number;
   clientY: number;
   pointerId: number;
   didTrigger: boolean;
+  wereControlsVisible: boolean;
 };
 
 type PlayerStatusTone = "neutral" | "warning" | "danger";
@@ -45,19 +58,27 @@ export default function PlayerPage() {
     null,
   );
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
+  const [areControlsVisible, setAreControlsVisible] = useState(true);
+  const [isPlaybackPaused, setIsPlaybackPaused] = useState(false);
 
   const readySnapshot = snapshot?.status === "ready" ? snapshot : null;
   const slideCount = readySnapshot?.slides.length ?? 0;
 
+  const revealControls = useCallback(() => {
+    setAreControlsVisible(true);
+  }, []);
+
   const goToPreviousSlide = useCallback(() => {
     if (slideCount === 0) return;
+    revealControls();
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
-  }, [slideCount]);
+  }, [revealControls, slideCount]);
 
   const goToNextSlide = useCallback(() => {
     if (slideCount === 0) return;
+    revealControls();
     setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
-  }, [slideCount]);
+  }, [revealControls, slideCount]);
 
   const swipeStartRef = useRef<SwipeStart | null>(null);
 
@@ -76,7 +97,10 @@ export default function PlayerPage() {
       clientY: event.clientY,
       pointerId: event.pointerId,
       didTrigger: false,
+      wereControlsVisible: areControlsVisible,
     };
+
+    revealControls();
 
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -119,10 +143,10 @@ export default function PlayerPage() {
       return;
     }
 
-    if (!start.didTrigger) {
-      const dx = event.clientX - start.clientX;
-      const dy = event.clientY - start.clientY;
+    const dx = event.clientX - start.clientX;
+    const dy = event.clientY - start.clientY;
 
+    if (!start.didTrigger) {
       if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) {
         event.preventDefault();
 
@@ -131,6 +155,8 @@ export default function PlayerPage() {
         } else {
           goToPreviousSlide();
         }
+      } else if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+        setAreControlsVisible(!start.wereControlsVisible);
       }
     }
 
@@ -196,6 +222,7 @@ export default function PlayerPage() {
 
   useEffect(() => {
     if (
+      isPlaybackPaused ||
       imageStatus !== "ready" ||
       !objectUrl ||
       !isCurrentImageLoaded ||
@@ -211,6 +238,7 @@ export default function PlayerPage() {
 
     return () => clearTimeout(timeoutId);
   }, [
+    isPlaybackPaused,
     imageStatus,
     objectUrl,
     isCurrentImageLoaded,
@@ -230,6 +258,18 @@ export default function PlayerPage() {
     readySnapshot !== null &&
     slideCount > 0 &&
     currentSlide !== null;
+
+  useEffect(() => {
+    if (!canPlay || !areControlsVisible) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setAreControlsVisible(false);
+    }, PLAYER_CONTROLS_HIDE_DELAY_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [areControlsVisible, canPlay]);
 
   const loadErrorGuidance: PlayerGuidanceItem[] = [
     {
@@ -314,6 +354,265 @@ export default function PlayerPage() {
         "管理画面で対象 project のローカル保存を削除し、online 状態で offline sync を再実行してください。",
     },
   ];
+
+  if (canPlay) {
+    const controlsVisibilityClassName = areControlsVisible
+      ? "opacity-100"
+      : "pointer-events-none opacity-0";
+    const slideProgressPercentage =
+      slideCount === 0 ? 0 : ((safeCurrentSlideIndex + 1) / slideCount) * 100;
+    const onlineStatusLabel =
+      isOnline === null ? "確認中" : isOnline ? "オンライン" : "オフライン";
+    const OnlineStatusIcon = isOnline === false ? WifiOff : Wifi;
+
+    return (
+      <main className="relative h-[100svh] min-h-[100svh] overflow-hidden bg-black text-slate-50">
+        <div
+          className="absolute inset-0 flex items-center justify-center bg-black"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          style={{
+            touchAction: "none",
+            userSelect: "none",
+          }}
+        >
+          {imageStatus === "error" ? (
+            <div className="mx-4 max-w-xl rounded-2xl border border-red-400/30 bg-red-950/80 p-5 text-center text-red-50 shadow-2xl">
+              <p className="text-lg font-semibold">
+                このスライド画像を表示できません
+              </p>
+              <p className="mt-3 text-sm leading-6 text-red-100/80">
+                このスライドが参照しているローカル保存写真を読み込めませんでした。
+                再読み込みで直らない場合は、管理画面でこの project のローカル保存を削除し、
+                online 状態で offline sync を再実行してください。
+              </p>
+              <div className="mt-4 rounded-xl border border-red-100/20 bg-black/30 p-4 text-left text-sm">
+                <p className="font-semibold text-red-50">次の操作</p>
+                <div className="mt-3 space-y-3">
+                  {imageErrorGuidance.map((item) => (
+                    <div key={item.title}>
+                      <p className="font-medium text-red-50">{item.title}</p>
+                      <p className="mt-1 leading-6 text-red-100/70">
+                        {item.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {imageStatus === "ready" && objectUrl ? (
+            <img
+              key={objectUrl}
+              src={objectUrl}
+              alt={currentSlide.assetName ?? "現在のスライド画像"}
+              draggable={false}
+              onDragStart={(event) => event.preventDefault()}
+              onLoad={() => setLoadedImageObjectUrl(objectUrl)}
+              className="h-full w-full object-contain"
+              style={{
+                userSelect: "none",
+                WebkitUserSelect: "none",
+              }}
+            />
+          ) : null}
+
+          {imageStatus === "idle" ? (
+            <p className="rounded-full bg-white/10 px-4 py-2 text-sm text-slate-300">
+              ローカル保存されたスライド画像を準備しています
+            </p>
+          ) : null}
+        </div>
+
+        <div
+          className={`absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent px-4 pb-16 transition-opacity duration-300 sm:px-6 ${controlsVisibilityClassName}`}
+          style={{
+            paddingTop: "max(env(safe-area-inset-top), 1rem)",
+          }}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-slate-100">
+                {readySnapshot.projectTitle ?? readySnapshot.projectId}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                <Badge
+                  variant="outline"
+                  className={
+                    isOnline === false
+                      ? "border-amber-300/70 bg-black/30 text-amber-100"
+                      : "border-white/20 bg-black/30 text-slate-100"
+                  }
+                >
+                  <OnlineStatusIcon className="size-3" />
+                  {onlineStatusLabel}
+                </Badge>
+                <span className="rounded-full border border-white/15 bg-black/30 px-2 py-0.5">
+                  {safeCurrentSlideIndex + 1} / {slideCount}
+                </span>
+                <span className="hidden max-w-[42vw] truncate rounded-full border border-white/15 bg-black/30 px-2 py-0.5 sm:inline">
+                  synced {readySnapshot.syncedAt}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
+                aria-label={isPlaybackPaused ? "自動送りを再開" : "自動送りを一時停止"}
+                title={isPlaybackPaused ? "自動送りを再開" : "自動送りを一時停止"}
+                onClick={() => {
+                  revealControls();
+                  setIsPlaybackPaused((current) => !current);
+                }}
+              >
+                {isPlaybackPaused ? <Play /> : <Pause />}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
+                aria-label="再読み込み"
+                title="再読み込み"
+                onClick={() => {
+                  revealControls();
+                  reload();
+                }}
+              >
+                <RefreshCw />
+              </Button>
+              <Button
+                asChild
+                variant="secondary"
+                size="icon"
+                className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
+                aria-label="管理画面へ"
+                title="管理画面へ"
+              >
+                <Link href="/admin">
+                  <Settings />
+                </Link>
+              </Button>
+              <Button
+                asChild
+                variant="secondary"
+                size="icon"
+                className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
+                aria-label="トップへ戻る"
+                title="トップへ戻る"
+              >
+                <Link href="/">
+                  <Home />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className={`absolute left-4 top-1/2 z-20 hidden -translate-y-1/2 transition-opacity duration-300 sm:block ${controlsVisibilityClassName}`}
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-lg"
+            className="size-12 rounded-full border border-white/15 bg-black/45 text-slate-50 shadow-2xl hover:bg-white/20 disabled:opacity-30"
+            aria-label="前のスライドへ"
+            title="前のスライドへ"
+            disabled={safeCurrentSlideIndex === 0}
+            onClick={goToPreviousSlide}
+          >
+            <ChevronLeft className="size-7" />
+          </Button>
+        </div>
+
+        <div
+          className={`absolute right-4 top-1/2 z-20 hidden -translate-y-1/2 transition-opacity duration-300 sm:block ${controlsVisibilityClassName}`}
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-lg"
+            className="size-12 rounded-full border border-white/15 bg-black/45 text-slate-50 shadow-2xl hover:bg-white/20 disabled:opacity-30"
+            aria-label="次のスライドへ"
+            title="次のスライドへ"
+            disabled={safeCurrentSlideIndex === slideCount - 1}
+            onClick={goToNextSlide}
+          >
+            <ChevronRight className="size-7" />
+          </Button>
+        </div>
+
+        <div
+          className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/35 to-transparent px-4 pt-20 sm:px-6"
+          style={{
+            paddingBottom: "max(env(safe-area-inset-bottom), 1rem)",
+          }}
+        >
+          {currentSlideCaption ? (
+            <p
+              className="mx-auto mb-4 max-w-4xl text-center text-base leading-7 text-slate-100 drop-shadow sm:text-xl sm:leading-8"
+              style={{
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {currentSlideCaption}
+            </p>
+          ) : null}
+
+          <div
+            className={`mx-auto flex max-w-xl items-center justify-center gap-4 transition-opacity duration-300 ${controlsVisibilityClassName}`}
+          >
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-lg"
+              className="size-11 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
+              aria-label="前のスライドへ"
+              title="前のスライドへ"
+              disabled={safeCurrentSlideIndex === 0}
+              onClick={goToPreviousSlide}
+            >
+              <ChevronLeft className="size-6" />
+            </Button>
+            <div className="min-w-28 flex-1">
+              <div className="h-1 overflow-hidden rounded-full bg-white/20">
+                <div
+                  className="h-full rounded-full bg-white"
+                  style={{ width: `${slideProgressPercentage}%` }}
+                />
+              </div>
+              <p className="mt-2 text-center text-xs text-slate-300">
+                {safeCurrentSlideIndex + 1} / {slideCount}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-lg"
+              className="size-11 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
+              aria-label="次のスライドへ"
+              title="次のスライドへ"
+              disabled={safeCurrentSlideIndex === slideCount - 1}
+              onClick={goToNextSlide}
+            >
+              <ChevronRight className="size-6" />
+            </Button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-black px-6 py-8 text-slate-50">
@@ -454,139 +753,6 @@ export default function PlayerPage() {
           </PlayerStatusCard>
         ) : null}
 
-        {canPlay ? (
-          <>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div>
-                  <p className="text-slate-500">project</p>
-                  <p className="font-medium text-slate-100">
-                    {readySnapshot.projectTitle ?? readySnapshot.projectId}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-slate-500">syncedAt</p>
-                  <p className="font-medium text-slate-100">
-                    {readySnapshot.syncedAt}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerCancel}
-              style={{
-                touchAction: "pan-y",
-                userSelect: "none",
-              }}
-            >
-              <div className="flex aspect-[16/9] items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
-                {imageStatus === "error" ? (
-                  <div className="max-w-xl space-y-4 p-6 text-center text-slate-300">
-                    <p className="text-lg font-semibold text-slate-100">
-                      このスライド画像を表示できません
-                    </p>
-                    <p className="text-sm leading-6 text-slate-400">
-                      このスライドが参照しているローカル保存写真を読み込めませんでした。
-                      再読み込みで直らない場合は、管理画面でこの project のローカル保存を削除し、
-                      online 状態で offline sync を再実行してください。
-                    </p>
-                    <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-left text-sm">
-                      <p className="font-semibold text-slate-100">次の操作</p>
-                      <div className="mt-3 space-y-3">
-                        {imageErrorGuidance.map((item) => (
-                          <div key={item.title}>
-                            <p className="font-medium text-slate-200">
-                              {item.title}
-                            </p>
-                            <p className="mt-1 leading-6 text-slate-400">
-                              {item.description}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <PlayerActionRow>
-                      <Button type="button" variant="secondary" onClick={reload}>
-                        再読み込み
-                      </Button>
-                      <Button asChild variant="secondary">
-                        <Link href="/admin">管理画面で修復する</Link>
-                      </Button>
-                    </PlayerActionRow>
-                  </div>
-                ) : null}
-
-                {imageStatus === "ready" && objectUrl ? (
-                  <img
-                    key={objectUrl}
-                    src={objectUrl}
-                    alt={currentSlide.assetName ?? "現在のスライド画像"}
-                    draggable={false}
-                    onDragStart={(event) => event.preventDefault()}
-                    onLoad={() => setLoadedImageObjectUrl(objectUrl)}
-                    style={{
-                      objectFit: "contain",
-                      width: "100%",
-                      height: "100%",
-                      userSelect: "none",
-                      WebkitUserSelect: "none",
-                    }}
-                  />
-                ) : null}
-
-                {imageStatus === "idle" ? (
-                  <p className="text-slate-500">
-                    ローカル保存されたスライド画像を準備しています。
-                  </p>
-                ) : null}
-              </div>
-
-              {currentSlideCaption ? (
-                <p
-                  className="mt-4 text-center text-lg leading-8 text-slate-200"
-                  style={{
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                  }}
-                >
-                  {currentSlideCaption}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="flex items-center justify-center gap-6">
-              <Button
-                variant="outline"
-                size="icon"
-                className="rounded-full"
-                aria-label="前のスライドへ"
-                disabled={safeCurrentSlideIndex === 0}
-                onClick={goToPreviousSlide}
-              >
-                ＜
-              </Button>
-              <span className="text-slate-300">
-                {safeCurrentSlideIndex + 1} / {slideCount}
-              </span>
-              <Button
-                variant="outline"
-                size="icon"
-                className="rounded-full"
-                aria-label="次のスライドへ"
-                disabled={safeCurrentSlideIndex === slideCount - 1}
-                onClick={goToNextSlide}
-              >
-                ＞
-              </Button>
-            </div>
-          </>
-        ) : null}
       </div>
     </main>
   );
