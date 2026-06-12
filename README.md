@@ -24,7 +24,7 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/player/` のiPad横向き再生UI polish
 - 複数project playback準備、project selector、`/player/?projectId=...`
 - Vercel productionでProject A / Project Bのoffline sync、confirmed store複数保持、player selector、project指定再生を確認
-- `/player/` 本番モード、操作ロック、2秒長押しロック解除
+- `/player/` 本番モード、操作ロック、lock中の左右swipe navigation、2秒長押しロック解除
 
 ## 公開URL
 

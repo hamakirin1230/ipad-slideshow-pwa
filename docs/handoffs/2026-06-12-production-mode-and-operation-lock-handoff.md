@@ -35,7 +35,8 @@ confirmed storeに複数projectを保持
 normal modeの再生UIに本番モード開始ボタンを追加
 production mode ONで通常操作UIを非表示
 production mode ONでlockもON
-lock中はtap / swipe / next / previous / project selector戻り / playback toggleを無効化
+lock中はtap UI / next / previous button / project selector戻り / playback toggleを無効化
+lock中も左右swipeによるslide navigationは許可
 lock中も自動送りは継続
 右上の2秒長押しでlock解除
 lock解除後もproduction modeは維持
@@ -100,9 +101,34 @@ PWA再起動後にproduction modeが復元されても、lockは`unlocked`から
 
 ### 自動送り
 
-手動操作の`goToNextSlide()`とは別に、タイマー用の`advanceToNextSlide()`を追加した。
+visible controls用の`goToNextSlide()` / `goToPreviousSlide()`とは別に、UI表示を伴わない`moveToNextSlide()` / `moveToPreviousSlide()`を追加した。
 
-これにより、lock中は手動next / previousを止めつつ、自動送りだけ継続できる。
+これにより、lock中はbutton操作を止めつつ、自動送りと左右swipeだけ継続できる。
+
+### swipe navigation
+
+production mode / lock中でも、左右swipeだけはslide index変更として許可する。
+
+許可するもの:
+
+```txt
+左swipeで次のslide
+右swipeで前のslide
+```
+
+許可しないもの:
+
+```txt
+tapによるcontrols表示
+project selectorへ戻る操作
+playback pause / resume
+reload
+admin / home遷移
+lock解除
+production mode終了
+```
+
+swipeしてもlock状態は変わらず、通常操作UIも表示しない。
 
 ## UI
 
@@ -124,6 +150,7 @@ production mode:
 ```txt
 スライド画像を全面表示
 通常操作UIを非表示
+左右swipeで必要時に画像を送れる
 右上に小さい本番モード/ロックUI
 lock中は「長押しでロック解除」
 unlock後は「ロック」「本番終了」
@@ -146,6 +173,8 @@ Browser console errorなし
 
 ```txt
 production mode ON/OFF
+lock中の左右swipe navigation
+lock中にtapしてもcontrolsが表示されないこと
 2秒長押しunlock
 /player/?projectId=<Project A>
 /player/?projectId=<Project B>

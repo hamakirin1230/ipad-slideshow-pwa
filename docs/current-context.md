@@ -188,7 +188,9 @@ production mode ONでlockもON
 production mode OFFでlockもOFF
 lock状態は永続化しない
 lock中も自動送りは継続
-production mode中は通常操作UI、project selector戻り、next/previous、playback toggleを非表示・無効化
+production mode中は通常操作UI、project selector戻り、next/previous button、playback toggleを非表示・無効化
+production mode / lock中も左右swipeによるslide navigationは許可
+lock中にtapしてもcontrolsは表示しない
 lock解除は右上の2秒長押し
 lock解除後もproduction modeは維持
 ```
@@ -210,7 +212,7 @@ Browser console errorなし
 
 ```text
 ローカル環境にはconfirmed projectがないため、
-production mode ON/OFF、2秒長押しunlock、Project A / Project Bの実データ再生はVercel production / iPad PWA側で確認する。
+production mode ON/OFF、lock中swipe navigation、2秒長押しunlock、Project A / Project Bの実データ再生はVercel production / iPad PWA側で確認する。
 ```
 
 ## 次に自然な作業

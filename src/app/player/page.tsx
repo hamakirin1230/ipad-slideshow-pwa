@@ -83,7 +83,8 @@ export default function PlayerPage() {
   const slideCount = readySnapshot?.slides.length ?? 0;
   const isProductionMode = presentationMode === "production";
   const isInteractionLocked = interactionLock === "locked";
-  const canUseManualSlideControls = !isProductionMode && !isInteractionLocked;
+  const canUseVisibleControls = !isProductionMode && !isInteractionLocked;
+  const canToggleControlsByTap = canUseVisibleControls;
   const swipeStartRef = useRef<SwipeStart | null>(null);
 
   const resetSwipeStart = useCallback(() => {
@@ -91,31 +92,34 @@ export default function PlayerPage() {
   }, []);
 
   const revealControls = useCallback(() => {
-    if (isProductionMode) {
+    if (!canUseVisibleControls) {
       return;
     }
 
     setAreControlsVisible(true);
-  }, [isProductionMode]);
+  }, [canUseVisibleControls]);
 
-  const advanceToNextSlide = useCallback(() => {
+  const moveToPreviousSlide = useCallback(() => {
+    if (slideCount === 0) return;
+    setCurrentSlideIndex((current) => Math.max(0, current - 1));
+  }, [slideCount]);
+
+  const moveToNextSlide = useCallback(() => {
     if (slideCount === 0) return;
     setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
   }, [slideCount]);
 
   const goToPreviousSlide = useCallback(() => {
-    if (!canUseManualSlideControls) return;
-    if (slideCount === 0) return;
+    if (!canUseVisibleControls) return;
     revealControls();
-    setCurrentSlideIndex((current) => Math.max(0, current - 1));
-  }, [canUseManualSlideControls, revealControls, slideCount]);
+    moveToPreviousSlide();
+  }, [canUseVisibleControls, moveToPreviousSlide, revealControls]);
 
   const goToNextSlide = useCallback(() => {
-    if (!canUseManualSlideControls) return;
-    if (slideCount === 0) return;
+    if (!canUseVisibleControls) return;
     revealControls();
-    setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
-  }, [canUseManualSlideControls, revealControls, slideCount]);
+    moveToNextSlide();
+  }, [canUseVisibleControls, moveToNextSlide, revealControls]);
 
   const enterProductionMode = useCallback(() => {
     setPresentationMode("production");
@@ -149,11 +153,6 @@ export default function PlayerPage() {
 
     event.preventDefault();
 
-    if (isProductionMode || isInteractionLocked) {
-      resetSwipeStart();
-      return;
-    }
-
     swipeStartRef.current = {
       clientX: event.clientX,
       clientY: event.clientY,
@@ -162,7 +161,9 @@ export default function PlayerPage() {
       wereControlsVisible: areControlsVisible,
     };
 
-    revealControls();
+    if (canToggleControlsByTap) {
+      revealControls();
+    }
 
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -172,10 +173,6 @@ export default function PlayerPage() {
   };
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (isProductionMode || isInteractionLocked) {
-      return;
-    }
-
     const start = swipeStartRef.current;
 
     if (!start || start.pointerId !== event.pointerId || start.didTrigger) {
@@ -184,9 +181,11 @@ export default function PlayerPage() {
 
     const dx = event.clientX - start.clientX;
     const dy = event.clientY - start.clientY;
+    const canUseSwipeNavigation = slideCount > 0 && imageStatus !== "error";
 
     if (Math.abs(dx) < 50) return;
     if (Math.abs(dx) <= Math.abs(dy)) return;
+    if (!canUseSwipeNavigation) return;
 
     event.preventDefault();
 
@@ -196,18 +195,13 @@ export default function PlayerPage() {
     };
 
     if (dx < 0) {
-      goToNextSlide();
+      moveToNextSlide();
     } else {
-      goToPreviousSlide();
+      moveToPreviousSlide();
     }
   };
 
   const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    if (isProductionMode || isInteractionLocked) {
-      resetSwipeStart();
-      return;
-    }
-
     const start = swipeStartRef.current;
 
     if (!start || start.pointerId !== event.pointerId) {
@@ -216,17 +210,26 @@ export default function PlayerPage() {
 
     const dx = event.clientX - start.clientX;
     const dy = event.clientY - start.clientY;
+    const canUseSwipeNavigation = slideCount > 0 && imageStatus !== "error";
 
     if (!start.didTrigger) {
-      if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) {
+      if (
+        canUseSwipeNavigation &&
+        Math.abs(dx) >= 50 &&
+        Math.abs(dx) > Math.abs(dy)
+      ) {
         event.preventDefault();
 
         if (dx < 0) {
-          goToNextSlide();
+          moveToNextSlide();
         } else {
-          goToPreviousSlide();
+          moveToPreviousSlide();
         }
-      } else if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+      } else if (
+        canToggleControlsByTap &&
+        Math.abs(dx) < 8 &&
+        Math.abs(dy) < 8
+      ) {
         setAreControlsVisible(!start.wereControlsVisible);
       }
     }
@@ -308,7 +311,7 @@ export default function PlayerPage() {
     }
 
     const timeoutId = setTimeout(() => {
-      advanceToNextSlide();
+      moveToNextSlide();
     }, currentSlideDurationSeconds * 1000);
 
     return () => clearTimeout(timeoutId);
@@ -320,7 +323,7 @@ export default function PlayerPage() {
     slideCount,
     safeCurrentSlideIndex,
     currentSlideDurationSeconds,
-    advanceToNextSlide,
+    moveToNextSlide,
   ]);
 
   const isSnapshotLoading = snapshotLoadStatus === "loading";
