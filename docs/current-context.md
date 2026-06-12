@@ -76,6 +76,7 @@ confirmed store promotion
 /admin slide bulk delete
 /admin slide duplicate
 /admin drag handle compact display
+/admin unused Drive asset cleanup preview
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
 ```
@@ -159,6 +160,11 @@ ipad-slideshow-pwa-app-shell-v1
 - Drive上の画像順の正は`manifest.json.slides[]`の配列順
 - Photos Pickerから追加したslideは現在の`manifest.json.slides[]`末尾へ、選択順のままappendする
 - Drive上のslide削除・複製も`manifest.json.slides[]`だけを変更し、Drive assets/内の画像ファイルは削除・コピーしない
+- orphan asset cleanup previewはread-onlyで、`manifest.json.slides[]`から参照されないapp-managed asset filesだけを検出する
+- orphan asset cleanup previewではDrive fileの物理削除を実装しない
+- orphan asset cleanup previewでは`manifest.json` / `index.json` / `assets/`配下のfileを更新しない
+- cleanup previewの診断にもaccess token、Authorization header、Drive download URL、raw API URLを含めない
+- Player反映は従来どおりoffline sync経由で、cleanup preview自体はPlayer snapshotやIndexedDBを変更しない
 - project単位ローカル削除ではDrive上のデータを削除しない
 - app shell cache削除ではIndexedDBのproject / asset / Blobを削除しない
 

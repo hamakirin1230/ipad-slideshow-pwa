@@ -32,6 +32,7 @@ import {
   DriveProjectSlideDuplicateError,
   DriveProjectSlideReorderError,
   DriveProjectTitleUpdateError,
+  DriveProjectUnusedAssetPreviewError,
   DriveWorkspaceCreateError,
   appendDriveProjectAssetsToManifest,
   createDriveProject,
@@ -41,6 +42,7 @@ import {
   fetchDriveProjectAssetBlob,
   findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
+  previewDriveProjectUnusedAssets,
   readDriveTextFile,
   reorderDriveProjectSlides,
   saveDriveProjectAsset,
@@ -56,6 +58,7 @@ import {
   type DriveProjectReadyDetails,
   type DriveProjectSavedAsset,
   type DriveProjectSummary,
+  type DriveProjectUnusedAssetPreviewResult,
   type DriveWorkspaceChildRole,
   type DriveWorkspaceReadyContext,
   type DriveWorkspaceRootCandidate,
@@ -90,6 +93,7 @@ const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
 const OFFLINE_SYNC_DIAGNOSTIC_MAX_LENGTH = 160;
+const ASSET_CLEANUP_PREVIEW_DIAGNOSTIC_MAX_LENGTH = 160;
 
 const unsafeAssetImportDiagnosticPatterns = [
   /access[_-]?token/i,
@@ -168,6 +172,14 @@ export type SlideEditStatus =
   | "deleting"
   | "duplicating"
   | "completed"
+  | "blocked"
+  | "invalid"
+  | "error";
+
+export type AssetCleanupPreviewStatus =
+  | "idle"
+  | "checking"
+  | "ready"
   | "blocked"
   | "invalid"
   | "error";
@@ -410,6 +422,13 @@ type AppContextValue = {
   isSlideDuplicateInFlight: boolean;
   slideEditBlockedReason: string | null;
 
+  assetCleanupPreviewStatus: AssetCleanupPreviewStatus;
+  assetCleanupPreviewMessage: string | null;
+  assetCleanupPreviewDiagnostics: string[];
+  assetCleanupPreviewResult: DriveProjectUnusedAssetPreviewResult | null;
+  isAssetCleanupPreviewInFlight: boolean;
+  assetCleanupPreviewBlockedReason: string | null;
+
   offlineSyncStatus: OfflineSyncStatus;
   offlineSyncStatusLabel: string;
   offlineSyncMessage: string;
@@ -433,6 +452,7 @@ type AppContextValue = {
   reorderProjectSlidesByDrag: (orderedSlideIds: string[]) => Promise<boolean>;
   deleteProjectSlides: (slideIds: string[]) => Promise<boolean>;
   duplicateProjectSlide: (slideId: string) => Promise<boolean>;
+  previewUnusedProjectAssets: () => void;
   startAssetImport: () => void;
   cancelAssetImport: () => void;
   startOfflineSync: () => void;
@@ -522,6 +542,9 @@ const initialSlideReorderMessage =
 const initialSlideEditMessage =
   "Drive project ready 後に画像順変更、slide削除、slide複製を実行できます。";
 
+const initialAssetCleanupPreviewMessage =
+  "Drive project ready 後に未使用asset cleanup previewを実行できます。";
+
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProviders({ children }: { children: ReactNode }) {
@@ -554,6 +577,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     useRef<DriveOfflineStagingSyncRuntime | null>(null);
   const offlineSyncRequestIdRef = useRef(0);
   const offlineSyncInFlightRef = useRef(false);
+  const assetCleanupPreviewInFlightRef = useRef(false);
 
   if (offlineSyncRuntimeRef.current === null) {
     offlineSyncRuntimeRef.current = createDriveOfflineStagingSyncRuntime();
@@ -639,6 +663,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [isSlideDeleteInFlight, setIsSlideDeleteInFlight] = useState(false);
   const [isSlideDuplicateInFlight, setIsSlideDuplicateInFlight] =
     useState(false);
+  const [assetCleanupPreviewStatus, setAssetCleanupPreviewStatus] =
+    useState<AssetCleanupPreviewStatus>("idle");
+  const [assetCleanupPreviewMessage, setAssetCleanupPreviewMessage] = useState<
+    string | null
+  >(initialAssetCleanupPreviewMessage);
+  const [assetCleanupPreviewDiagnostics, setAssetCleanupPreviewDiagnostics] =
+    useState<string[]>([]);
+  const [assetCleanupPreviewResult, setAssetCleanupPreviewResult] =
+    useState<DriveProjectUnusedAssetPreviewResult | null>(null);
+  const [
+    isAssetCleanupPreviewInFlight,
+    setIsAssetCleanupPreviewInFlight,
+  ] = useState(false);
 
   const [offlineSyncStatus, setOfflineSyncStatus] =
     useState<OfflineSyncStatus>("idle");
@@ -672,6 +709,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const canStartOfflineSync = offlineSyncBlockedReason === null;
   const slideReorderBlockedReason = getSlideReorderBlockedReason();
   const slideEditBlockedReason = getSlideEditBlockedReason();
+  const assetCleanupPreviewBlockedReason =
+    getAssetCleanupPreviewBlockedReason();
 
   function setDriveOperationInFlight(value: boolean) {
     driveOperationInFlightRef.current = value;
@@ -728,6 +767,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function setSlideDuplicateInFlightState(value: boolean) {
     setIsSlideDuplicateInFlight(value);
+  }
+
+  function setAssetCleanupPreviewInFlightState(value: boolean) {
+    assetCleanupPreviewInFlightRef.current = value;
+    setIsAssetCleanupPreviewInFlight(value);
   }
 
   function clearPendingPhotosTokenRequest(reason?: PhotosTokenRequestError) {
@@ -1138,8 +1182,57 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return null;
   }
 
+  function getAssetCleanupPreviewBlockedReason() {
+    if (
+      assetCleanupPreviewInFlightRef.current ||
+      isAssetCleanupPreviewInFlight
+    ) {
+      return "未使用asset cleanup previewを実行中です。";
+    }
+
+    if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
+      return "Drive操作中のため、cleanup previewは開始できません。";
+    }
+
+    if (assetImportInFlightRef.current || isAssetImportInFlight) {
+      return "素材追加処理中のため、cleanup previewは開始できません。";
+    }
+
+    if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
+      return "offline sync 実行中のため、cleanup previewは開始できません。";
+    }
+
+    if (isSlideEditInFlight || captionUpdateSlideId !== null) {
+      return "project編集処理中のため、cleanup previewは開始できません。";
+    }
+
+    if (googleStatus !== "connected" || driveFileGranted !== true) {
+      return "Google接続と drive.file 許可が必要です。";
+    }
+
+    if (!accessTokenRef.current) {
+      return "Google access_token を確認できません。Googleへ再接続してください。";
+    }
+
+    if (driveStatus !== "ready" || !workspaceReadyContext) {
+      return "Drive workspace ready 情報が必要です。";
+    }
+
+    if (projectStatus !== "ready" || !driveProjectReadyContext) {
+      return "Drive project ready 情報が必要です。";
+    }
+
+    return null;
+  }
+
   function setSafeOfflineSyncDiagnostics(diagnostics: string[]) {
     setOfflineSyncDiagnostics(sanitizeOfflineSyncDiagnostics(diagnostics));
+  }
+
+  function setSafeAssetCleanupPreviewDiagnostics(diagnostics: string[]) {
+    setAssetCleanupPreviewDiagnostics(
+      sanitizeAssetCleanupPreviewDiagnostics(diagnostics),
+    );
   }
 
   function resetOfflineSyncState() {
@@ -1188,6 +1281,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setSlideEditDiagnostics([]);
   }
 
+  function resetAssetCleanupPreviewState() {
+    setAssetCleanupPreviewInFlightState(false);
+    setAssetCleanupPreviewStatus("idle");
+    setAssetCleanupPreviewMessage(initialAssetCleanupPreviewMessage);
+    setSafeAssetCleanupPreviewDiagnostics([]);
+    setAssetCleanupPreviewResult(null);
+  }
+
   function clearProjectReadyDetails() {
     setDriveProjectReadyContext(null);
     setProjectDetails(null);
@@ -1196,6 +1297,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetCaptionUpdateState();
     resetSlideReorderState();
     resetSlideEditState();
+    resetAssetCleanupPreviewState();
     resetOfflineSyncState();
   }
 
@@ -1226,6 +1328,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
     });
     resetAssetImportState();
+    resetAssetCleanupPreviewState();
     setAssetImportMessage(
       "Google Photos Pickerで写真を複数件選択し、形式とサイズを確認できます。",
     );
@@ -3344,6 +3447,110 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  async function previewUnusedProjectAssets() {
+    const blockedReason = getAssetCleanupPreviewBlockedReason();
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    setSafeAssetCleanupPreviewDiagnostics([]);
+
+    if (blockedReason) {
+      setAssetCleanupPreviewStatus("blocked");
+      setAssetCleanupPreviewMessage("未使用asset previewを開始できませんでした。");
+      setSafeAssetCleanupPreviewDiagnostics([blockedReason]);
+      setAssetCleanupPreviewResult(null);
+      return;
+    }
+
+    if (!accessToken || !readyWorkspace || !readyProject) {
+      setAssetCleanupPreviewStatus("blocked");
+      setAssetCleanupPreviewMessage(
+        "未使用asset previewに必要な ready 情報が不足しています。",
+      );
+      setSafeAssetCleanupPreviewDiagnostics([
+        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Drive状態とプロジェクト状態を再確認してください。",
+      ]);
+      setAssetCleanupPreviewResult(null);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    setAssetCleanupPreviewInFlightState(true);
+    setAssetCleanupPreviewStatus("checking");
+    setAssetCleanupPreviewMessage("未使用asset previewを更新しています。");
+    setAssetCleanupPreviewResult(null);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+
+    try {
+      const result = await previewDriveProjectUnusedAssets({
+        accessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        project: readyProject,
+        runStep: (operation) => runDriveOperationStep(requestId, operation),
+      });
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setAssetCleanupPreviewStatus("ready");
+      setAssetCleanupPreviewMessage(
+        "未使用 asset preview を更新しました。Drive file は削除していません。",
+      );
+      setAssetCleanupPreviewResult(result);
+      setSafeAssetCleanupPreviewDiagnostics(result.diagnostics);
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (error instanceof DriveProjectUnusedAssetPreviewError) {
+        if (error.status === "authRequired") {
+          resetGoogleAfterDriveAuthFailure();
+          setDriveStatus("authRequired");
+          setDriveMessage(
+            "Google再接続が必要です。再接続後にDrive状態を再確認してください。",
+          );
+        }
+
+        setAssetCleanupPreviewStatus(
+          error.status === "invalidProject"
+            ? "invalid"
+            : error.status === "scanLimitExceeded"
+              ? "blocked"
+              : "error",
+        );
+        setAssetCleanupPreviewMessage("未使用 asset preview に失敗しました。");
+        setSafeAssetCleanupPreviewDiagnostics(error.diagnostics);
+        setAssetCleanupPreviewResult(null);
+        return;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+
+      setAssetCleanupPreviewStatus("error");
+      setAssetCleanupPreviewMessage("未使用 asset preview に失敗しました。");
+      setSafeAssetCleanupPreviewDiagnostics([
+        "未使用asset preview中に予期しないエラーが発生しました。",
+        "manifest.json / index.json は更新していません。",
+        "Drive assets/ のfileは更新・削除していません。",
+      ]);
+      setAssetCleanupPreviewResult(null);
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+        setAssetCleanupPreviewInFlightState(false);
+      }
+    }
+  }
+
   function applySlideManifestMutationSuccess(input: {
     readyWorkspace: DriveWorkspaceReadyContext;
     indexJsonText: string;
@@ -3587,6 +3794,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     isSlideDeleteInFlight,
     isSlideDuplicateInFlight,
     slideEditBlockedReason,
+    assetCleanupPreviewStatus,
+    assetCleanupPreviewMessage,
+    assetCleanupPreviewDiagnostics,
+    assetCleanupPreviewResult,
+    isAssetCleanupPreviewInFlight,
+    assetCleanupPreviewBlockedReason,
     offlineSyncStatus,
     offlineSyncStatusLabel: offlineSyncStatusLabels[offlineSyncStatus],
     offlineSyncMessage,
@@ -3609,6 +3822,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     reorderProjectSlidesByDrag,
     deleteProjectSlides,
     duplicateProjectSlide,
+    previewUnusedProjectAssets,
     startAssetImport,
     cancelAssetImport,
     startOfflineSync,
@@ -4378,6 +4592,16 @@ function sanitizeAssetImportDiagnostics(diagnostics: string[]) {
   );
 }
 
+function sanitizeAssetCleanupPreviewDiagnostics(diagnostics: string[]) {
+  return dedupeDiagnostics(
+    diagnostics
+      .map((diagnostic) => diagnostic.trim())
+      .filter((diagnostic) => diagnostic.length > 0)
+      .filter(isSafeAssetImportDiagnostic)
+      .map(truncateAssetCleanupPreviewDiagnostic),
+  );
+}
+
 function isSafeAssetImportDiagnostic(diagnostic: string) {
   if (
     unsafeAssetImportDiagnosticPatterns.some((pattern) =>
@@ -4400,6 +4624,14 @@ function truncateAssetImportDiagnostic(diagnostic: string) {
   }
 
   return `${diagnostic.slice(0, ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH)}...`;
+}
+
+function truncateAssetCleanupPreviewDiagnostic(diagnostic: string) {
+  if (diagnostic.length <= ASSET_CLEANUP_PREVIEW_DIAGNOSTIC_MAX_LENGTH) {
+    return diagnostic;
+  }
+
+  return `${diagnostic.slice(0, ASSET_CLEANUP_PREVIEW_DIAGNOSTIC_MAX_LENGTH)}...`;
 }
 
 function buildWorkspaceCreateFailureDiagnostics(

@@ -34,6 +34,8 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/admin/` drag handle表示を「≡」のみへ簡略化し、aria-label / titleは維持
 - `/player/` のcaptionテロップ下帯をiPad PWAでも残るように背景指定を強化
 - Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
+- `/admin/` で選択中projectのunused Drive asset cleanup previewを表示
+- cleanup previewの初期フェーズではDrive fileを削除しない
 
 ## 公開URL
 
@@ -47,7 +49,7 @@ https://ipad-slideshow-pwa.vercel.app/
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、Photos Picker batch素材追加、画像順変更、複数slide削除、slide複製、テロップ編集、offline sync、confirmed store、storage管理
+- `/admin` Drive project、Photos Picker batch素材追加、unused Drive asset preview、画像順変更、複数slide削除、slide複製、テロップ編集、offline sync、confirmed store、storage管理
 - `/player` iPad offline-first再生、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
 - `/auth-test` OAuth単体確認用の開発ページ
 
@@ -66,6 +68,7 @@ https://ipad-slideshow-pwa.vercel.app/
 - iPad側のローカル削除ではGoogle Drive上のデータを削除しない
 - Drive上の画像順・caption変更をiPad再生へ反映するには、対象projectのoffline syncを実行する
 - Drive上のslide削除・複製をiPad再生へ反映するにも、対象projectのoffline syncを実行する
+- Drive cleanup previewは未使用assetの検出のみで、Drive fileの物理削除は未対応
 
 ## ローカル起動
 
@@ -95,6 +98,7 @@ npm run build
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-06-13-orphan-asset-cleanup-preview-handoff.md`
 - `docs/handoffs/2026-06-13-player-admin-polish-fixes-handoff.md`
 - `docs/handoffs/2026-06-12-slide-dnd-delete-duplicate-handoff.md`
 - `docs/handoffs/2026-06-12-player-auto-advance-transition-and-slide-reorder-handoff.md`

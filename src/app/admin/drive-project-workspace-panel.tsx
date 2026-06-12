@@ -28,6 +28,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAppState } from "@/app/app-providers";
+import { AssetCleanupPreviewPanel } from "./asset-cleanup-preview-panel";
 import { AssetImportPanel } from "./asset-import-panel";
 
 const SLIDE_CAPTION_MAX_LENGTH = 80;
@@ -361,6 +362,10 @@ export function DriveProjectWorkspacePanel() {
             <AssetImportPanel />
           </CardContent>
         </Card>
+      </section>
+
+      <section>
+        <AssetCleanupPreviewPanel />
       </section>
 
       <section>

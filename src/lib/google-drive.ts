@@ -23,6 +23,7 @@ const DRIVE_PROJECT_MAX_SLIDE_COUNT = 50;
 export const DRIVE_PROJECT_SLIDE_CAPTION_MAX_LENGTH = 80;
 const DRIVE_PROJECT_ASSET_PREVIEW_SIZE_LIMIT_BYTES = 10 * 1024 * 1024;
 const DRIVE_PROJECT_DEFAULT_SLIDE_DURATION_SECONDS = 10;
+const DRIVE_PROJECT_UNUSED_ASSET_SCAN_LIMIT = 500;
 
 const CREATE_FOLDER_FIELDS =
   "id,name,mimeType,createdTime,modifiedTime,appProperties";
@@ -271,6 +272,12 @@ export type DriveProjectSlideDuplicateFailureStatus =
   | "indexUpdateFailed"
   | "verificationFailed";
 
+export type DriveProjectUnusedAssetPreviewFailureStatus =
+  | "authRequired"
+  | "invalidProject"
+  | "operationFailed"
+  | "scanLimitExceeded";
+
 export type DriveProjectSlideCaptionUpdateInput = {
   accessToken: string;
   workspaceId: string;
@@ -360,6 +367,29 @@ export type DriveProjectTitleUpdateResult = {
   details: DriveProjectReadyDetails;
   manifestJsonText: string;
   indexJsonText: string;
+  diagnostics: string[];
+};
+
+export type DriveProjectUnusedAssetSummary = {
+  assetFileId: string;
+  assetFileIdPart: string;
+  assetId: string | null;
+  assetIdPart: string;
+  assetName: string;
+  mimeType: string;
+  sizeBytes: number | null;
+  createdTime: string | null;
+  modifiedTime: string | null;
+  referenceSlideCount: number;
+};
+
+export type DriveProjectUnusedAssetPreviewResult = {
+  project: DriveProjectSummary;
+  scannedAssetCount: number;
+  referencedAssetFileCount: number;
+  unusedAssetCount: number;
+  unusedAssets: DriveProjectUnusedAssetSummary[];
+  ignoredFileCount: number;
   diagnostics: string[];
 };
 
@@ -491,6 +521,7 @@ export type DriveJsonBodyValidationResult =
 
 type DriveFilesListResponse = {
   files?: unknown[];
+  nextPageToken?: unknown;
 };
 
 type DriveCreateMetadata = {
@@ -748,6 +779,24 @@ export class DriveProjectSlideDuplicateError extends Error {
   }
 }
 
+export class DriveProjectUnusedAssetPreviewError extends Error {
+  status: DriveProjectUnusedAssetPreviewFailureStatus;
+  diagnostics: string[];
+  cause?: unknown;
+
+  constructor(input: {
+    status: DriveProjectUnusedAssetPreviewFailureStatus;
+    diagnostics: string[];
+    cause?: unknown;
+  }) {
+    super("Drive project unused asset preview failed.");
+    this.name = "DriveProjectUnusedAssetPreviewError";
+    this.status = input.status;
+    this.diagnostics = [...input.diagnostics];
+    this.cause = input.cause;
+  }
+}
+
 export async function findWorkspaceRootCandidates(
   accessToken: string,
   signal: AbortSignal,
@@ -805,6 +854,111 @@ export async function readDriveTextFile(
   }
 
   return response.text();
+}
+
+export async function previewDriveProjectUnusedAssets(input: {
+  accessToken: string;
+  workspaceId: string;
+  project: DriveProjectSummary;
+  runStep: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+}): Promise<DriveProjectUnusedAssetPreviewResult> {
+  const inputDiagnostics = validateDriveProjectUnusedAssetPreviewInput(input);
+
+  if (inputDiagnostics.length > 0) {
+    throw new DriveProjectUnusedAssetPreviewError({
+      status: input.accessToken ? "invalidProject" : "authRequired",
+      diagnostics: inputDiagnostics,
+    });
+  }
+
+  try {
+    const manifestResult = await input.runStep(async (signal) => {
+      const manifestJsonText = await readDriveTextFile(
+        input.accessToken,
+        input.project.manifestFileId,
+        signal,
+      );
+
+      return parseDriveProjectManifestJson({
+        manifestJsonText,
+        expectedWorkspaceId: input.workspaceId,
+        project: input.project,
+      });
+    });
+
+    if (manifestResult.status === "invalid") {
+      throw new DriveProjectUnusedAssetPreviewError({
+        status: "invalidProject",
+        diagnostics: manifestResult.diagnostics,
+      });
+    }
+
+    const assetFiles = await input.runStep((signal) =>
+      listDriveProjectAssetFolderChildren({
+        accessToken: input.accessToken,
+        assetsFolderId: input.project.assetsFolderId,
+        scanLimit: DRIVE_PROJECT_UNUSED_ASSET_SCAN_LIMIT,
+        signal,
+      }),
+    );
+    const referencedAssetFileCounts = new Map<string, number>();
+
+    for (const slide of manifestResult.manifest.slides) {
+      referencedAssetFileCounts.set(
+        slide.assetFileId,
+        (referencedAssetFileCounts.get(slide.assetFileId) ?? 0) + 1,
+      );
+    }
+
+    const appManagedAssetFiles = assetFiles.filter((file) =>
+      isPreviewableAppManagedAssetFile({
+        file,
+        workspaceId: input.workspaceId,
+        projectId: input.project.projectId,
+      }),
+    );
+    const ignoredFileCount = assetFiles.length - appManagedAssetFiles.length;
+    const unusedAssets = appManagedAssetFiles
+      .filter((file) => !referencedAssetFileCounts.has(file.id))
+      .map(toDriveProjectUnusedAssetSummary)
+      .sort(compareDriveProjectUnusedAssetSummaries);
+    const diagnostics = [
+      ...manifestResult.diagnostics,
+      `Drive assets/ のmetadataを ${assetFiles.length} 件確認しました。`,
+      `アプリ管理asset fileを ${appManagedAssetFiles.length} 件確認しました。`,
+    ];
+
+    if (ignoredFileCount > 0) {
+      diagnostics.push(
+        "アプリ管理assetと確認できないfileはcleanup preview対象外です。",
+      );
+    }
+
+    diagnostics.push("Drive file は削除していません。");
+
+    return {
+      project: input.project,
+      scannedAssetCount: appManagedAssetFiles.length,
+      referencedAssetFileCount: referencedAssetFileCounts.size,
+      unusedAssetCount: unusedAssets.length,
+      unusedAssets,
+      ignoredFileCount,
+      diagnostics,
+    };
+  } catch (error) {
+    if (error instanceof DriveProjectUnusedAssetPreviewError) {
+      throw error;
+    }
+
+    throw new DriveProjectUnusedAssetPreviewError({
+      status:
+        error instanceof DriveApiError && [401, 403].includes(error.status)
+          ? "authRequired"
+          : "operationFailed",
+      diagnostics: buildDriveProjectUnusedAssetPreviewFailureDiagnostics(error),
+      cause: error,
+    });
+  }
 }
 
 export async function fetchDriveProjectAssetBlob(input: {
@@ -5689,6 +5843,174 @@ export function validateDriveProjectSlideCaption(caption: string) {
       `テロップは ${DRIVE_PROJECT_SLIDE_CAPTION_MAX_LENGTH} 文字以内で入力してください。`,
     );
   }
+
+  return diagnostics;
+}
+
+function validateDriveProjectUnusedAssetPreviewInput(input: {
+  accessToken: string;
+  workspaceId: string;
+  project: DriveProjectSummary;
+}) {
+  const diagnostics: string[] = [];
+
+  if (!input.accessToken) {
+    diagnostics.push("未使用asset preview用のaccessTokenがありません。");
+  }
+
+  if (!isUuidV4(input.workspaceId)) {
+    diagnostics.push("未使用asset preview対象のworkspaceIdがUUID形式ではありません。");
+  }
+
+  if (!isUuidV4(input.project.projectId)) {
+    diagnostics.push("未使用asset preview対象のprojectIdがUUID形式ではありません。");
+  }
+
+  if (!isNonEmptyString(input.project.manifestFileId)) {
+    diagnostics.push("未使用asset preview対象のmanifestFileIdが空です。");
+  }
+
+  if (!isNonEmptyString(input.project.assetsFolderId)) {
+    diagnostics.push("未使用asset preview対象のassetsFolderIdが空です。");
+  }
+
+  return diagnostics;
+}
+
+async function listDriveProjectAssetFolderChildren(input: {
+  accessToken: string;
+  assetsFolderId: string;
+  scanLimit: number;
+  signal: AbortSignal;
+}): Promise<DriveFileCandidate[]> {
+  const files: DriveFileCandidate[] = [];
+  let pageToken: string | null = null;
+
+  do {
+    const params = new URLSearchParams({
+      corpora: "user",
+      spaces: "drive",
+      pageSize: "100",
+      fields:
+        "nextPageToken,files(id,name,mimeType,createdTime,modifiedTime,appProperties,size,parents)",
+      q: [
+        `'${escapeDriveQueryValue(input.assetsFolderId)}' in parents`,
+        "trashed = false",
+      ].join(" and "),
+    });
+
+    if (pageToken) {
+      params.set("pageToken", pageToken);
+    }
+
+    const response = await fetch(
+      `${DRIVE_API_FILES_URL}?${params.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${input.accessToken}`,
+        },
+        signal: input.signal,
+      },
+    );
+
+    if (!response.ok) {
+      throw new DriveApiError(response.status);
+    }
+
+    const body = (await response.json()) as DriveFilesListResponse;
+    const pageFiles = Array.isArray(body.files)
+      ? body.files
+          .map(normalizeDriveFile)
+          .filter((file): file is DriveFileCandidate => file !== null)
+      : [];
+
+    files.push(...pageFiles);
+
+    if (files.length > input.scanLimit) {
+      throw new DriveProjectUnusedAssetPreviewError({
+        status: "scanLimitExceeded",
+        diagnostics: [
+          "asset file 数がscan上限を超えたためpreviewを中断しました。",
+          `scan上限: ${input.scanLimit}件`,
+          "中途半端なcleanup候補は表示していません。",
+          "Drive file は削除していません。",
+        ],
+      });
+    }
+
+    pageToken =
+      typeof body.nextPageToken === "string" && body.nextPageToken.length > 0
+        ? body.nextPageToken
+        : null;
+  } while (pageToken);
+
+  return files;
+}
+
+function isPreviewableAppManagedAssetFile(input: {
+  file: DriveFileCandidate;
+  workspaceId: string;
+  projectId: string;
+}) {
+  const { appProperties } = input.file;
+
+  return (
+    appProperties.app === DRIVE_WORKSPACE_APP_ID &&
+    appProperties.role === "asset" &&
+    appProperties.workspaceId === input.workspaceId &&
+    appProperties.projectId === input.projectId &&
+    isDriveAssetMimeType(input.file.mimeType)
+  );
+}
+
+function toDriveProjectUnusedAssetSummary(
+  file: DriveFileCandidate,
+): DriveProjectUnusedAssetSummary {
+  const assetId = isUuidV4(file.appProperties.assetId)
+    ? file.appProperties.assetId
+    : null;
+
+  return {
+    assetFileId: file.id,
+    assetFileIdPart: formatDriveIdPart(file.id),
+    assetId,
+    assetIdPart: assetId ? formatDriveIdPart(assetId) : "未設定",
+    assetName: file.name,
+    mimeType: file.mimeType,
+    sizeBytes: typeof file.sizeBytes === "number" ? file.sizeBytes : null,
+    createdTime: file.createdTime ?? null,
+    modifiedTime: file.modifiedTime ?? null,
+    referenceSlideCount: 0,
+  };
+}
+
+function compareDriveProjectUnusedAssetSummaries(
+  left: DriveProjectUnusedAssetSummary,
+  right: DriveProjectUnusedAssetSummary,
+) {
+  const createdTimeComparison = (left.createdTime ?? "").localeCompare(
+    right.createdTime ?? "",
+  );
+
+  if (createdTimeComparison !== 0) {
+    return createdTimeComparison;
+  }
+
+  return left.assetName.localeCompare(right.assetName);
+}
+
+function buildDriveProjectUnusedAssetPreviewFailureDiagnostics(error: unknown) {
+  const diagnostics = ["未使用asset preview中にエラーが発生しました。"];
+
+  if (error instanceof DriveApiError) {
+    diagnostics.push(`Drive API status: ${error.status}`);
+  }
+
+  diagnostics.push(
+    "manifest.json / index.json は更新していません。",
+    "Drive assets/ のfileは更新・削除していません。",
+  );
 
   return diagnostics;
 }
