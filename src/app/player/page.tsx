@@ -666,6 +666,33 @@ export default function PlayerPage() {
           />
         ) : null}
 
+        {currentSlideCaption ? (
+          <div
+            className={
+              isProductionMode
+                ? "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pt-20 sm:px-6"
+                : "pointer-events-none absolute inset-x-0 bottom-20 z-10 px-4 sm:bottom-24 sm:px-6"
+            }
+            style={
+              isProductionMode
+                ? { paddingBottom: "max(env(safe-area-inset-bottom), 1.25rem)" }
+                : undefined
+            }
+          >
+            <p
+              className="mx-auto max-w-4xl rounded-xl bg-black/45 px-4 py-2 text-center text-base leading-7 text-slate-100 shadow-2xl drop-shadow backdrop-blur-sm sm:text-xl sm:leading-8"
+              style={{
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {currentSlideCaption}
+            </p>
+          </div>
+        ) : null}
+
         {!isProductionMode ? (
           <div
             className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/35 to-transparent px-4 pt-20 sm:px-6"
@@ -673,20 +700,6 @@ export default function PlayerPage() {
               paddingBottom: "max(env(safe-area-inset-bottom), 1rem)",
             }}
           >
-            {currentSlideCaption ? (
-              <p
-                className="mx-auto mb-4 max-w-4xl text-center text-base leading-7 text-slate-100 drop-shadow sm:text-xl sm:leading-8"
-                style={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
-                {currentSlideCaption}
-              </p>
-            ) : null}
-
             <div
               className={`mx-auto flex max-w-xl items-center justify-center gap-4 transition-opacity duration-300 ${controlsVisibilityClassName}`}
             >

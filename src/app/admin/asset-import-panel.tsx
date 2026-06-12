@@ -2,7 +2,11 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useAppState, type AssetImportStatus } from "@/app/app-providers";
+import {
+  useAppState,
+  type AssetImportBatchItemStatus,
+  type AssetImportStatus,
+} from "@/app/app-providers";
 
 export function AssetImportPanel() {
   const {
@@ -10,7 +14,10 @@ export function AssetImportPanel() {
     assetImportStatusLabel,
     assetImportMessage,
     assetImportDiagnostics,
-    assetImportSelection,
+    assetImportBatch,
+    assetImportBatchSummary,
+    remainingSlideSlots,
+    assetImportMaxBatchCount,
     canImportAssets,
     canStartAssetImport,
     assetImportBlockedReason,
@@ -56,118 +63,104 @@ export function AssetImportPanel() {
       ) : null}
 
       <p className="mt-3 text-slate-500">
-        Google Photos Pickerで写真を1件選び、選択中projectの Drive assets/
-        への保存、manifest.json への反映、index.json updatedAt同期、更新後再検証まで実行します。
+        Google Photos Pickerで写真を複数件選び、選択中projectの Drive assets/
+        へ順次保存し、成功分をmanifest.json にまとめて反映します。
       </p>
 
-      {assetImportSelection ? (
+      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
+        <SummaryPill label="追加可能" value={`${remainingSlideSlots}枚`} />
+        <SummaryPill label="1回の上限" value={`${assetImportMaxBatchCount}枚`} />
+        <SummaryPill
+          label="今回の選択"
+          value={`${assetImportBatchSummary.selectedCount}枚`}
+        />
+      </div>
+
+      {assetImportBatch.length > 0 ? (
         <div
           className={
-            assetImportSelection.driveSaved && assetImportSelection.manifestUpdated
+            assetImportBatchSummary.failedCount === 0 &&
+            assetImportBatchSummary.manifestUpdatedCount > 0
               ? "mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-950"
-              : assetImportSelection.driveSaved
+              : assetImportBatchSummary.savedCount > assetImportBatchSummary.manifestUpdatedCount
                 ? "mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950"
-                : "mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-950"
+                : "mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-950"
           }
         >
           <p className="font-medium">
-            {assetImportSelection.driveSaved && assetImportSelection.manifestUpdated
+            {assetImportBatchSummary.failedCount === 0 &&
+            assetImportBatchSummary.manifestUpdatedCount > 0
               ? "素材追加完了サマリー"
-              : assetImportSelection.driveSaved
-                ? "Drive保存済み・manifest未反映サマリー"
-                : "保存前の選択結果サマリー"}
+              : assetImportBatchSummary.savedCount >
+                  assetImportBatchSummary.manifestUpdatedCount
+                ? "Drive保存済み・manifest未反映の可能性があります"
+                : "素材追加batchサマリー"}
           </p>
-          <p
-            className={
-              assetImportSelection.driveSaved && assetImportSelection.manifestUpdated
-                ? "mt-2 text-sm text-emerald-800"
-                : assetImportSelection.driveSaved
-                  ? "mt-2 text-sm text-amber-800"
-                  : "mt-2 text-sm text-emerald-800"
-            }
-          >
-            {assetImportSelection.driveSaved && assetImportSelection.manifestUpdated
-              ? "Drive保存、manifest反映、index.json updatedAt同期、更新後再検証が完了しました。"
-              : assetImportSelection.driveSaved
-                ? "写真をDrive assets/ に保存し、metadataを確認しました。manifest反映は未実行、または完了確認できていません。"
-                : "写真を1件選択し、形式とサイズを確認しました。Drive保存とmanifest反映は未実行です。"}
+          <p className="mt-2 text-sm opacity-80">
+            成功 {assetImportBatchSummary.manifestUpdatedCount} 件 / Drive保存{" "}
+            {assetImportBatchSummary.savedCount} 件 / 失敗{" "}
+            {assetImportBatchSummary.failedCount} 件
           </p>
 
-          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="font-medium">ファイル名</dt>
-              <dd className="break-all">{assetImportSelection.filename}</dd>
-            </div>
-            <div>
-              <dt className="font-medium">mediaItem type</dt>
-              <dd>{assetImportSelection.mediaItemType}</dd>
-            </div>
-            <div>
-              <dt className="font-medium">元MIME type</dt>
-              <dd>{assetImportSelection.sourceMimeType}</dd>
-            </div>
-            <div>
-              <dt className="font-medium">取得後Content-Type</dt>
-              <dd>{assetImportSelection.downloadedContentType}</dd>
-            </div>
-            <div>
-              <dt className="font-medium">取得サイズ</dt>
-              <dd>{formatBytes(assetImportSelection.downloadedSizeBytes)}</dd>
-            </div>
-            <div>
-              <dt className="font-medium">サイズ上限</dt>
-              <dd>{formatBytes(assetImportSelection.sizeLimitBytes)}</dd>
-            </div>
-            <div>
-              <dt className="font-medium">sourceCreateTime</dt>
-              <dd>{formatOptionalValue(assetImportSelection.sourceCreateTime)}</dd>
-            </div>
-
-            {assetImportSelection.driveSaved ? (
-              <>
-                <div>
-                  <dt className="font-medium">assetId</dt>
-                  <dd>{assetImportSelection.assetIdPart}</dd>
+          <div className="mt-3 space-y-2">
+            {assetImportBatch.map((item) => (
+              <div
+                key={item.clientItemId}
+                className="rounded-lg border border-current/15 bg-white/60 p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="break-all font-medium">{item.filename}</p>
+                    <p className="mt-1 text-xs opacity-70">
+                      {item.sourceMimeType} / createTime:{" "}
+                      {formatOptionalValue(item.sourceCreateTime)}
+                    </p>
+                  </div>
+                  <Badge variant={getBatchItemBadgeVariant(item.status)}>
+                    {getBatchItemStatusLabel(item.status)}
+                  </Badge>
                 </div>
-                <div>
-                  <dt className="font-medium">assetFileId</dt>
-                  <dd>{assetImportSelection.assetFileIdPart}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium">Driveファイル名</dt>
-                  <dd className="break-all">{assetImportSelection.driveFilename}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium">Drive MIME type</dt>
-                  <dd>{assetImportSelection.driveMimeType}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium">Drive保存サイズ</dt>
-                  <dd>{formatBytes(assetImportSelection.driveSizeBytes)}</dd>
-                </div>
-              </>
-            ) : null}
-
-            {assetImportSelection.driveSaved && assetImportSelection.manifestUpdated ? (
-              <div>
-                <dt className="font-medium">slideId</dt>
-                <dd>{assetImportSelection.slideIdPart}</dd>
+                <dl className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
+                  <SummaryRow label="mediaItem" value={item.mediaItemIdPart} />
+                  <SummaryRow
+                    label="download"
+                    value={
+                      item.downloadedSizeBytes
+                        ? formatBytes(item.downloadedSizeBytes)
+                        : "未実行"
+                    }
+                  />
+                  {item.assetIdPart ? (
+                    <SummaryRow label="assetId" value={item.assetIdPart} />
+                  ) : null}
+                  {item.assetFileIdPart ? (
+                    <SummaryRow
+                      label="assetFileId"
+                      value={item.assetFileIdPart}
+                    />
+                  ) : null}
+                  {item.slideIdPart ? (
+                    <SummaryRow label="slideId" value={item.slideIdPart} />
+                  ) : null}
+                  {item.driveFilename ? (
+                    <SummaryRow label="Drive file" value={item.driveFilename} />
+                  ) : null}
+                </dl>
+                {item.errorMessage ? (
+                  <p className="mt-2 text-xs text-red-700">
+                    {item.errorMessage}
+                  </p>
+                ) : null}
               </div>
-            ) : null}
-
-            <div>
-              <dt className="font-medium">保存状態</dt>
-              <dd>
-                {assetImportSelection.driveSaved && assetImportSelection.manifestUpdated
-                  ? "Drive保存: 完了 / Drive asset metadata検証: 完了 / manifest反映: 完了 / index.json updatedAt同期: 完了"
-                  : assetImportSelection.driveSaved
-                    ? "Drive保存: 完了 / Drive asset metadata検証: 完了 / manifest反映: 未実行または未確認"
-                    : "Drive保存: 未実行 / manifest反映: 未実行"}
-              </dd>
-            </div>
-          </dl>
+            ))}
+          </div>
         </div>
       ) : null}
+
+      <p className="mt-3 text-xs leading-5 text-slate-500">
+        テロップ変更や素材追加をiPad再生に反映するには、対象projectをoffline
+        syncしてください。途中失敗時もDrive上のassetは自動削除しません。
+      </p>
 
       {assetImportDiagnostics.length > 0 ? (
         <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -183,6 +176,55 @@ export function AssetImportPanel() {
       <p className="sr-only">現在の素材追加状態: {assetImportStatus}</p>
     </div>
   );
+}
+
+function SummaryPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-1 font-semibold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="font-medium">{label}</dt>
+      <dd className="break-all">{value}</dd>
+    </div>
+  );
+}
+
+function getBatchItemStatusLabel(status: AssetImportBatchItemStatus) {
+  switch (status) {
+    case "selected":
+      return "選択済み";
+    case "downloading":
+      return "取得中";
+    case "downloaded":
+      return "取得済み";
+    case "uploading":
+      return "Drive保存中";
+    case "savedToDrive":
+      return "Drive保存済み";
+    case "manifestUpdated":
+      return "manifest反映済み";
+    case "failed":
+      return "失敗";
+    case "skipped":
+      return "skip";
+    default:
+      return status;
+  }
+}
+
+function getBatchItemBadgeVariant(status: AssetImportBatchItemStatus) {
+  return status === "failed"
+    ? "destructive"
+    : status === "manifestUpdated"
+      ? "default"
+      : "secondary";
 }
 
 function getStartAssetImportButtonLabel(assetImportStatus: AssetImportStatus) {

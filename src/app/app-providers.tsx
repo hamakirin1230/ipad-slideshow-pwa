@@ -25,10 +25,12 @@ import {
   DriveApiError,
   DriveProjectAssetSaveError,
   DriveProjectCreateError,
+  DriveProjectManifestBatchAppendError,
   DriveProjectManifestAppendError,
+  DriveProjectSlideCaptionUpdateError,
   DriveProjectTitleUpdateError,
   DriveWorkspaceCreateError,
-  appendDriveProjectAssetToManifest,
+  appendDriveProjectAssetsToManifest,
   createDriveProject,
   createDriveWorkspace,
   fetchDriveProjectAssetBlob,
@@ -37,6 +39,7 @@ import {
   readDriveTextFile,
   saveDriveProjectAsset,
   updateDriveProjectTitle,
+  updateDriveProjectSlideCaption,
   validateIndexJsonProjects,
   validateDriveProjectDetails,
   validateWorkspaceJsonBodies,
@@ -55,7 +58,7 @@ import {
   PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
   createPhotosPickerSession,
   deletePhotosPickerSession,
-  extractSinglePickedMediaItem,
+  extractPickedMediaItems,
   fetchAndValidatePickedPhoto,
   getPhotosPickerSession,
   listPickedMediaItems,
@@ -63,7 +66,6 @@ import {
   PhotosPickerApiError,
   PhotosPickerSelectionError,
   type PhotosPickedMediaItem,
-  type PhotosPickedPhotoDownloadResult,
   type PhotosPickerCreatedSession,
   type PhotosPickerResolvedPollingTiming,
   type PhotosPickerSessionSnapshot,
@@ -77,6 +79,7 @@ import {
 const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 const GOOGLE_DRIVE_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
+const ASSET_IMPORT_MAX_BATCH_COUNT = 10;
 const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 120_000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -164,7 +167,9 @@ export type ProjectSummary = {
 };
 
 export type ProjectSlideSummary = {
+  slideId: string;
   slideIdPart: string;
+  assetId: string;
   assetIdPart: string;
   assetFileId: string;
   assetName: string;
@@ -174,6 +179,42 @@ export type ProjectSlideSummary = {
   durationSeconds: number;
   caption: string;
   verified: boolean;
+};
+
+export type AssetImportBatchItemStatus =
+  | "selected"
+  | "downloading"
+  | "downloaded"
+  | "uploading"
+  | "savedToDrive"
+  | "manifestUpdated"
+  | "failed"
+  | "skipped";
+
+export type AssetImportBatchItem = {
+  clientItemId: string;
+  mediaItemIdPart: string;
+  filename: string;
+  sourceMimeType: string;
+  sourceCreateTime: string | null;
+  status: AssetImportBatchItemStatus;
+  downloadedContentType?: "image/jpeg" | "image/png" | "image/webp";
+  downloadedSizeBytes?: number;
+  driveFilename?: string;
+  assetId?: string;
+  assetIdPart?: string;
+  assetFileId?: string;
+  assetFileIdPart?: string;
+  slideIdPart?: string;
+  errorMessage?: string;
+};
+
+export type AssetImportBatchSummary = {
+  selectedCount: number;
+  savedCount: number;
+  manifestUpdatedCount: number;
+  failedCount: number;
+  skippedCount: number;
 };
 
 export type ProjectDetails = {
@@ -322,9 +363,16 @@ type AppContextValue = {
   assetImportMessage: string;
   assetImportDiagnostics: string[];
   assetImportSelection: AssetImportSelection | null;
+  assetImportBatch: AssetImportBatchItem[];
+  assetImportBatchSummary: AssetImportBatchSummary;
+  remainingSlideSlots: number;
+  assetImportMaxBatchCount: number;
   isAssetImportInFlight: boolean;
   canStartAssetImport: boolean;
   assetImportBlockedReason: string | null;
+  captionUpdateSlideId: string | null;
+  captionUpdateMessage: string | null;
+  captionUpdateDiagnostics: string[];
 
   offlineSyncStatus: OfflineSyncStatus;
   offlineSyncStatusLabel: string;
@@ -344,6 +392,7 @@ type AppContextValue = {
   selectProject: (projectId: string) => void;
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
+  updateProjectSlideCaption: (slideId: string, caption: string) => void;
   startAssetImport: () => void;
   cancelAssetImport: () => void;
   startOfflineSync: () => void;
@@ -513,7 +562,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
   >([]);
   const [assetImportSelection, setAssetImportSelection] =
     useState<AssetImportSelection | null>(null);
+  const [assetImportBatch, setAssetImportBatch] = useState<
+    AssetImportBatchItem[]
+  >([]);
   const [isAssetImportInFlight, setIsAssetImportInFlight] = useState(false);
+  const [captionUpdateSlideId, setCaptionUpdateSlideId] = useState<string | null>(
+    null,
+  );
+  const [captionUpdateMessage, setCaptionUpdateMessage] = useState<string | null>(
+    null,
+  );
+  const [captionUpdateDiagnostics, setCaptionUpdateDiagnostics] = useState<
+    string[]
+  >([]);
 
   const [offlineSyncStatus, setOfflineSyncStatus] =
     useState<OfflineSyncStatus>("idle");
@@ -529,6 +590,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   const canImportAssets =
     projectStatus === "ready" && driveProjectReadyContext !== null;
+  const remainingSlideSlots = Math.max(
+    0,
+    ASSET_IMPORT_MAX_SLIDE_COUNT - (projectDetails?.slideCount ?? 0),
+  );
+  const assetImportMaxBatchCount = Math.min(
+    ASSET_IMPORT_MAX_BATCH_COUNT,
+    remainingSlideSlots,
+  );
+  const assetImportBatchSummary = summarizeAssetImportBatch(assetImportBatch);
   const assetImportBlockedReason = getAssetImportBlockedReason();
   const canStartAssetImport = assetImportBlockedReason === null;
 
@@ -847,8 +917,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (
-      assetImportSelection?.driveSaved === true &&
-      !assetImportSelection.manifestUpdated
+      assetImportBatch.some((item) => item.status === "savedToDrive") ||
+      (assetImportSelection?.driveSaved === true &&
+        !assetImportSelection.manifestUpdated)
     ) {
       return "Drive保存済みの素材がmanifest未反映、またはmanifest反映完了を確認できていません。Drive状態を再確認するまで、追加の素材追加は開始できません。";
     }
@@ -874,6 +945,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function setSafeAssetImportDiagnostics(diagnostics: string[]) {
     setAssetImportDiagnostics(sanitizeAssetImportDiagnostics(diagnostics));
+  }
+
+  function updateAssetImportBatchItem(
+    clientItemId: string,
+    patch: Partial<AssetImportBatchItem>,
+  ) {
+    setAssetImportBatch((currentItems) =>
+      currentItems.map((item) =>
+        item.clientItemId === clientItemId ? { ...item, ...patch } : item,
+      ),
+    );
   }
 
   function getOfflineSyncBlockedReason() {
@@ -930,9 +1012,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
     });
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
+    setAssetImportBatch([]);
     setAssetImportStatus("idle");
     setAssetImportMessage(initialAssetImportMessage);
     setSafeAssetImportDiagnostics([]);
+  }
+
+  function resetCaptionUpdateState() {
+    setCaptionUpdateSlideId(null);
+    setCaptionUpdateMessage(null);
+    setCaptionUpdateDiagnostics([]);
   }
 
   function clearProjectReadyDetails() {
@@ -940,6 +1029,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setProjectDetails(null);
     setProjectSummary(null);
     resetAssetImportState();
+    resetCaptionUpdateState();
     resetOfflineSyncState();
   }
 
@@ -971,7 +1061,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     });
     resetAssetImportState();
     setAssetImportMessage(
-      "Google Photos Pickerで写真を1件選択し、形式とサイズを確認できます。",
+      "Google Photos Pickerで写真を複数件選択し、形式とサイズを確認できます。",
     );
   }
 
@@ -1275,6 +1365,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     });
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
+    setAssetImportBatch([]);
     setSafeAssetImportDiagnostics([]);
 
     if (blockedReason) {
@@ -1345,6 +1436,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       const pickerSession = await createPhotosPickerSession(
         photosAccessToken,
         abortSignal,
+        assetImportMaxBatchCount,
       );
 
       if (requestId !== assetImportRequestIdRef.current) {
@@ -1369,7 +1461,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       pickerWindow.location.href = `${pickerSession.pickerUri}/autoclose`;
 
       setAssetImportStatus("waitingForSelection");
-      setAssetImportMessage("Photos Pickerで写真を1件選択してください。");
+      setAssetImportMessage(
+        `Photos Pickerで写真を最大${assetImportMaxBatchCount}件選択してください。`,
+      );
 
       const waitResult = await waitForPhotosPickerSelection({
         accessToken: photosAccessToken,
@@ -1388,32 +1482,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
         photosAccessToken,
         pickerSession.id,
         abortSignal,
+        assetImportMaxBatchCount,
       );
 
       if (requestId !== assetImportRequestIdRef.current) {
         return;
       }
 
-      const pickedMediaItem = normalizePickedMediaItem(
-        extractSinglePickedMediaItem(pickedMediaItemsList),
-      );
-
-      setAssetImportMessage("選択した写真の形式とサイズを確認しています。");
-
-      const downloadResult = await fetchAndValidatePickedPhoto({
-        accessToken: photosAccessToken,
-        baseUrl: pickedMediaItem.mediaFile.baseUrl,
-        signal: abortSignal,
-      });
-
-      if (requestId !== assetImportRequestIdRef.current) {
-        return;
-      }
-
-      finalSelection = buildAssetImportSelection(
-        pickedMediaItem,
-        downloadResult,
-      );
+      const pickedMediaItems = extractPickedMediaItems(
+        pickedMediaItemsList,
+        assetImportMaxBatchCount,
+      ).map((mediaItem) => normalizePickedMediaItem(mediaItem));
 
       const readyWorkspace = workspaceReadyContext;
       const readyProject = driveProjectReadyContext;
@@ -1430,16 +1509,134 @@ export function AppProviders({ children }: { children: ReactNode }) {
         });
       }
 
-      setAssetImportStatus("uploadingToDrive");
-      setAssetImportMessage("Drive assets/ に選択写真を保存しています。");
+      const batchItems = pickedMediaItems.map((mediaItem) =>
+        buildAssetImportBatchItem(mediaItem),
+      );
+      setAssetImportBatch(batchItems);
 
-      const savedAsset = await saveDriveProjectAsset({
+      const savedAssetsForManifest: Array<{
+        clientItemId: string;
+        savedAsset: DriveProjectSavedAsset;
+        source: {
+          filename: string | null;
+          sourceMimeType: string;
+          sourceMediaItemId: string;
+          sourceCreateTime: string | null;
+        };
+      }> = [];
+      const batchDiagnostics = [
+        ...waitResult.diagnostics,
+        ...pickedMediaItemsList.diagnostics,
+        `Photos Picker selection: ${pickedMediaItems.length}件`,
+      ];
+
+      for (const [index, pickedMediaItem] of pickedMediaItems.entries()) {
+        if (requestId !== assetImportRequestIdRef.current) {
+          return;
+        }
+
+        const clientItemId = batchItems[index].clientItemId;
+
+        try {
+          updateAssetImportBatchItem(clientItemId, { status: "downloading" });
+          setAssetImportMessage(
+            `選択写真を順次取得しています。${index + 1} / ${pickedMediaItems.length}`,
+          );
+
+          const downloadResult = await fetchAndValidatePickedPhoto({
+            accessToken: photosAccessToken,
+            baseUrl: pickedMediaItem.mediaFile.baseUrl,
+            signal: abortSignal,
+          });
+
+          updateAssetImportBatchItem(clientItemId, {
+            status: "downloaded",
+            downloadedContentType: downloadResult.downloadedContentType,
+            downloadedSizeBytes: downloadResult.downloadedSizeBytes,
+          });
+
+          setAssetImportStatus("uploadingToDrive");
+          setAssetImportMessage(
+            `Drive assets/ に順次保存しています。${index + 1} / ${pickedMediaItems.length}`,
+          );
+          updateAssetImportBatchItem(clientItemId, { status: "uploading" });
+
+          const savedAsset = await saveDriveProjectAsset({
+            accessToken: photosAccessToken,
+            workspaceId: readyWorkspace.workspaceId,
+            project: readyProject,
+            blob: downloadResult.blob,
+            mimeType: downloadResult.downloadedContentType,
+            sizeBytes: downloadResult.downloadedSizeBytes,
+            signal: abortSignal,
+          });
+
+          updateAssetImportBatchItem(clientItemId, {
+            status: "savedToDrive",
+            driveFilename: savedAsset.driveFilename,
+            assetId: savedAsset.assetId,
+            assetIdPart: savedAsset.assetIdPart,
+            assetFileId: savedAsset.assetFileId,
+            assetFileIdPart: savedAsset.assetFileIdPart,
+          });
+
+          savedAssetsForManifest.push({
+            clientItemId,
+            savedAsset,
+            source: {
+              filename: pickedMediaItem.mediaFile.filename ?? null,
+              sourceMimeType: pickedMediaItem.mediaFile.mimeType,
+              sourceMediaItemId: pickedMediaItem.id,
+              sourceCreateTime: pickedMediaItem.createTime,
+            },
+          });
+
+          batchDiagnostics.push(
+            ...pickedMediaItem.diagnostics,
+            ...downloadResult.diagnostics,
+            ...savedAsset.diagnostics,
+          );
+        } catch (itemError) {
+          if (isAbortError(itemError)) {
+            throw itemError;
+          }
+
+          updateAssetImportBatchItem(clientItemId, {
+            status: "failed",
+            errorMessage: getAssetImportItemErrorMessage(itemError),
+          });
+          batchDiagnostics.push(
+            `item ${index + 1}: ${getAssetImportItemErrorMessage(itemError)}`,
+          );
+        }
+      }
+
+      if (savedAssetsForManifest.length === 0) {
+        finalStatus = "error";
+        finalMessage =
+          "選択写真をDriveに保存できませんでした。成功したitemはありません。";
+        finalDiagnostics = [
+          ...batchDiagnostics,
+          "Drive保存: 成功0件",
+          "manifest反映: 未実行",
+        ];
+        return;
+      }
+
+      setAssetImportStatus("updatingManifest");
+      setAssetImportMessage(
+        `manifest.json に成功分 ${savedAssetsForManifest.length} 件をまとめて反映しています。`,
+      );
+
+      const manifestAppendResult = await appendDriveProjectAssetsToManifest({
         accessToken: photosAccessToken,
         workspaceId: readyWorkspace.workspaceId,
+        indexJsonFileId: readyWorkspace.indexJsonFileId,
         project: readyProject,
-        blob: downloadResult.blob,
-        mimeType: downloadResult.downloadedContentType,
-        sizeBytes: downloadResult.downloadedSizeBytes,
+        savedAssets: savedAssetsForManifest.map((item) => ({
+          savedAsset: item.savedAsset,
+          source: item.source,
+        })),
         signal: abortSignal,
       });
 
@@ -1447,32 +1644,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
         return;
       }
 
-      finalSelection = buildAssetImportSelection(
-        pickedMediaItem,
-        downloadResult,
-        savedAsset,
-      );
-
-      setAssetImportStatus("updatingManifest");
-      setAssetImportMessage("manifest.json に素材情報を反映しています。");
-
-      const manifestAppendResult = await appendDriveProjectAssetToManifest({
-        accessToken: photosAccessToken,
-        workspaceId: readyWorkspace.workspaceId,
-        indexJsonFileId: readyWorkspace.indexJsonFileId,
-        project: readyProject,
-        savedAsset,
-        source: {
-          filename: pickedMediaItem.mediaFile.filename ?? null,
-          sourceMimeType: pickedMediaItem.mediaFile.mimeType,
-          sourceMediaItemId: pickedMediaItem.id,
-          sourceCreateTime: pickedMediaItem.createTime,
-        },
-        signal: abortSignal,
-      });
-
-      if (requestId !== assetImportRequestIdRef.current) {
-        return;
+      for (const savedItem of savedAssetsForManifest) {
+        const addedSlide = manifestAppendResult.addedSlides.find(
+          (slide) => slide.assetId === savedItem.savedAsset.assetId,
+        );
+        updateAssetImportBatchItem(savedItem.clientItemId, {
+          status: "manifestUpdated",
+          slideIdPart: formatIdPart(addedSlide?.slideId),
+        });
       }
 
       const nextProjectDetails = toProjectDetails(manifestAppendResult.details);
@@ -1483,32 +1662,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
         ...readyWorkspace,
         indexJsonText: manifestAppendResult.indexJsonText,
       };
-      finalSelection = buildAssetImportSelection(
-        pickedMediaItem,
-        downloadResult,
-        savedAsset,
-        {
-          manifestUpdated: true,
-          details: manifestAppendResult.details,
-        },
-      );
+      finalSelection = null;
       finalStatus = "completed";
       finalMessage =
-        "Drive保存、manifest反映、index.json updatedAt同期、更新後再検証が完了しました。";
+        "Drive保存、batch manifest反映、index.json updatedAt同期、更新後再検証が完了しました。";
       finalDiagnostics = [
-        ...waitResult.diagnostics,
-        ...pickedMediaItemsList.diagnostics,
-        ...pickedMediaItem.diagnostics,
-        ...downloadResult.diagnostics,
-        ...savedAsset.diagnostics,
+        ...batchDiagnostics,
         ...manifestAppendResult.diagnostics,
-        "Photos Picker selection: 完了",
-        "画像形式とサイズ確認: 完了",
-        "Drive保存: 完了",
-        "Drive asset metadata検証: 完了",
-        "manifest反映: 完了",
+        "Drive保存: 成功分完了",
+        "manifest反映: 成功分完了",
         "index.json updatedAt同期: 完了",
         "更新後再検証: 完了",
+        "テロップ変更を iPad 再生に反映するには、この project を offline sync してください。",
       ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
@@ -1555,6 +1720,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
         finalMessage =
           "Drive保存後のmanifest反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
         finalDiagnostics = buildAssetImportManifestAppendFailureDiagnostics(error);
+      } else if (error instanceof DriveProjectManifestBatchAppendError) {
+        finalStatus = "error";
+        finalMessage =
+          "Drive保存後のbatch manifest反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
+        finalDiagnostics = buildAssetImportManifestBatchAppendFailureDiagnostics(
+          error,
+        );
       } else if (isAbortError(error)) {
         finalStatus = "cancelled";
         finalMessage = "素材追加を中止しました。";
@@ -1687,10 +1859,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
       assetImportStatus === "savedToDrive" ||
       assetImportStatus === "updatingManifest" ||
       assetImportStatus === "verifying" ||
+      assetImportBatch.some(
+        (item) =>
+          item.status === "savedToDrive" ||
+          item.status === "manifestUpdated",
+      ) ||
       assetImportSelection?.driveSaved === true;
 
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
+    setAssetImportBatch([]);
     setAssetImportStatus("cancelled");
     setAssetImportMessage("素材追加を中止しました。");
     setSafeAssetImportDiagnostics(
@@ -2444,6 +2622,118 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  async function updateProjectSlideCaption(slideId: string, captionInput: string) {
+    if (driveOperationInFlightRef.current) {
+      return;
+    }
+
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    if (!accessToken) {
+      setCaptionUpdateMessage(
+        "Google接続が必要です。もう一度Google接続を行ってからテロップを保存してください。",
+      );
+      setCaptionUpdateDiagnostics([]);
+      return;
+    }
+
+    if (
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      !readyWorkspace ||
+      !readyProject
+    ) {
+      setCaptionUpdateMessage(
+        "選択中projectが ready ではないため、テロップ保存を開始しませんでした。",
+      );
+      setCaptionUpdateDiagnostics([
+        "先にDrive project状態を確認し、対象projectを選択してください。",
+      ]);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    setCaptionUpdateSlideId(slideId);
+    setCaptionUpdateMessage("テロップを保存しています。");
+    setCaptionUpdateDiagnostics([]);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+
+    try {
+      const result = await updateDriveProjectSlideCaption({
+        accessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        indexJsonFileId: readyWorkspace.indexJsonFileId,
+        project: readyProject,
+        slideId,
+        caption: captionInput,
+        runStep: (operation) => runDriveOperationStep(requestId, operation),
+      });
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setWorkspaceReadyContext({
+        ...readyWorkspace,
+        indexJsonText: result.indexJsonText,
+      });
+      setProjectStatus("ready");
+      setProjectMessage(
+        "選択中projectのテロップを manifest.json / index.json に反映し、再検証しました。",
+      );
+      applyProjectReadyState(result.project, toProjectDetails(result.details));
+      setCaptionUpdateMessage(
+        "テロップを保存しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+      );
+      setCaptionUpdateDiagnostics(result.diagnostics);
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (error instanceof DriveProjectSlideCaptionUpdateError) {
+        if (error.status === "authRequired") {
+          resetGoogleAfterDriveAuthFailure();
+          setDriveStatus("authRequired");
+          setDriveMessage(
+            "Google再接続が必要です。再接続後にDrive状態を再確認してください。",
+          );
+        }
+
+        setProjectStatus(error.status === "invalidProject" ? "invalid" : "error");
+        setCaptionUpdateMessage(
+          error.status === "invalidProject"
+            ? "テロップ保存前のDrive project情報に問題があります。"
+            : "テロップ保存に失敗しました。",
+        );
+        setCaptionUpdateDiagnostics(error.diagnostics);
+        return;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+
+      setProjectStatus("error");
+      setCaptionUpdateMessage("テロップ保存に失敗しました。");
+      setCaptionUpdateDiagnostics([
+        "テロップ保存中に予期しないエラーが発生しました。",
+        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "Drive状態を再確認してください。",
+      ]);
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+        setCaptionUpdateSlideId(null);
+      }
+    }
+  }
+
   async function createProject(titleInput: string) {
     if (driveOperationInFlightRef.current) {
       return;
@@ -2637,9 +2927,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
     assetImportMessage,
     assetImportDiagnostics,
     assetImportSelection,
+    assetImportBatch,
+    assetImportBatchSummary,
+    remainingSlideSlots,
+    assetImportMaxBatchCount,
     isAssetImportInFlight,
     canStartAssetImport,
     assetImportBlockedReason,
+    captionUpdateSlideId,
+    captionUpdateMessage,
+    captionUpdateDiagnostics,
     offlineSyncStatus,
     offlineSyncStatusLabel: offlineSyncStatusLabels[offlineSyncStatus],
     offlineSyncMessage,
@@ -2657,6 +2954,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     selectProject,
     createProject,
     updateSelectedProjectTitle,
+    updateProjectSlideCaption,
     startAssetImport,
     cancelAssetImport,
     startOfflineSync,
@@ -3040,7 +3338,9 @@ function toProjectDetails(details: DriveProjectReadyDetails): ProjectDetails {
     slideCount: details.slideCount,
     assetCount: details.assetCount,
     slides: details.slides.map((slide) => ({
+      slideId: slide.slideId,
       slideIdPart: formatIdPart(slide.slideId),
+      assetId: slide.assetId,
       assetIdPart: formatIdPart(slide.assetId),
       assetFileId: slide.assetFileId,
       assetName: slide.assetName,
@@ -3133,64 +3433,52 @@ function tokenResponseIncludesPhotosPickerScope(
   );
 }
 
-function buildAssetImportSelection(
+function summarizeAssetImportBatch(
+  batch: AssetImportBatchItem[],
+): AssetImportBatchSummary {
+  return {
+    selectedCount: batch.length,
+    savedCount: batch.filter(
+      (item) =>
+        item.status === "savedToDrive" || item.status === "manifestUpdated",
+    ).length,
+    manifestUpdatedCount: batch.filter(
+      (item) => item.status === "manifestUpdated",
+    ).length,
+    failedCount: batch.filter((item) => item.status === "failed").length,
+    skippedCount: batch.filter((item) => item.status === "skipped").length,
+  };
+}
+
+function buildAssetImportBatchItem(
   mediaItem: PhotosPickedMediaItem,
-  downloadResult: PhotosPickedPhotoDownloadResult,
-  savedAsset?: DriveProjectSavedAsset,
-  manifestResult?: {
-    manifestUpdated: true;
-    details: DriveProjectReadyDetails;
-  },
-): AssetImportSelection {
-  const baseSelection = {
+): AssetImportBatchItem {
+  return {
+    clientItemId: crypto.randomUUID(),
     mediaItemIdPart: formatIdPart(mediaItem.id),
-    mediaItemType: "PHOTO" as const,
     filename: mediaItem.mediaFile.filename ?? "未取得",
     sourceMimeType: mediaItem.mediaFile.mimeType,
     sourceCreateTime: mediaItem.createTime,
-    downloadedContentType: downloadResult.downloadedContentType,
-    downloadedSizeBytes: downloadResult.downloadedSizeBytes,
-    sizeLimitBytes: downloadResult.sizeLimitBytes,
+    status: "selected",
   };
+}
 
-  if (!savedAsset) {
-    return {
-      ...baseSelection,
-      driveSaved: false,
-      manifestUpdated: false,
-    };
+function getAssetImportItemErrorMessage(error: unknown) {
+  if (error instanceof PhotosPickerApiError) {
+    return `Photos API error: ${error.operation}`;
   }
 
-  const savedSelection = {
-    ...baseSelection,
-    driveSaved: true as const,
-    assetId: savedAsset.assetId,
-    assetIdPart: savedAsset.assetIdPart,
-    assetFileId: savedAsset.assetFileId,
-    assetFileIdPart: savedAsset.assetFileIdPart,
-    driveFilename: savedAsset.driveFilename,
-    driveMimeType: savedAsset.driveMimeType,
-    driveSizeBytes: savedAsset.driveSizeBytes,
-  };
-
-  if (!manifestResult) {
-    return {
-      ...savedSelection,
-      manifestUpdated: false,
-    };
+  if (error instanceof DriveProjectAssetSaveError) {
+    return error.possibleCreatedAsset
+      ? "Drive保存結果の確認に失敗しました。"
+      : "Drive保存に失敗しました。";
   }
 
-  const addedSlide = manifestResult.details.slides.find(
-    (slide) =>
-      slide.assetId === savedAsset.assetId &&
-      slide.assetFileId === savedAsset.assetFileId,
-  );
+  if (error instanceof Error) {
+    return error.message;
+  }
 
-  return {
-    ...savedSelection,
-    manifestUpdated: true,
-    slideIdPart: formatIdPart(addedSlide?.slideId),
-  };
+  return "処理に失敗しました。";
 }
 
 function buildAssetImportDriveSaveFailureDiagnostics(
@@ -3225,6 +3513,29 @@ function buildAssetImportManifestAppendFailureDiagnostics(
   }
 
   diagnostics.push("Drive状態を再確認してください。");
+
+  return dedupeDiagnostics(diagnostics);
+}
+
+function buildAssetImportManifestBatchAppendFailureDiagnostics(
+  error: DriveProjectManifestBatchAppendError,
+) {
+  const diagnostics = [
+    ...error.diagnostics,
+    `manifest反映対象asset数: ${error.savedAssets.length}`,
+  ];
+
+  if (error.possibleChangedItems.length > 0) {
+    diagnostics.push(
+      "batch manifest反映中にDrive項目が更新された可能性があります。",
+      ...error.possibleChangedItems.map(toProjectChangedItemDiagnostic),
+    );
+  }
+
+  diagnostics.push(
+    "Drive保存済みだがmanifest未反映のassetが残っている可能性があります。",
+    "Drive状態を再確認してください。",
+  );
 
   return dedupeDiagnostics(diagnostics);
 }

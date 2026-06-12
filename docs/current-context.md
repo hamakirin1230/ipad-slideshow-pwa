@@ -47,8 +47,10 @@ Google OAuth / drive.file scope
 Drive workspace作成・再確認
 Drive project作成・再確認
 Google Photos Pickerから素材追加
+Google Photos Pickerから複数素材をbatch追加
 Drive assets/保存
 manifest.json.slides反映
+slide.captionをテロップとして編集
 index.json updatedAt同期
 Drive offline snapshot fetch
 IndexedDB staging write
@@ -66,6 +68,7 @@ confirmed store promotion
 /player project selector準備
 /player production mode
 /player operation lock
+/player caption telop overlay
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
 ```
@@ -195,6 +198,24 @@ lock解除は右上の2秒長押し
 lock解除後もproduction modeは維持
 ```
 
+## テロップ・素材batch追加
+
+2026-06-12時点で追加済み:
+
+```text
+既存のslide.captionをテロップ本文として扱う
+captionはplain text、保存時trim、上限80文字
+/admin/の本編スライド順でslideごとにテロップ編集・個別保存
+caption更新はDrive manifest.jsonをsource of truthにする
+caption更新後、iPad再生に反映するには対象projectのoffline syncが必要
+/player/ではnormal / production / lock中の全てでテロップoverlayを表示
+テロップoverlayはpointer-events-noneでswipe操作を邪魔しない
+Photos Pickerは1回最大10件、かつproject全体50 slides上限まで
+download / Drive uploadはitemごとに順次処理
+Drive保存成功分が1件以上あればmanifest.jsonへbatch append
+途中失敗時もDrive保存済みassetの自動削除・自動修復はしない
+```
+
 ## 直近の検証済み
 
 ローカルで確認済み:
@@ -213,6 +234,7 @@ Browser console errorなし
 ```text
 ローカル環境にはconfirmed projectがないため、
 production mode ON/OFF、lock中swipe navigation、2秒長押しunlock、Project A / Project Bの実データ再生はVercel production / iPad PWA側で確認する。
+Photos Picker複数選択、caption保存、offline sync後のテロップ再生もVercel production / iPad PWA側で確認する。
 ```
 
 ## 次に自然な作業
@@ -221,9 +243,8 @@ production mode ON/OFF、lock中swipe navigation、2秒長押しunlock、Project
 
 ```text
 1. 動画再生の設計・実装
-2. テロップの設計・実装
-3. 公開履歴・ロールバックの設計・実装
-4. 古いdocs/decisionsやdocs/architectureを「履歴」と「現行方針」に分けて整理
+2. 公開履歴・ロールバックの設計・実装
+3. 古いdocs/decisionsやdocs/architectureを「履歴」と「現行方針」に分けて整理
 ```
 
 ## 最新ハンドオフ
@@ -231,6 +252,7 @@ production mode ON/OFF、lock中swipe navigation、2秒長押しunlock、Project
 読む順:
 
 ```text
+docs/handoffs/2026-06-12-caption-telop-and-batch-asset-import-handoff.md
 docs/handoffs/2026-06-12-production-mode-and-operation-lock-handoff.md
 docs/handoffs/2026-06-12-multi-project-playback-preparation-handoff.md
 docs/handoffs/2026-06-12-advanced-offline-storage-controls-handoff.md

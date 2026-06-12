@@ -188,6 +188,7 @@ const allowedDownloadedAssetMimeTypes = new Set<PhotosDownloadedAssetMimeType>([
 export async function createPhotosPickerSession(
   accessToken: string,
   signal: AbortSignal,
+  maxItemCount = 1,
 ): Promise<PhotosPickerCreatedSession> {
   const response = await fetch(`${PHOTOS_PICKER_API_BASE_URL}/sessions`, {
     method: "POST",
@@ -197,7 +198,7 @@ export async function createPhotosPickerSession(
     },
     body: JSON.stringify({
       pickingConfig: {
-        maxItemCount: "1",
+        maxItemCount: String(Math.max(1, Math.floor(maxItemCount))),
       },
     }),
     cache: "no-store",
@@ -268,10 +269,11 @@ export async function listPickedMediaItems(
   accessToken: string,
   sessionId: string,
   signal: AbortSignal,
+  pageSize = 2,
 ): Promise<PhotosPickedMediaItemsList> {
   const params = new URLSearchParams({
     sessionId,
-    pageSize: "2",
+    pageSize: String(Math.max(1, Math.floor(pageSize))),
   });
 
   const response = await fetch(
@@ -334,6 +336,37 @@ export function extractSinglePickedMediaItem(
   }
 
   return list.mediaItems[0];
+}
+
+export function extractPickedMediaItems(
+  list: PhotosPickedMediaItemsList,
+  maxCount: number,
+): unknown[] {
+  if (list.nextPageToken) {
+    throw new PhotosPickerSelectionError({
+      status: "invalid",
+      message: "Picked media item list included nextPageToken.",
+      diagnostics: [
+        "Photos Picker selection returned nextPageToken even though the batch page size matched the requested limit.",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ],
+    });
+  }
+
+  if (list.mediaItems.length === 0) {
+    throw new PhotosPickerSelectionError({
+      status: "cancelled",
+      message: "No media item was selected.",
+      diagnostics: [
+        "Photos Picker selection returned 0 media items.",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ],
+    });
+  }
+
+  return list.mediaItems.slice(0, Math.max(1, Math.floor(maxCount)));
 }
 
 export async function fetchAndValidatePickedPhoto(input: {

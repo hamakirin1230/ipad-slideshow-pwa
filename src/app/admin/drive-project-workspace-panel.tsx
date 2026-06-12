@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -12,6 +13,8 @@ import {
 import { useAppState } from "@/app/app-providers";
 import { AssetImportPanel } from "./asset-import-panel";
 
+const SLIDE_CAPTION_MAX_LENGTH = 80;
+
 export function DriveProjectWorkspacePanel() {
   const {
     projectStatus,
@@ -19,6 +22,10 @@ export function DriveProjectWorkspacePanel() {
     projectSummary,
     projectDetails,
     fetchProjectSlidePreviewBlob,
+    updateProjectSlideCaption,
+    captionUpdateSlideId,
+    captionUpdateMessage,
+    captionUpdateDiagnostics,
   } = useAppState();
 
   const readyProjectDetails = projectStatus === "ready" ? projectDetails : null;
@@ -62,7 +69,7 @@ export function DriveProjectWorkspacePanel() {
           <CardContent>
             <p className="text-3xl font-bold">{slideCount}</p>
             <p className="mt-2 text-sm text-slate-500">
-              manifest.json.slides の件数を表示します。スライド編集UIは後続コミットで追加します。
+              manifest.json.slides の件数を表示します。各slideのテロップは下の一覧で編集できます。
             </p>
           </CardContent>
         </Card>
@@ -116,7 +123,7 @@ export function DriveProjectWorkspacePanel() {
                   </div>
                   <div>
                     <dt className="font-medium text-slate-900">スライド編集</dt>
-                    <dd>後続コミットで追加</dd>
+                    <dd>テロップ編集に対応</dd>
                   </div>
                 </dl>
               </div>
@@ -147,24 +154,23 @@ export function DriveProjectWorkspacePanel() {
           <CardHeader>
             <CardTitle>本編スライド順</CardTitle>
             <CardDescription>
-              manifest.json.slides を編集・保存するUIは後続コミットで追加します。
+              slide.caption をテロップとして編集します。反映にはoffline syncが必要です。
             </CardDescription>
           </CardHeader>
           <CardContent>
             {slides.length > 0 ? (
               <div className="overflow-hidden rounded-xl border border-slate-200">
-                <div className="grid grid-cols-[4rem_8rem_1fr_8rem_8rem] bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <div className="grid gap-3 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid-cols-[4rem_8rem_minmax(0,1fr)_minmax(14rem,1.4fr)]">
                   <p>順番</p>
                   <p>プレビュー</p>
                   <p>asset</p>
-                  <p>MIME</p>
-                  <p>秒数</p>
+                  <p>テロップ</p>
                 </div>
                 <div className="divide-y divide-slate-200">
                   {slides.map((slide, index) => (
                     <div
                       key={`${slide.slideIdPart}-${slide.assetIdPart}`}
-                      className="grid grid-cols-[4rem_8rem_1fr_8rem_8rem] px-4 py-3 text-sm"
+                      className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[4rem_8rem_minmax(0,1fr)_minmax(14rem,1.4fr)]"
                     >
                       <p className="font-medium">{index + 1}</p>
                       <DriveSlidePreview
@@ -179,9 +185,18 @@ export function DriveProjectWorkspacePanel() {
                           source: {slide.sourceMimeType} / createTime:{" "}
                           {slide.sourceCreateTime}
                         </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          slide: {slide.slideIdPart} / {slide.durationSeconds}秒 /{" "}
+                          {slide.mimeType}
+                        </p>
                       </div>
-                      <p>{slide.mimeType}</p>
-                      <p>{slide.durationSeconds}秒</p>
+                      <SlideCaptionEditor
+                        key={`${slide.slideId}:${slide.caption}`}
+                        slideId={slide.slideId}
+                        caption={slide.caption}
+                        isSaving={captionUpdateSlideId === slide.slideId}
+                        onSave={updateProjectSlideCaption}
+                      />
                     </div>
                   ))}
                 </div>
@@ -193,13 +208,80 @@ export function DriveProjectWorkspacePanel() {
                 </p>
                 <p className="mt-2">
                   manifest.json.slides に追加済みのスライドがここに表示されます。
-                  スライド順や表示内容の編集UIは後続コミットで追加します。
+                  素材を追加すると、ここでテロップを編集できます。
                 </p>
               </div>
             )}
+            <p className="mt-3 text-xs leading-5 text-slate-500">
+              テロップ変更をiPad再生に反映するには、このprojectをoffline syncしてください。
+            </p>
+            {captionUpdateMessage ? (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">{captionUpdateMessage}</p>
+                {captionUpdateDiagnostics.length > 0 ? (
+                  <div className="mt-2 space-y-1 text-xs">
+                    {captionUpdateDiagnostics.map((diagnostic, index) => (
+                      <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </section>
+    </div>
+  );
+}
+
+function SlideCaptionEditor({
+  slideId,
+  caption,
+  isSaving,
+  onSave,
+}: {
+  slideId: string;
+  caption: string;
+  isSaving: boolean;
+  onSave: (slideId: string, caption: string) => void;
+}) {
+  const [draftCaption, setDraftCaption] = useState(caption);
+
+  const normalizedDraftCaption = draftCaption.trim();
+  const hasUnsavedChange = normalizedDraftCaption !== caption.trim();
+  const captionLength = [...normalizedDraftCaption].length;
+  const isTooLong = captionLength > SLIDE_CAPTION_MAX_LENGTH;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-medium text-slate-900">テロップ</p>
+        {hasUnsavedChange ? (
+          <Badge variant={isTooLong ? "destructive" : "outline"}>未保存</Badge>
+        ) : null}
+      </div>
+      <textarea
+        value={draftCaption}
+        onChange={(event) => setDraftCaption(event.target.value)}
+        maxLength={SLIDE_CAPTION_MAX_LENGTH + 20}
+        rows={3}
+        className="mt-2 min-h-20 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+        placeholder="テロップを入力"
+      />
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <p className={isTooLong ? "text-xs text-red-700" : "text-xs text-slate-500"}>
+          {captionLength} / {SLIDE_CAPTION_MAX_LENGTH} 文字
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant={hasUnsavedChange ? "default" : "secondary"}
+          disabled={!hasUnsavedChange || isSaving || isTooLong}
+          onClick={() => onSave(slideId, normalizedDraftCaption)}
+        >
+          {isSaving ? "保存中" : "保存"}
+        </Button>
+      </div>
     </div>
   );
 }
