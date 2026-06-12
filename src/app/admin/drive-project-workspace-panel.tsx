@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   closestCenter,
   DndContext,
@@ -8,7 +8,6 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
   type DragOverEvent,
 } from "@dnd-kit/core";
 import {
@@ -33,6 +32,14 @@ import { AssetImportPanel } from "./asset-import-panel";
 
 const SLIDE_CAPTION_MAX_LENGTH = 80;
 const PROJECT_SLIDE_MAX_COUNT = 50;
+
+type SlideListState = {
+  projectId: string | null;
+  sourceSlideIds: string[];
+  orderedSlideIds: string[];
+  selectedSlideIds: Set<string>;
+  activeDragSlideId: string | null;
+};
 
 export function DriveProjectWorkspacePanel() {
   const {
@@ -71,26 +78,14 @@ export function DriveProjectWorkspacePanel() {
     [readyProjectDetails?.slides],
   );
   const slideIds = useMemo(() => slides.map((slide) => slide.slideId), [slides]);
-  const [slideListState, setSlideListState] = useState(() => ({
+  const [slideListState, setSlideListState] = useState<SlideListState>(() => ({
     projectId,
     sourceSlideIds: slideIds,
     orderedSlideIds: slideIds,
     selectedSlideIds: new Set<string>(),
-    activeDragSlideId: null as string | null,
+    activeDragSlideId: null,
   }));
-
-  if (
-    slideListState.projectId !== projectId ||
-    !areStringArraysEqual(slideListState.sourceSlideIds, slideIds)
-  ) {
-    setSlideListState({
-      projectId,
-      sourceSlideIds: slideIds,
-      orderedSlideIds: slideIds,
-      selectedSlideIds: new Set(),
-      activeDragSlideId: null,
-    });
-  }
+  const slideListStateRef = useRef(slideListState);
 
   const { orderedSlideIds, selectedSlideIds, activeDragSlideId } = slideListState;
   const selectedCount = selectedSlideIds.size;
@@ -118,8 +113,37 @@ export function DriveProjectWorkspacePanel() {
   const areSlideActionsDisabled = isSlideEditInFlight || slideEditBlockedReason !== null;
   const canDeleteSelectedSlides = selectedCount > 0 && !areSlideActionsDisabled;
 
-  function toggleSelectedSlide(slideId: string, checked: boolean) {
+  useEffect(() => {
+    updateSlideListState((current) => {
+      if (
+        current.projectId === projectId &&
+        areStringArraysEqual(current.sourceSlideIds, slideIds)
+      ) {
+        return current;
+      }
+
+      return {
+        projectId,
+        sourceSlideIds: slideIds,
+        orderedSlideIds: slideIds,
+        selectedSlideIds: new Set(),
+        activeDragSlideId: null,
+      };
+    });
+  }, [projectId, slideIds]);
+
+  function updateSlideListState(
+    updater: (current: SlideListState) => SlideListState,
+  ) {
     setSlideListState((current) => {
+      const next = updater(current);
+      slideListStateRef.current = next;
+      return next;
+    });
+  }
+
+  function toggleSelectedSlide(slideId: string, checked: boolean) {
+    updateSlideListState((current) => {
       const nextSelectedSlideIds = new Set(current.selectedSlideIds);
 
       if (checked) {
@@ -136,7 +160,7 @@ export function DriveProjectWorkspacePanel() {
   }
 
   function clearSelectedSlides() {
-    setSlideListState((current) => ({
+    updateSlideListState((current) => ({
       ...current,
       selectedSlideIds: new Set(),
     }));
@@ -168,6 +192,10 @@ export function DriveProjectWorkspacePanel() {
   }
 
   function handleDragOver(event: DragOverEvent) {
+    if (areSlideActionsDisabled) {
+      return;
+    }
+
     const activeId = String(event.active.id);
     const overId = event.over ? String(event.over.id) : null;
 
@@ -175,7 +203,7 @@ export function DriveProjectWorkspacePanel() {
       return;
     }
 
-    setSlideListState((current) => {
+    updateSlideListState((current) => {
       const oldIndex = current.orderedSlideIds.indexOf(activeId);
       const newIndex = current.orderedSlideIds.indexOf(overId);
 
@@ -190,35 +218,33 @@ export function DriveProjectWorkspacePanel() {
     });
   }
 
-  async function handleDragEnd(event: DragEndEvent) {
-    setSlideListState((current) => ({
+  async function handleDragEnd() {
+    const nextOrderedSlideIds = slideListStateRef.current.orderedSlideIds;
+    const sourceSlideIds = slideListStateRef.current.sourceSlideIds;
+
+    updateSlideListState((current) => ({
       ...current,
       activeDragSlideId: null,
     }));
 
-    const activeId = String(event.active.id);
-    const overId = event.over ? String(event.over.id) : null;
-
-    if (!overId || activeId === overId || areSlideActionsDisabled) {
-      setSlideListState((current) => ({
+    if (areSlideActionsDisabled) {
+      updateSlideListState((current) => ({
         ...current,
-        orderedSlideIds: slideIds,
+        orderedSlideIds: current.sourceSlideIds,
       }));
       return;
     }
 
-    const nextOrderedSlideIds = orderedSlideIds;
-
-    if (areStringArraysEqual(nextOrderedSlideIds, slideIds)) {
+    if (areStringArraysEqual(nextOrderedSlideIds, sourceSlideIds)) {
       return;
     }
 
     const ok = await reorderProjectSlidesByDrag(nextOrderedSlideIds);
 
     if (!ok) {
-      setSlideListState((current) => ({
+      updateSlideListState((current) => ({
         ...current,
-        orderedSlideIds: slideIds,
+        orderedSlideIds: current.sourceSlideIds,
       }));
     }
   }
@@ -400,7 +426,7 @@ export function DriveProjectWorkspacePanel() {
                   sensors={sensors}
                   collisionDetection={closestCenter}
                   onDragStart={(event) =>
-                    setSlideListState((current) => ({
+                    updateSlideListState((current) => ({
                       ...current,
                       activeDragSlideId: String(event.active.id),
                     }))
@@ -408,10 +434,10 @@ export function DriveProjectWorkspacePanel() {
                   onDragOver={handleDragOver}
                   onDragEnd={handleDragEnd}
                   onDragCancel={() => {
-                    setSlideListState((current) => ({
+                    updateSlideListState((current) => ({
                       ...current,
                       activeDragSlideId: null,
-                      orderedSlideIds: slideIds,
+                      orderedSlideIds: current.sourceSlideIds,
                     }));
                   }}
                 >
