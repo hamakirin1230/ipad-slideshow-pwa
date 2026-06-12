@@ -13,12 +13,12 @@ const WORKSPACE_ROOT_NAME = "iPad Slideshow PWA Workspace";
 const WORKSPACE_JSON_NAME = "workspace.json";
 const INDEX_JSON_NAME = "index.json";
 const PROJECTS_ROOT_NAME = "projects";
-const PROJECT_TITLE = "新しいスライドショー";
 const PROJECT_MANIFEST_NAME = "manifest.json";
 const PROJECT_ASSETS_ROOT_NAME = "assets";
 
 const CHILD_ROLE_SEARCH_LIMIT = 2;
 const JSON_FILE_SIZE_LIMIT_BYTES = 64 * 1024;
+export const DRIVE_PROJECT_TITLE_MAX_LENGTH = 40;
 const DRIVE_PROJECT_MAX_SLIDE_COUNT = 50;
 const DRIVE_PROJECT_ASSET_PREVIEW_SIZE_LIMIT_BYTES = 10 * 1024 * 1024;
 const DRIVE_PROJECT_DEFAULT_SLIDE_DURATION_SECONDS = 10;
@@ -150,6 +150,7 @@ export type DriveProjectCreateFailureStatus =
 export type DriveProjectCreateInput = {
   accessToken: string;
   readyContext: DriveWorkspaceReadyContext;
+  title: string;
   runStep: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>;
 };
 
@@ -210,6 +211,31 @@ export type DriveProjectManifestAppendInput = {
 };
 
 export type DriveProjectManifestAppendResult = {
+  project: DriveProjectSummary;
+  details: DriveProjectReadyDetails;
+  manifestJsonText: string;
+  indexJsonText: string;
+  diagnostics: string[];
+};
+
+export type DriveProjectTitleUpdateFailureStatus =
+  | "authRequired"
+  | "invalidProject"
+  | "manifestUpdateFailed"
+  | "indexUpdateFailed"
+  | "verificationFailed";
+
+export type DriveProjectTitleUpdateInput = {
+  accessToken: string;
+  workspaceId: string;
+  indexJsonFileId: string;
+  projectsRootFolderId: string;
+  project: DriveProjectSummary;
+  title: string;
+  runStep: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+};
+
+export type DriveProjectTitleUpdateResult = {
   project: DriveProjectSummary;
   details: DriveProjectReadyDetails;
   manifestJsonText: string;
@@ -467,6 +493,27 @@ export class DriveProjectManifestAppendError extends Error {
     this.name = "DriveProjectManifestAppendError";
     this.status = input.status;
     this.savedAsset = input.savedAsset;
+    this.possibleChangedItems = [...input.possibleChangedItems];
+    this.diagnostics = [...input.diagnostics];
+    this.cause = input.cause;
+  }
+}
+
+export class DriveProjectTitleUpdateError extends Error {
+  status: DriveProjectTitleUpdateFailureStatus;
+  possibleChangedItems: DriveProjectChangedItem[];
+  diagnostics: string[];
+  cause?: unknown;
+
+  constructor(input: {
+    status: DriveProjectTitleUpdateFailureStatus;
+    possibleChangedItems: DriveProjectChangedItem[];
+    diagnostics: string[];
+    cause?: unknown;
+  }) {
+    super("Drive project title update failed.");
+    this.name = "DriveProjectTitleUpdateError";
+    this.status = input.status;
     this.possibleChangedItems = [...input.possibleChangedItems];
     this.diagnostics = [...input.diagnostics];
     this.cause = input.cause;
@@ -973,6 +1020,236 @@ export async function appendDriveProjectAssetToManifest(
         error,
         changedItems,
         savedAsset: input.savedAsset,
+      }),
+      cause: error,
+    });
+  }
+}
+
+export async function updateDriveProjectTitle(
+  input: DriveProjectTitleUpdateInput,
+): Promise<DriveProjectTitleUpdateResult> {
+  const changedItems: DriveProjectChangedItem[] = [];
+  const titleDiagnostics = validateDriveProjectTitle(input.title);
+  const now = new Date().toISOString();
+
+  if (titleDiagnostics.length > 0) {
+    throw new DriveProjectTitleUpdateError({
+      status: "invalidProject",
+      possibleChangedItems: changedItems,
+      diagnostics: titleDiagnostics,
+    });
+  }
+
+  try {
+    const [indexJsonText, manifestJsonText] = await input.runStep((signal) =>
+      Promise.all([
+        readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+      ]),
+    );
+
+    const registrationResult = validateCreatedProjectRegistration({
+      indexJsonText,
+      expectedProject: input.project,
+    });
+
+    if (registrationResult.status === "invalid") {
+      throw new DriveProjectTitleUpdateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...registrationResult.diagnostics,
+          "title変更前の index.json 対象project検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const manifestResult = parseDriveProjectManifestJson({
+      manifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: registrationResult.project,
+    });
+
+    if (manifestResult.status === "invalid") {
+      throw new DriveProjectTitleUpdateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...manifestResult.diagnostics,
+          "title変更前の manifest.json 検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const nextProject: DriveProjectSummary = {
+      ...registrationResult.project,
+      title: input.title,
+      updatedAt: now,
+    };
+    const nextManifestJsonText = buildProjectManifestJsonWithUpdatedTitle({
+      manifest: manifestResult.manifest,
+      title: input.title,
+      updatedAt: now,
+    });
+
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.project.manifestFileId,
+        metadata: {
+          name: PROJECT_MANIFEST_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildProjectAppProperties({
+            role: "projectManifest",
+            workspaceId: input.workspaceId,
+            projectId: input.project.projectId,
+          }),
+        },
+        expectedAppProperties: buildProjectAppProperties({
+          role: "projectManifest",
+          workspaceId: input.workspaceId,
+          projectId: input.project.projectId,
+        }),
+        jsonText: nextManifestJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+
+    changedItems.push({
+      role: "projectManifest",
+      id: input.project.manifestFileId,
+      name: PROJECT_MANIFEST_NAME,
+    });
+
+    const preIndexUpdateJsonText = await input.runStep((signal) =>
+      readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+    );
+
+    const nextIndexResult = buildIndexJsonWithUpdatedProject({
+      indexJsonText: preIndexUpdateJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      currentProject: registrationResult.project,
+      nextProject,
+      indexUpdatedAt: now,
+    });
+
+    if (nextIndexResult.status === "invalid") {
+      throw new DriveProjectTitleUpdateError({
+        status: "indexUpdateFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...nextIndexResult.diagnostics,
+          "manifest.json は更新済みの可能性があります。",
+          "index.json は未更新です。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.indexJsonFileId,
+        metadata: {
+          name: INDEX_JSON_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildWorkspaceAppProperties({
+            role: "index",
+            workspaceId: input.workspaceId,
+          }),
+        },
+        expectedAppProperties: buildWorkspaceAppProperties({
+          role: "index",
+          workspaceId: input.workspaceId,
+        }),
+        jsonText: nextIndexResult.indexJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+
+    changedItems.push({
+      role: "index",
+      id: input.indexJsonFileId,
+      name: INDEX_JSON_NAME,
+    });
+
+    const [verifiedManifestJsonText, verifiedIndexJsonText] = await input.runStep(
+      (signal) =>
+        Promise.all([
+          readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+          readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        ]),
+    );
+
+    const verifiedRegistrationResult = validateCreatedProjectRegistration({
+      indexJsonText: verifiedIndexJsonText,
+      expectedProject: nextProject,
+    });
+
+    if (verifiedRegistrationResult.status === "invalid") {
+      throw new DriveProjectTitleUpdateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedRegistrationResult.diagnostics,
+          "index.json 更新後の title 再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const verifiedManifestResult = parseDriveProjectManifestJson({
+      manifestJsonText: verifiedManifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: verifiedRegistrationResult.project,
+    });
+
+    if (verifiedManifestResult.status === "invalid") {
+      throw new DriveProjectTitleUpdateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedManifestResult.diagnostics,
+          "manifest.json 更新後の title 再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    return {
+      project: verifiedRegistrationResult.project,
+      details: verifiedManifestResult.details,
+      manifestJsonText: verifiedManifestJsonText,
+      indexJsonText: verifiedIndexJsonText,
+      diagnostics: [
+        ...registrationResult.diagnostics,
+        ...manifestResult.diagnostics,
+        "manifest.json.title を更新しました。",
+        ...nextIndexResult.diagnostics,
+        "index.json.projects の対象project.titleを更新しました。",
+        ...verifiedRegistrationResult.diagnostics,
+        ...verifiedManifestResult.diagnostics,
+        "title変更後の manifest.json / index.json 再検証が完了しました。",
+      ],
+    };
+  } catch (error) {
+    if (error instanceof DriveProjectTitleUpdateError) {
+      throw error;
+    }
+
+    throw new DriveProjectTitleUpdateError({
+      status: toDriveProjectTitleUpdateFailureStatus(error, changedItems),
+      possibleChangedItems: changedItems,
+      diagnostics: buildDriveProjectTitleUpdateFailureDiagnostics({
+        error,
+        changedItems,
       }),
       cause: error,
     });
@@ -1555,6 +1832,16 @@ export async function createDriveProject(
 ): Promise<DriveProjectCreateResult> {
   const changedItems: DriveProjectChangedItem[] = [];
   const { readyContext } = input;
+  const titleDiagnostics = validateDriveProjectTitle(input.title);
+
+  if (titleDiagnostics.length > 0) {
+    throw new DriveProjectCreateError({
+      status: "notCreatable",
+      projectId: null,
+      possibleChangedItems: changedItems,
+      diagnostics: titleDiagnostics,
+    });
+  }
 
   const initialIndexJsonText = await runProjectCreateStep({
     projectId: null,
@@ -1622,6 +1909,7 @@ export async function createDriveProject(
           projectRootFolderId: projectRoot.id,
           workspaceId: readyContext.workspaceId,
           projectId,
+          title: input.title,
           now,
           signal,
         }),
@@ -1700,7 +1988,7 @@ export async function createDriveProject(
 
   const expectedProject: DriveProjectSummary = {
     projectId,
-    title: PROJECT_TITLE,
+    title: input.title,
     projectFolderId: projectRoot.id,
     manifestFileId: manifest.id,
     assetsFolderId: assetsRoot.id,
@@ -1913,6 +2201,7 @@ async function createProjectManifestJsonFile(input: {
   projectRootFolderId: string;
   workspaceId: string;
   projectId: string;
+  title: string;
   now: string;
   signal: AbortSignal;
 }): Promise<DriveFileCandidate> {
@@ -1934,6 +2223,7 @@ async function createProjectManifestJsonFile(input: {
     jsonText: buildProjectManifestJsonText({
       workspaceId: input.workspaceId,
       projectId: input.projectId,
+      title: input.title,
       now: input.now,
     }),
     fields: CREATE_JSON_FIELDS,
@@ -2519,7 +2809,7 @@ function validateExpectedProjectManifestValue(input: {
 }) {
   if (input.actual && input.actual !== input.expected) {
     input.diagnostics.push(
-      `manifest.json の ${input.label} が index.json.projects[0] と一致していません。`,
+      `manifest.json の ${input.label} が index.json の対象project登録と一致していません。`,
     );
   }
 }
@@ -2954,6 +3244,27 @@ function buildProjectManifestJsonWithAppendedSlide(input: {
   return text;
 }
 
+function buildProjectManifestJsonWithUpdatedTitle(input: {
+  manifest: DriveProjectManifestBody;
+  title: string;
+  updatedAt: string;
+}) {
+  const text = stringifyJsonFile({
+    app: DRIVE_WORKSPACE_APP_ID,
+    role: "projectManifest",
+    schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
+    workspaceId: input.manifest.workspaceId,
+    projectId: input.manifest.projectId,
+    title: input.title,
+    slides: input.manifest.slides,
+    createdAt: input.manifest.createdAt,
+    updatedAt: input.updatedAt,
+  });
+
+  assertJsonTextSizeWithinLimit(text, "manifest.json");
+  return text;
+}
+
 function buildIndexJsonWithUpdatedProject(input: {
   indexJsonText: string;
   expectedWorkspaceId: string;
@@ -3060,7 +3371,7 @@ function buildIndexJsonWithUpdatedProject(input: {
   return {
     status: "valid",
     indexJsonText: text,
-    diagnostics: ["index.json の対象project.updatedAt更新本文を作成しました。"],
+    diagnostics: ["index.json の対象project更新本文を作成しました。"],
   };
 }
 
@@ -3113,6 +3424,55 @@ function buildDriveProjectManifestAppendFailureDiagnostics(input: {
     "自動削除・自動修復は行いません。",
   );
 
+  return diagnostics;
+}
+
+function toDriveProjectTitleUpdateFailureStatus(
+  error: unknown,
+  changedItems: DriveProjectChangedItem[],
+): DriveProjectTitleUpdateFailureStatus {
+  if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+    return "authRequired";
+  }
+
+  if (changedItems.some((item) => item.role === "index")) {
+    return "verificationFailed";
+  }
+
+  if (changedItems.some((item) => item.role === "projectManifest")) {
+    return "indexUpdateFailed";
+  }
+
+  return "manifestUpdateFailed";
+}
+
+function buildDriveProjectTitleUpdateFailureDiagnostics(input: {
+  error: unknown;
+  changedItems: DriveProjectChangedItem[];
+}) {
+  const diagnostics = ["project title変更中にエラーが発生しました。"];
+
+  if (input.error instanceof DriveApiError) {
+    diagnostics.push(`Drive API status: ${input.error.status}`);
+  }
+
+  if (input.changedItems.some((item) => item.role === "index")) {
+    diagnostics.push(
+      "manifest.json / index.json は更新済みの可能性があります。",
+      "更新後再検証は完了していません。",
+    );
+  } else if (input.changedItems.some((item) => item.role === "projectManifest")) {
+    diagnostics.push(
+      "manifest.json は更新済みの可能性があります。",
+      "index.json は未更新、または更新完了を確認できていません。",
+    );
+  } else {
+    diagnostics.push(
+      "manifest.json / index.json の更新完了は確認できていません。",
+    );
+  }
+
+  diagnostics.push("自動削除・自動修復は行いません。");
   return diagnostics;
 }
 
@@ -3469,6 +3829,7 @@ function buildProjectAppProperties(input: {
 function buildProjectManifestJsonText(input: {
   workspaceId: string;
   projectId: string;
+  title: string;
   now: string;
 }) {
   const text = stringifyJsonFile({
@@ -3477,7 +3838,7 @@ function buildProjectManifestJsonText(input: {
     schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
     workspaceId: input.workspaceId,
     projectId: input.projectId,
-    title: PROJECT_TITLE,
+    title: input.title,
     slides: [],
     createdAt: input.now,
     updatedAt: input.now,
@@ -4358,6 +4719,27 @@ function validateFetchedTextSizes(input: {
 
 function getJsonDiagnostics(result: JsonBodyValidationResult) {
   return result.diagnostics;
+}
+
+function validateDriveProjectTitle(title: string) {
+  const diagnostics: string[] = [];
+
+  if (!isNonEmptyString(title)) {
+    diagnostics.push("project title が空です。");
+    return diagnostics;
+  }
+
+  if (title !== title.trim()) {
+    diagnostics.push("project title の前後空白は取り除いてから保存してください。");
+  }
+
+  if ([...title].length > DRIVE_PROJECT_TITLE_MAX_LENGTH) {
+    diagnostics.push(
+      `project title は ${DRIVE_PROJECT_TITLE_MAX_LENGTH} 文字以内で入力してください。`,
+    );
+  }
+
+  return diagnostics;
 }
 
 function hasWorkspaceIdMismatch(workspaceIds: string[]) {

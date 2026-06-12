@@ -21,10 +21,12 @@ import {
   hasGrantedDriveFileScope,
 } from "@/lib/google-auth";
 import {
+  DRIVE_PROJECT_TITLE_MAX_LENGTH,
   DriveApiError,
   DriveProjectAssetSaveError,
   DriveProjectCreateError,
   DriveProjectManifestAppendError,
+  DriveProjectTitleUpdateError,
   DriveWorkspaceCreateError,
   appendDriveProjectAssetToManifest,
   createDriveProject,
@@ -34,6 +36,7 @@ import {
   findWorkspaceRootCandidates,
   readDriveTextFile,
   saveDriveProjectAsset,
+  updateDriveProjectTitle,
   validateIndexJsonProjects,
   validateDriveProjectDetails,
   validateWorkspaceJsonBodies,
@@ -339,7 +342,8 @@ type AppContextValue = {
   createWorkspace: () => void;
   checkProject: () => void;
   selectProject: (projectId: string) => void;
-  createProject: () => void;
+  createProject: (title: string) => void;
+  updateSelectedProjectTitle: (title: string) => void;
   startAssetImport: () => void;
   cancelAssetImport: () => void;
   startOfflineSync: () => void;
@@ -2320,12 +2324,139 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
-  async function createProject() {
+  async function updateSelectedProjectTitle(titleInput: string) {
     if (driveOperationInFlightRef.current) {
       return;
     }
 
     const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+    const title = normalizeProjectTitleInput(titleInput);
+    const titleDiagnostics = validateProjectTitleInput(title);
+
+    if (titleDiagnostics.length > 0) {
+      setProjectDiagnostics(titleDiagnostics);
+      return;
+    }
+
+    if (!accessToken) {
+      setProjectStatus("error");
+      setProjectMessage(
+        "Google接続が必要です。もう一度Google接続を行ってからtitleを変更してください。",
+      );
+      setProjectDiagnostics([]);
+      return;
+    }
+
+    if (
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      !readyWorkspace ||
+      !readyProject
+    ) {
+      setProjectDiagnostics([
+        "選択中projectが ready ではないため、title変更を開始しませんでした。",
+        "先にDrive project状態を確認し、対象projectを選択してください。",
+      ]);
+      return;
+    }
+
+    if (title === readyProject.title) {
+      setProjectDiagnostics(["project title は変更されていません。"]);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+
+    setProjectStatus("checking");
+    setProjectMessage("選択中projectのtitleを更新しています。");
+    setProjectDiagnostics([]);
+
+    try {
+      const result = await updateDriveProjectTitle({
+        accessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        indexJsonFileId: readyWorkspace.indexJsonFileId,
+        projectsRootFolderId: readyWorkspace.projectsRootFolderId,
+        project: readyProject,
+        title,
+        runStep: (operation) => runDriveOperationStep(requestId, operation),
+      });
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setWorkspaceReadyContext({
+        ...readyWorkspace,
+        indexJsonText: result.indexJsonText,
+      });
+      setProjectStatus("ready");
+      setProjectMessage(
+        "選択中projectのtitleを manifest.json / index.json に反映し、再検証しました。",
+      );
+      applyProjectReadyState(result.project, toProjectDetails(result.details));
+      setProjectDiagnostics(result.diagnostics);
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (error instanceof DriveProjectTitleUpdateError) {
+        if (error.status === "authRequired") {
+          resetGoogleAfterDriveAuthFailure();
+          setDriveStatus("authRequired");
+          setDriveMessage(
+            "Google再接続が必要です。再接続後にDrive状態を再確認してください。",
+          );
+        }
+
+        setProjectStatus(error.status === "invalidProject" ? "invalid" : "error");
+        setProjectMessage(
+          error.status === "invalidProject"
+            ? "title変更前のDrive project情報に問題があります。このスライスでは自動修復しません。"
+            : "project title変更に失敗しました。",
+        );
+        setProjectDiagnostics(error.diagnostics);
+        return;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+
+      setProjectStatus("error");
+      setProjectMessage("project title変更に失敗しました。");
+      setProjectDiagnostics([
+        "project title変更中に予期しないエラーが発生しました。",
+        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "Drive状態を再確認してください。",
+      ]);
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+      }
+    }
+  }
+
+  async function createProject(titleInput: string) {
+    if (driveOperationInFlightRef.current) {
+      return;
+    }
+
+    const accessToken = accessTokenRef.current;
+    const title = normalizeProjectTitleInput(titleInput);
+    const titleDiagnostics = validateProjectTitleInput(title);
+
+    if (titleDiagnostics.length > 0) {
+      setProjectDiagnostics(titleDiagnostics);
+      return;
+    }
 
     if (!accessToken) {
       setDriveStatus("authRequired");
@@ -2382,6 +2513,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       const result = await createDriveProject({
         accessToken,
         readyContext,
+        title,
         runStep: (operation) => {
           setProjectStatus("creating");
           setProjectMessage(
@@ -2524,6 +2656,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     checkProject,
     selectProject,
     createProject,
+    updateSelectedProjectTitle,
     startAssetImport,
     cancelAssetImport,
     startOfflineSync,
@@ -2879,6 +3012,27 @@ function buildEmptyProjectDetails(): ProjectDetails {
     assetCount: 0,
     slides: [],
   };
+}
+
+function normalizeProjectTitleInput(value: string) {
+  return value.trim();
+}
+
+function validateProjectTitleInput(title: string) {
+  const diagnostics: string[] = [];
+
+  if (title.length === 0) {
+    diagnostics.push("project title を入力してください。");
+    return diagnostics;
+  }
+
+  if ([...title].length > DRIVE_PROJECT_TITLE_MAX_LENGTH) {
+    diagnostics.push(
+      `project title は ${DRIVE_PROJECT_TITLE_MAX_LENGTH} 文字以内で入力してください。`,
+    );
+  }
+
+  return diagnostics;
 }
 
 function toProjectDetails(details: DriveProjectReadyDetails): ProjectDetails {

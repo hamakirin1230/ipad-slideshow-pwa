@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAppState } from "@/app/app-providers";
+import { DRIVE_PROJECT_TITLE_MAX_LENGTH } from "@/lib/google-drive";
 
 export function ProjectStatusPanel() {
   const {
@@ -28,7 +29,10 @@ export function ProjectStatusPanel() {
     checkProject,
     selectProject,
     createProject,
+    updateSelectedProjectTitle,
   } = useAppState();
+
+  const suggestedProjectTitle = getSuggestedProjectTitle(driveProjects.length);
 
   const canCheckDriveWorkspace =
     googleStatus === "connected" && !isDriveOperationInFlight;
@@ -41,6 +45,11 @@ export function ProjectStatusPanel() {
   const canCreateProject =
     driveStatus === "ready" &&
     (projectStatus === "notCreated" || projectStatus === "ready") &&
+    !isDriveOperationInFlight;
+  const canUpdateSelectedProjectTitle =
+    driveStatus === "ready" &&
+    projectStatus === "ready" &&
+    projectSummary !== null &&
     !isDriveOperationInFlight;
 
   useEffect(() => {
@@ -207,6 +216,26 @@ export function ProjectStatusPanel() {
           </div>
         ) : null}
 
+        <div className="grid gap-4 lg:grid-cols-2">
+          <CreateProjectTitleForm
+            key={suggestedProjectTitle}
+            suggestedProjectTitle={suggestedProjectTitle}
+            projectStatus={projectStatus}
+            canCreateProject={canCreateProject}
+            isDriveOperationInFlight={isDriveOperationInFlight}
+            createProject={createProject}
+          />
+
+          <SelectedProjectTitleForm
+            key={`${projectSummary?.projectId ?? "none"}:${projectSummary?.title ?? ""}`}
+            projectTitle={projectSummary?.title ?? ""}
+            hasProject={projectSummary !== null}
+            canUpdateSelectedProjectTitle={canUpdateSelectedProjectTitle}
+            isDriveOperationInFlight={isDriveOperationInFlight}
+            updateSelectedProjectTitle={updateSelectedProjectTitle}
+          />
+        </div>
+
         {projectDiagnostics.length > 0 ? (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <p className="font-semibold text-slate-50">プロジェクト診断</p>
@@ -241,14 +270,6 @@ export function ProjectStatusPanel() {
               : "プロジェクト状態を再確認"}
           </Button>
 
-          <Button
-            type="button"
-            variant={projectStatus === "notCreated" ? "default" : "secondary"}
-            onClick={createProject}
-            disabled={!canCreateProject}
-          >
-            {getCreateProjectButtonLabel(projectStatus)}
-          </Button>
         </div>
 
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
@@ -263,6 +284,133 @@ export function ProjectStatusPanel() {
   );
 }
 
+function CreateProjectTitleForm(input: {
+  suggestedProjectTitle: string;
+  projectStatus: string;
+  canCreateProject: boolean;
+  isDriveOperationInFlight: boolean;
+  createProject: (title: string) => void;
+}) {
+  const [projectTitle, setProjectTitle] = useState(input.suggestedProjectTitle);
+  const normalizedProjectTitle = normalizeProjectTitleInput(projectTitle);
+  const projectTitleError = getProjectTitleError(normalizedProjectTitle);
+  const canSubmit = input.canCreateProject && projectTitleError === null;
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canSubmit) {
+      return;
+    }
+
+    input.createProject(normalizedProjectTitle);
+  }
+
+  return (
+    <form
+      className="rounded-2xl border border-white/10 bg-black/30 p-4"
+      onSubmit={handleSubmit}
+    >
+      <p className="font-semibold text-slate-50">新しいprojectを作成</p>
+      <label className="mt-3 block text-xs font-medium text-slate-400">
+        project title
+        <input
+          type="text"
+          value={projectTitle}
+          onChange={(event) => setProjectTitle(event.target.value)}
+          maxLength={DRIVE_PROJECT_TITLE_MAX_LENGTH}
+          className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-emerald-300"
+          placeholder={input.suggestedProjectTitle}
+          disabled={input.isDriveOperationInFlight}
+        />
+      </label>
+      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
+        <p>
+          {projectTitleError ??
+            "作成時に manifest.json と index.json の両方へ保存します。"}
+        </p>
+        <p>
+          {[...normalizedProjectTitle].length}/{DRIVE_PROJECT_TITLE_MAX_LENGTH}
+        </p>
+      </div>
+      <Button
+        type="submit"
+        className="mt-4 w-full"
+        variant={input.projectStatus === "notCreated" ? "default" : "secondary"}
+        disabled={!canSubmit}
+      >
+        {getCreateProjectButtonLabel(input.projectStatus)}
+      </Button>
+    </form>
+  );
+}
+
+function SelectedProjectTitleForm(input: {
+  projectTitle: string;
+  hasProject: boolean;
+  canUpdateSelectedProjectTitle: boolean;
+  isDriveOperationInFlight: boolean;
+  updateSelectedProjectTitle: (title: string) => void;
+}) {
+  const [projectTitle, setProjectTitle] = useState(input.projectTitle);
+  const normalizedProjectTitle = normalizeProjectTitleInput(projectTitle);
+  const projectTitleError = getProjectTitleError(normalizedProjectTitle);
+  const canSubmit =
+    input.canUpdateSelectedProjectTitle &&
+    projectTitleError === null &&
+    normalizedProjectTitle !== input.projectTitle;
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canSubmit) {
+      return;
+    }
+
+    input.updateSelectedProjectTitle(normalizedProjectTitle);
+  }
+
+  return (
+    <form
+      className="rounded-2xl border border-white/10 bg-black/30 p-4"
+      onSubmit={handleSubmit}
+    >
+      <p className="font-semibold text-slate-50">選択中projectのtitle変更</p>
+      <label className="mt-3 block text-xs font-medium text-slate-400">
+        project title
+        <input
+          type="text"
+          value={projectTitle}
+          onChange={(event) => setProjectTitle(event.target.value)}
+          maxLength={DRIVE_PROJECT_TITLE_MAX_LENGTH}
+          className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-emerald-300 disabled:opacity-60"
+          placeholder="Project A"
+          disabled={!input.hasProject || input.isDriveOperationInFlight}
+        />
+      </label>
+      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
+        <p>
+          {input.hasProject
+            ? projectTitleError ??
+              "変更後に manifest.json / index.json を再検証します。"
+            : "先にprojectを選択してください。"}
+        </p>
+        <p>
+          {[...normalizedProjectTitle].length}/{DRIVE_PROJECT_TITLE_MAX_LENGTH}
+        </p>
+      </div>
+      <Button
+        type="submit"
+        className="mt-4 w-full"
+        variant="secondary"
+        disabled={!canSubmit}
+      >
+        titleを変更
+      </Button>
+    </form>
+  );
+}
+
 function getCreateProjectButtonLabel(projectStatus: string) {
   if (projectStatus === "creating") {
     return "プロジェクト作成中";
@@ -273,4 +421,30 @@ function getCreateProjectButtonLabel(projectStatus: string) {
   }
 
   return "新しいprojectを作成";
+}
+
+function getSuggestedProjectTitle(projectCount: number) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  if (projectCount >= 0 && projectCount < alphabet.length) {
+    return `Project ${alphabet[projectCount]}`;
+  }
+
+  return `Project ${projectCount + 1}`;
+}
+
+function normalizeProjectTitleInput(value: string) {
+  return value.trim();
+}
+
+function getProjectTitleError(title: string) {
+  if (title.length === 0) {
+    return "project title を入力してください。";
+  }
+
+  if ([...title].length > DRIVE_PROJECT_TITLE_MAX_LENGTH) {
+    return `project title は ${DRIVE_PROJECT_TITLE_MAX_LENGTH} 文字以内で入力してください。`;
+  }
+
+  return null;
 }
