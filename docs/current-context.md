@@ -72,6 +72,9 @@ confirmed store promotion
 /player auto advance interval selector
 /player slide transition animation
 /admin slide reorder controls
+/admin slide drag-and-drop reorder
+/admin slide bulk delete
+/admin slide duplicate
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
 ```
@@ -153,6 +156,7 @@ ipad-slideshow-pwa-app-shell-v1
 - `/player/` はconfirmed storeからoffline-firstで読む
 - `/player/` はconfirmed store内のslide順をそのまま再生順として使う
 - Drive上の画像順の正は`manifest.json.slides[]`の配列順
+- Drive上のslide削除・複製も`manifest.json.slides[]`だけを変更し、Drive assets/内の画像ファイルは削除・コピーしない
 - project単位ローカル削除ではDrive上のデータを削除しない
 - app shell cache削除ではIndexedDBのproject / asset / Blobを削除しない
 
@@ -242,6 +246,35 @@ index.json.projects[].updatedAtも更新し、更新後にmanifest / indexを再
 画像順変更後、iPad再生に反映するには対象projectのoffline syncが必要
 ```
 
+## Admin slide drag-and-drop・一括削除・複製
+
+2026-06-12時点で追加済み:
+
+```text
+/admin/の本編スライド順でdrag-and-dropによる画像順変更
+drag handleのみでdrag開始し、checkbox / button / textarea操作ではdrag開始しない
+drag over中に暫定順を表示し、drop時にDrive manifestへ保存
+保存失敗時はDrive由来の最新slide順へ戻す
+上へ / 下へボタンによるreorderは維持
+
+checkboxで複数slideを選択し、一括削除できる
+すべてのslide削除も許可
+一括削除はmanifest.json.slides[]から対象slide entryを外すだけで、Drive assets/のasset fileは削除しない
+削除成功後は選択をクリア
+
+slide複製はsource slideの直後に新しいslide entryを挿入する
+新しいslideId / createdAt / updatedAtを発行する
+assetId / assetFileId / assetName / mimeType / caption / durationSeconds / source fieldsはsource slideからコピーする
+Drive asset fileはコピーしない
+project全体50 slides上限を維持する
+
+delete / duplicate / drag reorderではmanifest.json.updatedAtとindex.json.projects[].updatedAtを更新する
+更新後にmanifest / indexを再読込して保存結果を再検証する
+不整合時は自動修復しない
+project未ready、offline sync中、素材追加中、caption保存中、title保存中、Drive操作中、slide edit保存中はslide edit不可
+slide削除・複製・並び替え後、iPad再生に反映するには対象projectのoffline syncが必要
+```
+
 ## 直近の検証済み
 
 ローカルで確認済み:
@@ -261,7 +294,7 @@ Browser console errorなし
 ローカル環境にはconfirmed projectがないため、
 production mode ON/OFF、lock中swipe navigation、2秒長押しunlock、Project A / Project Bの実データ再生はVercel production / iPad PWA側で確認する。
 Photos Picker複数選択、caption保存、offline sync後のテロップ再生もVercel production / iPad PWA側で確認する。
-画像順変更、変更後offline sync、Playerでのnext / previous / swipe / 自動送り / transitionはVercel production / iPad PWA側でProject A / Project Bそれぞれ確認する。
+画像順変更、drag-and-drop reorder、複数slide削除、slide複製、変更後offline sync、Playerでのnext / previous / swipe / 自動送り / transitionはVercel production / iPad PWA側でProject A / Project Bそれぞれ確認する。
 ```
 
 ## 次に自然な作業
@@ -279,6 +312,7 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 読む順:
 
 ```text
+docs/handoffs/2026-06-12-slide-dnd-delete-duplicate-handoff.md
 docs/handoffs/2026-06-12-player-auto-advance-transition-and-slide-reorder-handoff.md
 docs/handoffs/2026-06-12-caption-telop-and-batch-asset-import-handoff.md
 docs/handoffs/2026-06-12-production-mode-and-operation-lock-handoff.md

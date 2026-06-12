@@ -1,6 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +32,7 @@ import { useAppState } from "@/app/app-providers";
 import { AssetImportPanel } from "./asset-import-panel";
 
 const SLIDE_CAPTION_MAX_LENGTH = 80;
+const PROJECT_SLIDE_MAX_COUNT = 50;
 
 export function DriveProjectWorkspacePanel() {
   const {
@@ -24,21 +43,185 @@ export function DriveProjectWorkspacePanel() {
     fetchProjectSlidePreviewBlob,
     updateProjectSlideCaption,
     moveProjectSlide,
+    reorderProjectSlidesByDrag,
+    deleteProjectSlides,
+    duplicateProjectSlide,
     captionUpdateSlideId,
     captionUpdateMessage,
     captionUpdateDiagnostics,
+    slideEditMessage,
+    slideEditDiagnostics,
+    isSlideEditInFlight,
+    isSlideDeleteInFlight,
+    isSlideDuplicateInFlight,
+    slideEditBlockedReason,
     slideReorderMessage,
     slideReorderDiagnostics,
-    isSlideReorderInFlight,
     slideReorderBlockedReason,
   } = useAppState();
 
   const readyProjectDetails = projectStatus === "ready" ? projectDetails : null;
+  const projectId = projectSummary?.projectId ?? null;
   const assetCount =
     readyProjectDetails?.assetCount ?? projectSummary?.assetCount ?? 0;
   const slideCount =
      readyProjectDetails?.slideCount ?? projectSummary?.slideCount ?? 0;
-  const slides = readyProjectDetails?.slides ?? [];
+  const slides = useMemo(
+    () => readyProjectDetails?.slides ?? [],
+    [readyProjectDetails?.slides],
+  );
+  const slideIds = useMemo(() => slides.map((slide) => slide.slideId), [slides]);
+  const [slideListState, setSlideListState] = useState(() => ({
+    projectId,
+    sourceSlideIds: slideIds,
+    orderedSlideIds: slideIds,
+    selectedSlideIds: new Set<string>(),
+    activeDragSlideId: null as string | null,
+  }));
+
+  if (
+    slideListState.projectId !== projectId ||
+    !areStringArraysEqual(slideListState.sourceSlideIds, slideIds)
+  ) {
+    setSlideListState({
+      projectId,
+      sourceSlideIds: slideIds,
+      orderedSlideIds: slideIds,
+      selectedSlideIds: new Set(),
+      activeDragSlideId: null,
+    });
+  }
+
+  const { orderedSlideIds, selectedSlideIds, activeDragSlideId } = slideListState;
+  const selectedCount = selectedSlideIds.size;
+  const slideById = useMemo(
+    () => new Map(slides.map((slide) => [slide.slideId, slide])),
+    [slides],
+  );
+  const orderedSlides = useMemo(
+    () =>
+      orderedSlideIds
+        .map((slideId) => slideById.get(slideId))
+        .filter((slide): slide is (typeof slides)[number] => Boolean(slide)),
+    [orderedSlideIds, slideById],
+  );
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+  const areSlideActionsDisabled = isSlideEditInFlight || slideEditBlockedReason !== null;
+  const canDeleteSelectedSlides = selectedCount > 0 && !areSlideActionsDisabled;
+
+  function toggleSelectedSlide(slideId: string, checked: boolean) {
+    setSlideListState((current) => {
+      const nextSelectedSlideIds = new Set(current.selectedSlideIds);
+
+      if (checked) {
+        nextSelectedSlideIds.add(slideId);
+      } else {
+        nextSelectedSlideIds.delete(slideId);
+      }
+
+      return {
+        ...current,
+        selectedSlideIds: nextSelectedSlideIds,
+      };
+    });
+  }
+
+  function clearSelectedSlides() {
+    setSlideListState((current) => ({
+      ...current,
+      selectedSlideIds: new Set(),
+    }));
+  }
+
+  async function handleDeleteSelectedSlides() {
+    if (!canDeleteSelectedSlides) {
+      return;
+    }
+
+    const slideIdsToDelete = Array.from(selectedSlideIds);
+    const confirmed = window.confirm(
+      [
+        `選択した${slideIdsToDelete.length}件の slide をこの project から削除します。`,
+        "Drive assets/ の画像ファイルは削除しません。",
+        "iPad再生に反映するには offline sync が必要です。",
+      ].join("\n"),
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const ok = await deleteProjectSlides(slideIdsToDelete);
+
+    if (ok) {
+      clearSelectedSlides();
+    }
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    const activeId = String(event.active.id);
+    const overId = event.over ? String(event.over.id) : null;
+
+    if (!overId || activeId === overId) {
+      return;
+    }
+
+    setSlideListState((current) => {
+      const oldIndex = current.orderedSlideIds.indexOf(activeId);
+      const newIndex = current.orderedSlideIds.indexOf(overId);
+
+      if (oldIndex === -1 || newIndex === -1) {
+        return current;
+      }
+
+      return {
+        ...current,
+        orderedSlideIds: arrayMove(current.orderedSlideIds, oldIndex, newIndex),
+      };
+    });
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    setSlideListState((current) => ({
+      ...current,
+      activeDragSlideId: null,
+    }));
+
+    const activeId = String(event.active.id);
+    const overId = event.over ? String(event.over.id) : null;
+
+    if (!overId || activeId === overId || areSlideActionsDisabled) {
+      setSlideListState((current) => ({
+        ...current,
+        orderedSlideIds: slideIds,
+      }));
+      return;
+    }
+
+    const nextOrderedSlideIds = orderedSlideIds;
+
+    if (areStringArraysEqual(nextOrderedSlideIds, slideIds)) {
+      return;
+    }
+
+    const ok = await reorderProjectSlidesByDrag(nextOrderedSlideIds);
+
+    if (!ok) {
+      setSlideListState((current) => ({
+        ...current,
+        orderedSlideIds: slideIds,
+      }));
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -176,59 +359,159 @@ export function DriveProjectWorkspacePanel() {
               ) : null}
             </div>
             {slides.length > 0 ? (
-              <div className="overflow-hidden rounded-xl border border-slate-200">
-                <div className="grid gap-3 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid-cols-[4rem_8rem_minmax(0,1fr)_9rem_minmax(14rem,1.4fr)]">
-                  <p>順番</p>
-                  <p>プレビュー</p>
-                  <p>asset</p>
-                  <p>並び替え</p>
-                  <p>テロップ</p>
-                </div>
-                <div className="divide-y divide-slate-200">
-                  {slides.map((slide, index) => (
-                    <div
-                      key={`${slide.slideIdPart}-${slide.assetIdPart}`}
-                      className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[4rem_8rem_minmax(0,1fr)_9rem_minmax(14rem,1.4fr)]"
+              <div className="space-y-3">
+                <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      {selectedCount > 0
+                        ? `${selectedCount}件選択中`
+                        : "slideを選択して一括操作できます"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      すべて削除すると、この project は再生対象 slide がない状態になります。
+                      Drive assets/ の画像ファイルは削除しません。
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={selectedCount === 0 || isSlideEditInFlight}
+                      onClick={clearSelectedSlides}
                     >
-                      <p className="font-medium">{index + 1}</p>
-                      <DriveSlidePreview
-                        assetFileId={slide.assetFileId}
-                        mimeType={slide.mimeType}
-                        assetName={slide.assetName}
-                        fetchProjectSlidePreviewBlob={fetchProjectSlidePreviewBlob}
-                      />
-                      <div>
-                        <p className="font-medium">{slide.assetName}</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          source: {slide.sourceMimeType} / createTime:{" "}
-                          {slide.sourceCreateTime}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          slide: {slide.slideIdPart} / {slide.durationSeconds}秒 /{" "}
-                          {slide.mimeType}
-                        </p>
-                      </div>
-                      <SlideReorderControls
-                        slideId={slide.slideId}
-                        isFirst={index === 0}
-                        isLast={index === slides.length - 1}
-                        isDisabled={
-                          isSlideReorderInFlight ||
-                          slideReorderBlockedReason !== null
-                        }
-                        onMove={moveProjectSlide}
-                      />
-                      <SlideCaptionEditor
-                        key={`${slide.slideId}:${slide.caption}`}
-                        slideId={slide.slideId}
-                        caption={slide.caption}
-                        isSaving={captionUpdateSlideId === slide.slideId}
-                        isDisabled={isSlideReorderInFlight}
-                        onSave={updateProjectSlideCaption}
-                      />
-                    </div>
-                  ))}
+                      選択解除
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      disabled={!canDeleteSelectedSlides}
+                      onClick={handleDeleteSelectedSlides}
+                    >
+                      {isSlideDeleteInFlight
+                        ? "削除中"
+                        : "選択した slide を削除"}
+                    </Button>
+                  </div>
                 </div>
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragStart={(event) =>
+                    setSlideListState((current) => ({
+                      ...current,
+                      activeDragSlideId: String(event.active.id),
+                    }))
+                  }
+                  onDragOver={handleDragOver}
+                  onDragEnd={handleDragEnd}
+                  onDragCancel={() => {
+                    setSlideListState((current) => ({
+                      ...current,
+                      activeDragSlideId: null,
+                      orderedSlideIds: slideIds,
+                    }));
+                  }}
+                >
+                  <SortableContext
+                    items={orderedSlideIds}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="overflow-hidden rounded-xl border border-slate-200">
+                      <div className="grid gap-3 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]">
+                        <p>選択</p>
+                        <p>順番</p>
+                        <p>プレビュー</p>
+                        <p>asset</p>
+                        <p>並び替え</p>
+                        <p>操作</p>
+                        <p>テロップ</p>
+                      </div>
+                      <div className="divide-y divide-slate-200">
+                        {orderedSlides.map((slide, index) => (
+                          <SortableSlideRow
+                            key={`${slide.slideIdPart}-${slide.assetIdPart}`}
+                            slideId={slide.slideId}
+                            isDisabled={areSlideActionsDisabled}
+                            isDragging={activeDragSlideId === slide.slideId}
+                          >
+                            {({ dragHandle }) => (
+                              <>
+                                <label className="flex items-center gap-2 text-xs text-slate-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedSlideIds.has(slide.slideId)}
+                                    disabled={isSlideEditInFlight}
+                                    onChange={(event) =>
+                                      toggleSelectedSlide(
+                                        slide.slideId,
+                                        event.target.checked,
+                                      )
+                                    }
+                                    className="size-4 rounded border-slate-300"
+                                  />
+                                  <span className="sr-only">slide を選択</span>
+                                </label>
+                                <div className="space-y-2">
+                                  <p className="font-medium">{index + 1}</p>
+                                  {dragHandle}
+                                </div>
+                                <DriveSlidePreview
+                                  assetFileId={slide.assetFileId}
+                                  mimeType={slide.mimeType}
+                                  assetName={slide.assetName}
+                                  fetchProjectSlidePreviewBlob={
+                                    fetchProjectSlidePreviewBlob
+                                  }
+                                />
+                                <div>
+                                  <p className="font-medium">{slide.assetName}</p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    source: {slide.sourceMimeType} / createTime:{" "}
+                                    {slide.sourceCreateTime}
+                                  </p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    slide: {slide.slideIdPart} /{" "}
+                                    {slide.durationSeconds}秒 / {slide.mimeType}
+                                  </p>
+                                </div>
+                                <SlideReorderControls
+                                  slideId={slide.slideId}
+                                  isFirst={index === 0}
+                                  isLast={index === orderedSlides.length - 1}
+                                  isDisabled={
+                                    isSlideEditInFlight ||
+                                    slideReorderBlockedReason !== null
+                                  }
+                                  onMove={moveProjectSlide}
+                                />
+                                <SlideSingleActions
+                                  slideId={slide.slideId}
+                                  isDisabled={areSlideActionsDisabled}
+                                  isDuplicating={isSlideDuplicateInFlight}
+                                  isDuplicateLimitReached={
+                                    slideCount >= PROJECT_SLIDE_MAX_COUNT
+                                  }
+                                  onDuplicate={duplicateProjectSlide}
+                                />
+                                <SlideCaptionEditor
+                                  key={`${slide.slideId}:${slide.caption}`}
+                                  slideId={slide.slideId}
+                                  caption={slide.caption}
+                                  isSaving={captionUpdateSlideId === slide.slideId}
+                                  isDisabled={isSlideEditInFlight}
+                                  onSave={updateProjectSlideCaption}
+                                />
+                              </>
+                            )}
+                          </SortableSlideRow>
+                        ))}
+                      </div>
+                    </div>
+                  </SortableContext>
+                </DndContext>
               </div>
             ) : (
               <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
@@ -244,6 +527,18 @@ export function DriveProjectWorkspacePanel() {
             <p className="mt-3 text-xs leading-5 text-slate-500">
               画像順とテロップ変更をiPad再生に反映するには、このprojectをoffline syncしてください。
             </p>
+            {slideEditMessage ? (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">{slideEditMessage}</p>
+                {slideEditDiagnostics.length > 0 ? (
+                  <div className="mt-2 space-y-1 text-xs">
+                    {slideEditDiagnostics.map((diagnostic, index) => (
+                      <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {slideReorderMessage ? (
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                 <p className="font-medium text-slate-900">{slideReorderMessage}</p>
@@ -271,6 +566,60 @@ export function DriveProjectWorkspacePanel() {
           </CardContent>
         </Card>
       </section>
+    </div>
+  );
+}
+
+function SortableSlideRow({
+  slideId,
+  isDisabled,
+  isDragging,
+  children,
+}: {
+  slideId: string;
+  isDisabled: boolean;
+  isDragging: boolean;
+  children: (input: { dragHandle: ReactNode }) => ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+  } = useSortable({
+    id: slideId,
+    disabled: isDisabled,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  const dragHandle = (
+    <button
+      ref={setActivatorNodeRef}
+      type="button"
+      disabled={isDisabled}
+      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-left text-xs text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      {...attributes}
+      {...listeners}
+    >
+      ☰ ドラッグして並び替え
+    </button>
+  );
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={
+        isDragging
+          ? "grid gap-3 bg-white px-4 py-3 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 lg:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
+          : "grid gap-3 bg-white px-4 py-3 text-sm lg:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
+      }
+    >
+      {children({ dragHandle })}
     </div>
   );
 }
@@ -329,6 +678,46 @@ function SlideCaptionEditor({
   );
 }
 
+function SlideSingleActions({
+  slideId,
+  isDisabled,
+  isDuplicating,
+  isDuplicateLimitReached,
+  onDuplicate,
+}: {
+  slideId: string;
+  isDisabled: boolean;
+  isDuplicating: boolean;
+  isDuplicateLimitReached: boolean;
+  onDuplicate: (slideId: string) => Promise<boolean>;
+}) {
+  return (
+    <div className="space-y-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        disabled={isDisabled || isDuplicateLimitReached}
+        title={
+          isDuplicateLimitReached
+            ? "slide 数が上限の50件に達しているため、複製できません。"
+            : "slideを複製"
+        }
+        onClick={() => {
+          void onDuplicate(slideId);
+        }}
+      >
+        {isDuplicating ? "複製中" : "複製"}
+      </Button>
+      {isDuplicateLimitReached ? (
+        <p className="text-xs leading-5 text-slate-500">
+          slide 数が上限の50件に達しているため、複製できません。
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function SlideReorderControls({
   slideId,
   isFirst,
@@ -363,6 +752,13 @@ function SlideReorderControls({
         ↓ 下へ
       </Button>
     </div>
+  );
+}
+
+function areStringArraysEqual(left: string[], right: string[]) {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
   );
 }
 

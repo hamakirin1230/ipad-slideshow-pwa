@@ -257,6 +257,20 @@ export type DriveProjectSlideReorderFailureStatus =
   | "indexUpdateFailed"
   | "verificationFailed";
 
+export type DriveProjectSlideDeleteFailureStatus =
+  | "authRequired"
+  | "invalidProject"
+  | "manifestUpdateFailed"
+  | "indexUpdateFailed"
+  | "verificationFailed";
+
+export type DriveProjectSlideDuplicateFailureStatus =
+  | "authRequired"
+  | "invalidProject"
+  | "manifestUpdateFailed"
+  | "indexUpdateFailed"
+  | "verificationFailed";
+
 export type DriveProjectSlideCaptionUpdateInput = {
   accessToken: string;
   workspaceId: string;
@@ -291,6 +305,43 @@ export type DriveProjectSlideReorderResult = {
   manifestJsonText: string;
   indexJsonText: string;
   orderedSlideIds: string[];
+  diagnostics: string[];
+};
+
+export type DriveProjectSlideDeleteInput = {
+  accessToken: string;
+  workspaceId: string;
+  indexJsonFileId: string;
+  project: DriveProjectSummary;
+  slideIds: string[];
+  runStep: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+};
+
+export type DriveProjectSlideDeleteResult = {
+  project: DriveProjectSummary;
+  details: DriveProjectReadyDetails;
+  manifestJsonText: string;
+  indexJsonText: string;
+  deletedSlideIds: string[];
+  diagnostics: string[];
+};
+
+export type DriveProjectSlideDuplicateInput = {
+  accessToken: string;
+  workspaceId: string;
+  indexJsonFileId: string;
+  project: DriveProjectSummary;
+  slideId: string;
+  runStep: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+};
+
+export type DriveProjectSlideDuplicateResult = {
+  project: DriveProjectSummary;
+  details: DriveProjectReadyDetails;
+  manifestJsonText: string;
+  indexJsonText: string;
+  sourceSlideId: string;
+  duplicatedSlide: DriveSlideSummary;
   diagnostics: string[];
 };
 
@@ -648,6 +699,48 @@ export class DriveProjectSlideReorderError extends Error {
   }) {
     super("Drive project slide reorder failed.");
     this.name = "DriveProjectSlideReorderError";
+    this.status = input.status;
+    this.possibleChangedItems = [...input.possibleChangedItems];
+    this.diagnostics = [...input.diagnostics];
+    this.cause = input.cause;
+  }
+}
+
+export class DriveProjectSlideDeleteError extends Error {
+  status: DriveProjectSlideDeleteFailureStatus;
+  possibleChangedItems: DriveProjectChangedItem[];
+  diagnostics: string[];
+  cause?: unknown;
+
+  constructor(input: {
+    status: DriveProjectSlideDeleteFailureStatus;
+    possibleChangedItems: DriveProjectChangedItem[];
+    diagnostics: string[];
+    cause?: unknown;
+  }) {
+    super("Drive project slide delete failed.");
+    this.name = "DriveProjectSlideDeleteError";
+    this.status = input.status;
+    this.possibleChangedItems = [...input.possibleChangedItems];
+    this.diagnostics = [...input.diagnostics];
+    this.cause = input.cause;
+  }
+}
+
+export class DriveProjectSlideDuplicateError extends Error {
+  status: DriveProjectSlideDuplicateFailureStatus;
+  possibleChangedItems: DriveProjectChangedItem[];
+  diagnostics: string[];
+  cause?: unknown;
+
+  constructor(input: {
+    status: DriveProjectSlideDuplicateFailureStatus;
+    possibleChangedItems: DriveProjectChangedItem[];
+    diagnostics: string[];
+    cause?: unknown;
+  }) {
+    super("Drive project slide duplicate failed.");
+    this.name = "DriveProjectSlideDuplicateError";
     this.status = input.status;
     this.possibleChangedItems = [...input.possibleChangedItems];
     this.diagnostics = [...input.diagnostics];
@@ -2173,6 +2266,577 @@ export async function reorderDriveProjectSlides(
       status: toDriveProjectSlideReorderFailureStatus(error, changedItems),
       possibleChangedItems: changedItems,
       diagnostics: buildDriveProjectSlideReorderFailureDiagnostics({
+        error,
+        changedItems,
+      }),
+      cause: error,
+    });
+  }
+}
+
+export async function deleteDriveProjectSlides(
+  input: DriveProjectSlideDeleteInput,
+): Promise<DriveProjectSlideDeleteResult> {
+  const changedItems: DriveProjectChangedItem[] = [];
+  const inputDiagnostics = validateDriveProjectSlideDeleteInput(input);
+  const now = new Date().toISOString();
+
+  if (inputDiagnostics.length > 0) {
+    throw new DriveProjectSlideDeleteError({
+      status: "invalidProject",
+      possibleChangedItems: changedItems,
+      diagnostics: inputDiagnostics,
+    });
+  }
+
+  try {
+    const [indexJsonText, manifestJsonText] = await input.runStep((signal) =>
+      Promise.all([
+        readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+      ]),
+    );
+
+    const registrationResult = validateCreatedProjectRegistration({
+      indexJsonText,
+      expectedProject: input.project,
+    });
+
+    if (registrationResult.status === "invalid") {
+      throw new DriveProjectSlideDeleteError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...registrationResult.diagnostics,
+          "slide削除前の index.json 対象project検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const manifestResult = parseDriveProjectManifestJson({
+      manifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: registrationResult.project,
+    });
+
+    if (manifestResult.status === "invalid") {
+      throw new DriveProjectSlideDeleteError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...manifestResult.diagnostics,
+          "slide削除前の manifest.json 検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const existenceDiagnostics = validateDriveProjectSlideIdsExist({
+      slides: manifestResult.manifest.slides,
+      slideIds: input.slideIds,
+    });
+
+    if (existenceDiagnostics.length > 0) {
+      throw new DriveProjectSlideDeleteError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...existenceDiagnostics,
+          "manifest.json.slides の削除は開始していません。",
+        ],
+      });
+    }
+
+    const nextProject: DriveProjectSummary = {
+      ...registrationResult.project,
+      updatedAt: now,
+    };
+    const nextManifestJsonText = buildProjectManifestJsonWithDeletedSlides({
+      manifest: manifestResult.manifest,
+      slideIds: input.slideIds,
+      updatedAt: now,
+    });
+
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.project.manifestFileId,
+        metadata: {
+          name: PROJECT_MANIFEST_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildProjectAppProperties({
+            role: "projectManifest",
+            workspaceId: input.workspaceId,
+            projectId: input.project.projectId,
+          }),
+        },
+        expectedAppProperties: buildProjectAppProperties({
+          role: "projectManifest",
+          workspaceId: input.workspaceId,
+          projectId: input.project.projectId,
+        }),
+        jsonText: nextManifestJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+
+    changedItems.push({
+      role: "projectManifest",
+      id: input.project.manifestFileId,
+      name: PROJECT_MANIFEST_NAME,
+    });
+
+    const preIndexUpdateJsonText = await input.runStep((signal) =>
+      readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+    );
+
+    const nextIndexResult = buildIndexJsonWithUpdatedProject({
+      indexJsonText: preIndexUpdateJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      currentProject: registrationResult.project,
+      nextProject,
+      indexUpdatedAt: now,
+    });
+
+    if (nextIndexResult.status === "invalid") {
+      throw new DriveProjectSlideDeleteError({
+        status: "indexUpdateFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...nextIndexResult.diagnostics,
+          "manifest.json は更新済みの可能性があります。",
+          "index.json は未更新です。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.indexJsonFileId,
+        metadata: {
+          name: INDEX_JSON_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildWorkspaceAppProperties({
+            role: "index",
+            workspaceId: input.workspaceId,
+          }),
+        },
+        expectedAppProperties: buildWorkspaceAppProperties({
+          role: "index",
+          workspaceId: input.workspaceId,
+        }),
+        jsonText: nextIndexResult.indexJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+
+    changedItems.push({
+      role: "index",
+      id: input.indexJsonFileId,
+      name: INDEX_JSON_NAME,
+    });
+
+    const [verifiedManifestJsonText, verifiedIndexJsonText] = await input.runStep(
+      (signal) =>
+        Promise.all([
+          readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+          readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        ]),
+    );
+
+    const verifiedRegistrationResult = validateCreatedProjectRegistration({
+      indexJsonText: verifiedIndexJsonText,
+      expectedProject: nextProject,
+    });
+
+    if (verifiedRegistrationResult.status === "invalid") {
+      throw new DriveProjectSlideDeleteError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedRegistrationResult.diagnostics,
+          "index.json 更新後の slide削除再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const verifiedManifestResult = parseDriveProjectManifestJson({
+      manifestJsonText: verifiedManifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: verifiedRegistrationResult.project,
+    });
+
+    if (verifiedManifestResult.status === "invalid") {
+      throw new DriveProjectSlideDeleteError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedManifestResult.diagnostics,
+          "manifest.json 更新後の slide削除再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const remainingSlideIds = new Set(
+      verifiedManifestResult.details.slides.map((slide) => slide.slideId),
+    );
+    const stillExistingSlideIds = input.slideIds.filter((slideId) =>
+      remainingSlideIds.has(slideId),
+    );
+
+    if (stillExistingSlideIds.length > 0) {
+      throw new DriveProjectSlideDeleteError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          `manifest.json 更新後も削除対象slideIdが残っています: ${stillExistingSlideIds.map(formatDriveIdPart).join(", ")}`,
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    return {
+      project: verifiedRegistrationResult.project,
+      details: verifiedManifestResult.details,
+      manifestJsonText: verifiedManifestJsonText,
+      indexJsonText: verifiedIndexJsonText,
+      deletedSlideIds: [...input.slideIds],
+      diagnostics: [
+        ...registrationResult.diagnostics,
+        ...manifestResult.diagnostics,
+        `manifest.json.slides からslide entryを${input.slideIds.length}件削除しました。`,
+        "Drive assets/ の画像fileは削除していません。",
+        ...nextIndexResult.diagnostics,
+        "index.json.projects の対象project.updatedAtを更新しました。",
+        ...verifiedRegistrationResult.diagnostics,
+        ...verifiedManifestResult.diagnostics,
+        "slide削除後の manifest.json / index.json 再検証が完了しました。",
+      ],
+    };
+  } catch (error) {
+    if (error instanceof DriveProjectSlideDeleteError) {
+      throw error;
+    }
+
+    throw new DriveProjectSlideDeleteError({
+      status: toDriveProjectSlideDeleteFailureStatus(error, changedItems),
+      possibleChangedItems: changedItems,
+      diagnostics: buildDriveProjectSlideDeleteFailureDiagnostics({
+        error,
+        changedItems,
+      }),
+      cause: error,
+    });
+  }
+}
+
+export async function duplicateDriveProjectSlide(
+  input: DriveProjectSlideDuplicateInput,
+): Promise<DriveProjectSlideDuplicateResult> {
+  const changedItems: DriveProjectChangedItem[] = [];
+  const inputDiagnostics = validateDriveProjectSlideDuplicateInput(input);
+  const now = new Date().toISOString();
+
+  if (inputDiagnostics.length > 0) {
+    throw new DriveProjectSlideDuplicateError({
+      status: "invalidProject",
+      possibleChangedItems: changedItems,
+      diagnostics: inputDiagnostics,
+    });
+  }
+
+  try {
+    const [indexJsonText, manifestJsonText] = await input.runStep((signal) =>
+      Promise.all([
+        readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+      ]),
+    );
+
+    const registrationResult = validateCreatedProjectRegistration({
+      indexJsonText,
+      expectedProject: input.project,
+    });
+
+    if (registrationResult.status === "invalid") {
+      throw new DriveProjectSlideDuplicateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...registrationResult.diagnostics,
+          "slide複製前の index.json 対象project検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const manifestResult = parseDriveProjectManifestJson({
+      manifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: registrationResult.project,
+    });
+
+    if (manifestResult.status === "invalid") {
+      throw new DriveProjectSlideDuplicateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...manifestResult.diagnostics,
+          "slide複製前の manifest.json 検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const sourceSlide = manifestResult.manifest.slides.find(
+      (slide) => slide.slideId === input.slideId,
+    );
+
+    if (!sourceSlide) {
+      throw new DriveProjectSlideDuplicateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          "複製対象のslideIdがmanifest.json.slidesに見つかりません。",
+          "manifest.json.slides の複製は開始していません。",
+        ],
+      });
+    }
+
+    if (manifestResult.manifest.slides.length >= DRIVE_PROJECT_MAX_SLIDE_COUNT) {
+      throw new DriveProjectSlideDuplicateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          `manifest.json.slides が上限の ${DRIVE_PROJECT_MAX_SLIDE_COUNT} 件に達しています。`,
+          "slide複製は開始していません。",
+        ],
+      });
+    }
+
+    const duplicatedSlide: DriveSlideSummary = {
+      ...sourceSlide,
+      slideId: crypto.randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    const nextProject: DriveProjectSummary = {
+      ...registrationResult.project,
+      updatedAt: now,
+    };
+    const nextManifestJsonText = buildProjectManifestJsonWithDuplicatedSlide({
+      manifest: manifestResult.manifest,
+      sourceSlideId: input.slideId,
+      duplicatedSlide,
+      updatedAt: now,
+    });
+
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.project.manifestFileId,
+        metadata: {
+          name: PROJECT_MANIFEST_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildProjectAppProperties({
+            role: "projectManifest",
+            workspaceId: input.workspaceId,
+            projectId: input.project.projectId,
+          }),
+        },
+        expectedAppProperties: buildProjectAppProperties({
+          role: "projectManifest",
+          workspaceId: input.workspaceId,
+          projectId: input.project.projectId,
+        }),
+        jsonText: nextManifestJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+
+    changedItems.push({
+      role: "projectManifest",
+      id: input.project.manifestFileId,
+      name: PROJECT_MANIFEST_NAME,
+    });
+
+    const preIndexUpdateJsonText = await input.runStep((signal) =>
+      readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+    );
+
+    const nextIndexResult = buildIndexJsonWithUpdatedProject({
+      indexJsonText: preIndexUpdateJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      currentProject: registrationResult.project,
+      nextProject,
+      indexUpdatedAt: now,
+    });
+
+    if (nextIndexResult.status === "invalid") {
+      throw new DriveProjectSlideDuplicateError({
+        status: "indexUpdateFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...nextIndexResult.diagnostics,
+          "manifest.json は更新済みの可能性があります。",
+          "index.json は未更新です。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.indexJsonFileId,
+        metadata: {
+          name: INDEX_JSON_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildWorkspaceAppProperties({
+            role: "index",
+            workspaceId: input.workspaceId,
+          }),
+        },
+        expectedAppProperties: buildWorkspaceAppProperties({
+          role: "index",
+          workspaceId: input.workspaceId,
+        }),
+        jsonText: nextIndexResult.indexJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+
+    changedItems.push({
+      role: "index",
+      id: input.indexJsonFileId,
+      name: INDEX_JSON_NAME,
+    });
+
+    const [verifiedManifestJsonText, verifiedIndexJsonText] = await input.runStep(
+      (signal) =>
+        Promise.all([
+          readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+          readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        ]),
+    );
+
+    const verifiedRegistrationResult = validateCreatedProjectRegistration({
+      indexJsonText: verifiedIndexJsonText,
+      expectedProject: nextProject,
+    });
+
+    if (verifiedRegistrationResult.status === "invalid") {
+      throw new DriveProjectSlideDuplicateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedRegistrationResult.diagnostics,
+          "index.json 更新後の slide複製再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const verifiedManifestResult = parseDriveProjectManifestJson({
+      manifestJsonText: verifiedManifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: verifiedRegistrationResult.project,
+    });
+
+    if (verifiedManifestResult.status === "invalid") {
+      throw new DriveProjectSlideDuplicateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedManifestResult.diagnostics,
+          "manifest.json 更新後の slide複製再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const verifiedDuplicatedSlide = verifiedManifestResult.details.slides.find(
+      (slide) => slide.slideId === duplicatedSlide.slideId,
+    );
+
+    if (
+      !verifiedDuplicatedSlide ||
+      verifiedDuplicatedSlide.assetId !== sourceSlide.assetId ||
+      verifiedDuplicatedSlide.assetFileId !== sourceSlide.assetFileId ||
+      verifiedDuplicatedSlide.caption !== sourceSlide.caption ||
+      verifiedDuplicatedSlide.durationSeconds !== sourceSlide.durationSeconds
+    ) {
+      throw new DriveProjectSlideDuplicateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          "manifest.json 更新後に複製slideのasset参照またはcaptionを確認できませんでした。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    if (
+      !isDuplicatedSlideInsertedAfterSource({
+        slides: verifiedManifestResult.details.slides,
+        sourceSlideId: sourceSlide.slideId,
+        duplicatedSlideId: duplicatedSlide.slideId,
+      })
+    ) {
+      throw new DriveProjectSlideDuplicateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          "manifest.json 更新後に複製slideが元slideの直後にあることを確認できませんでした。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    return {
+      project: verifiedRegistrationResult.project,
+      details: verifiedManifestResult.details,
+      manifestJsonText: verifiedManifestJsonText,
+      indexJsonText: verifiedIndexJsonText,
+      sourceSlideId: input.slideId,
+      duplicatedSlide: verifiedDuplicatedSlide,
+      diagnostics: [
+        ...registrationResult.diagnostics,
+        ...manifestResult.diagnostics,
+        "manifest.json.slides に同じassetを参照する複製slideを追加しました。",
+        "Drive asset file はコピーしていません。",
+        ...nextIndexResult.diagnostics,
+        "index.json.projects の対象project.updatedAtを更新しました。",
+        ...verifiedRegistrationResult.diagnostics,
+        ...verifiedManifestResult.diagnostics,
+        "slide複製後の manifest.json / index.json 再検証が完了しました。",
+      ],
+    };
+  } catch (error) {
+    if (error instanceof DriveProjectSlideDuplicateError) {
+      throw error;
+    }
+
+    throw new DriveProjectSlideDuplicateError({
+      status: toDriveProjectSlideDuplicateFailureStatus(error, changedItems),
+      possibleChangedItems: changedItems,
+      diagnostics: buildDriveProjectSlideDuplicateFailureDiagnostics({
         error,
         changedItems,
       }),
@@ -3864,6 +4528,83 @@ function validateDriveProjectSlideReorderInput(
   return diagnostics;
 }
 
+function validateDriveProjectSlideDeleteInput(input: DriveProjectSlideDeleteInput) {
+  const diagnostics = validateDriveProjectSlideEditBaseInput({
+    accessToken: input.accessToken,
+    workspaceId: input.workspaceId,
+    indexJsonFileId: input.indexJsonFileId,
+    project: input.project,
+    operationLabel: "slide削除",
+  });
+
+  if (!Array.isArray(input.slideIds) || input.slideIds.length === 0) {
+    diagnostics.push("slide削除対象のslideIdsが空です。");
+    return diagnostics;
+  }
+
+  for (const [index, slideId] of input.slideIds.entries()) {
+    if (!isUuidV4(slideId)) {
+      diagnostics.push(`slide削除対象のslideIds[${index}]がUUID形式ではありません。`);
+    }
+  }
+
+  if (new Set(input.slideIds).size !== input.slideIds.length) {
+    diagnostics.push("slide削除対象のslideIdsに重複があります。");
+  }
+
+  return diagnostics;
+}
+
+function validateDriveProjectSlideDuplicateInput(
+  input: DriveProjectSlideDuplicateInput,
+) {
+  const diagnostics = validateDriveProjectSlideEditBaseInput({
+    accessToken: input.accessToken,
+    workspaceId: input.workspaceId,
+    indexJsonFileId: input.indexJsonFileId,
+    project: input.project,
+    operationLabel: "slide複製",
+  });
+
+  if (!isUuidV4(input.slideId)) {
+    diagnostics.push("slide複製対象のslideIdがUUID形式ではありません。");
+  }
+
+  return diagnostics;
+}
+
+function validateDriveProjectSlideEditBaseInput(input: {
+  accessToken: string;
+  workspaceId: string;
+  indexJsonFileId: string;
+  project: DriveProjectSummary;
+  operationLabel: string;
+}) {
+  const diagnostics: string[] = [];
+
+  if (!input.accessToken) {
+    diagnostics.push(`${input.operationLabel}用のaccessTokenがありません。`);
+  }
+
+  if (!isUuidV4(input.workspaceId)) {
+    diagnostics.push(`${input.operationLabel}対象のworkspaceIdがUUID形式ではありません。`);
+  }
+
+  if (!isNonEmptyString(input.indexJsonFileId)) {
+    diagnostics.push(`${input.operationLabel}対象のindexJsonFileIdが空です。`);
+  }
+
+  if (!isUuidV4(input.project.projectId)) {
+    diagnostics.push(`${input.operationLabel}対象のprojectIdがUUID形式ではありません。`);
+  }
+
+  if (!isNonEmptyString(input.project.manifestFileId)) {
+    diagnostics.push(`${input.operationLabel}対象のmanifestFileIdが空です。`);
+  }
+
+  return diagnostics;
+}
+
 function validateDriveProjectSlideOrder(input: {
   slides: DriveSlideSummary[];
   orderedSlideIds: string[];
@@ -3905,6 +4646,24 @@ function validateDriveProjectSlideOrder(input: {
   }
 
   return diagnostics;
+}
+
+function validateDriveProjectSlideIdsExist(input: {
+  slides: DriveSlideSummary[];
+  slideIds: string[];
+}) {
+  const currentSlideIdSet = new Set(input.slides.map((slide) => slide.slideId));
+  const missingSlideIds = input.slideIds.filter(
+    (slideId) => !currentSlideIdSet.has(slideId),
+  );
+
+  if (missingSlideIds.length === 0) {
+    return [];
+  }
+
+  return [
+    `manifest.json.slidesに存在しないslideIdが含まれています: ${missingSlideIds.map(formatDriveIdPart).join(", ")}`,
+  ];
 }
 
 function buildDriveProjectManifestSlide(input: {
@@ -4364,6 +5123,77 @@ function buildProjectManifestJsonWithReorderedSlides(input: {
   return text;
 }
 
+function buildProjectManifestJsonWithDeletedSlides(input: {
+  manifest: DriveProjectManifestBody;
+  slideIds: string[];
+  updatedAt: string;
+}) {
+  const slideIdSet = new Set(input.slideIds);
+  const text = stringifyJsonFile({
+    app: DRIVE_WORKSPACE_APP_ID,
+    role: "projectManifest",
+    schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
+    workspaceId: input.manifest.workspaceId,
+    projectId: input.manifest.projectId,
+    title: input.manifest.title,
+    slides: input.manifest.slides.filter((slide) => !slideIdSet.has(slide.slideId)),
+    createdAt: input.manifest.createdAt,
+    updatedAt: input.updatedAt,
+  });
+
+  assertJsonTextSizeWithinLimit(text, "manifest.json");
+  return text;
+}
+
+function buildProjectManifestJsonWithDuplicatedSlide(input: {
+  manifest: DriveProjectManifestBody;
+  sourceSlideId: string;
+  duplicatedSlide: DriveSlideSummary;
+  updatedAt: string;
+}) {
+  const sourceIndex = input.manifest.slides.findIndex(
+    (slide) => slide.slideId === input.sourceSlideId,
+  );
+
+  if (sourceIndex === -1) {
+    throw new Error("sourceSlideId was not found in manifest slides.");
+  }
+
+  const slides = [...input.manifest.slides];
+  slides.splice(sourceIndex + 1, 0, input.duplicatedSlide);
+
+  const text = stringifyJsonFile({
+    app: DRIVE_WORKSPACE_APP_ID,
+    role: "projectManifest",
+    schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
+    workspaceId: input.manifest.workspaceId,
+    projectId: input.manifest.projectId,
+    title: input.manifest.title,
+    slides,
+    createdAt: input.manifest.createdAt,
+    updatedAt: input.updatedAt,
+  });
+
+  assertJsonTextSizeWithinLimit(text, "manifest.json");
+  return text;
+}
+
+function isDuplicatedSlideInsertedAfterSource(input: {
+  slides: DriveSlideSummary[];
+  sourceSlideId: string;
+  duplicatedSlideId: string;
+}) {
+  const sourceIndex = input.slides.findIndex(
+    (slide) => slide.slideId === input.sourceSlideId,
+  );
+
+  if (sourceIndex === -1 || sourceIndex >= input.slides.length - 1) {
+    return false;
+  }
+
+  return input.slides[sourceIndex + 1]?.slideId === input.duplicatedSlideId;
+}
+
 function buildProjectManifestJsonWithUpdatedTitle(input: {
   manifest: DriveProjectManifestBody;
   title: string;
@@ -4634,6 +5464,44 @@ function toDriveProjectSlideReorderFailureStatus(
   return "manifestUpdateFailed";
 }
 
+function toDriveProjectSlideDeleteFailureStatus(
+  error: unknown,
+  changedItems: DriveProjectChangedItem[],
+): DriveProjectSlideDeleteFailureStatus {
+  if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+    return "authRequired";
+  }
+
+  if (changedItems.some((item) => item.role === "index")) {
+    return "verificationFailed";
+  }
+
+  if (changedItems.some((item) => item.role === "projectManifest")) {
+    return "indexUpdateFailed";
+  }
+
+  return "manifestUpdateFailed";
+}
+
+function toDriveProjectSlideDuplicateFailureStatus(
+  error: unknown,
+  changedItems: DriveProjectChangedItem[],
+): DriveProjectSlideDuplicateFailureStatus {
+  if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+    return "authRequired";
+  }
+
+  if (changedItems.some((item) => item.role === "index")) {
+    return "verificationFailed";
+  }
+
+  if (changedItems.some((item) => item.role === "projectManifest")) {
+    return "indexUpdateFailed";
+  }
+
+  return "manifestUpdateFailed";
+}
+
 function buildDriveProjectTitleUpdateFailureDiagnostics(input: {
   error: unknown;
   changedItems: DriveProjectChangedItem[];
@@ -4725,6 +5593,63 @@ function buildDriveProjectSlideReorderFailureDiagnostics(input: {
     "自動削除・自動修復は行いません。",
   );
   return diagnostics;
+}
+
+function buildDriveProjectSlideDeleteFailureDiagnostics(input: {
+  error: unknown;
+  changedItems: DriveProjectChangedItem[];
+}) {
+  const diagnostics = ["slide削除中にエラーが発生しました。"];
+
+  if (input.error instanceof DriveApiError) {
+    diagnostics.push(`Drive API status: ${input.error.status}`);
+  }
+
+  appendSlideManifestMutationFailureDiagnostics(diagnostics, input.changedItems);
+  diagnostics.push(
+    "Drive assets/ の画像fileは削除していません。",
+    "自動削除・自動修復は行いません。",
+  );
+  return diagnostics;
+}
+
+function buildDriveProjectSlideDuplicateFailureDiagnostics(input: {
+  error: unknown;
+  changedItems: DriveProjectChangedItem[];
+}) {
+  const diagnostics = ["slide複製中にエラーが発生しました。"];
+
+  if (input.error instanceof DriveApiError) {
+    diagnostics.push(`Drive API status: ${input.error.status}`);
+  }
+
+  appendSlideManifestMutationFailureDiagnostics(diagnostics, input.changedItems);
+  diagnostics.push(
+    "Drive asset fileはコピーしていません。",
+    "自動削除・自動修復は行いません。",
+  );
+  return diagnostics;
+}
+
+function appendSlideManifestMutationFailureDiagnostics(
+  diagnostics: string[],
+  changedItems: DriveProjectChangedItem[],
+) {
+  if (changedItems.some((item) => item.role === "index")) {
+    diagnostics.push(
+      "manifest.json / index.json は更新済みの可能性があります。",
+      "更新後再検証は完了していません。",
+    );
+  } else if (changedItems.some((item) => item.role === "projectManifest")) {
+    diagnostics.push(
+      "manifest.json は更新済みの可能性があります。",
+      "index.json は未更新、または更新完了を確認できていません。",
+    );
+  } else {
+    diagnostics.push(
+      "manifest.json / index.json の更新完了は確認できていません。",
+    );
+  }
 }
 
 function areStringArraysEqual(left: string[], right: string[]) {

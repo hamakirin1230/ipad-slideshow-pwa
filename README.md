@@ -29,7 +29,8 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - Google Photos Pickerから複数写真を順次Drive保存し、成功分をbatchでmanifest反映
 - `/player/` 自動送り間隔選択、なし/5秒/10秒/15秒/20秒/30秒/1分、localStorage保存
 - `/player/` slide transition animation、next / previous / swipe / 自動送りでfade + slight horizontal slide
-- `/admin/` slide順の上へ/下へ変更、`manifest.json.slides[]` 配列順をsource of truthとして保存
+- `/admin/` slide順の上へ/下へ変更、drag-and-drop並び替え、複数slide一括削除、slide複製
+- `manifest.json.slides[]` 配列順を再生順のsource of truthとして保存
 
 ## 公開URL
 
@@ -43,7 +44,7 @@ https://ipad-slideshow-pwa.vercel.app/
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、Photos Picker batch素材追加、画像順変更、テロップ編集、offline sync、confirmed store、storage管理
+- `/admin` Drive project、Photos Picker batch素材追加、画像順変更、複数slide削除、slide複製、テロップ編集、offline sync、confirmed store、storage管理
 - `/player` iPad offline-first再生、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
 - `/auth-test` OAuth単体確認用の開発ページ
 
@@ -60,6 +61,7 @@ https://ipad-slideshow-pwa.vercel.app/
 - Cache StorageはService Workerのapp shell cacheとして扱う
 - iPad側のローカル削除ではGoogle Drive上のデータを削除しない
 - Drive上の画像順・caption変更をiPad再生へ反映するには、対象projectのoffline syncを実行する
+- Drive上のslide削除・複製をiPad再生へ反映するにも、対象projectのoffline syncを実行する
 
 ## ローカル起動
 
@@ -89,6 +91,7 @@ npm run build
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-06-12-slide-dnd-delete-duplicate-handoff.md`
 - `docs/handoffs/2026-06-12-player-auto-advance-transition-and-slide-reorder-handoff.md`
 - `docs/handoffs/2026-06-12-caption-telop-and-batch-asset-import-handoff.md`
 - `docs/handoffs/2026-06-12-production-mode-and-operation-lock-handoff.md`

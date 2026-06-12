@@ -28,12 +28,16 @@ import {
   DriveProjectManifestBatchAppendError,
   DriveProjectManifestAppendError,
   DriveProjectSlideCaptionUpdateError,
+  DriveProjectSlideDeleteError,
+  DriveProjectSlideDuplicateError,
   DriveProjectSlideReorderError,
   DriveProjectTitleUpdateError,
   DriveWorkspaceCreateError,
   appendDriveProjectAssetsToManifest,
   createDriveProject,
   createDriveWorkspace,
+  deleteDriveProjectSlides,
+  duplicateDriveProjectSlide,
   fetchDriveProjectAssetBlob,
   findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
@@ -153,6 +157,16 @@ export type OfflineSyncStatus =
 export type SlideReorderStatus =
   | "idle"
   | "saving"
+  | "completed"
+  | "blocked"
+  | "invalid"
+  | "error";
+
+export type SlideEditStatus =
+  | "idle"
+  | "reordering"
+  | "deleting"
+  | "duplicating"
   | "completed"
   | "blocked"
   | "invalid"
@@ -388,6 +402,13 @@ type AppContextValue = {
   slideReorderDiagnostics: string[];
   isSlideReorderInFlight: boolean;
   slideReorderBlockedReason: string | null;
+  slideEditStatus: SlideEditStatus;
+  slideEditMessage: string | null;
+  slideEditDiagnostics: string[];
+  isSlideEditInFlight: boolean;
+  isSlideDeleteInFlight: boolean;
+  isSlideDuplicateInFlight: boolean;
+  slideEditBlockedReason: string | null;
 
   offlineSyncStatus: OfflineSyncStatus;
   offlineSyncStatusLabel: string;
@@ -408,7 +429,10 @@ type AppContextValue = {
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
   updateProjectSlideCaption: (slideId: string, caption: string) => void;
-  moveProjectSlide: (slideId: string, direction: "up" | "down") => void;
+  moveProjectSlide: (slideId: string, direction: "up" | "down") => Promise<boolean>;
+  reorderProjectSlidesByDrag: (orderedSlideIds: string[]) => Promise<boolean>;
+  deleteProjectSlides: (slideIds: string[]) => Promise<boolean>;
+  duplicateProjectSlide: (slideId: string) => Promise<boolean>;
   startAssetImport: () => void;
   cancelAssetImport: () => void;
   startOfflineSync: () => void;
@@ -494,6 +518,9 @@ const initialOfflineSyncMessage =
 
 const initialSlideReorderMessage =
   "Drive project ready 後に画像の順番を変更できます。";
+
+const initialSlideEditMessage =
+  "Drive project ready 後に画像順変更、slide削除、slide複製を実行できます。";
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -603,6 +630,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
     string[]
   >([]);
   const [isSlideReorderInFlight, setIsSlideReorderInFlight] = useState(false);
+  const [slideEditStatus, setSlideEditStatus] =
+    useState<SlideEditStatus>("idle");
+  const [slideEditMessage, setSlideEditMessage] = useState<string | null>(
+    initialSlideEditMessage,
+  );
+  const [slideEditDiagnostics, setSlideEditDiagnostics] = useState<string[]>([]);
+  const [isSlideDeleteInFlight, setIsSlideDeleteInFlight] = useState(false);
+  const [isSlideDuplicateInFlight, setIsSlideDuplicateInFlight] =
+    useState(false);
 
   const [offlineSyncStatus, setOfflineSyncStatus] =
     useState<OfflineSyncStatus>("idle");
@@ -627,12 +663,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
     remainingSlideSlots,
   );
   const assetImportBatchSummary = summarizeAssetImportBatch(assetImportBatch);
+  const isSlideEditInFlight =
+    isSlideReorderInFlight || isSlideDeleteInFlight || isSlideDuplicateInFlight;
   const assetImportBlockedReason = getAssetImportBlockedReason();
   const canStartAssetImport = assetImportBlockedReason === null;
 
   const offlineSyncBlockedReason = getOfflineSyncBlockedReason();
   const canStartOfflineSync = offlineSyncBlockedReason === null;
   const slideReorderBlockedReason = getSlideReorderBlockedReason();
+  const slideEditBlockedReason = getSlideEditBlockedReason();
 
   function setDriveOperationInFlight(value: boolean) {
     driveOperationInFlightRef.current = value;
@@ -681,6 +720,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function setSlideReorderInFlightState(value: boolean) {
     setIsSlideReorderInFlight(value);
+  }
+
+  function setSlideDeleteInFlightState(value: boolean) {
+    setIsSlideDeleteInFlight(value);
+  }
+
+  function setSlideDuplicateInFlightState(value: boolean) {
+    setIsSlideDuplicateInFlight(value);
   }
 
   function clearPendingPhotosTokenRequest(reason?: PhotosTokenRequestError) {
@@ -941,8 +988,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return "素材追加処理中です。";
     }
 
-    if (isSlideReorderInFlight) {
-      return "画像順保存中のため、素材追加は開始できません。";
+    if (isSlideEditInFlight) {
+      return "slide編集中のため、素材追加は開始できません。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
@@ -1000,8 +1047,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return "offline sync 実行中です。";
     }
 
-    if (isSlideReorderInFlight) {
-      return "画像順保存中のため、offline sync は開始できません。";
+    if (isSlideEditInFlight) {
+      return "slide編集中のため、offline sync は開始できません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
@@ -1032,24 +1079,40 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function getSlideReorderBlockedReason() {
-    if (isSlideReorderInFlight) {
-      return "画像順保存中です。";
+    const editBlockedReason = getSlideEditBlockedReason({
+      allowSingleSlide: false,
+    });
+
+    if (editBlockedReason) {
+      return editBlockedReason;
+    }
+
+    if (projectDetails && projectDetails.slides.length <= 1) {
+      return "画像順変更には2枚以上のスライドが必要です。";
+    }
+
+    return null;
+  }
+
+  function getSlideEditBlockedReason(options?: { allowSingleSlide?: boolean }) {
+    if (isSlideEditInFlight) {
+      return "slide編集中です。";
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "offline sync 実行中のため、画像順は変更できません。";
+      return "offline sync 実行中のため、slide編集はできません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
-      return "素材追加処理中のため、画像順は変更できません。";
+      return "素材追加処理中のため、slide編集はできません。";
     }
 
     if (captionUpdateSlideId !== null) {
-      return "テロップ保存中のため、画像順は変更できません。";
+      return "テロップ保存中のため、slide編集はできません。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
-      return "Drive操作中のため、画像順は変更できません。";
+      return "Drive操作中のため、slide編集はできません。";
     }
 
     if (googleStatus !== "connected" || driveFileGranted !== true) {
@@ -1068,8 +1131,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return "Drive project ready 情報が必要です。";
     }
 
-    if (projectDetails.slides.length <= 1) {
-      return "画像順変更には2枚以上のスライドが必要です。";
+    if (options?.allowSingleSlide !== true && projectDetails.slides.length <= 0) {
+      return "編集対象のスライドがありません。";
     }
 
     return null;
@@ -1116,6 +1179,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setSlideReorderDiagnostics([]);
   }
 
+  function resetSlideEditState() {
+    setSlideReorderInFlightState(false);
+    setSlideDeleteInFlightState(false);
+    setSlideDuplicateInFlightState(false);
+    setSlideEditStatus("idle");
+    setSlideEditMessage(initialSlideEditMessage);
+    setSlideEditDiagnostics([]);
+  }
+
   function clearProjectReadyDetails() {
     setDriveProjectReadyContext(null);
     setProjectDetails(null);
@@ -1123,6 +1195,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetAssetImportState();
     resetCaptionUpdateState();
     resetSlideReorderState();
+    resetSlideEditState();
     resetOfflineSyncState();
   }
 
@@ -2829,31 +2902,22 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   async function moveProjectSlide(slideId: string, direction: "up" | "down") {
     const blockedReason = getSlideReorderBlockedReason();
-    const accessToken = accessTokenRef.current;
-    const readyWorkspace = workspaceReadyContext;
-    const readyProject = driveProjectReadyContext;
     const readyProjectDetails = projectDetails;
 
     setSlideReorderDiagnostics([]);
+    setSlideEditDiagnostics([]);
 
     if (blockedReason) {
       setSlideReorderStatus("blocked");
       setSlideReorderMessage("画像順を変更できませんでした。");
       setSlideReorderDiagnostics([blockedReason]);
-      return;
+      setSlideEditStatus("blocked");
+      setSlideEditMessage("画像順を変更できませんでした。");
+      setSlideEditDiagnostics([blockedReason]);
+      return false;
     }
 
-    if (!accessToken || !readyWorkspace || !readyProject || !readyProjectDetails) {
-      setSlideReorderStatus("blocked");
-      setSlideReorderMessage("画像順変更に必要な ready 情報が不足しています。");
-      setSlideReorderDiagnostics([
-        "accessToken / workspaceReadyContext / driveProjectReadyContext / projectDetails のいずれかを確認できませんでした。",
-        "Drive状態とプロジェクト状態を再確認してください。",
-      ]);
-      return;
-    }
-
-    const currentSlides = readyProjectDetails.slides;
+    const currentSlides = readyProjectDetails?.slides ?? [];
     const fromIndex = currentSlides.findIndex((slide) => slide.slideId === slideId);
     const toIndex = direction === "up" ? fromIndex - 1 : fromIndex + 1;
 
@@ -2863,7 +2927,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSlideReorderDiagnostics([
         "指定されたslideIdを選択中projectのslidesで確認できませんでした。",
       ]);
-      return;
+      setSlideEditStatus("invalid");
+      setSlideEditMessage("画像順を変更できませんでした。");
+      setSlideEditDiagnostics([
+        "指定されたslideIdを選択中projectのslidesで確認できませんでした。",
+      ]);
+      return false;
     }
 
     if (toIndex < 0 || toIndex >= currentSlides.length) {
@@ -2874,7 +2943,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
           ? "先頭のslideはこれ以上上へ移動できません。"
           : "最後のslideはこれ以上下へ移動できません。",
       ]);
-      return;
+      setSlideEditStatus("invalid");
+      setSlideEditMessage("画像順は変更されていません。");
+      setSlideEditDiagnostics([
+        direction === "up"
+          ? "先頭のslideはこれ以上上へ移動できません。"
+          : "最後のslideはこれ以上下へ移動できません。",
+      ]);
+      return false;
     }
 
     const orderedSlideIds = currentSlides.map((slide) => slide.slideId);
@@ -2883,10 +2959,57 @@ export function AppProviders({ children }: { children: ReactNode }) {
       orderedSlideIds[fromIndex],
     ];
 
+    return saveProjectSlideOrder(orderedSlideIds);
+  }
+
+  async function reorderProjectSlidesByDrag(orderedSlideIds: string[]) {
+    return saveProjectSlideOrder(orderedSlideIds);
+  }
+
+  async function saveProjectSlideOrder(orderedSlideIds: string[]) {
+    const blockedReason = getSlideReorderBlockedReason();
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+    const currentSlideIds = projectDetails?.slides.map((slide) => slide.slideId) ?? [];
+
+    setSlideReorderDiagnostics([]);
+    setSlideEditDiagnostics([]);
+
+    if (blockedReason) {
+      setSlideReorderStatus("blocked");
+      setSlideReorderMessage("画像順を変更できませんでした。");
+      setSlideReorderDiagnostics([blockedReason]);
+      setSlideEditStatus("blocked");
+      setSlideEditMessage("画像順を変更できませんでした。");
+      setSlideEditDiagnostics([blockedReason]);
+      return false;
+    }
+
+    if (!accessToken || !readyWorkspace || !readyProject || !projectDetails) {
+      const diagnostics = [
+        "accessToken / workspaceReadyContext / driveProjectReadyContext / projectDetails のいずれかを確認できませんでした。",
+        "Drive状態とプロジェクト状態を再確認してください。",
+      ];
+      setSlideReorderStatus("blocked");
+      setSlideReorderMessage("画像順変更に必要な ready 情報が不足しています。");
+      setSlideReorderDiagnostics(diagnostics);
+      setSlideEditStatus("blocked");
+      setSlideEditMessage("画像順変更に必要な ready 情報が不足しています。");
+      setSlideEditDiagnostics(diagnostics);
+      return false;
+    }
+
+    if (areStringArraysEqual(currentSlideIds, orderedSlideIds)) {
+      return true;
+    }
+
     setDriveOperationInFlight(true);
     setSlideReorderInFlightState(true);
     setSlideReorderStatus("saving");
     setSlideReorderMessage("画像の順番を保存しています。");
+    setSlideEditStatus("reordering");
+    setSlideEditMessage("画像の順番を保存しています。");
     const requestId = driveOperationRequestIdRef.current + 1;
     driveOperationRequestIdRef.current = requestId;
 
@@ -2901,18 +3024,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
 
       if (requestId !== driveOperationRequestIdRef.current) {
-        return;
+        return false;
       }
 
-      setWorkspaceReadyContext({
-        ...readyWorkspace,
+      applySlideManifestMutationSuccess({
+        readyWorkspace,
         indexJsonText: result.indexJsonText,
+        project: result.project,
+        details: result.details,
+        projectMessage:
+          "選択中projectの画像順を manifest.json / index.json に反映し、再検証しました。",
       });
-      setProjectStatus("ready");
-      setProjectMessage(
-        "選択中projectの画像順を manifest.json / index.json に反映し、再検証しました。",
-      );
-      applyProjectReadyState(result.project, toProjectDetails(result.details));
       setSlideReorderStatus("completed");
       setSlideReorderMessage(
         "画像の順番を保存しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
@@ -2921,9 +3043,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
         ...result.diagnostics,
         "iPad再生への反映には、このprojectのoffline syncが必要です。",
       ]);
+      setSlideEditStatus("completed");
+      setSlideEditMessage(
+        "画像の順番を保存しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+      );
+      setSlideEditDiagnostics([
+        ...result.diagnostics,
+        "iPad再生への反映には、このprojectのoffline syncが必要です。",
+      ]);
+      return true;
     } catch (error) {
       if (requestId !== driveOperationRequestIdRef.current) {
-        return;
+        return false;
       }
 
       if (error instanceof DriveProjectSlideReorderError) {
@@ -2945,7 +3076,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
             : "画像順変更に失敗しました。",
         );
         setSlideReorderDiagnostics(error.diagnostics);
-        return;
+        setSlideEditStatus(
+          error.status === "invalidProject" ? "invalid" : "error",
+        );
+        setSlideEditMessage(
+          error.status === "invalidProject"
+            ? "画像順変更前のDrive project情報に問題があります。"
+            : "画像順変更に失敗しました。",
+        );
+        setSlideEditDiagnostics(error.diagnostics);
+        return false;
       }
 
       if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
@@ -2960,6 +3100,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
         "Drive状態を再確認してください。",
       ]);
+      setSlideEditStatus("error");
+      setSlideEditMessage("画像順変更に失敗しました。");
+      setSlideEditDiagnostics([
+        "画像順変更中に予期しないエラーが発生しました。",
+        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "Drive状態を再確認してください。",
+      ]);
+      return false;
     } finally {
       if (requestId === driveOperationRequestIdRef.current) {
         clearDriveOperationTimeout();
@@ -2968,6 +3116,260 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setSlideReorderInFlightState(false);
       }
     }
+  }
+
+  async function deleteProjectSlides(slideIds: string[]) {
+    const blockedReason = getSlideEditBlockedReason({ allowSingleSlide: true });
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    setSlideEditDiagnostics([]);
+
+    if (blockedReason) {
+      setSlideEditStatus("blocked");
+      setSlideEditMessage("選択したslideを削除できませんでした。");
+      setSlideEditDiagnostics([blockedReason]);
+      return false;
+    }
+
+    if (!accessToken || !readyWorkspace || !readyProject) {
+      setSlideEditStatus("blocked");
+      setSlideEditMessage("slide削除に必要な ready 情報が不足しています。");
+      setSlideEditDiagnostics([
+        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Drive状態とプロジェクト状態を再確認してください。",
+      ]);
+      return false;
+    }
+
+    setDriveOperationInFlight(true);
+    setSlideDeleteInFlightState(true);
+    setSlideEditStatus("deleting");
+    setSlideEditMessage("選択したslideを削除しています。");
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+
+    try {
+      const result = await deleteDriveProjectSlides({
+        accessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        indexJsonFileId: readyWorkspace.indexJsonFileId,
+        project: readyProject,
+        slideIds,
+        runStep: (operation) => runDriveOperationStep(requestId, operation),
+      });
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return false;
+      }
+
+      applySlideManifestMutationSuccess({
+        readyWorkspace,
+        indexJsonText: result.indexJsonText,
+        project: result.project,
+        details: result.details,
+        projectMessage:
+          "選択中projectのslide削除を manifest.json / index.json に反映し、再検証しました。",
+      });
+      setSlideEditStatus("completed");
+      setSlideEditMessage(
+        "選択したslideを削除しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+      );
+      setSlideEditDiagnostics([
+        ...result.diagnostics,
+        "Drive assets/ の画像fileは削除していません。",
+        "iPad再生への反映には、このprojectのoffline syncが必要です。",
+      ]);
+      return true;
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return false;
+      }
+
+      if (error instanceof DriveProjectSlideDeleteError) {
+        handleSlideEditDriveAuthError(error.status);
+        setProjectStatus(error.status === "invalidProject" ? "invalid" : "error");
+        setSlideEditStatus(
+          error.status === "invalidProject" ? "invalid" : "error",
+        );
+        setSlideEditMessage(
+          error.status === "invalidProject"
+            ? "slide削除前のDrive project情報に問題があります。"
+            : "slide削除に失敗しました。",
+        );
+        setSlideEditDiagnostics(error.diagnostics);
+        return false;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+
+      setProjectStatus("error");
+      setSlideEditStatus("error");
+      setSlideEditMessage("slide削除に失敗しました。");
+      setSlideEditDiagnostics([
+        "slide削除中に予期しないエラーが発生しました。",
+        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "Drive assets/ の画像fileは削除していません。",
+        "Drive状態を再確認してください。",
+      ]);
+      return false;
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+        setSlideDeleteInFlightState(false);
+      }
+    }
+  }
+
+  async function duplicateProjectSlide(slideId: string) {
+    const blockedReason = getSlideEditBlockedReason({ allowSingleSlide: true });
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    setSlideEditDiagnostics([]);
+
+    if (blockedReason) {
+      setSlideEditStatus("blocked");
+      setSlideEditMessage("slideを複製できませんでした。");
+      setSlideEditDiagnostics([blockedReason]);
+      return false;
+    }
+
+    if ((projectDetails?.slideCount ?? 0) >= ASSET_IMPORT_MAX_SLIDE_COUNT) {
+      setSlideEditStatus("invalid");
+      setSlideEditMessage("slideを複製できませんでした。");
+      setSlideEditDiagnostics([
+        `slide 数が上限の${ASSET_IMPORT_MAX_SLIDE_COUNT}件に達しているため、複製できません。`,
+      ]);
+      return false;
+    }
+
+    if (!accessToken || !readyWorkspace || !readyProject) {
+      setSlideEditStatus("blocked");
+      setSlideEditMessage("slide複製に必要な ready 情報が不足しています。");
+      setSlideEditDiagnostics([
+        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Drive状態とプロジェクト状態を再確認してください。",
+      ]);
+      return false;
+    }
+
+    setDriveOperationInFlight(true);
+    setSlideDuplicateInFlightState(true);
+    setSlideEditStatus("duplicating");
+    setSlideEditMessage("slideを複製しています。");
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+
+    try {
+      const result = await duplicateDriveProjectSlide({
+        accessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        indexJsonFileId: readyWorkspace.indexJsonFileId,
+        project: readyProject,
+        slideId,
+        runStep: (operation) => runDriveOperationStep(requestId, operation),
+      });
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return false;
+      }
+
+      applySlideManifestMutationSuccess({
+        readyWorkspace,
+        indexJsonText: result.indexJsonText,
+        project: result.project,
+        details: result.details,
+        projectMessage:
+          "選択中projectのslide複製を manifest.json / index.json に反映し、再検証しました。",
+      });
+      setSlideEditStatus("completed");
+      setSlideEditMessage(
+        "slideを複製しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+      );
+      setSlideEditDiagnostics([
+        ...result.diagnostics,
+        `新しいslideId: ${formatIdPart(result.duplicatedSlide.slideId)}`,
+        "Drive asset fileはコピーしていません。",
+        "iPad再生への反映には、このprojectのoffline syncが必要です。",
+      ]);
+      return true;
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return false;
+      }
+
+      if (error instanceof DriveProjectSlideDuplicateError) {
+        handleSlideEditDriveAuthError(error.status);
+        setProjectStatus(error.status === "invalidProject" ? "invalid" : "error");
+        setSlideEditStatus(
+          error.status === "invalidProject" ? "invalid" : "error",
+        );
+        setSlideEditMessage(
+          error.status === "invalidProject"
+            ? "slide複製前のDrive project情報に問題があります。"
+            : "slide複製に失敗しました。",
+        );
+        setSlideEditDiagnostics(error.diagnostics);
+        return false;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+
+      setProjectStatus("error");
+      setSlideEditStatus("error");
+      setSlideEditMessage("slide複製に失敗しました。");
+      setSlideEditDiagnostics([
+        "slide複製中に予期しないエラーが発生しました。",
+        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "Drive asset fileはコピーしていません。",
+        "Drive状態を再確認してください。",
+      ]);
+      return false;
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+        setSlideDuplicateInFlightState(false);
+      }
+    }
+  }
+
+  function applySlideManifestMutationSuccess(input: {
+    readyWorkspace: DriveWorkspaceReadyContext;
+    indexJsonText: string;
+    project: DriveProjectSummary;
+    details: DriveProjectReadyDetails;
+    projectMessage: string;
+  }) {
+    setWorkspaceReadyContext({
+      ...input.readyWorkspace,
+      indexJsonText: input.indexJsonText,
+    });
+    setProjectStatus("ready");
+    setProjectMessage(input.projectMessage);
+    applyProjectReadyState(input.project, toProjectDetails(input.details));
+  }
+
+  function handleSlideEditDriveAuthError(status: "authRequired" | string) {
+    if (status !== "authRequired") {
+      return;
+    }
+
+    resetGoogleAfterDriveAuthFailure();
+    setDriveStatus("authRequired");
+    setDriveMessage(
+      "Google再接続が必要です。再接続後にDrive状態を再確認してください。",
+    );
   }
 
   async function createProject(titleInput: string) {
@@ -3178,6 +3580,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
     slideReorderDiagnostics,
     isSlideReorderInFlight,
     slideReorderBlockedReason,
+    slideEditStatus,
+    slideEditMessage,
+    slideEditDiagnostics,
+    isSlideEditInFlight,
+    isSlideDeleteInFlight,
+    isSlideDuplicateInFlight,
+    slideEditBlockedReason,
     offlineSyncStatus,
     offlineSyncStatusLabel: offlineSyncStatusLabels[offlineSyncStatus],
     offlineSyncMessage,
@@ -3197,6 +3606,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     updateSelectedProjectTitle,
     updateProjectSlideCaption,
     moveProjectSlide,
+    reorderProjectSlidesByDrag,
+    deleteProjectSlides,
+    duplicateProjectSlide,
     startAssetImport,
     cancelAssetImport,
     startOfflineSync,
@@ -3366,6 +3778,13 @@ function appendOmittedDiagnosticCount(
   }
 
   return [...diagnostics, `omitted diagnostics: ${omittedDiagnosticCount}`];
+}
+
+function areStringArraysEqual(left: string[], right: string[]) {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
 }
 
 function sanitizeOfflineSyncDiagnostics(diagnostics: string[]): string[] {
