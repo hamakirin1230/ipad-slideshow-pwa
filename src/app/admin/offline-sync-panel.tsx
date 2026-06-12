@@ -50,7 +50,7 @@ export function OfflineSyncPanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          Drive project ready の内容を IndexedDB staging に書き込み、
+          選択中の Drive project ready の内容を IndexedDB staging に書き込み、
           検証後に confirmed offline store へ promotion します。
           promotion 後は confirmed store から /player/ の offline-first 再生に使われます。
         </CardDescription>
@@ -66,7 +66,7 @@ export function OfflineSyncPanel() {
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <p className="font-semibold text-slate-50">開始条件</p>
             <p className="mt-2">
-              Drive workspace と Drive project が ready の場合だけ実行できます。
+              Drive workspace と選択中 Drive project が ready の場合だけ実行できます。
             </p>
             <dl className="mt-3 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
               <div>

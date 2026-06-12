@@ -155,6 +155,7 @@ export type DriveProjectCreateInput = {
 
 export type DriveProjectCreateResult = {
   project: DriveProjectSummary;
+  details: DriveProjectReadyDetails;
   indexJsonText: string;
   diagnostics: string[];
 };
@@ -256,6 +257,7 @@ type ProjectCreatableIndexJsonParseResult =
       status: "creatable";
       index: {
         createdAt: string;
+        projects: DriveProjectSummary[];
       };
       diagnostics: string[];
     }
@@ -275,6 +277,17 @@ type DriveCreatedProjectRegistrationValidationResult =
       diagnostics: string[];
     };
 
+type DriveProjectItemValidationResult =
+  | {
+      status: "ready";
+      project: DriveProjectSummary;
+      diagnostics: string[];
+    }
+  | {
+      status: "invalid";
+      diagnostics: string[];
+    };
+
 export type DriveProjectIndexValidationResult =
   | {
       status: "notCreated";
@@ -282,7 +295,7 @@ export type DriveProjectIndexValidationResult =
     }
   | {
       status: "ready";
-      project: DriveProjectSummary;
+      projects: DriveProjectSummary[];
       diagnostics: string[];
     }
   | {
@@ -1392,28 +1405,42 @@ export function validateIndexJsonProjects(
     };
   }
 
-  if (projects.length >= 2) {
+  const projectSummaries: DriveProjectSummary[] = [];
+  const seenProjectIds = new Set<string>();
+  const diagnostics: string[] = [];
+
+  projects.forEach((project, index) => {
+    const projectResult = validateIndexProjectItem(project, index);
+
+    if (projectResult.status === "invalid") {
+      diagnostics.push(...projectResult.diagnostics);
+      return;
+    }
+
+    if (seenProjectIds.has(projectResult.project.projectId)) {
+      diagnostics.push(
+        `index.json.projects[${index}] の projectId が重複しています。`,
+      );
+      return;
+    }
+
+    seenProjectIds.add(projectResult.project.projectId);
+    projectSummaries.push(projectResult.project);
+  });
+
+  if (diagnostics.length > 0) {
     return {
       status: "invalid",
-      diagnostics: [
-        "index.json.projects が2件以上あります。",
-        "第4-2初期版では複数プロジェクトに対応していません。",
-      ],
+      diagnostics,
     };
-  }
-
-  const projectResult = validateIndexProjectItem(projects[0]);
-
-  if (projectResult.status === "invalid") {
-    return projectResult;
   }
 
   return {
     status: "ready",
-    project: projectResult.project,
+    projects: projectSummaries,
     diagnostics: [
-      "index.json.projects は1件です。",
-      "index.json上のプロジェクト登録を確認しました。",
+      `index.json.projects は${projectSummaries.length}件です。`,
+      "index.json上のプロジェクト登録一覧を確認しました。",
       "manifest.json と assets/ の詳細検証は別ステップで実行します。",
     ],
   };
@@ -1518,7 +1545,7 @@ export async function validateDriveProjectDetails(input: {
       "project folder / manifest.json / assets/ のmetadata確認が完了しました。",
       "manifest.json のJSON本文を確認しました。",
       ...manifestResult.diagnostics,
-      "index.json.projects[0] とDrive上のproject詳細の整合確認が完了しました。",
+      "index.json の対象project登録とDrive上のproject詳細の整合確認が完了しました。",
     ],
   };
 }
@@ -1691,6 +1718,7 @@ export async function createDriveProject(
           workspaceId: readyContext.workspaceId,
           indexCreatedAt: preUpdateIndexResult.index.createdAt,
           indexUpdatedAt: now,
+          existingProjects: preUpdateIndexResult.index.projects,
           project: expectedProject,
         }),
       ),
@@ -1795,6 +1823,7 @@ export async function createDriveProject(
 
   return {
     project: registrationResult.project,
+    details: detailResult.details,
     indexJsonText: updatedIndexJsonText,
     diagnostics: [
       ...initialIndexResult.diagnostics,
@@ -2208,6 +2237,7 @@ function parseProjectCreatableIndexJson(input: {
       status: "creatable",
       index: {
         createdAt,
+        projects: [],
       },
       diagnostics: [
         "index.json を再読込し、プロジェクト未作成であることを確認しました。",
@@ -2219,9 +2249,13 @@ function parseProjectCreatableIndexJson(input: {
 
   if (projectValidation.status === "ready") {
     return {
-      status: "notCreatable",
+      status: "creatable",
+      index: {
+        createdAt,
+        projects: projectValidation.projects,
+      },
       diagnostics: [
-        "すでにプロジェクトが登録されているため、新規作成を開始しませんでした。",
+        `index.json を再読込し、既存project ${projectValidation.projects.length}件を保持して追加作成できることを確認しました。`,
       ],
     };
   }
@@ -2249,7 +2283,18 @@ function validateCreatedProjectRegistration(input: {
   }
 
   const diagnostics: string[] = [];
-  const { project } = result;
+  const project = result.projects.find(
+    (candidate) => candidate.projectId === input.expectedProject.projectId,
+  );
+
+  if (!project) {
+    return {
+      status: "invalid",
+      diagnostics: [
+        `index.json 更新後に projectId ${input.expectedProject.projectId} の登録を確認できませんでした。`,
+      ],
+    };
+  }
 
   validateExpectedProjectValue({
     diagnostics,
@@ -2324,7 +2369,7 @@ function validateExpectedProjectValue(input: {
 }) {
   if (input.actual !== input.expected) {
     input.diagnostics.push(
-      `index.json.projects[0] の ${input.label} が今回作成した値と一致していません。`,
+      `index.json.projects の ${input.label} が対象projectの想定値と一致していません。`,
     );
   }
 }
@@ -2974,12 +3019,39 @@ function buildIndexJsonWithUpdatedProject(input: {
     };
   }
 
+  const projects = validateIndexJsonProjects(input.indexJsonText);
+
+  if (projects.status !== "ready") {
+    return {
+      status: "invalid",
+      diagnostics:
+        projects.status === "invalid"
+          ? projects.diagnostics
+          : ["index.json の対象project一覧を確認できませんでした。"],
+    };
+  }
+
+  const targetIndex = projects.projects.findIndex(
+    (project) => project.projectId === input.currentProject.projectId,
+  );
+
+  if (targetIndex === -1) {
+    return {
+      status: "invalid",
+      diagnostics: ["index.json の対象project登録を確認できませんでした。"],
+    };
+  }
+
+  const updatedProjects = projects.projects.map((project, index) =>
+    index === targetIndex ? input.nextProject : project,
+  );
+
   const text = stringifyJsonFile({
     app: DRIVE_WORKSPACE_APP_ID,
     role: "index",
     schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
     workspaceId: input.expectedWorkspaceId,
-    projects: [input.nextProject],
+    projects: updatedProjects,
     createdAt,
     updatedAt: input.indexUpdatedAt,
   });
@@ -3419,6 +3491,7 @@ function buildIndexJsonWithCreatedProject(input: {
   workspaceId: string;
   indexCreatedAt: string;
   indexUpdatedAt: string;
+  existingProjects: DriveProjectSummary[];
   project: DriveProjectSummary;
 }) {
   const text = stringifyJsonFile({
@@ -3426,7 +3499,7 @@ function buildIndexJsonWithCreatedProject(input: {
     role: "index",
     schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
     workspaceId: input.workspaceId,
-    projects: [input.project],
+    projects: [...input.existingProjects, input.project],
     createdAt: input.indexCreatedAt,
     updatedAt: input.indexUpdatedAt,
   });
@@ -3938,11 +4011,14 @@ function validateBaseJsonBody(input: {
 
 function validateIndexProjectItem(
   value: unknown,
-): Extract<DriveProjectIndexValidationResult, { status: "ready" | "invalid" }> {
+  index: number,
+): DriveProjectItemValidationResult {
+  const fileLabel = `index.json.projects[${index}]`;
+
   if (!isRecord(value)) {
     return {
       status: "invalid",
-      diagnostics: ["index.json.projects[0] はJSON objectである必要があります。"],
+      diagnostics: [`${fileLabel} はJSON objectである必要があります。`],
     };
   }
 
@@ -3950,64 +4026,62 @@ function validateIndexProjectItem(
 
   const projectId = readRequiredUuidString({
     body: value,
-    fileLabel: "index.json.projects[0]",
+    fileLabel,
     key: "projectId",
     diagnostics,
   });
 
   const title = readRequiredNonEmptyString({
     body: value,
-    fileLabel: "index.json.projects[0]",
+    fileLabel,
     key: "title",
     diagnostics,
   });
 
   const projectFolderId = readRequiredNonEmptyString({
     body: value,
-    fileLabel: "index.json.projects[0]",
+    fileLabel,
     key: "projectFolderId",
     diagnostics,
   });
 
   const manifestFileId = readRequiredNonEmptyString({
     body: value,
-    fileLabel: "index.json.projects[0]",
+    fileLabel,
     key: "manifestFileId",
     diagnostics,
   });
 
   const assetsFolderId = readRequiredNonEmptyString({
     body: value,
-    fileLabel: "index.json.projects[0]",
+    fileLabel,
     key: "assetsFolderId",
     diagnostics,
   });
 
   const manifestPath = readRequiredNonEmptyString({
     body: value,
-    fileLabel: "index.json.projects[0]",
+    fileLabel,
     key: "manifestPath",
     diagnostics,
   });
 
   const createdAt = readRequiredIsoDateString({
     body: value,
-    fileLabel: "index.json.projects[0]",
+    fileLabel,
     key: "createdAt",
     diagnostics,
   });
 
   const updatedAt = readRequiredIsoDateString({
     body: value,
-    fileLabel: "index.json.projects[0]",
+    fileLabel,
     key: "updatedAt",
     diagnostics,
   });
 
   if (projectId && manifestPath !== `projects/${projectId}/manifest.json`) {
-    diagnostics.push(
-      "index.json.projects[0] の manifestPath が projectId と一致していません。",
-    );
+    diagnostics.push(`${fileLabel} の manifestPath が projectId と一致していません。`);
   }
 
   if (

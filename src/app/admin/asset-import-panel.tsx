@@ -56,7 +56,7 @@ export function AssetImportPanel() {
       ) : null}
 
       <p className="mt-3 text-slate-500">
-        この第4-3-4パッチでは、Google Photos Pickerで写真を1件選び、Drive assets/
+        Google Photos Pickerで写真を1件選び、選択中projectの Drive assets/
         への保存、manifest.json への反映、index.json updatedAt同期、更新後再検証まで実行します。
       </p>
 

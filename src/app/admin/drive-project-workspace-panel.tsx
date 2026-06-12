@@ -14,15 +14,13 @@ import { AssetImportPanel } from "./asset-import-panel";
 
 export function DriveProjectWorkspacePanel() {
   const {
-    driveStatus,
     projectStatus,
+    driveProjects,
     projectSummary,
     projectDetails,
     fetchProjectSlidePreviewBlob,
   } = useAppState();
 
-  const hasReadyProject =
-    driveStatus === "ready" && projectStatus === "ready" && projectSummary;
   const readyProjectDetails = projectStatus === "ready" ? projectDetails : null;
   const assetCount =
     readyProjectDetails?.assetCount ?? projectSummary?.assetCount ?? 0;
@@ -39,7 +37,7 @@ export function DriveProjectWorkspacePanel() {
             <CardDescription>index.json.projects で確認済みの件数</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{hasReadyProject ? 1 : 0}</p>
+            <p className="text-3xl font-bold">{driveProjects.length}</p>
           </CardContent>
         </Card>
 
@@ -73,9 +71,9 @@ export function DriveProjectWorkspacePanel() {
       <section className="grid gap-4 lg:grid-cols-2">
         <Card className="bg-white text-slate-950">
           <CardHeader>
-            <CardTitle>Driveプロジェクト</CardTitle>
+            <CardTitle>選択中Driveプロジェクト</CardTitle>
             <CardDescription>
-              Drive上で検証済みの最初のプロジェクト1件を表示します。
+              Drive上で検証済みの選択中projectを表示します。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

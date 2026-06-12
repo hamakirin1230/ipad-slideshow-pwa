@@ -150,6 +150,7 @@ export type DriveCandidateSummary = {
 };
 
 export type ProjectSummary = {
+  projectId: string;
   projectIdPart: string;
   title: string;
   manifestPath: string;
@@ -304,6 +305,10 @@ type AppContextValue = {
   projectStatus: ProjectStatus;
   projectStatusLabel: string;
   projectMessage: string;
+  driveProjects: ProjectSummary[];
+  selectedProjectId: string | null;
+  selectedProjectSummary: ProjectSummary | null;
+  selectedProjectDetails: ProjectDetails | null;
   projectSummary: ProjectSummary | null;
   projectDiagnostics: string[];
   projectDetails: ProjectDetails | null;
@@ -333,6 +338,7 @@ type AppContextValue = {
   checkDriveWorkspace: () => void;
   createWorkspace: () => void;
   checkProject: () => void;
+  selectProject: (projectId: string) => void;
   createProject: () => void;
   startAssetImport: () => void;
   cancelAssetImport: () => void;
@@ -479,6 +485,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   const [projectStatus, setProjectStatus] = useState<ProjectStatus>("idle");
   const [projectMessage, setProjectMessage] = useState(initialProjectMessage);
+  const [driveProjects, setDriveProjects] = useState<ProjectSummary[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null,
+  );
   const [projectSummary, setProjectSummary] = useState<ProjectSummary | null>(
     null,
   );
@@ -924,17 +934,37 @@ export function AppProviders({ children }: { children: ReactNode }) {
   function clearProjectReadyDetails() {
     setDriveProjectReadyContext(null);
     setProjectDetails(null);
+    setProjectSummary(null);
     resetAssetImportState();
     resetOfflineSyncState();
+  }
+
+  function applyDriveProjects(projects: DriveProjectSummary[]) {
+    setDriveProjects(projects.map((project) => toProjectSummary(project)));
   }
 
   function applyProjectReadyState(
     project: DriveProjectSummary,
     details: ProjectDetails = buildEmptyProjectDetails(),
   ) {
+    setSelectedProjectId(project.projectId);
     setDriveProjectReadyContext(project);
     setProjectDetails(details);
-    setProjectSummary(toProjectSummary(project, details));
+    const summary = toProjectSummary(project, details);
+    setProjectSummary(summary);
+    setDriveProjects((currentProjects) => {
+      if (
+        !currentProjects.some(
+          (currentProject) => currentProject.projectId === project.projectId,
+        )
+      ) {
+        return [...currentProjects, summary];
+      }
+
+      return currentProjects.map((currentProject) =>
+        currentProject.projectId === project.projectId ? summary : currentProject,
+      );
+    });
     resetAssetImportState();
     setAssetImportMessage(
       "Google Photos Pickerで写真を1件選択し、形式とサイズを確認できます。",
@@ -942,11 +972,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function resetProjectState() {
-   setProjectStatus("idle");
-   setProjectMessage(initialProjectMessage);
-   setProjectSummary(null);
-   setProjectDiagnostics([]);
-   clearProjectReadyDetails();
+    setProjectStatus("idle");
+    setProjectMessage(initialProjectMessage);
+    setDriveProjects([]);
+    setSelectedProjectId(null);
+    setProjectDiagnostics([]);
+    clearProjectReadyDetails();
   }
 
   function abortDriveOperation() {
@@ -1556,10 +1587,33 @@ export function AppProviders({ children }: { children: ReactNode }) {
             finalProjectDetails &&
             finalWorkspaceReadyContext
           ) {
+            const updatedProject = finalProject;
+            const updatedProjectDetails = finalProjectDetails;
             setWorkspaceReadyContext(finalWorkspaceReadyContext);
-            setDriveProjectReadyContext(finalProject);
-            setProjectDetails(finalProjectDetails);
-            setProjectSummary(toProjectSummary(finalProject, finalProjectDetails));
+            setSelectedProjectId(updatedProject.projectId);
+            setDriveProjectReadyContext(updatedProject);
+            setProjectDetails(updatedProjectDetails);
+            const nextProjectSummary = toProjectSummary(
+              updatedProject,
+              updatedProjectDetails,
+            );
+            setProjectSummary(nextProjectSummary);
+            setDriveProjects((currentProjects) => {
+              if (
+                !currentProjects.some(
+                  (currentProject) =>
+                    currentProject.projectId === updatedProject.projectId,
+                )
+              ) {
+                return [...currentProjects, nextProjectSummary];
+              }
+
+              return currentProjects.map((currentProject) =>
+                currentProject.projectId === updatedProject.projectId
+                  ? nextProjectSummary
+                  : currentProject,
+              );
+            });
             setProjectStatus("ready");
             setProjectMessage(
               "manifest.jsonへの素材反映を更新後再検証済みの状態で反映しました。",
@@ -1948,7 +2002,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setProjectMessage(
         "Google接続が必要です。もう一度Google接続を行ってからプロジェクト状態を確認してください。",
       );
-      setProjectSummary(null);
+      setDriveProjects([]);
+      setSelectedProjectId(null);
+      clearProjectReadyDetails();
       setProjectDiagnostics([]);
       return;
     }
@@ -1956,7 +2012,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (driveStatus !== "ready" || !workspaceReadyContext) {
       setProjectStatus("idle");
       setProjectMessage(initialProjectMessage);
-      setProjectSummary(null);
+      setDriveProjects([]);
+      setSelectedProjectId(null);
+      clearProjectReadyDetails();
       setProjectDiagnostics([
         "Driveワークスペースの確認済み情報を取得できませんでした。",
         "先にDrive状態を再確認し、ready になっていることを確認してください。",
@@ -1971,22 +2029,41 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     setProjectStatus("checking");
     setProjectMessage("Drive上のプロジェクト状態を確認しています。");
-    setProjectSummary(null);
+    clearProjectReadyDetails();
     setProjectDiagnostics([]);
 
     try {
-      const result = await runDriveOperationStep(requestId, async () =>
-        validateIndexJsonProjects(readyContext.indexJsonText),
+      const { indexJsonText, result } = await runDriveOperationStep(
+        requestId,
+        async (signal) => {
+          const nextIndexJsonText = await readDriveTextFile(
+            accessToken,
+            readyContext.indexJsonFileId,
+            signal,
+          );
+
+          return {
+            indexJsonText: nextIndexJsonText,
+            result: validateIndexJsonProjects(nextIndexJsonText),
+          };
+        },
       );
 
       if (requestId !== driveOperationRequestIdRef.current) {
         return;
       }
 
+      setWorkspaceReadyContext({
+        ...readyContext,
+        indexJsonText,
+      });
+
       if (result.status === "notCreated") {
         setProjectStatus("notCreated");
         setProjectMessage("プロジェクトはまだ作成されていません。");
-        setProjectSummary(null);
+        setDriveProjects([]);
+        setSelectedProjectId(null);
+        clearProjectReadyDetails();
         setProjectDiagnostics(result.diagnostics);
         return;
       }
@@ -1996,17 +2073,26 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setProjectMessage(
           "Drive上のプロジェクト情報に問題があります。このスライスでは自動修復しません。",
         );
-        setProjectSummary(null);
+        setDriveProjects([]);
+        setSelectedProjectId(null);
+        clearProjectReadyDetails();
         setProjectDiagnostics(result.diagnostics);
         return;
       }
+
+      applyDriveProjects(result.projects);
+      const preferredProjectId =
+        selectedProjectId ?? driveProjectReadyContext?.projectId ?? null;
+      const selectedProject =
+        result.projects.find((project) => project.projectId === preferredProjectId) ??
+        result.projects[0];
 
       const detailResult = await runDriveOperationStep(requestId, (signal) =>
         validateDriveProjectDetails({
           accessToken,
           expectedWorkspaceId: readyContext.workspaceId,
           expectedProjectsRootFolderId: readyContext.projectsRootFolderId,
-          project: result.project,
+          project: selectedProject,
           signal,
         }),
       );
@@ -2020,7 +2106,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setProjectMessage(
           "Drive上のプロジェクト詳細に問題があります。このスライスでは自動修復しません。",
         );
-        setProjectSummary(null);
+        setSelectedProjectId(selectedProject.projectId);
+        clearProjectReadyDetails();
         setProjectDiagnostics([
           ...result.diagnostics,
           ...detailResult.diagnostics,
@@ -2030,12 +2117,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       const nextProjectDetails = toProjectDetails(detailResult.details);
 
-        setProjectStatus("ready");
-        setProjectMessage(
-          "index.json上のプロジェクト登録とDrive上の詳細を確認しました。",
-        );
-        applyProjectReadyState(result.project, nextProjectDetails);
-        setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
+      setProjectStatus("ready");
+      setProjectMessage(
+        `index.json上の project ${result.projects.length}件を確認し、選択中projectの詳細を読み込みました。`,
+      );
+      applyProjectReadyState(selectedProject, nextProjectDetails);
+      setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
     } catch (error) {
       if (requestId !== driveOperationRequestIdRef.current) {
         return;
@@ -2049,7 +2136,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setProjectMessage(
         "プロジェクト状態確認に失敗しました。通信状態を確認して再確認してください。",
       );
-      setProjectSummary(null);
+      clearProjectReadyDetails();
       setProjectDiagnostics(
         error instanceof DriveApiError
           ? [
@@ -2057,6 +2144,172 @@ export function AppProviders({ children }: { children: ReactNode }) {
               `Drive API status: ${error.status}`,
             ]
           : ["Drive上のプロジェクト詳細確認に失敗しました。"],
+      );
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+      }
+    }
+  }
+
+  async function selectProject(projectId: string) {
+    if (driveOperationInFlightRef.current) {
+      return;
+    }
+
+    const accessToken = accessTokenRef.current;
+
+    if (!accessToken) {
+      setProjectStatus("error");
+      setProjectMessage(
+        "Google接続が必要です。もう一度Google接続を行ってからprojectを選択してください。",
+      );
+      clearProjectReadyDetails();
+      setProjectDiagnostics([]);
+      return;
+    }
+
+    if (driveStatus !== "ready" || !workspaceReadyContext) {
+      setProjectStatus("idle");
+      setProjectMessage(initialProjectMessage);
+      clearProjectReadyDetails();
+      setProjectDiagnostics([
+        "Driveワークスペースの確認済み情報を取得できませんでした。",
+        "先にDrive状態を再確認し、ready になっていることを確認してください。",
+      ]);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+    const readyContext = workspaceReadyContext;
+
+    setProjectStatus("checking");
+    setProjectMessage("選択したprojectの詳細を確認しています。");
+    setSelectedProjectId(projectId);
+    clearProjectReadyDetails();
+    setProjectDiagnostics([]);
+
+    try {
+      const { indexJsonText, result } = await runDriveOperationStep(
+        requestId,
+        async (signal) => {
+          const nextIndexJsonText = await readDriveTextFile(
+            accessToken,
+            readyContext.indexJsonFileId,
+            signal,
+          );
+
+          return {
+            indexJsonText: nextIndexJsonText,
+            result: validateIndexJsonProjects(nextIndexJsonText),
+          };
+        },
+      );
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setWorkspaceReadyContext({
+        ...readyContext,
+        indexJsonText,
+      });
+
+      if (result.status === "notCreated") {
+        setProjectStatus("notCreated");
+        setProjectMessage("プロジェクトはまだ作成されていません。");
+        setDriveProjects([]);
+        setSelectedProjectId(null);
+        clearProjectReadyDetails();
+        setProjectDiagnostics(result.diagnostics);
+        return;
+      }
+
+      if (result.status === "invalid") {
+        setProjectStatus("invalid");
+        setProjectMessage(
+          "Drive上のプロジェクト情報に問題があります。このスライスでは自動修復しません。",
+        );
+        setDriveProjects([]);
+        clearProjectReadyDetails();
+        setProjectDiagnostics(result.diagnostics);
+        return;
+      }
+
+      applyDriveProjects(result.projects);
+      const selectedProject = result.projects.find(
+        (project) => project.projectId === projectId,
+      );
+
+      if (!selectedProject) {
+        setProjectStatus("invalid");
+        setProjectMessage("選択したprojectを index.json 上で確認できませんでした。");
+        setSelectedProjectId(null);
+        clearProjectReadyDetails();
+        setProjectDiagnostics([
+          ...result.diagnostics,
+          `projectId ${projectId} は index.json.projects に登録されていません。`,
+        ]);
+        return;
+      }
+
+      const detailResult = await runDriveOperationStep(requestId, (signal) =>
+        validateDriveProjectDetails({
+          accessToken,
+          expectedWorkspaceId: readyContext.workspaceId,
+          expectedProjectsRootFolderId: readyContext.projectsRootFolderId,
+          project: selectedProject,
+          signal,
+        }),
+      );
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (detailResult.status === "invalid") {
+        setProjectStatus("invalid");
+        setProjectMessage(
+          "選択したprojectのDrive上の詳細に問題があります。このスライスでは自動修復しません。",
+        );
+        setSelectedProjectId(projectId);
+        clearProjectReadyDetails();
+        setProjectDiagnostics([
+          ...result.diagnostics,
+          ...detailResult.diagnostics,
+        ]);
+        return;
+      }
+
+      setProjectStatus("ready");
+      setProjectMessage("選択したprojectの manifest / assets 詳細を読み込みました。");
+      applyProjectReadyState(selectedProject, toProjectDetails(detailResult.details));
+      setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+
+      setProjectStatus("error");
+      setProjectMessage(
+        "project選択中にDrive確認へ失敗しました。通信状態を確認して再確認してください。",
+      );
+      clearProjectReadyDetails();
+      setProjectDiagnostics(
+        error instanceof DriveApiError
+          ? [
+              "Drive上のproject詳細確認に失敗しました。",
+              `Drive API status: ${error.status}`,
+            ]
+          : ["Drive上のproject詳細確認に失敗しました。"],
       );
     } finally {
       if (requestId === driveOperationRequestIdRef.current) {
@@ -2086,7 +2339,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setProjectMessage(
         "Google接続が必要です。もう一度Google接続を行ってからプロジェクトを作成してください。",
       );
-      setProjectSummary(null);
+      setDriveProjects([]);
+      setSelectedProjectId(null);
+      clearProjectReadyDetails();
       setProjectDiagnostics([]);
       return;
     }
@@ -2094,7 +2349,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (driveStatus !== "ready" || !workspaceReadyContext) {
       setProjectStatus("idle");
       setProjectMessage(initialProjectMessage);
-      setProjectSummary(null);
+      setDriveProjects([]);
+      setSelectedProjectId(null);
+      clearProjectReadyDetails();
       setProjectDiagnostics([
         "Driveワークスペースの確認済み情報を取得できませんでした。",
         "先にDrive状態を再確認し、ready になっていることを確認してください。",
@@ -2102,9 +2359,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (projectStatus !== "notCreated") {
+    if (projectStatus !== "notCreated" && projectStatus !== "ready") {
       setProjectDiagnostics([
-        "プロジェクト未作成を確認できていないため、作成を開始しませんでした。",
+        "index.json.projects が作成可能な状態として確認できていないため、作成を開始しませんでした。",
         "先にプロジェクト状態を再確認してください。",
       ]);
       return;
@@ -2118,7 +2375,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     setProjectStatus("creating");
     setProjectMessage(projectCreateStepMessages[0]);
-    setProjectSummary(null);
+    clearProjectReadyDetails();
     setProjectDiagnostics([]);
 
     try {
@@ -2145,18 +2402,24 @@ export function AppProviders({ children }: { children: ReactNode }) {
         ...readyContext,
         indexJsonText: result.indexJsonText,
       });
+      const indexValidation = validateIndexJsonProjects(result.indexJsonText);
+
+      if (indexValidation.status === "ready") {
+        applyDriveProjects(indexValidation.projects);
+      }
+
       setProjectStatus("ready");
       setProjectMessage(
-        "プロジェクトを作成し、index.json上の登録を確認しました。",
+        "新しいprojectを作成し、選択状態にしました。",
       );
-      applyProjectReadyState(result.project);
+      applyProjectReadyState(result.project, toProjectDetails(result.details));
       setProjectDiagnostics(result.diagnostics);
     } catch (error) {
       if (requestId !== driveOperationRequestIdRef.current) {
         return;
       }
 
-      setProjectSummary(null);
+      clearProjectReadyDetails();
 
       if (error instanceof DriveProjectCreateError) {
         if (error.status === "authRequired") {
@@ -2171,7 +2434,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setProjectMessage(
             "プロジェクト作成中にGoogle再接続が必要になりました。",
           );
-          setProjectSummary(null);
           setProjectDiagnostics(buildProjectCreateFailureDiagnostics(error));
           return;
         }
@@ -2230,6 +2492,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     projectStatus,
     projectStatusLabel: projectStatusLabels[projectStatus],
     projectMessage,
+    driveProjects,
+    selectedProjectId,
+    selectedProjectSummary: projectSummary,
+    selectedProjectDetails: projectDetails,
     projectSummary,
     projectDiagnostics,
     projectDetails,
@@ -2256,6 +2522,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     checkDriveWorkspace,
     createWorkspace,
     checkProject,
+    selectProject,
     createProject,
     startAssetImport,
     cancelAssetImport,
@@ -2595,6 +2862,7 @@ function toProjectSummary(
   details?: ProjectDetails,
 ): ProjectSummary {
   return {
+    projectId: project.projectId,
     projectIdPart: formatIdPart(project.projectId),
     title: project.title,
     manifestPath: project.manifestPath,
