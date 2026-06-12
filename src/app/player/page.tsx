@@ -15,10 +15,12 @@ import {
   ChevronRight,
   Home,
   List,
+  Lock,
   Pause,
   Play,
   RefreshCw,
   Settings,
+  Unlock,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -30,6 +32,12 @@ import { useOfflineCurrentSlideImage } from "./use-offline-current-slide-image";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
 const PLAYER_CONTROLS_HIDE_DELAY_MS = 4_000;
+const PLAYER_LOCK_HOLD_DURATION_MS = 2_000;
+const PLAYER_PRESENTATION_MODE_STORAGE_KEY =
+  "ipad-slideshow:player-presentation-mode";
+
+type PlayerPresentationMode = "normal" | "production";
+type PlayerInteractionLock = "unlocked" | "locked";
 
 type SwipeStart = {
   clientX: number;
@@ -64,39 +72,87 @@ export default function PlayerPage() {
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [areControlsVisible, setAreControlsVisible] = useState(true);
   const [isPlaybackPaused, setIsPlaybackPaused] = useState(false);
+  const [presentationMode, setPresentationMode] =
+    useState<PlayerPresentationMode>(() => readStoredPresentationMode());
+  const [interactionLock, setInteractionLock] =
+    useState<PlayerInteractionLock>("unlocked");
 
   const readySnapshot = snapshot?.status === "ready" ? snapshot : null;
   const projectSelectionSnapshot =
     snapshot?.status === "projectSelectionRequired" ? snapshot : null;
   const slideCount = readySnapshot?.slides.length ?? 0;
+  const isProductionMode = presentationMode === "production";
+  const isInteractionLocked = interactionLock === "locked";
+  const canUseManualSlideControls = !isProductionMode && !isInteractionLocked;
+  const swipeStartRef = useRef<SwipeStart | null>(null);
 
-  const revealControls = useCallback(() => {
-    setAreControlsVisible(true);
+  const resetSwipeStart = useCallback(() => {
+    swipeStartRef.current = null;
   }, []);
 
+  const revealControls = useCallback(() => {
+    if (isProductionMode) {
+      return;
+    }
+
+    setAreControlsVisible(true);
+  }, [isProductionMode]);
+
+  const advanceToNextSlide = useCallback(() => {
+    if (slideCount === 0) return;
+    setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
+  }, [slideCount]);
+
   const goToPreviousSlide = useCallback(() => {
+    if (!canUseManualSlideControls) return;
     if (slideCount === 0) return;
     revealControls();
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
-  }, [revealControls, slideCount]);
+  }, [canUseManualSlideControls, revealControls, slideCount]);
 
   const goToNextSlide = useCallback(() => {
+    if (!canUseManualSlideControls) return;
     if (slideCount === 0) return;
     revealControls();
     setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
-  }, [revealControls, slideCount]);
+  }, [canUseManualSlideControls, revealControls, slideCount]);
 
-  const swipeStartRef = useRef<SwipeStart | null>(null);
+  const enterProductionMode = useCallback(() => {
+    setPresentationMode("production");
+    setInteractionLock("locked");
+    setIsPlaybackPaused(false);
+    setAreControlsVisible(false);
+    resetSwipeStart();
+  }, [resetSwipeStart]);
 
-  const resetSwipeStart = () => {
-    swipeStartRef.current = null;
-  };
+  const exitProductionMode = useCallback(() => {
+    setPresentationMode("normal");
+    setInteractionLock("unlocked");
+    setAreControlsVisible(true);
+    resetSwipeStart();
+  }, [resetSwipeStart]);
+
+  const lockInteractions = useCallback(() => {
+    setInteractionLock("locked");
+    setAreControlsVisible(false);
+    resetSwipeStart();
+  }, [resetSwipeStart]);
+
+  const unlockInteractions = useCallback(() => {
+    setInteractionLock("unlocked");
+    resetSwipeStart();
+  }, [resetSwipeStart]);
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (!event.isPrimary) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
 
     event.preventDefault();
+
+    if (isProductionMode || isInteractionLocked) {
+      resetSwipeStart();
+      return;
+    }
 
     swipeStartRef.current = {
       clientX: event.clientX,
@@ -116,6 +172,10 @@ export default function PlayerPage() {
   };
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (isProductionMode || isInteractionLocked) {
+      return;
+    }
+
     const start = swipeStartRef.current;
 
     if (!start || start.pointerId !== event.pointerId || start.didTrigger) {
@@ -143,6 +203,11 @@ export default function PlayerPage() {
   };
 
   const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (isProductionMode || isInteractionLocked) {
+      resetSwipeStart();
+      return;
+    }
+
     const start = swipeStartRef.current;
 
     if (!start || start.pointerId !== event.pointerId) {
@@ -188,6 +253,10 @@ export default function PlayerPage() {
       window.removeEventListener("offline", updateOnlineStatus);
     };
   }, []);
+
+  useEffect(() => {
+    writeStoredPresentationMode(presentationMode);
+  }, [presentationMode]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -239,7 +308,7 @@ export default function PlayerPage() {
     }
 
     const timeoutId = setTimeout(() => {
-      goToNextSlide();
+      advanceToNextSlide();
     }, currentSlideDurationSeconds * 1000);
 
     return () => clearTimeout(timeoutId);
@@ -251,7 +320,7 @@ export default function PlayerPage() {
     slideCount,
     safeCurrentSlideIndex,
     currentSlideDurationSeconds,
-    goToNextSlide,
+    advanceToNextSlide,
   ]);
 
   const isSnapshotLoading = snapshotLoadStatus === "loading";
@@ -362,7 +431,8 @@ export default function PlayerPage() {
   ];
 
   if (canPlay) {
-    const controlsVisibilityClassName = areControlsVisible
+    const shouldShowNormalControls = !isProductionMode && areControlsVisible;
+    const controlsVisibilityClassName = shouldShowNormalControls
       ? "opacity-100"
       : "pointer-events-none opacity-0";
     const slideProgressPercentage =
@@ -486,6 +556,18 @@ export default function PlayerPage() {
                 type="button"
                 variant="secondary"
                 size="icon"
+                className="rounded-full border border-emerald-200/30 bg-emerald-400/15 text-emerald-50 hover:bg-emerald-300/25 sm:w-auto sm:px-3"
+                aria-label="本番モードを開始"
+                title="本番モードを開始"
+                onClick={enterProductionMode}
+              >
+                <Lock className="size-4" />
+                <span className="hidden sm:inline">本番モード</span>
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
                 className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
                 aria-label={isPlaybackPaused ? "自動送りを再開" : "自動送りを一時停止"}
                 title={isPlaybackPaused ? "自動送りを再開" : "自動送りを一時停止"}
@@ -572,66 +654,77 @@ export default function PlayerPage() {
           </Button>
         </div>
 
-        <div
-          className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/35 to-transparent px-4 pt-20 sm:px-6"
-          style={{
-            paddingBottom: "max(env(safe-area-inset-bottom), 1rem)",
-          }}
-        >
-          {currentSlideCaption ? (
-            <p
-              className="mx-auto mb-4 max-w-4xl text-center text-base leading-7 text-slate-100 drop-shadow sm:text-xl sm:leading-8"
-              style={{
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}
-            >
-              {currentSlideCaption}
-            </p>
-          ) : null}
+        {isProductionMode ? (
+          <ProductionModeOverlay
+            interactionLock={interactionLock}
+            onLock={lockInteractions}
+            onUnlock={unlockInteractions}
+            onExit={exitProductionMode}
+          />
+        ) : null}
 
+        {!isProductionMode ? (
           <div
-            className={`mx-auto flex max-w-xl items-center justify-center gap-4 transition-opacity duration-300 ${controlsVisibilityClassName}`}
+            className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/35 to-transparent px-4 pt-20 sm:px-6"
+            style={{
+              paddingBottom: "max(env(safe-area-inset-bottom), 1rem)",
+            }}
           >
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon-lg"
-              className="size-11 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
-              aria-label="前のスライドへ"
-              title="前のスライドへ"
-              disabled={safeCurrentSlideIndex === 0}
-              onClick={goToPreviousSlide}
-            >
-              <ChevronLeft className="size-6" />
-            </Button>
-            <div className="min-w-28 flex-1">
-              <div className="h-1 overflow-hidden rounded-full bg-white/20">
-                <div
-                  className="h-full rounded-full bg-white"
-                  style={{ width: `${slideProgressPercentage}%` }}
-                />
-              </div>
-              <p className="mt-2 text-center text-xs text-slate-300">
-                {safeCurrentSlideIndex + 1} / {slideCount}
+            {currentSlideCaption ? (
+              <p
+                className="mx-auto mb-4 max-w-4xl text-center text-base leading-7 text-slate-100 drop-shadow sm:text-xl sm:leading-8"
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {currentSlideCaption}
               </p>
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon-lg"
-              className="size-11 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
-              aria-label="次のスライドへ"
-              title="次のスライドへ"
-              disabled={safeCurrentSlideIndex === slideCount - 1}
-              onClick={goToNextSlide}
+            ) : null}
+
+            <div
+              className={`mx-auto flex max-w-xl items-center justify-center gap-4 transition-opacity duration-300 ${controlsVisibilityClassName}`}
             >
-              <ChevronRight className="size-6" />
-            </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon-lg"
+                className="size-11 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
+                aria-label="前のスライドへ"
+                title="前のスライドへ"
+                disabled={safeCurrentSlideIndex === 0}
+                onClick={goToPreviousSlide}
+              >
+                <ChevronLeft className="size-6" />
+              </Button>
+              <div className="min-w-28 flex-1">
+                <div className="h-1 overflow-hidden rounded-full bg-white/20">
+                  <div
+                    className="h-full rounded-full bg-white"
+                    style={{ width: `${slideProgressPercentage}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-center text-xs text-slate-300">
+                  {safeCurrentSlideIndex + 1} / {slideCount}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon-lg"
+                className="size-11 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
+                aria-label="次のスライドへ"
+                title="次のスライドへ"
+                disabled={safeCurrentSlideIndex === slideCount - 1}
+                onClick={goToNextSlide}
+              >
+                <ChevronRight className="size-6" />
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : null}
       </main>
     );
   }
@@ -891,6 +984,124 @@ function ProjectSelectionCard({
   );
 }
 
+function ProductionModeOverlay({
+  interactionLock,
+  onLock,
+  onUnlock,
+  onExit,
+}: {
+  interactionLock: PlayerInteractionLock;
+  onLock: () => void;
+  onUnlock: () => void;
+  onExit: () => void;
+}) {
+  const isLocked = interactionLock === "locked";
+
+  return (
+    <div
+      className="absolute right-3 top-3 z-30 flex max-w-[calc(100vw-1.5rem)] flex-col items-end gap-2 sm:right-5 sm:top-5"
+      style={{
+        paddingTop: "env(safe-area-inset-top)",
+        paddingRight: "env(safe-area-inset-right)",
+      }}
+    >
+      {isLocked ? (
+        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/25 px-2 py-1 text-[0.7rem] text-slate-200 backdrop-blur-sm">
+          <Lock className="size-3.5" />
+          <span className="hidden sm:inline">操作ロック中</span>
+          <HoldActionButton
+            label="長押しでロック解除"
+            icon={<Unlock className="size-3.5" />}
+            onHoldComplete={onUnlock}
+          />
+        </div>
+      ) : (
+        <div className="flex flex-wrap justify-end gap-2 rounded-full border border-white/10 bg-black/25 p-1 text-xs text-slate-100 backdrop-blur-sm">
+          <span className="flex items-center gap-1 px-2">
+            <Unlock className="size-3.5" />
+            本番モード中
+          </span>
+          <Button
+            type="button"
+            variant="secondary"
+            size="xs"
+            className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
+            onClick={onLock}
+          >
+            <Lock className="size-3.5" />
+            ロック
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="xs"
+            className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
+            onClick={onExit}
+          >
+            本番終了
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HoldActionButton({
+  label,
+  icon,
+  onHoldComplete,
+}: {
+  label: string;
+  icon: ReactNode;
+  onHoldComplete: () => void;
+}) {
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isHolding, setIsHolding] = useState(false);
+
+  const clearHold = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
+    setIsHolding(false);
+  }, []);
+
+  const startHold = useCallback(() => {
+    clearHold();
+    setIsHolding(true);
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      setIsHolding(false);
+      onHoldComplete();
+    }, PLAYER_LOCK_HOLD_DURATION_MS);
+  }, [clearHold, onHoldComplete]);
+
+  useEffect(() => clearHold, [clearHold]);
+
+  return (
+    <Button
+      type="button"
+      variant="secondary"
+      size="xs"
+      className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
+      aria-label={label}
+      title={label}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        startHold();
+      }}
+      onPointerUp={clearHold}
+      onPointerCancel={clearHold}
+      onPointerLeave={clearHold}
+      onClick={(event) => event.preventDefault()}
+    >
+      {icon}
+      {isHolding ? "解除中..." : label}
+    </Button>
+  );
+}
+
 function PlayerStatusCard({
   tone,
   title,
@@ -968,4 +1179,27 @@ function formatIdPart(id: string | undefined) {
   }
 
   return `${id.slice(0, 8)}...`;
+}
+
+function readStoredPresentationMode(): PlayerPresentationMode {
+  if (typeof window === "undefined") {
+    return "normal";
+  }
+
+  try {
+    return window.localStorage.getItem(PLAYER_PRESENTATION_MODE_STORAGE_KEY) ===
+      "production"
+      ? "production"
+      : "normal";
+  } catch {
+    return "normal";
+  }
+}
+
+function writeStoredPresentationMode(mode: PlayerPresentationMode) {
+  try {
+    window.localStorage.setItem(PLAYER_PRESENTATION_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Persisting presentation mode is best-effort only.
+  }
 }

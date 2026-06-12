@@ -64,6 +64,8 @@ confirmed store promotion
 /player recovery copy
 /player iPad横向き再生UI
 /player project selector準備
+/player production mode
+/player operation lock
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
 ```
@@ -160,12 +162,35 @@ ready project複数時はprojectSelectionRequiredを返す
 /admin/ confirmed projectsから「このprojectを再生」へ遷移
 ```
 
-未確認:
+Vercel productionで確認済み:
 
 ```text
-Vercel productionで複数projectを実際にoffline sync
-/player/のproject selectorを実データで確認
-last played projectIdがiPad PWA再起動後も効くことを確認
+Project A / Project Bを識別できるtitle管理
+複数Drive projectの作成
+既存projectの切り替え
+選択中projectへの素材追加
+選択中projectのoffline sync
+confirmed storeに複数projectを保持
+/player/のproject selector
+/player/?projectId=<Project A>で再生
+/player/?projectId=<Project B>で再生
+last played projectIdがiPad PWA再起動後も効くこと
+```
+
+## 本番モード・操作ロック
+
+2026-06-12時点で追加済み:
+
+```text
+/player/でnormal / production modeを切り替え
+production modeはlocalStorage key ipad-slideshow:player-presentation-modeに保存
+production mode ONでlockもON
+production mode OFFでlockもOFF
+lock状態は永続化しない
+lock中も自動送りは継続
+production mode中は通常操作UI、project selector戻り、next/previous、playback toggleを非表示・無効化
+lock解除は右上の2秒長押し
+lock解除後もproduction modeは維持
 ```
 
 ## 直近の検証済み
@@ -176,16 +201,16 @@ last played projectIdがiPad PWA再起動後も効くことを確認
 npm run lint
 npm run build
 git diff --check
-Browserで /player/?projectId=test-project を開く
-Browserで /admin/ を開く
-console errorなし
+Browserで /player/ を開く
+Browserで offline data不足時のblocking messageを確認
+Browser console errorなし
 ```
 
 注意:
 
 ```text
 ローカル環境にはconfirmed projectがないため、
-複数project selectorの実データ表示は未確認。
+production mode ON/OFF、2秒長押しunlock、Project A / Project Bの実データ再生はVercel production / iPad PWA側で確認する。
 ```
 
 ## 次に自然な作業
@@ -193,10 +218,10 @@ console errorなし
 優先候補:
 
 ```text
-1. Vercel productionでproject A/Bをoffline syncし、multi-project selectorを実機確認
-2. 古いdocs/decisionsやdocs/architectureを「履歴」と「現行方針」に分けて整理
-3. 本番モード・操作ロックの設計
-4. 動画再生・テロップ・公開履歴・ロールバックの順次実装
+1. 動画再生の設計・実装
+2. テロップの設計・実装
+3. 公開履歴・ロールバックの設計・実装
+4. 古いdocs/decisionsやdocs/architectureを「履歴」と「現行方針」に分けて整理
 ```
 
 ## 最新ハンドオフ
@@ -204,6 +229,7 @@ console errorなし
 読む順:
 
 ```text
+docs/handoffs/2026-06-12-production-mode-and-operation-lock-handoff.md
 docs/handoffs/2026-06-12-multi-project-playback-preparation-handoff.md
 docs/handoffs/2026-06-12-advanced-offline-storage-controls-handoff.md
 docs/handoffs/2026-06-10-offline-storage-management-ui-handoff.md

@@ -23,6 +23,8 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/admin/` でproject単位ローカル削除、保存容量、browser storage estimate、app shell cache状態確認
 - `/player/` のiPad横向き再生UI polish
 - 複数project playback準備、project selector、`/player/?projectId=...`
+- Vercel productionでProject A / Project Bのoffline sync、confirmed store複数保持、player selector、project指定再生を確認
+- `/player/` 本番モード、操作ロック、2秒長押しロック解除
 
 ## 公開URL
 
@@ -37,7 +39,7 @@ https://ipad-slideshow-pwa.vercel.app/
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
 - `/admin` Drive project、Photos Picker、offline sync、confirmed store、storage管理
-- `/player` iPad offline-first再生、project selector
+- `/player` iPad offline-first再生、project selector、本番モード、操作ロック
 - `/auth-test` OAuth単体確認用の開発ページ
 
 ## 重要な運用方針
@@ -75,12 +77,12 @@ npm run build
 
 ## 次の作業候補
 
-- Vercel productionで複数projectをoffline syncし、`/player/`のproject selectorを実データで確認する
 - README以外の古い設計docsを、現行方針と履歴に分けて整理する
-- 本番モード、操作ロック、動画再生、テロップ、公開履歴、ロールバックを順番に追加する
+- 動画再生、テロップ、公開履歴、ロールバックを順番に追加する
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-06-12-production-mode-and-operation-lock-handoff.md`
 - `docs/handoffs/2026-06-12-multi-project-playback-preparation-handoff.md`
 - `docs/handoffs/2026-06-12-advanced-offline-storage-controls-handoff.md`
 - `docs/handoffs/2026-06-10-offline-storage-management-ui-handoff.md`
