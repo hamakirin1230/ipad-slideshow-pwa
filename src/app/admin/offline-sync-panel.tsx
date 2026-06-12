@@ -52,7 +52,7 @@ export function OfflineSyncPanel() {
         <CardDescription className="text-slate-300">
           Drive project ready の内容を IndexedDB staging に書き込み、
           検証後に confirmed offline store へ promotion します。
-          このパネルでは同期実行と診断表示だけを扱い、再生UIへの接続はまだ行いません。
+          promotion 後は confirmed store から /player/ の offline-first 再生に使われます。
         </CardDescription>
       </CardHeader>
 

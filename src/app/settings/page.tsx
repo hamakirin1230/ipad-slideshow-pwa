@@ -17,12 +17,12 @@ const appSettings = [
     value: "スライドショー",
   },
   {
-    label: "GitHub Pages公開URL",
-    value: "https://hamakirin1230.github.io/ipad-slideshow-pwa/",
+    label: "Vercel production URL",
+    value: "https://ipad-slideshow-pwa.vercel.app/",
   },
   {
-    label: "basePath",
-    value: "/ipad-slideshow-pwa",
+    label: "PWA path",
+    value: "root path / manifest.json / sw.js",
   },
   {
     label: "正式対応方針",
@@ -31,66 +31,58 @@ const appSettings = [
 ];
 
 const implementedItems = [
-  "Next.js / TypeScript / Tailwind CSS / shadcn/ui の初期構成",
-  "GitHub ActionsによるGitHub Pages自動deploy",
-  "iPadホーム画面からのPWA起動確認",
-  "Project / Asset / SlideItem の3層mock-data",
-  "管理画面でのプロジェクト一覧・素材一覧・本編スライド順表示",
-  "再生画面での仮データ表示・基本UI表示",
+  "Google OAuth / drive.file scope 接続",
+  "Drive workspace / project 作成・再確認",
+  "Google Photos Picker から素材追加",
+  "Drive manifest / assets の保存と再確認",
+  "IndexedDB staging / confirmed store への offline sync",
+  "confirmed Blob からの offline-first 再生",
+  "Service Worker による app shell cache",
+  "端末ストレージ概要と app shell cache 管理",
+  "複数 project 再生に向けた project selector",
 ];
 
 const currentScopeItems = [
-  "ローカル仮データで画面設計を確認する",
-  "保存処理や外部連携に入る前に、情報構造と導線を固める",
-  "Google連携・同期・本番再生機能はまだ実装しない",
+  "Google接続状態と Drive workspace 状態を確認する",
+  "IndexedDB をこのブラウザで開けるか確認する",
+  "認証・Drive・端末内保存の前提を管理画面へ渡す",
 ];
 
 const futureItems = [
   {
-    goal: "第3ゴール",
-    title: "Google OAuth",
+    goal: "次の確認",
+    title: "multi-project playback 実機確認",
     description:
-      "Google Identity Servicesを導入し、アクセストークンを永続保存しない方針を検証します。",
+      "Vercel productionで複数projectをoffline syncし、/player/のproject selectorをiPad PWAで確認します。",
   },
   {
-    goal: "第4ゴール",
-    title: "Google Driveワークスペース",
+    goal: "本番向け",
+    title: "本番モード・操作ロック",
     description:
-      "Drive上にワークスペース、workspace.json、index.json、プロジェクトmanifestを作成します。",
+      "本番中の誤操作を防ぐためのロック、解除導線、表示制限を設計します。",
   },
   {
-    goal: "第5ゴール",
-    title: "Google Photos Picker",
+    goal: "再生拡張",
+    title: "動画・テロップ",
     description:
-      "Googleフォトから候補素材を取り込み、重複登録を防ぐ候補素材トレイを作ります。",
+      "動画再生、テロップ、表示時間、素材ごとの再生挙動を段階的に追加します。",
   },
   {
-    goal: "第6ゴール",
-    title: "iPad同期とオフライン再生",
+    goal: "運用",
+    title: "公開履歴・ロールバック",
     description:
-      "公開済みmanifestと素材をiPad内に保存し、オフライン再生テストを行います。",
-  },
-  {
-    goal: "第7ゴール",
-    title: "本番向け機能",
-    description:
-      "テロップ、動画、ピンチズーム、ランダム再生、公開履歴、本番モードを順番に追加します。",
+      "公開済みmanifestの履歴管理と、事故時に前の状態へ戻す導線を追加します。",
   },
 ];
 
 const notImplementedItems = [
-  "Google OAuth",
-  "Google Drive連携",
-  "Google Photos Picker連携",
-  "IndexedDBへの素材保存",
-  "Service Worker",
-  "iPad同期",
-  "オフライン本番再生",
   "動画再生",
   "テロップ編集",
   "公開履歴・ロールバック",
   "本番モード",
   "操作ロック",
+  "ピンチズーム",
+  "ランダム再生",
 ];
 
 export default function SettingsPage() {
@@ -99,11 +91,11 @@ export default function SettingsPage() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-          <Badge variant="secondary">第4-1 Drive連携準備</Badge>
+            <Badge variant="secondary">Google / Drive / IndexedDB</Badge>
             <h1 className="mt-3 text-3xl font-bold">設定</h1>
             <p className="mt-2 max-w-2xl text-slate-300">
-            Google接続とDriveワークスペース状態を確認する正式導線です。
-            このスライスではDrive確認・作成はまだ行いません。
+              Google接続、Drive workspace 状態、IndexedDB 疎通を確認する画面です。
+              Drive project、素材追加、offline sync、再生確認は管理画面と再生画面で扱います。
             </p>
           </div>
           <Button asChild variant="secondary">
@@ -129,24 +121,24 @@ export default function SettingsPage() {
         </section>
 
         <Card className="border-white/10 bg-white/5 text-slate-50">
-  <CardHeader>
-    <CardTitle>開発用ページ</CardTitle>
-    <CardDescription className="text-slate-300">
-      Google OAuthの接続確認用ページです。Drive作成・manifest保存はまだ行いません。
-    </CardDescription>
-  </CardHeader>
-  <CardContent>
-    <Button asChild variant="secondary">
-      <Link href="/auth-test">Google認証テストを開く</Link>
-    </Button>
-  </CardContent>
-</Card>
+          <CardHeader>
+            <CardTitle>開発用ページ</CardTitle>
+            <CardDescription className="text-slate-300">
+              Google OAuth単体の接続確認用ページです。通常の運用導線はこの設定画面を使います。
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="secondary">
+              <Link href="/auth-test">Google認証テストを開く</Link>
+            </Button>
+          </CardContent>
+        </Card>
         <section className="grid gap-4 lg:grid-cols-2">
           <Card className="border-white/10 bg-white/5 text-slate-50">
             <CardHeader>
               <CardTitle>実装済み</CardTitle>
               <CardDescription className="text-slate-300">
-                第1ゴール完了後、第2ゴールで追加した画面設計用の内容です。
+                Vercel production とiPad PWAで確認済み、またはローカル検証済みの主要機能です。
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-slate-300">
@@ -158,9 +150,9 @@ export default function SettingsPage() {
 
           <Card className="border-white/10 bg-white/5 text-slate-50">
             <CardHeader>
-              <CardTitle>第2ゴールの範囲</CardTitle>
+              <CardTitle>この画面の範囲</CardTitle>
               <CardDescription className="text-slate-300">
-                現在はローカル仮データで画面設計を進める段階です。
+                設定画面では認証と基礎状態の確認に絞ります。
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-slate-300">
@@ -173,9 +165,9 @@ export default function SettingsPage() {
 
         <Card className="border-white/10 bg-white/5 text-slate-50">
           <CardHeader>
-            <CardTitle>第3ゴール以降</CardTitle>
+            <CardTitle>次の候補</CardTitle>
             <CardDescription className="text-slate-300">
-              第2ゴール完了後に、外部連携・保存・同期・本番機能を段階的に追加します。
+              offline再生の縦線が通った後に進める候補です。
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
@@ -202,7 +194,7 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle>まだ未実装</CardTitle>
             <CardDescription className="text-slate-300">
-              ここにある機能は、第2ゴールでは実装対象外です。
+              本番運用向けに今後追加する機能です。
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">

@@ -239,10 +239,10 @@ export function DriveSettingsPanel() {
         ) : null}
 
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-          <p className="font-semibold">第5でまだ扱わないこと</p>
+          <p className="font-semibold">この画面で扱わないこと</p>
           <p className="mt-2">
-            自動削除、自動修復、自動リトライ、プロジェクト作成、素材保存、
-            Google Photos Picker連携、IndexedDB同期、オフライン本番再生はまだ行いません。
+            Drive workspace の自動削除・自動修復・自動リトライは行いません。
+            Drive project、素材追加、offline sync、端末内保存管理、再生確認は管理画面と再生画面で扱います。
           </p>
         </div>
       </CardContent>

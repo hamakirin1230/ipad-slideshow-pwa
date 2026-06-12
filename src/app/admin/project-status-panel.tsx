@@ -67,8 +67,8 @@ export function ProjectStatusPanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          第4-3-1では、Drive上の index.json.projects と project folder /
-          manifest.json / assets/、空の slides[] の整合を確認します。
+          Drive上の index.json.projects と project folder / manifest.json /
+          assets/ の整合を確認します。project ready 後に素材追加と offline sync へ進めます。
         </CardDescription>
       </CardHeader>
 
@@ -163,10 +163,10 @@ export function ProjectStatusPanel() {
         </div>
 
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-          <p className="font-semibold">第4-3-1でまだ扱わないこと</p>
+          <p className="font-semibold">project確認後の流れ</p>
           <p className="mt-2">
-            Photos権限要求、Google Photos Picker起動、素材保存、
-            manifest.json.slides への追加、オフライン再生はまだ行いません。
+            project が ready になったら、素材管理で Google Photos Picker から写真を追加し、
+            offline sync でこの端末の IndexedDB confirmed store に再生用コピーを作成します。
           </p>
         </div>
       </CardContent>

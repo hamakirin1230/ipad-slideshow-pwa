@@ -1,60 +1,56 @@
 # スライドショー
 
-iPadで安定して再生するためのスライドショーPWAです。
+iPadで安定して本番再生するためのスライドショーPWAです。
 
-このプロジェクトでは、PCでスライドショーを管理・編集し、iPadでは同期・検証・再生を行うことを目指します。
-最優先は、学校現場・イベント現場で本番中に止まらないことです。
+PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、iPad側ではDriveから取得した再生用コピーをIndexedDBに保存して、offline-firstで再生します。最優先は、学校現場・イベント現場で本番中に止まらないことです。
 
 ## 現在の到達点
 
-現在は第4-1まで完了しています。
+現在はVercel productionでの運用を前提に、Drive連携からoffline playbackまでの主要な縦線が通っています。
 
-* Google Driveワークスペースを作成できる
-* 作成済みワークスペースを再確認し、`ready` と判定できる
-* `/settings`、`/admin`、`/player` でDrive状態を共有表示できる
-* GitHub Pages公開版とiPadホーム画面PWAで基本確認済み
+完了済み:
 
-詳細な完了確認は以下を参照してください。
-
-* `docs/verification/goal-04-1-drive-create-completion.md`
-
-## 現在使える画面
-
-* `/` トップ画面
-* `/settings` 設定画面
-* `/admin` 管理画面
-* `/player` 再生画面
-
-## 次の作業候補
-
-次の作業候補は、第4-2: プロジェクト作成設計です。
-
-Driveワークスペースが `ready` になった後、プロジェクト一覧である `index.json` と、将来の `projects/{projectId}/manifest.json` をどう扱うかを設計します。
-
-## 今後の主な未実装
-
-* プロジェクト作成
-* スライド・素材情報の保存
-* Google Photos Picker連携
-* IndexedDB同期
-* オフライン本番再生
-* Driveワークスペースの自動修復
-
-## 使用技術
-
-* Next.js
-* TypeScript
-* Tailwind CSS
-* shadcn/ui
-* npm
-* GitHub
-* GitHub Pages
-* Google OAuth
-* Google Drive API
+- Vercel productionで公開中
+- Google OAuth / `drive.file` scope接続
+- Google Drive workspace / project作成と再確認
+- Google Photos Pickerから素材追加
+- Drive assets保存、`manifest.json` / `index.json`反映
+- Drive snapshot取得、IndexedDB staging write、confirmed store promotion
+- `/player/` でIndexedDB confirmed Blobからoffline-first再生
+- next / previous / 自動送り / swipe操作
+- Service Workerによるapp shell cache
+- iPad実機PWA offline shell / player recovery確認
+- `/admin/` でproject単位ローカル削除、保存容量、browser storage estimate、app shell cache状態確認
+- `/player/` のiPad横向き再生UI polish
+- 複数project playback準備、project selector、`/player/?projectId=...`
 
 ## 公開URL
 
-https://hamakirin1230.github.io/ipad-slideshow-pwa/
+```text
+https://ipad-slideshow-pwa.vercel.app/
+```
+
+現在の本番運用対象はVercel productionです。GitHub Pages前提の`basePath: "/ipad-slideshow-pwa"`は初期段階の履歴として残っていますが、現在のmanifest / icon / Service Workerはroot path前提です。
+
+## 現在使える画面
+
+- `/` トップ画面
+- `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
+- `/admin` Drive project、Photos Picker、offline sync、confirmed store、storage管理
+- `/player` iPad offline-first再生、project selector
+- `/auth-test` OAuth単体確認用の開発ページ
+
+## 重要な運用方針
+
+- iPadホーム画面PWAで安定して動くことを優先する
+- access tokenは保存しない、表示しない、console出力しない
+- access tokenはProvider内部のメモリ上にだけ保持する
+- Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`
+- Client SecretとAPIキーは作らない、使わない
+- Drive上のworkspace / project / manifest / assetsをsource of truthにする
+- IndexedDBはiPad端末内のoffline playback用コピーとして扱う
+- Cache StorageはService Workerのapp shell cacheとして扱う
+- iPad側のローカル削除ではGoogle Drive上のデータを削除しない
 
 ## ローカル起動
 
@@ -65,24 +61,28 @@ npm run dev
 ローカル確認URL:
 
 ```text
-http://localhost:3000/ipad-slideshow-pwa/
+http://localhost:3000/
 ```
 
 ## ビルド確認
 
 ```bash
+npm run lint
 npm run build
 ```
 
-## ドキュメント
+`next/font` がGoogle Fontsをビルド時に取得するため、ネットワーク制限下では`npm run build`がFonts取得で失敗することがあります。
 
-* `docs/requirements.md`
-* `docs/roadmap.md`
-* `docs/setup-windows.md`
-* `docs/decisions.md`
-* `docs/architecture.md`
-* `docs/data-flow.md`
-* `docs/risk-register.md`
-* `docs/decisions/goal-04-drive-workspace.md`
-* `docs/decisions/goal-04-drive-workspace-create.md`
-* `docs/verification/goal-04-1-drive-create-completion.md`
+## 次の作業候補
+
+- Vercel productionで複数projectをoffline syncし、`/player/`のproject selectorを実データで確認する
+- README以外の古い設計docsを、現行方針と履歴に分けて整理する
+- 本番モード、操作ロック、動画再生、テロップ、公開履歴、ロールバックを順番に追加する
+
+## 最新ハンドオフ
+
+- `docs/handoffs/2026-06-12-multi-project-playback-preparation-handoff.md`
+- `docs/handoffs/2026-06-12-advanced-offline-storage-controls-handoff.md`
+- `docs/handoffs/2026-06-10-offline-storage-management-ui-handoff.md`
+- `docs/handoffs/2026-06-10-ipad-pwa-offline-shell-verification-handoff.md`
+- `docs/handoffs/2026-06-10-pwa-offline-shell-local-recovery-handoff.md`

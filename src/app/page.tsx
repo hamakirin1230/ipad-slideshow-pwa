@@ -45,6 +45,9 @@ const completedItems = [
   "Service Worker による app shell cache 追加済み",
   "project 単位のローカル保存削除を追加済み",
   "iPad 実機 PWA offline shell / player recovery 確認済み",
+  "iPad横向き再生UI polish 済み",
+  "browser storage estimate / app shell cache 管理UI 追加済み",
+  "multi-project playback selector 準備済み",
 ];
 
 const storageItems = [
@@ -70,19 +73,19 @@ const storageItems = [
 
 const nextStepItems = [
   {
-    title: "iPad再生UX polish",
+    title: "multi-project 実機確認",
     description:
-      "横向き表示、操作ボタンの自動フェード、全画面寄せ、safe area 対応を整えます。",
+      "Vercel productionで複数projectをoffline syncし、player selectorをiPad PWAで確認します。",
   },
   {
-    title: "offline storage 管理UI",
+    title: "本番モード",
     description:
-      "projectごとの保存容量、Blob合計サイズ、cache clear、last synced 表示を追加します。",
+      "本番中の誤操作を防ぐため、操作ロック、解除導線、表示制限を設計します。",
   },
   {
-    title: "multi-project playback",
+    title: "再生機能拡張",
     description:
-      "複数projectを正式に扱うため、player側にproject選択導線を追加します。",
+      "動画再生、テロップ、公開履歴、ロールバックを順番に追加します。",
   },
 ];
 
@@ -180,7 +183,7 @@ export default function Home() {
             <CardHeader>
               <CardTitle>次の開発候補</CardTitle>
               <CardDescription className="text-slate-300">
-                iPad実機でのoffline shell確認後は、再生体験と保存管理を磨く段階です。
+                offline再生の縦線が通った後は、実機確認と本番運用機能を進めます。
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm text-slate-300 md:grid-cols-3">

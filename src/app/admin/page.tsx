@@ -13,13 +13,13 @@ export default function AdminPage() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Badge variant="secondary">第4-6 offline sync UI接続</Badge>
+            <Badge variant="secondary">Drive / offline sync / storage</Badge>
             <h1 className="mt-3 text-3xl font-bold">管理画面</h1>
             <p className="mt-2 max-w-2xl text-slate-300">
               DriveワークスペースとDrive projectを確認し、Drive上のmanifestと素材を
               IndexedDB offline store へ同期する管理導線です。
-              このスライスでは同期実行、confirmed store 確認、診断表示までを扱い、
-              再生UIへの接続はまだ行いません。
+              同期実行、confirmed store 確認、端末ストレージ管理、project単位のローカル削除、
+              再生画面へのproject指定導線を扱います。
             </p>
           </div>
           <Button asChild variant="secondary">
