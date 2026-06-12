@@ -27,6 +27,9 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/player/` 本番モード、操作ロック、lock中の左右swipe navigation、2秒長押しロック解除
 - `/player/` captionテロップoverlay、`/admin/` slide別テロップ編集
 - Google Photos Pickerから複数写真を順次Drive保存し、成功分をbatchでmanifest反映
+- `/player/` 自動送り間隔選択、なし/5秒/10秒/15秒/20秒/30秒/1分、localStorage保存
+- `/player/` slide transition animation、next / previous / swipe / 自動送りでfade + slight horizontal slide
+- `/admin/` slide順の上へ/下へ変更、`manifest.json.slides[]` 配列順をsource of truthとして保存
 
 ## 公開URL
 
@@ -40,8 +43,8 @@ https://ipad-slideshow-pwa.vercel.app/
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、Photos Picker batch素材追加、テロップ編集、offline sync、confirmed store、storage管理
-- `/player` iPad offline-first再生、project selector、本番モード、操作ロック、テロップ表示
+- `/admin` Drive project、Photos Picker batch素材追加、画像順変更、テロップ編集、offline sync、confirmed store、storage管理
+- `/player` iPad offline-first再生、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
 - `/auth-test` OAuth単体確認用の開発ページ
 
 ## 重要な運用方針
@@ -52,9 +55,11 @@ https://ipad-slideshow-pwa.vercel.app/
 - Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`
 - Client SecretとAPIキーは作らない、使わない
 - Drive上のworkspace / project / manifest / assetsをsource of truthにする
+- slide再生順はDrive `manifest.json.slides[]` の配列順をsource of truthにする
 - IndexedDBはiPad端末内のoffline playback用コピーとして扱う
 - Cache StorageはService Workerのapp shell cacheとして扱う
 - iPad側のローカル削除ではGoogle Drive上のデータを削除しない
+- Drive上の画像順・caption変更をiPad再生へ反映するには、対象projectのoffline syncを実行する
 
 ## ローカル起動
 
@@ -84,6 +89,7 @@ npm run build
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-06-12-player-auto-advance-transition-and-slide-reorder-handoff.md`
 - `docs/handoffs/2026-06-12-caption-telop-and-batch-asset-import-handoff.md`
 - `docs/handoffs/2026-06-12-production-mode-and-operation-lock-handoff.md`
 - `docs/handoffs/2026-06-12-multi-project-playback-preparation-handoff.md`

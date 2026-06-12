@@ -69,6 +69,9 @@ confirmed store promotion
 /player production mode
 /player operation lock
 /player caption telop overlay
+/player auto advance interval selector
+/player slide transition animation
+/admin slide reorder controls
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
 ```
@@ -148,6 +151,8 @@ ipad-slideshow-pwa-app-shell-v1
 - offline sync resultはlightweight summaryだけUIへ返す
 - confirmed store inspectionでもBlob本体は画面表示しない
 - `/player/` はconfirmed storeからoffline-firstで読む
+- `/player/` はconfirmed store内のslide順をそのまま再生順として使う
+- Drive上の画像順の正は`manifest.json.slides[]`の配列順
 - project単位ローカル削除ではDrive上のデータを削除しない
 - app shell cache削除ではIndexedDBのproject / asset / Blobを削除しない
 
@@ -216,6 +221,27 @@ Drive保存成功分が1件以上あればmanifest.jsonへbatch append
 途中失敗時もDrive保存済みassetの自動削除・自動修復はしない
 ```
 
+## Player自動送り・transition・画像順変更
+
+2026-06-12時点で追加済み:
+
+```text
+/player/の自動送り間隔を端末ごとのlocalStorage設定として保存
+localStorage key: ipad-slideshow:player-auto-advance-interval-seconds
+選択肢は なし / 5秒 / 10秒 / 15秒 / 20秒 / 30秒 / 1分
+初期値は10秒
+なしはpauseではなくauto advance timerを張らない状態
+production mode / lock中も選択済みintervalで自動送り継続
+next / previous / swipe / 自動送りでfade + slight horizontal slide
+prefers-reduced-motionでは短いfadeに落とす
+/admin/の本編スライド順で上へ / 下へボタンによる画像順変更
+先頭の上へ、最後の下へ、1枚だけ、保存中、project未ready、offline sync中、素材追加中、caption保存中はreorder不可
+reorder保存先はDrive manifest.json.slides[]の配列順
+reorderではasset file / assetId / assetFileId / caption / durationSecondsを変更しない
+index.json.projects[].updatedAtも更新し、更新後にmanifest / indexを再読込して再検証
+画像順変更後、iPad再生に反映するには対象projectのoffline syncが必要
+```
+
 ## 直近の検証済み
 
 ローカルで確認済み:
@@ -235,6 +261,7 @@ Browser console errorなし
 ローカル環境にはconfirmed projectがないため、
 production mode ON/OFF、lock中swipe navigation、2秒長押しunlock、Project A / Project Bの実データ再生はVercel production / iPad PWA側で確認する。
 Photos Picker複数選択、caption保存、offline sync後のテロップ再生もVercel production / iPad PWA側で確認する。
+画像順変更、変更後offline sync、Playerでのnext / previous / swipe / 自動送り / transitionはVercel production / iPad PWA側でProject A / Project Bそれぞれ確認する。
 ```
 
 ## 次に自然な作業
@@ -252,6 +279,7 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 読む順:
 
 ```text
+docs/handoffs/2026-06-12-player-auto-advance-transition-and-slide-reorder-handoff.md
 docs/handoffs/2026-06-12-caption-telop-and-batch-asset-import-handoff.md
 docs/handoffs/2026-06-12-production-mode-and-operation-lock-handoff.md
 docs/handoffs/2026-06-12-multi-project-playback-preparation-handoff.md

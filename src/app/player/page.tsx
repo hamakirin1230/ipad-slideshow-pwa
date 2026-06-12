@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type MutableRefObject,
   type PointerEvent,
   type ReactNode,
 } from "react";
@@ -28,16 +29,43 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
-import { useOfflineCurrentSlideImage } from "./use-offline-current-slide-image";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
 const PLAYER_CONTROLS_HIDE_DELAY_MS = 4_000;
 const PLAYER_LOCK_HOLD_DURATION_MS = 2_000;
+const SLIDE_TRANSITION_DURATION_MS = 320;
 const PLAYER_PRESENTATION_MODE_STORAGE_KEY =
   "ipad-slideshow:player-presentation-mode";
+const PLAYER_AUTO_ADVANCE_INTERVAL_STORAGE_KEY =
+  "ipad-slideshow:player-auto-advance-interval-seconds";
 
 type PlayerPresentationMode = "normal" | "production";
 type PlayerInteractionLock = "unlocked" | "locked";
+type PlayerAutoAdvanceIntervalSeconds = null | 5 | 10 | 15 | 20 | 30 | 60;
+type SlideTransitionDirection = "next" | "previous" | "none";
+
+type PlayerSlideImage = {
+  objectUrl: string;
+  slideId: string;
+  assetId: string;
+  assetName: string;
+};
+
+type PlayerSlideImageStatus = "idle" | "ready" | "error";
+
+const playerAutoAdvanceIntervalOptions: Array<{
+  value: PlayerAutoAdvanceIntervalSeconds;
+  label: string;
+  storageValue: string;
+}> = [
+  { value: null, label: "なし", storageValue: "none" },
+  { value: 5, label: "5秒", storageValue: "5" },
+  { value: 10, label: "10秒", storageValue: "10" },
+  { value: 15, label: "15秒", storageValue: "15" },
+  { value: 20, label: "20秒", storageValue: "20" },
+  { value: 30, label: "30秒", storageValue: "30" },
+  { value: 60, label: "1分", storageValue: "60" },
+];
 
 type SwipeStart = {
   clientX: number;
@@ -66,12 +94,28 @@ export default function PlayerPage() {
   } = useOfflinePlaybackSnapshot();
 
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [loadedImageObjectUrl, setLoadedImageObjectUrl] = useState<string | null>(
+  const [displayedSlideImage, setDisplayedSlideImage] =
+    useState<PlayerSlideImage | null>(null);
+  const [previousSlideImage, setPreviousSlideImage] =
+    useState<PlayerSlideImage | null>(null);
+  const [imageStatus, setImageStatus] = useState<PlayerSlideImageStatus>(
+    "idle",
+  );
+  const [slideTransitionDirection, setSlideTransitionDirection] =
+    useState<SlideTransitionDirection>("none");
+  const [isSlideTransitioning, setIsSlideTransitioning] = useState(false);
+  const displayedSlideImageRef = useRef<PlayerSlideImage | null>(null);
+  const previousSlideImageRef = useRef<PlayerSlideImage | null>(null);
+  const slideTransitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [areControlsVisible, setAreControlsVisible] = useState(true);
   const [isPlaybackPaused, setIsPlaybackPaused] = useState(false);
+  const [autoAdvanceIntervalSeconds, setAutoAdvanceIntervalSeconds] =
+    useState<PlayerAutoAdvanceIntervalSeconds>(() =>
+      readStoredAutoAdvanceIntervalSeconds(),
+    );
   const [presentationMode, setPresentationMode] =
     useState<PlayerPresentationMode>(() => readStoredPresentationMode());
   const [interactionLock, setInteractionLock] =
@@ -101,12 +145,28 @@ export default function PlayerPage() {
 
   const moveToPreviousSlide = useCallback(() => {
     if (slideCount === 0) return;
-    setCurrentSlideIndex((current) => Math.max(0, current - 1));
+    setCurrentSlideIndex((current) => {
+      const next = Math.max(0, current - 1);
+
+      if (next !== current) {
+        setSlideTransitionDirection("previous");
+      }
+
+      return next;
+    });
   }, [slideCount]);
 
   const moveToNextSlide = useCallback(() => {
     if (slideCount === 0) return;
-    setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
+    setCurrentSlideIndex((current) => {
+      const next = Math.min(slideCount - 1, current + 1);
+
+      if (next !== current) {
+        setSlideTransitionDirection("next");
+      }
+
+      return next;
+    });
   }, [slideCount]);
 
   const goToPreviousSlide = useCallback(() => {
@@ -262,6 +322,10 @@ export default function PlayerPage() {
   }, [presentationMode]);
 
   useEffect(() => {
+    writeStoredAutoAdvanceIntervalSeconds(autoAdvanceIntervalSeconds);
+  }, [autoAdvanceIntervalSeconds]);
+
+  useEffect(() => {
     queueMicrotask(() => {
       setCurrentSlideIndex((current) => {
         if (slideCount === 0) {
@@ -287,22 +351,173 @@ export default function PlayerPage() {
   const canRenderCurrentSlide =
     readySnapshot !== null && slideCount > 0 && currentSlide !== null;
 
-  const { status: imageStatus, objectUrl } = useOfflineCurrentSlideImage({
-    canRender: canRenderCurrentSlide,
-    slide: currentSlide,
-  });
-
-  const isCurrentImageLoaded =
-    typeof objectUrl === "string" && loadedImageObjectUrl === objectUrl;
-
   const currentSlideDurationSeconds =
     currentSlide?.durationSeconds ?? DEFAULT_SLIDE_DURATION_SECONDS;
+  const effectiveAutoAdvanceIntervalSeconds =
+    autoAdvanceIntervalSeconds === null
+      ? null
+      : (autoAdvanceIntervalSeconds ?? currentSlideDurationSeconds);
+  const isCurrentImageLoaded =
+    imageStatus === "ready" &&
+    displayedSlideImage !== null &&
+    currentSlide !== null &&
+    displayedSlideImage.slideId === currentSlide.slideId &&
+    displayedSlideImage.assetId === currentSlide.assetId;
+  const currentSlideBlob = canRenderCurrentSlide ? (currentSlide?.blob ?? null) : null;
+  const currentSlideImageSlideId =
+    canRenderCurrentSlide ? (currentSlide?.slideId ?? null) : null;
+  const currentSlideImageAssetId =
+    canRenderCurrentSlide ? (currentSlide?.assetId ?? null) : null;
+  const currentSlideImageAssetName =
+    canRenderCurrentSlide ? (currentSlide?.assetName ?? null) : null;
 
   useEffect(() => {
     if (
+      !currentSlideBlob ||
+      !currentSlideImageSlideId ||
+      !currentSlideImageAssetId
+    ) {
+      queueMicrotask(() => {
+        setImageStatus("idle");
+        clearSlideTransitionTimeout(slideTransitionTimeoutRef);
+        revokeSlideImage(previousSlideImageRef.current);
+        revokeSlideImage(displayedSlideImageRef.current);
+        previousSlideImageRef.current = null;
+        displayedSlideImageRef.current = null;
+        setPreviousSlideImage(null);
+        setDisplayedSlideImage(null);
+        setIsSlideTransitioning(false);
+        setSlideTransitionDirection("none");
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let adopted = false;
+    let nextObjectUrl: string | null = null;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setImageStatus("idle");
+      }
+    });
+
+    try {
+      nextObjectUrl = URL.createObjectURL(currentSlideBlob);
+    } catch {
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setImageStatus("error");
+        }
+      });
+      return;
+    }
+
+    const nextImage: PlayerSlideImage = {
+      objectUrl: nextObjectUrl,
+      slideId: currentSlideImageSlideId,
+      assetId: currentSlideImageAssetId,
+      assetName: currentSlideImageAssetName ?? "現在のスライド画像",
+    };
+    const preloadImage = new Image();
+
+    preloadImage.onload = () => {
+      if (cancelled) {
+        revokeSlideImage(nextImage);
+        return;
+      }
+
+      const currentDisplayed = displayedSlideImageRef.current;
+
+      if (
+        currentDisplayed &&
+        currentDisplayed.slideId === nextImage.slideId &&
+        currentDisplayed.assetId === nextImage.assetId
+      ) {
+        revokeSlideImage(nextImage);
+        setImageStatus("ready");
+        return;
+      }
+
+      adopted = true;
+      clearSlideTransitionTimeout(slideTransitionTimeoutRef);
+
+      if (currentDisplayed) {
+        const stalePrevious = previousSlideImageRef.current;
+
+        if (
+          stalePrevious &&
+          stalePrevious.objectUrl !== currentDisplayed.objectUrl
+        ) {
+          revokeSlideImage(stalePrevious);
+        }
+
+        previousSlideImageRef.current = currentDisplayed;
+        setPreviousSlideImage(currentDisplayed);
+        setIsSlideTransitioning(true);
+        slideTransitionTimeoutRef.current = setTimeout(() => {
+          const imageToRevoke = previousSlideImageRef.current;
+
+          slideTransitionTimeoutRef.current = null;
+          previousSlideImageRef.current = null;
+          setPreviousSlideImage(null);
+          setIsSlideTransitioning(false);
+          setSlideTransitionDirection("none");
+          revokeSlideImage(imageToRevoke);
+        }, SLIDE_TRANSITION_DURATION_MS);
+      } else {
+        previousSlideImageRef.current = null;
+        setPreviousSlideImage(null);
+        setIsSlideTransitioning(false);
+        setSlideTransitionDirection("none");
+      }
+
+      displayedSlideImageRef.current = nextImage;
+      setDisplayedSlideImage(nextImage);
+      setImageStatus("ready");
+    };
+
+    preloadImage.onerror = () => {
+      if (cancelled) {
+        revokeSlideImage(nextImage);
+        return;
+      }
+
+      setImageStatus("error");
+      revokeSlideImage(nextImage);
+    };
+
+    preloadImage.src = nextObjectUrl;
+
+    return () => {
+      cancelled = true;
+
+      if (!adopted) {
+        revokeSlideImage(nextImage);
+      }
+    };
+  }, [
+    currentSlideBlob,
+    currentSlideImageAssetId,
+    currentSlideImageAssetName,
+    currentSlideImageSlideId,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      clearSlideTransitionTimeout(slideTransitionTimeoutRef);
+      revokeSlideImage(previousSlideImageRef.current);
+      revokeSlideImage(displayedSlideImageRef.current);
+      previousSlideImageRef.current = null;
+      displayedSlideImageRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      effectiveAutoAdvanceIntervalSeconds === null ||
       isPlaybackPaused ||
       imageStatus !== "ready" ||
-      !objectUrl ||
       !isCurrentImageLoaded ||
       slideCount === 0 ||
       safeCurrentSlideIndex >= slideCount - 1
@@ -312,17 +527,16 @@ export default function PlayerPage() {
 
     const timeoutId = setTimeout(() => {
       moveToNextSlide();
-    }, currentSlideDurationSeconds * 1000);
+    }, effectiveAutoAdvanceIntervalSeconds * 1000);
 
     return () => clearTimeout(timeoutId);
   }, [
+    effectiveAutoAdvanceIntervalSeconds,
     isPlaybackPaused,
     imageStatus,
-    objectUrl,
     isCurrentImageLoaded,
     slideCount,
     safeCurrentSlideIndex,
-    currentSlideDurationSeconds,
     moveToNextSlide,
   ]);
 
@@ -443,6 +657,10 @@ export default function PlayerPage() {
     const onlineStatusLabel =
       isOnline === null ? "確認中" : isOnline ? "オンライン" : "オフライン";
     const OnlineStatusIcon = isOnline === false ? WifiOff : Wifi;
+    const autoAdvanceStorageValue = toAutoAdvanceIntervalStorageValue(
+      autoAdvanceIntervalSeconds,
+    );
+    const isAutoAdvanceDisabled = autoAdvanceIntervalSeconds === null;
 
     return (
       <main className="relative h-[100svh] min-h-[100svh] overflow-hidden bg-black text-slate-50">
@@ -483,15 +701,15 @@ export default function PlayerPage() {
             </div>
           ) : null}
 
-          {imageStatus === "ready" && objectUrl ? (
+          {previousSlideImage ? (
             <img
-              key={objectUrl}
-              src={objectUrl}
-              alt={currentSlide.assetName ?? "現在のスライド画像"}
+              key={`previous-${previousSlideImage.objectUrl}`}
+              src={previousSlideImage.objectUrl}
+              alt=""
+              aria-hidden="true"
               draggable={false}
               onDragStart={(event) => event.preventDefault()}
-              onLoad={() => setLoadedImageObjectUrl(objectUrl)}
-              className="h-full w-full object-contain"
+              className="absolute inset-0 h-full w-full animate-[playerPreviousFadeOut_320ms_ease-out_forwards] object-contain motion-reduce:animate-[playerPreviousFadeOut_60ms_ease-out_forwards]"
               style={{
                 userSelect: "none",
                 WebkitUserSelect: "none",
@@ -499,7 +717,26 @@ export default function PlayerPage() {
             />
           ) : null}
 
-          {imageStatus === "idle" ? (
+          {displayedSlideImage ? (
+            <img
+              key={`displayed-${displayedSlideImage.objectUrl}`}
+              src={displayedSlideImage.objectUrl}
+              alt={displayedSlideImage.assetName}
+              draggable={false}
+              onDragStart={(event) => event.preventDefault()}
+              className={`absolute inset-0 h-full w-full object-contain ${
+                isSlideTransitioning
+                  ? getSlideTransitionClassName(slideTransitionDirection)
+                  : ""
+              }`}
+              style={{
+                userSelect: "none",
+                WebkitUserSelect: "none",
+              }}
+            />
+          ) : null}
+
+          {imageStatus === "idle" && !displayedSlideImage ? (
             <p className="rounded-full bg-white/10 px-4 py-2 text-sm text-slate-300">
               ローカル保存されたスライド画像を準備しています
             </p>
@@ -535,6 +772,33 @@ export default function PlayerPage() {
                 <span className="hidden max-w-[42vw] truncate rounded-full border border-white/15 bg-black/30 px-2 py-0.5 sm:inline">
                   synced {readySnapshot.syncedAt}
                 </span>
+                <label className="flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-2 py-0.5">
+                  <span>自動送り</span>
+                  <select
+                    value={autoAdvanceStorageValue}
+                    onChange={(event) => {
+                      const nextValue = parseAutoAdvanceIntervalStorageValue(
+                        event.target.value,
+                      );
+                      setAutoAdvanceIntervalSeconds(nextValue);
+
+                      if (nextValue === null) {
+                        setIsPlaybackPaused(false);
+                      }
+                    }}
+                    className="rounded-full border border-white/15 bg-black/40 px-2 py-0.5 text-xs text-slate-50 outline-none"
+                  >
+                    {playerAutoAdvanceIntervalOptions.map((option) => (
+                      <option
+                        key={option.storageValue}
+                        value={option.storageValue}
+                        className="bg-slate-950 text-slate-50"
+                      >
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
             </div>
 
@@ -572,8 +836,21 @@ export default function PlayerPage() {
                 variant="secondary"
                 size="icon"
                 className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
-                aria-label={isPlaybackPaused ? "自動送りを再開" : "自動送りを一時停止"}
-                title={isPlaybackPaused ? "自動送りを再開" : "自動送りを一時停止"}
+                aria-label={
+                  isAutoAdvanceDisabled
+                    ? "自動送りなし"
+                    : isPlaybackPaused
+                      ? "自動送りを再開"
+                      : "自動送りを一時停止"
+                }
+                title={
+                  isAutoAdvanceDisabled
+                    ? "自動送りなし"
+                    : isPlaybackPaused
+                      ? "自動送りを再開"
+                      : "自動送りを一時停止"
+                }
+                disabled={isAutoAdvanceDisabled}
                 onClick={() => {
                   revealControls();
                   setIsPlaybackPaused((current) => !current);
@@ -1195,6 +1472,99 @@ function formatIdPart(id: string | undefined) {
   }
 
   return `${id.slice(0, 8)}...`;
+}
+
+function getSlideTransitionClassName(direction: SlideTransitionDirection) {
+  switch (direction) {
+    case "next":
+      return "animate-[playerSlideInNext_320ms_ease-out_forwards] motion-reduce:animate-[playerSlideInReduced_60ms_ease-out_forwards]";
+    case "previous":
+      return "animate-[playerSlideInPrevious_320ms_ease-out_forwards] motion-reduce:animate-[playerSlideInReduced_60ms_ease-out_forwards]";
+    case "none":
+      return "animate-[playerSlideInReduced_60ms_ease-out_forwards]";
+    default:
+      return "animate-[playerSlideInReduced_60ms_ease-out_forwards]";
+  }
+}
+
+function revokeSlideImage(image: PlayerSlideImage | null) {
+  if (!image) {
+    return;
+  }
+
+  URL.revokeObjectURL(image.objectUrl);
+}
+
+function clearSlideTransitionTimeout(
+  timeoutRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
+) {
+  if (!timeoutRef.current) {
+    return;
+  }
+
+  clearTimeout(timeoutRef.current);
+  timeoutRef.current = null;
+}
+
+function readStoredAutoAdvanceIntervalSeconds(): PlayerAutoAdvanceIntervalSeconds {
+  if (typeof window === "undefined") {
+    return 10;
+  }
+
+  try {
+    return parseAutoAdvanceIntervalStorageValue(
+      window.localStorage.getItem(PLAYER_AUTO_ADVANCE_INTERVAL_STORAGE_KEY),
+    );
+  } catch {
+    return 10;
+  }
+}
+
+function writeStoredAutoAdvanceIntervalSeconds(
+  value: PlayerAutoAdvanceIntervalSeconds,
+) {
+  try {
+    window.localStorage.setItem(
+      PLAYER_AUTO_ADVANCE_INTERVAL_STORAGE_KEY,
+      toAutoAdvanceIntervalStorageValue(value),
+    );
+  } catch {
+    // Persisting player auto advance interval is best-effort only.
+  }
+}
+
+function parseAutoAdvanceIntervalStorageValue(
+  value: string | null,
+): PlayerAutoAdvanceIntervalSeconds {
+  switch (value) {
+    case "none":
+      return null;
+    case "5":
+      return 5;
+    case "10":
+    case null:
+    case "":
+      return 10;
+    case "15":
+      return 15;
+    case "20":
+      return 20;
+    case "30":
+      return 30;
+    case "60":
+      return 60;
+    default:
+      return 10;
+  }
+}
+
+function toAutoAdvanceIntervalStorageValue(
+  value: PlayerAutoAdvanceIntervalSeconds,
+) {
+  return (
+    playerAutoAdvanceIntervalOptions.find((option) => option.value === value)
+      ?.storageValue ?? "10"
+  );
 }
 
 function readStoredPresentationMode(): PlayerPresentationMode {

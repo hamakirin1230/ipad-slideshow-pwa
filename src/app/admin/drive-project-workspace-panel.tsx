@@ -23,9 +23,14 @@ export function DriveProjectWorkspacePanel() {
     projectDetails,
     fetchProjectSlidePreviewBlob,
     updateProjectSlideCaption,
+    moveProjectSlide,
     captionUpdateSlideId,
     captionUpdateMessage,
     captionUpdateDiagnostics,
+    slideReorderMessage,
+    slideReorderDiagnostics,
+    isSlideReorderInFlight,
+    slideReorderBlockedReason,
   } = useAppState();
 
   const readyProjectDetails = projectStatus === "ready" ? projectDetails : null;
@@ -154,23 +159,36 @@ export function DriveProjectWorkspacePanel() {
           <CardHeader>
             <CardTitle>本編スライド順</CardTitle>
             <CardDescription>
-              slide.caption をテロップとして編集します。反映にはoffline syncが必要です。
+              画像の順番とテロップを編集します。反映にはoffline syncが必要です。
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <p className="font-semibold text-slate-900">画像の順番</p>
+              <p className="mt-1">
+                この順番が /player の再生順になります。変更後、iPad再生に反映するには
+                offline sync を実行してください。
+              </p>
+              {slideReorderBlockedReason ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  現在の状態: {slideReorderBlockedReason}
+                </p>
+              ) : null}
+            </div>
             {slides.length > 0 ? (
               <div className="overflow-hidden rounded-xl border border-slate-200">
-                <div className="grid gap-3 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid-cols-[4rem_8rem_minmax(0,1fr)_minmax(14rem,1.4fr)]">
+                <div className="grid gap-3 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid-cols-[4rem_8rem_minmax(0,1fr)_9rem_minmax(14rem,1.4fr)]">
                   <p>順番</p>
                   <p>プレビュー</p>
                   <p>asset</p>
+                  <p>並び替え</p>
                   <p>テロップ</p>
                 </div>
                 <div className="divide-y divide-slate-200">
                   {slides.map((slide, index) => (
                     <div
                       key={`${slide.slideIdPart}-${slide.assetIdPart}`}
-                      className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[4rem_8rem_minmax(0,1fr)_minmax(14rem,1.4fr)]"
+                      className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[4rem_8rem_minmax(0,1fr)_9rem_minmax(14rem,1.4fr)]"
                     >
                       <p className="font-medium">{index + 1}</p>
                       <DriveSlidePreview
@@ -190,11 +208,22 @@ export function DriveProjectWorkspacePanel() {
                           {slide.mimeType}
                         </p>
                       </div>
+                      <SlideReorderControls
+                        slideId={slide.slideId}
+                        isFirst={index === 0}
+                        isLast={index === slides.length - 1}
+                        isDisabled={
+                          isSlideReorderInFlight ||
+                          slideReorderBlockedReason !== null
+                        }
+                        onMove={moveProjectSlide}
+                      />
                       <SlideCaptionEditor
                         key={`${slide.slideId}:${slide.caption}`}
                         slideId={slide.slideId}
                         caption={slide.caption}
                         isSaving={captionUpdateSlideId === slide.slideId}
+                        isDisabled={isSlideReorderInFlight}
                         onSave={updateProjectSlideCaption}
                       />
                     </div>
@@ -213,8 +242,20 @@ export function DriveProjectWorkspacePanel() {
               </div>
             )}
             <p className="mt-3 text-xs leading-5 text-slate-500">
-              テロップ変更をiPad再生に反映するには、このprojectをoffline syncしてください。
+              画像順とテロップ変更をiPad再生に反映するには、このprojectをoffline syncしてください。
             </p>
+            {slideReorderMessage ? (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">{slideReorderMessage}</p>
+                {slideReorderDiagnostics.length > 0 ? (
+                  <div className="mt-2 space-y-1 text-xs">
+                    {slideReorderDiagnostics.map((diagnostic, index) => (
+                      <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {captionUpdateMessage ? (
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                 <p className="font-medium text-slate-900">{captionUpdateMessage}</p>
@@ -238,11 +279,13 @@ function SlideCaptionEditor({
   slideId,
   caption,
   isSaving,
+  isDisabled,
   onSave,
 }: {
   slideId: string;
   caption: string;
   isSaving: boolean;
+  isDisabled: boolean;
   onSave: (slideId: string, caption: string) => void;
 }) {
   const [draftCaption, setDraftCaption] = useState(caption);
@@ -276,12 +319,49 @@ function SlideCaptionEditor({
           type="button"
           size="sm"
           variant={hasUnsavedChange ? "default" : "secondary"}
-          disabled={!hasUnsavedChange || isSaving || isTooLong}
+          disabled={!hasUnsavedChange || isSaving || isDisabled || isTooLong}
           onClick={() => onSave(slideId, normalizedDraftCaption)}
         >
           {isSaving ? "保存中" : "保存"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function SlideReorderControls({
+  slideId,
+  isFirst,
+  isLast,
+  isDisabled,
+  onMove,
+}: {
+  slideId: string;
+  isFirst: boolean;
+  isLast: boolean;
+  isDisabled: boolean;
+  onMove: (slideId: string, direction: "up" | "down") => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        disabled={isDisabled || isFirst}
+        onClick={() => onMove(slideId, "up")}
+      >
+        ↑ 上へ
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        disabled={isDisabled || isLast}
+        onClick={() => onMove(slideId, "down")}
+      >
+        ↓ 下へ
+      </Button>
     </div>
   );
 }
