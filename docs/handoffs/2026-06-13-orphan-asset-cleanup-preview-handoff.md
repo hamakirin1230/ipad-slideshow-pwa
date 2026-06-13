@@ -9,6 +9,7 @@ Date: 2026-06-13
 - cleanup対象候補は、`appProperties.app === "ipad-slideshow-pwa"`、`role === "asset"`、workspaceId/projectId一致、画像MIME type一致を満たすapp-managed asset fileだけに限定した。
 - app-managed assetと確認できないfileは削除候補にせず、ignored countとdiagnosticsで表示する。
 - Drive file数がscan上限を超える場合はpreviewを中断し、中途半端な候補を完全結果として表示しない。
+- cleanup preview tableを横スクロール前提のmetadata table表示に修正し、assetNameやheaderが狭い画面で縦書き状に崩れないようにした。
 
 ## 触った主なファイル
 

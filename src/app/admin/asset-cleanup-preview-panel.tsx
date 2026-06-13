@@ -131,16 +131,32 @@ export function AssetCleanupPreviewPanel() {
                         >
                           {asset.assetName}
                         </p>
-                        <p className="whitespace-nowrap">{asset.assetFileIdPart}</p>
-                        <p className="whitespace-nowrap">{asset.assetIdPart}</p>
+                        <p
+                          className="truncate font-mono text-xs"
+                          title={asset.assetFileIdPart}
+                        >
+                          {asset.assetFileIdPart}
+                        </p>
+                        <p
+                          className="truncate font-mono text-xs"
+                          title={asset.assetIdPart}
+                        >
+                          {asset.assetIdPart}
+                        </p>
                         <p className="whitespace-nowrap">{asset.mimeType}</p>
                         <p className="whitespace-nowrap">
                           {formatNullableBytes(asset.sizeBytes)}
                         </p>
-                        <p className="whitespace-nowrap">
+                        <p
+                          className="truncate font-mono text-xs"
+                          title={formatOptionalValue(asset.createdTime)}
+                        >
                           {formatOptionalValue(asset.createdTime)}
                         </p>
-                        <p className="whitespace-nowrap">
+                        <p
+                          className="truncate font-mono text-xs"
+                          title={formatOptionalValue(asset.modifiedTime)}
+                        >
                           {formatOptionalValue(asset.modifiedTime)}
                         </p>
                         <p className="whitespace-nowrap">
