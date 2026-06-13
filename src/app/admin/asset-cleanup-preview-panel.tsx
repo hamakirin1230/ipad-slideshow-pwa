@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +11,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAppState, type AssetCleanupPreviewStatus } from "@/app/app-providers";
+
+const unusedAssetTableGridStyle: CSSProperties = {
+  gridTemplateColumns: "22rem 10rem 10rem 10rem 8rem 14rem 14rem 8rem",
+};
 
 export function AssetCleanupPreviewPanel() {
   const {
@@ -98,35 +103,52 @@ export function AssetCleanupPreviewPanel() {
             </div>
 
             {assetCleanupPreviewResult.unusedAssets.length > 0 ? (
-              <div className="overflow-hidden rounded-xl border border-slate-200">
-                <div className="grid gap-3 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-500 lg:grid-cols-[minmax(0,1.4fr)_8rem_8rem_8rem_7rem_12rem_12rem_8rem]">
-                  <p>assetName</p>
-                  <p>assetFileId</p>
-                  <p>assetId</p>
-                  <p>mimeType</p>
-                  <p>size</p>
-                  <p>createdTime</p>
-                  <p>modifiedTime</p>
-                  <p>references</p>
-                </div>
-                <div className="divide-y divide-slate-200">
-                  {assetCleanupPreviewResult.unusedAssets.map((asset) => (
-                    <div
-                      key={asset.assetFileId}
-                      className="grid gap-3 bg-white px-4 py-3 text-sm lg:grid-cols-[minmax(0,1.4fr)_8rem_8rem_8rem_7rem_12rem_12rem_8rem]"
-                    >
-                      <p className="break-all font-medium text-slate-900">
-                        {asset.assetName}
-                      </p>
-                      <p>{asset.assetFileIdPart}</p>
-                      <p>{asset.assetIdPart}</p>
-                      <p>{asset.mimeType}</p>
-                      <p>{formatNullableBytes(asset.sizeBytes)}</p>
-                      <p>{formatOptionalValue(asset.createdTime)}</p>
-                      <p>{formatOptionalValue(asset.modifiedTime)}</p>
-                      <p>{asset.referenceSlideCount}</p>
-                    </div>
-                  ))}
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <div className="min-w-[96rem]">
+                  <div
+                    className="grid gap-4 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-500"
+                    style={unusedAssetTableGridStyle}
+                  >
+                    <p className="whitespace-nowrap">assetName</p>
+                    <p className="whitespace-nowrap">assetFileId</p>
+                    <p className="whitespace-nowrap">assetId</p>
+                    <p className="whitespace-nowrap">mimeType</p>
+                    <p className="whitespace-nowrap">size</p>
+                    <p className="whitespace-nowrap">createdTime</p>
+                    <p className="whitespace-nowrap">modifiedTime</p>
+                    <p className="whitespace-nowrap">references</p>
+                  </div>
+                  <div className="divide-y divide-slate-200">
+                    {assetCleanupPreviewResult.unusedAssets.map((asset) => (
+                      <div
+                        key={asset.assetFileId}
+                        className="grid gap-4 bg-white px-4 py-3 text-sm"
+                        style={unusedAssetTableGridStyle}
+                      >
+                        <p
+                          className="truncate font-medium text-slate-900"
+                          title={asset.assetName}
+                        >
+                          {asset.assetName}
+                        </p>
+                        <p className="whitespace-nowrap">{asset.assetFileIdPart}</p>
+                        <p className="whitespace-nowrap">{asset.assetIdPart}</p>
+                        <p className="whitespace-nowrap">{asset.mimeType}</p>
+                        <p className="whitespace-nowrap">
+                          {formatNullableBytes(asset.sizeBytes)}
+                        </p>
+                        <p className="whitespace-nowrap">
+                          {formatOptionalValue(asset.createdTime)}
+                        </p>
+                        <p className="whitespace-nowrap">
+                          {formatOptionalValue(asset.modifiedTime)}
+                        </p>
+                        <p className="whitespace-nowrap">
+                          {asset.referenceSlideCount}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             ) : (
