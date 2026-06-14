@@ -165,7 +165,10 @@ ipad-slideshow-pwa-app-shell-v1
 - orphan asset cleanup previewでは`manifest.json` / `index.json` / `assets/`配下のfileを更新しない
 - unused asset delete readiness UIは追加済みだが、checkbox選択はUI local stateのみで永続化しない
 - disabledの削除buttonは将来導線の予告であり、Drive fileは削除しない
-- Drive file物理削除には次フェーズで削除直前再検証とconfirmが必要
+- unused asset cleanupはpreview + delete-readiness + preflight/confirm UIまで実装済み
+- preflightはfresh manifest再読込、参照数再計算、Drive metadata再取得を行う
+- confirm UIは表示のみで、delete executionはdisabled
+- Drive file物理削除はまだ未実装で、次フェーズで初めてDrive delete APIとpartial failure handlingを検討する
 - cleanup previewの診断にもaccess token、Authorization header、Drive download URL、raw API URLを含めない
 - Player反映は従来どおりoffline sync経由で、cleanup preview自体はPlayer snapshotやIndexedDBを変更しない
 - project単位ローカル削除ではDrive上のデータを削除しない

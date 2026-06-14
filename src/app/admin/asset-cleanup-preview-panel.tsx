@@ -11,6 +11,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAppState, type AssetCleanupPreviewStatus } from "@/app/app-providers";
+import type {
+  DriveProjectUnusedAssetDeletePreflightAsset,
+  DriveProjectUnusedAssetDeletePreflightResult,
+} from "@/lib/google-drive";
 
 const unusedAssetTableGridStyle: CSSProperties = {
   gridTemplateColumns: "4rem 22rem 10rem 10rem 10rem 8rem 14rem 14rem 8rem",
@@ -34,7 +38,14 @@ export function AssetCleanupPreviewPanel() {
     assetCleanupPreviewResult,
     isAssetCleanupPreviewInFlight,
     assetCleanupPreviewBlockedReason,
+    assetCleanupDeletePreflightMessage,
+    assetCleanupDeletePreflightDiagnostics,
+    assetCleanupDeletePreflightResult,
+    isAssetCleanupDeletePreflightInFlight,
+    assetCleanupDeletePreflightBlockedReason,
     previewUnusedProjectAssets,
+    preflightUnusedAssetDeletion,
+    clearAssetCleanupDeletePreflight,
   } = useAppState();
   const [assetSelectionState, setAssetSelectionState] = useState<{
     previewResult: typeof assetCleanupPreviewResult;
@@ -76,6 +87,7 @@ export function AssetCleanupPreviewPanel() {
   );
 
   function toggleAssetSelection(assetFileId: string) {
+    clearAssetCleanupDeletePreflight();
     setAssetSelectionState((current) => {
       const currentAssetFileIds =
         current.previewResult === assetCleanupPreviewResult
@@ -97,6 +109,7 @@ export function AssetCleanupPreviewPanel() {
   }
 
   function selectAllUnusedAssets() {
+    clearAssetCleanupDeletePreflight();
     setAssetSelectionState({
       previewResult: assetCleanupPreviewResult,
       assetFileIds: new Set(unusedAssetFileIds),
@@ -104,10 +117,15 @@ export function AssetCleanupPreviewPanel() {
   }
 
   function clearSelectedAssets() {
+    clearAssetCleanupDeletePreflight();
     setAssetSelectionState({
       previewResult: assetCleanupPreviewResult,
       assetFileIds: new Set(),
     });
+  }
+
+  function handlePreflightSelectedAssets() {
+    void preflightUnusedAssetDeletion(Array.from(selectedAssetFileIds));
   }
 
   return (
@@ -215,6 +233,21 @@ export function AssetCleanupPreviewPanel() {
                       <Button
                         type="button"
                         size="sm"
+                        variant="default"
+                        disabled={
+                          selectedAssets.length === 0 ||
+                          isAssetCleanupDeletePreflightInFlight ||
+                          assetCleanupDeletePreflightBlockedReason !== null
+                        }
+                        onClick={handlePreflightSelectedAssets}
+                      >
+                        {isAssetCleanupDeletePreflightInFlight
+                          ? "削除前再検証中"
+                          : "削除前再検証"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
                         variant="destructive"
                         disabled
                       >
@@ -223,9 +256,24 @@ export function AssetCleanupPreviewPanel() {
                     </div>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-slate-500">
-                    物理削除は未実装です。次フェーズで削除直前の再検証と confirm を追加してから有効化します。
+                    この画面ではまだ削除しません。preflight は fresh manifest と fresh metadata で再検証します。物理削除は次フェーズです。
                   </p>
+                  {assetCleanupDeletePreflightBlockedReason ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      現在の状態: {assetCleanupDeletePreflightBlockedReason}
+                    </p>
+                  ) : null}
                 </div>
+
+                {assetCleanupDeletePreflightMessage ||
+                assetCleanupDeletePreflightDiagnostics.length > 0 ||
+                assetCleanupDeletePreflightResult ? (
+                  <PreflightResultPanel
+                    message={assetCleanupDeletePreflightMessage}
+                    diagnostics={assetCleanupDeletePreflightDiagnostics}
+                    result={assetCleanupDeletePreflightResult}
+                  />
+                ) : null}
 
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <div className="flex flex-wrap items-center gap-2">
@@ -353,11 +401,184 @@ export function AssetCleanupPreviewPanel() {
   );
 }
 
+function PreflightResultPanel({
+  message,
+  diagnostics,
+  result,
+}: {
+  message: string | null;
+  diagnostics: string[];
+  result: DriveProjectUnusedAssetDeletePreflightResult | null;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="font-semibold text-slate-900">削除前preflight</p>
+        <Badge variant={result ? "default" : "secondary"}>
+          {result ? "再検証済み" : "未実行"}
+        </Badge>
+      </div>
+      {message ? <p className="mt-2 text-sm text-slate-700">{message}</p> : null}
+      <p className="mt-2 text-xs leading-5 text-slate-500">
+        preflight は fresh manifest と fresh metadata で再検証します。この段階ではまだ Drive file は削除しません。
+      </p>
+
+      {result ? (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <SummaryPill
+              label="checked"
+              value={`${result.checkedAssetCount}件`}
+            />
+            <SummaryPill
+              label="eligible"
+              value={`${result.eligibleAssetCount}件`}
+            />
+            <SummaryPill
+              label="blocked"
+              value={`${result.blockedAssetCount}件`}
+            />
+            <SummaryPill
+              label="fresh manifest slides"
+              value={`${result.freshManifestSlideCount}件`}
+            />
+            <SummaryPill
+              label="eligible total size"
+              value={formatBytes(result.eligibleTotalSizeBytes)}
+            />
+          </div>
+
+          {result.blockedAssets.length > 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">
+              blocked asset があるため、将来の物理削除でもこのままでは実行できません。
+            </div>
+          ) : null}
+
+          <PreflightAssetList
+            title="eligible assets"
+            assets={result.eligibleAssets}
+            emptyMessage="eligible asset はありません。"
+          />
+          <PreflightAssetList
+            title="blocked assets"
+            assets={result.blockedAssets}
+            emptyMessage="blocked asset はありません。"
+          />
+
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-950">
+            <p className="font-semibold">削除 confirm preview</p>
+            <p className="mt-1 text-sm">
+              以下は削除直前preflightを通過した候補です。ただし、このコミットでは Drive file は削除しません。
+            </p>
+            <div className="mt-3 space-y-2">
+              {result.eligibleAssets.length > 0 ? (
+                result.eligibleAssets.map((asset) => (
+                  <PreflightAssetSummary key={asset.assetFileId} asset={asset} />
+                ))
+              ) : (
+                <p className="text-sm">削除confirm preview対象はありません。</p>
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <Button type="button" variant="destructive" disabled>
+                preflight済み asset を物理削除
+              </Button>
+              <p className="text-xs leading-5">
+                物理削除は次フェーズで Drive delete API と partial failure handling を実装してから有効化します。
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {diagnostics.length > 0 ? (
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="font-medium text-slate-900">preflight 診断</p>
+          <div className="mt-2 space-y-1 text-xs">
+            {diagnostics.map((diagnostic, index) => (
+              <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PreflightAssetList({
+  title,
+  assets,
+  emptyMessage,
+}: {
+  title: string;
+  assets: DriveProjectUnusedAssetDeletePreflightAsset[];
+  emptyMessage: string;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <p className="font-medium text-slate-900">{title}</p>
+      <div className="mt-2 space-y-2">
+        {assets.length > 0 ? (
+          assets.map((asset) => (
+            <PreflightAssetSummary key={asset.assetFileId} asset={asset} />
+          ))
+        ) : (
+          <p className="text-sm text-slate-500">{emptyMessage}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PreflightAssetSummary({
+  asset,
+}: {
+  asset: DriveProjectUnusedAssetDeletePreflightAsset;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="min-w-0 max-w-full truncate font-medium text-slate-900" title={asset.assetName}>
+          {asset.assetName}
+        </p>
+        <Badge variant={asset.status === "eligible" ? "default" : "secondary"}>
+          {asset.status}
+        </Badge>
+      </div>
+      <dl className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryRow label="assetFileId" value={asset.assetFileIdPart} />
+        <SummaryRow label="size" value={formatNullableBytes(asset.sizeBytes)} />
+        <SummaryRow
+          label="references"
+          value={`${asset.referenceSlideCount}`}
+        />
+        <SummaryRow
+          label="blocked"
+          value={
+            asset.blockedReasons.length > 0
+              ? asset.blockedReasons.map(getBlockedReasonLabel).join(", ")
+              : "なし"
+          }
+        />
+      </dl>
+    </div>
+  );
+}
+
 function SummaryPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
       <p className="text-xs text-slate-500">{label}</p>
       <p className="mt-1 font-semibold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs font-medium text-slate-500">{label}</dt>
+      <dd className="mt-1 break-words text-slate-900">{value}</dd>
     </div>
   );
 }
@@ -386,6 +607,31 @@ function getStatusBadgeVariant(status: AssetCleanupPreviewStatus) {
     : status === "error" || status === "invalid"
       ? "destructive"
       : "secondary";
+}
+
+function getBlockedReasonLabel(reason: string) {
+  switch (reason) {
+    case "notFound":
+      return "not found";
+    case "metadataMismatch":
+      return "metadata mismatch";
+    case "notAppManagedAsset":
+      return "not app-managed asset";
+    case "wrongProject":
+      return "wrong project";
+    case "wrongParent":
+      return "wrong parent";
+    case "unsupportedMimeType":
+      return "unsupported MIME";
+    case "stillReferenced":
+      return "still referenced";
+    case "trashed":
+      return "trashed";
+    case "missingRequiredMetadata":
+      return "missing required metadata";
+    default:
+      return reason;
+  }
 }
 
 function formatNullableBytes(bytes: number | null) {

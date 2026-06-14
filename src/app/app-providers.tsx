@@ -32,6 +32,7 @@ import {
   DriveProjectSlideDuplicateError,
   DriveProjectSlideReorderError,
   DriveProjectTitleUpdateError,
+  DriveProjectUnusedAssetDeletePreflightError,
   DriveProjectUnusedAssetPreviewError,
   DriveWorkspaceCreateError,
   appendDriveProjectAssetsToManifest,
@@ -42,6 +43,7 @@ import {
   fetchDriveProjectAssetBlob,
   findWorkspaceChildCandidatesByRole,
   findWorkspaceRootCandidates,
+  preflightDriveProjectUnusedAssetDeletion,
   previewDriveProjectUnusedAssets,
   readDriveTextFile,
   reorderDriveProjectSlides,
@@ -58,6 +60,7 @@ import {
   type DriveProjectReadyDetails,
   type DriveProjectSavedAsset,
   type DriveProjectSummary,
+  type DriveProjectUnusedAssetDeletePreflightResult,
   type DriveProjectUnusedAssetPreviewResult,
   type DriveWorkspaceChildRole,
   type DriveWorkspaceReadyContext,
@@ -177,6 +180,14 @@ export type SlideEditStatus =
   | "error";
 
 export type AssetCleanupPreviewStatus =
+  | "idle"
+  | "checking"
+  | "ready"
+  | "blocked"
+  | "invalid"
+  | "error";
+
+export type AssetCleanupDeletePreflightStatus =
   | "idle"
   | "checking"
   | "ready"
@@ -428,6 +439,14 @@ type AppContextValue = {
   assetCleanupPreviewResult: DriveProjectUnusedAssetPreviewResult | null;
   isAssetCleanupPreviewInFlight: boolean;
   assetCleanupPreviewBlockedReason: string | null;
+  assetCleanupDeletePreflightStatus: AssetCleanupDeletePreflightStatus;
+  assetCleanupDeletePreflightMessage: string | null;
+  assetCleanupDeletePreflightDiagnostics: string[];
+  assetCleanupDeletePreflightResult:
+    | DriveProjectUnusedAssetDeletePreflightResult
+    | null;
+  isAssetCleanupDeletePreflightInFlight: boolean;
+  assetCleanupDeletePreflightBlockedReason: string | null;
 
   offlineSyncStatus: OfflineSyncStatus;
   offlineSyncStatusLabel: string;
@@ -453,6 +472,8 @@ type AppContextValue = {
   deleteProjectSlides: (slideIds: string[]) => Promise<boolean>;
   duplicateProjectSlide: (slideId: string) => Promise<boolean>;
   previewUnusedProjectAssets: () => void;
+  preflightUnusedAssetDeletion: (assetFileIds: string[]) => Promise<void>;
+  clearAssetCleanupDeletePreflight: () => void;
   startAssetImport: () => void;
   cancelAssetImport: () => void;
   startOfflineSync: () => void;
@@ -545,6 +566,9 @@ const initialSlideEditMessage =
 const initialAssetCleanupPreviewMessage =
   "Drive project ready 後に未使用asset cleanup previewを実行できます。";
 
+const initialAssetCleanupDeletePreflightMessage =
+  "未使用assetを選択すると削除前preflightを実行できます。";
+
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProviders({ children }: { children: ReactNode }) {
@@ -578,6 +602,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const offlineSyncRequestIdRef = useRef(0);
   const offlineSyncInFlightRef = useRef(false);
   const assetCleanupPreviewInFlightRef = useRef(false);
+  const assetCleanupDeletePreflightInFlightRef = useRef(false);
 
   if (offlineSyncRuntimeRef.current === null) {
     offlineSyncRuntimeRef.current = createDriveOfflineStagingSyncRuntime();
@@ -676,6 +701,26 @@ export function AppProviders({ children }: { children: ReactNode }) {
     isAssetCleanupPreviewInFlight,
     setIsAssetCleanupPreviewInFlight,
   ] = useState(false);
+  const [
+    assetCleanupDeletePreflightStatus,
+    setAssetCleanupDeletePreflightStatus,
+  ] = useState<AssetCleanupDeletePreflightStatus>("idle");
+  const [
+    assetCleanupDeletePreflightMessage,
+    setAssetCleanupDeletePreflightMessage,
+  ] = useState<string | null>(initialAssetCleanupDeletePreflightMessage);
+  const [
+    assetCleanupDeletePreflightDiagnostics,
+    setAssetCleanupDeletePreflightDiagnostics,
+  ] = useState<string[]>([]);
+  const [
+    assetCleanupDeletePreflightResult,
+    setAssetCleanupDeletePreflightResult,
+  ] = useState<DriveProjectUnusedAssetDeletePreflightResult | null>(null);
+  const [
+    isAssetCleanupDeletePreflightInFlight,
+    setIsAssetCleanupDeletePreflightInFlight,
+  ] = useState(false);
 
   const [offlineSyncStatus, setOfflineSyncStatus] =
     useState<OfflineSyncStatus>("idle");
@@ -711,6 +756,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const slideEditBlockedReason = getSlideEditBlockedReason();
   const assetCleanupPreviewBlockedReason =
     getAssetCleanupPreviewBlockedReason();
+  const assetCleanupDeletePreflightBlockedReason =
+    getAssetCleanupDeletePreflightBlockedReason();
 
   function setDriveOperationInFlight(value: boolean) {
     driveOperationInFlightRef.current = value;
@@ -772,6 +819,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   function setAssetCleanupPreviewInFlightState(value: boolean) {
     assetCleanupPreviewInFlightRef.current = value;
     setIsAssetCleanupPreviewInFlight(value);
+  }
+
+  function setAssetCleanupDeletePreflightInFlightState(value: boolean) {
+    assetCleanupDeletePreflightInFlightRef.current = value;
+    setIsAssetCleanupDeletePreflightInFlight(value);
   }
 
   function clearPendingPhotosTokenRequest(reason?: PhotosTokenRequestError) {
@@ -1225,12 +1277,33 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return null;
   }
 
+  function getAssetCleanupDeletePreflightBlockedReason() {
+    if (
+      assetCleanupDeletePreflightInFlightRef.current ||
+      isAssetCleanupDeletePreflightInFlight
+    ) {
+      return "未使用asset削除前preflightを実行中です。";
+    }
+
+    if (assetCleanupPreviewInFlightRef.current || isAssetCleanupPreviewInFlight) {
+      return "cleanup preview実行中のため、削除前preflightは開始できません。";
+    }
+
+    return getAssetCleanupPreviewBlockedReason();
+  }
+
   function setSafeOfflineSyncDiagnostics(diagnostics: string[]) {
     setOfflineSyncDiagnostics(sanitizeOfflineSyncDiagnostics(diagnostics));
   }
 
   function setSafeAssetCleanupPreviewDiagnostics(diagnostics: string[]) {
     setAssetCleanupPreviewDiagnostics(
+      sanitizeAssetCleanupPreviewDiagnostics(diagnostics),
+    );
+  }
+
+  function setSafeAssetCleanupDeletePreflightDiagnostics(diagnostics: string[]) {
+    setAssetCleanupDeletePreflightDiagnostics(
       sanitizeAssetCleanupPreviewDiagnostics(diagnostics),
     );
   }
@@ -1287,6 +1360,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setAssetCleanupPreviewMessage(initialAssetCleanupPreviewMessage);
     setSafeAssetCleanupPreviewDiagnostics([]);
     setAssetCleanupPreviewResult(null);
+    clearAssetCleanupDeletePreflight();
+  }
+
+  function clearAssetCleanupDeletePreflight() {
+    setAssetCleanupDeletePreflightInFlightState(false);
+    setAssetCleanupDeletePreflightStatus("idle");
+    setAssetCleanupDeletePreflightMessage(
+      initialAssetCleanupDeletePreflightMessage,
+    );
+    setSafeAssetCleanupDeletePreflightDiagnostics([]);
+    setAssetCleanupDeletePreflightResult(null);
   }
 
   function clearProjectReadyDetails() {
@@ -3454,6 +3538,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const readyProject = driveProjectReadyContext;
 
     setSafeAssetCleanupPreviewDiagnostics([]);
+    clearAssetCleanupDeletePreflight();
 
     if (blockedReason) {
       setAssetCleanupPreviewStatus("blocked");
@@ -3547,6 +3632,122 @@ export function AppProviders({ children }: { children: ReactNode }) {
         driveOperationAbortRef.current = null;
         setDriveOperationInFlight(false);
         setAssetCleanupPreviewInFlightState(false);
+      }
+    }
+  }
+
+  async function preflightUnusedAssetDeletion(assetFileIds: string[]) {
+    const blockedReason = getAssetCleanupDeletePreflightBlockedReason();
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    setSafeAssetCleanupDeletePreflightDiagnostics([]);
+
+    if (assetFileIds.length === 0) {
+      setAssetCleanupDeletePreflightStatus("blocked");
+      setAssetCleanupDeletePreflightMessage(
+        "削除前preflight対象の未使用assetが選択されていません。",
+      );
+      setSafeAssetCleanupDeletePreflightDiagnostics([
+        "未使用assetを1件以上選択してください。",
+      ]);
+      setAssetCleanupDeletePreflightResult(null);
+      return;
+    }
+
+    if (blockedReason) {
+      setAssetCleanupDeletePreflightStatus("blocked");
+      setAssetCleanupDeletePreflightMessage(
+        "未使用asset削除前preflightを開始できませんでした。",
+      );
+      setSafeAssetCleanupDeletePreflightDiagnostics([blockedReason]);
+      setAssetCleanupDeletePreflightResult(null);
+      return;
+    }
+
+    if (!accessToken || !readyWorkspace || !readyProject) {
+      setAssetCleanupDeletePreflightStatus("blocked");
+      setAssetCleanupDeletePreflightMessage(
+        "未使用asset削除前preflightに必要な ready 情報が不足しています。",
+      );
+      setSafeAssetCleanupDeletePreflightDiagnostics([
+        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Drive状態とプロジェクト状態を再確認してください。",
+      ]);
+      setAssetCleanupDeletePreflightResult(null);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    setAssetCleanupDeletePreflightInFlightState(true);
+    setAssetCleanupDeletePreflightStatus("checking");
+    setAssetCleanupDeletePreflightMessage(
+      "fresh manifest と fresh metadata で削除前preflightを実行しています。",
+    );
+    setAssetCleanupDeletePreflightResult(null);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+
+    try {
+      const result = await preflightDriveProjectUnusedAssetDeletion({
+        accessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        project: readyProject,
+        assetFileIds,
+        runStep: (_label, operation) =>
+          runDriveOperationStep(requestId, operation),
+      });
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setAssetCleanupDeletePreflightStatus("ready");
+      setAssetCleanupDeletePreflightMessage(
+        "削除前preflightが完了しました。この段階ではまだDrive fileは削除しません。",
+      );
+      setAssetCleanupDeletePreflightResult(result);
+      setSafeAssetCleanupDeletePreflightDiagnostics(result.diagnostics);
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (error instanceof DriveProjectUnusedAssetDeletePreflightError) {
+        setAssetCleanupDeletePreflightStatus(
+          error.code === "invalidInput" || error.code === "tooManyCandidates"
+            ? "invalid"
+            : "error",
+        );
+        setAssetCleanupDeletePreflightMessage(
+          "未使用asset削除前preflightに失敗しました。",
+        );
+        setSafeAssetCleanupDeletePreflightDiagnostics(error.diagnostics);
+        setAssetCleanupDeletePreflightResult(null);
+        return;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+
+      setAssetCleanupDeletePreflightStatus("error");
+      setAssetCleanupDeletePreflightMessage(
+        "未使用asset削除前preflightに失敗しました。",
+      );
+      setSafeAssetCleanupDeletePreflightDiagnostics([
+        "未使用asset削除前preflight中に予期しないエラーが発生しました。",
+        "Drive file は削除していません。",
+        "manifest.json / index.json は更新していません。",
+      ]);
+      setAssetCleanupDeletePreflightResult(null);
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+        setAssetCleanupDeletePreflightInFlightState(false);
       }
     }
   }
@@ -3800,6 +4001,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     assetCleanupPreviewResult,
     isAssetCleanupPreviewInFlight,
     assetCleanupPreviewBlockedReason,
+    assetCleanupDeletePreflightStatus,
+    assetCleanupDeletePreflightMessage,
+    assetCleanupDeletePreflightDiagnostics,
+    assetCleanupDeletePreflightResult,
+    isAssetCleanupDeletePreflightInFlight,
+    assetCleanupDeletePreflightBlockedReason,
     offlineSyncStatus,
     offlineSyncStatusLabel: offlineSyncStatusLabels[offlineSyncStatus],
     offlineSyncMessage,
@@ -3823,6 +4030,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     deleteProjectSlides,
     duplicateProjectSlide,
     previewUnusedProjectAssets,
+    preflightUnusedAssetDeletion,
+    clearAssetCleanupDeletePreflight,
     startAssetImport,
     cancelAssetImport,
     startOfflineSync,

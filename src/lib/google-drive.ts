@@ -24,6 +24,7 @@ export const DRIVE_PROJECT_SLIDE_CAPTION_MAX_LENGTH = 80;
 const DRIVE_PROJECT_ASSET_PREVIEW_SIZE_LIMIT_BYTES = 10 * 1024 * 1024;
 const DRIVE_PROJECT_DEFAULT_SLIDE_DURATION_SECONDS = 10;
 const DRIVE_PROJECT_UNUSED_ASSET_SCAN_LIMIT = 500;
+const DRIVE_PROJECT_UNUSED_ASSET_DELETE_PREFLIGHT_LIMIT = 50;
 
 const CREATE_FOLDER_FIELDS =
   "id,name,mimeType,createdTime,modifiedTime,appProperties";
@@ -66,6 +67,7 @@ export type DriveFileCandidate = {
   appProperties: Record<string, string>;
   sizeBytes?: number;
   parents?: string[];
+  trashed?: boolean;
 };
 
 export type DriveWorkspaceCandidate = DriveFileCandidate;
@@ -390,6 +392,49 @@ export type DriveProjectUnusedAssetPreviewResult = {
   unusedAssetCount: number;
   unusedAssets: DriveProjectUnusedAssetSummary[];
   ignoredFileCount: number;
+  diagnostics: string[];
+};
+
+export type DriveProjectUnusedAssetDeletePreflightStatus =
+  | "eligible"
+  | "blocked";
+
+export type DriveProjectUnusedAssetDeletePreflightBlockedReason =
+  | "notFound"
+  | "metadataMismatch"
+  | "notAppManagedAsset"
+  | "wrongProject"
+  | "wrongParent"
+  | "unsupportedMimeType"
+  | "stillReferenced"
+  | "trashed"
+  | "missingRequiredMetadata";
+
+export type DriveProjectUnusedAssetDeletePreflightAsset = {
+  assetFileId: string;
+  assetFileIdPart: string;
+  assetId: string | null;
+  assetIdPart: string;
+  assetName: string;
+  mimeType: DriveAssetMimeType | string | null;
+  sizeBytes: number | null;
+  createdTime: string | null;
+  modifiedTime: string | null;
+  referenceSlideCount: number;
+  status: DriveProjectUnusedAssetDeletePreflightStatus;
+  blockedReasons: DriveProjectUnusedAssetDeletePreflightBlockedReason[];
+};
+
+export type DriveProjectUnusedAssetDeletePreflightResult = {
+  checkedAssetCount: number;
+  eligibleAssetCount: number;
+  blockedAssetCount: number;
+  selectedAssetFileIds: string[];
+  eligibleAssets: DriveProjectUnusedAssetDeletePreflightAsset[];
+  blockedAssets: DriveProjectUnusedAssetDeletePreflightAsset[];
+  allAssets: DriveProjectUnusedAssetDeletePreflightAsset[];
+  freshManifestSlideCount: number;
+  eligibleTotalSizeBytes: number;
   diagnostics: string[];
 };
 
@@ -797,6 +842,30 @@ export class DriveProjectUnusedAssetPreviewError extends Error {
   }
 }
 
+export class DriveProjectUnusedAssetDeletePreflightError extends Error {
+  code:
+    | "invalidInput"
+    | "manifestUnavailable"
+    | "metadataUnavailable"
+    | "tooManyCandidates"
+    | "operationFailed";
+  diagnostics: string[];
+  cause?: unknown;
+
+  constructor(input: {
+    code: DriveProjectUnusedAssetDeletePreflightError["code"];
+    message: string;
+    diagnostics?: string[];
+    cause?: unknown;
+  }) {
+    super(input.message);
+    this.name = "DriveProjectUnusedAssetDeletePreflightError";
+    this.code = input.code;
+    this.diagnostics = [...(input.diagnostics ?? [input.message])];
+    this.cause = input.cause;
+  }
+}
+
 export async function findWorkspaceRootCandidates(
   accessToken: string,
   signal: AbortSignal,
@@ -956,6 +1025,154 @@ export async function previewDriveProjectUnusedAssets(input: {
           ? "authRequired"
           : "operationFailed",
       diagnostics: buildDriveProjectUnusedAssetPreviewFailureDiagnostics(error),
+      cause: error,
+    });
+  }
+}
+
+export async function preflightDriveProjectUnusedAssetDeletion(input: {
+  accessToken: string;
+  workspaceId: string;
+  project: DriveProjectSummary;
+  assetFileIds: string[];
+  runStep?: <T>(
+    label: string,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ) => Promise<T>;
+}): Promise<DriveProjectUnusedAssetDeletePreflightResult> {
+  const inputDiagnostics = validateDriveProjectUnusedAssetDeletePreflightInput(
+    input,
+  );
+
+  if (inputDiagnostics.length > 0) {
+    throw new DriveProjectUnusedAssetDeletePreflightError({
+      code: input.assetFileIds.length > DRIVE_PROJECT_UNUSED_ASSET_DELETE_PREFLIGHT_LIMIT
+        ? "tooManyCandidates"
+        : "invalidInput",
+      message: "未使用asset削除前preflightの入力が不正です。",
+      diagnostics: inputDiagnostics,
+    });
+  }
+
+  const runStep =
+    input.runStep ??
+    (<T,>(
+      _label: string,
+      operation: (signal: AbortSignal) => Promise<T>,
+    ) => operation(new AbortController().signal));
+  const dedupedAssetFileIds = Array.from(new Set(input.assetFileIds));
+  const dedupedCount = input.assetFileIds.length - dedupedAssetFileIds.length;
+
+  try {
+    const manifestResult = await runStep("fresh manifest", async (signal) => {
+      const manifestJsonText = await readDriveTextFile(
+        input.accessToken,
+        input.project.manifestFileId,
+        signal,
+      );
+
+      return parseDriveProjectManifestJson({
+        manifestJsonText,
+        expectedWorkspaceId: input.workspaceId,
+        project: input.project,
+      });
+    });
+
+    if (manifestResult.status === "invalid") {
+      throw new DriveProjectUnusedAssetDeletePreflightError({
+        code: "manifestUnavailable",
+        message: "fresh manifest の検証に失敗しました。",
+        diagnostics: manifestResult.diagnostics,
+      });
+    }
+
+    const referenceCounts = new Map<string, number>();
+
+    for (const slide of manifestResult.manifest.slides) {
+      referenceCounts.set(
+        slide.assetFileId,
+        (referenceCounts.get(slide.assetFileId) ?? 0) + 1,
+      );
+    }
+
+    const metadataResults = await runStep("fresh metadata", (signal) =>
+      Promise.all(
+        dedupedAssetFileIds.map(async (assetFileId) => {
+          try {
+            return {
+              assetFileId,
+              file: await fetchDriveFileMetadataForDeletePreflight(
+                input.accessToken,
+                assetFileId,
+                signal,
+              ),
+              error: null,
+            };
+          } catch (error) {
+            return {
+              assetFileId,
+              file: null,
+              error,
+            };
+          }
+        }),
+      ),
+    );
+
+    const allAssets = metadataResults.map((result) =>
+      toDriveProjectUnusedAssetDeletePreflightAsset({
+        assetFileId: result.assetFileId,
+        file: result.file,
+        error: result.error,
+        workspaceId: input.workspaceId,
+        project: input.project,
+        referenceSlideCount: referenceCounts.get(result.assetFileId) ?? 0,
+      }),
+    );
+    const eligibleAssets = allAssets.filter((asset) => asset.status === "eligible");
+    const blockedAssets = allAssets.filter((asset) => asset.status === "blocked");
+    const eligibleTotalSizeBytes = eligibleAssets.reduce(
+      (total, asset) => total + (asset.sizeBytes ?? 0),
+      0,
+    );
+    const diagnostics = [
+      `削除前preflight: ${allAssets.length}件を確認しました。`,
+      `fresh manifest: ${manifestResult.manifest.slides.length} slide refs を確認しました。`,
+      `eligible: ${eligibleAssets.length}件 / blocked: ${blockedAssets.length}件`,
+      "Drive file は削除していません。",
+    ];
+
+    if (dedupedCount > 0) {
+      diagnostics.splice(
+        1,
+        0,
+        `重複した選択 ${dedupedCount}件をpreflight対象から除外しました。`,
+      );
+    }
+
+    return {
+      checkedAssetCount: allAssets.length,
+      eligibleAssetCount: eligibleAssets.length,
+      blockedAssetCount: blockedAssets.length,
+      selectedAssetFileIds: dedupedAssetFileIds,
+      eligibleAssets,
+      blockedAssets,
+      allAssets,
+      freshManifestSlideCount: manifestResult.manifest.slides.length,
+      eligibleTotalSizeBytes,
+      diagnostics,
+    };
+  } catch (error) {
+    if (error instanceof DriveProjectUnusedAssetDeletePreflightError) {
+      throw error;
+    }
+
+    throw new DriveProjectUnusedAssetDeletePreflightError({
+      code: "operationFailed",
+      message: "未使用asset削除前preflightに失敗しました。",
+      diagnostics: buildDriveProjectUnusedAssetDeletePreflightFailureDiagnostics(
+        error,
+      ),
       cause: error,
     });
   }
@@ -5877,6 +6094,191 @@ function validateDriveProjectUnusedAssetPreviewInput(input: {
   return diagnostics;
 }
 
+function validateDriveProjectUnusedAssetDeletePreflightInput(input: {
+  accessToken: string;
+  workspaceId: string;
+  project: DriveProjectSummary;
+  assetFileIds: string[];
+}) {
+  const diagnostics: string[] = [];
+
+  if (!input.accessToken) {
+    diagnostics.push("未使用asset削除前preflight用のaccessTokenがありません。");
+  }
+
+  if (!isUuidV4(input.workspaceId)) {
+    diagnostics.push("未使用asset削除前preflight対象のworkspaceIdがUUID形式ではありません。");
+  }
+
+  if (!isUuidV4(input.project.projectId)) {
+    diagnostics.push("未使用asset削除前preflight対象のprojectIdがUUID形式ではありません。");
+  }
+
+  if (!isNonEmptyString(input.project.manifestFileId)) {
+    diagnostics.push("未使用asset削除前preflight対象のmanifestFileIdが空です。");
+  }
+
+  if (!isNonEmptyString(input.project.assetsFolderId)) {
+    diagnostics.push("未使用asset削除前preflight対象のassetsFolderIdが空です。");
+  }
+
+  if (input.assetFileIds.length === 0) {
+    diagnostics.push("削除前preflight対象のassetFileIdが選択されていません。");
+  }
+
+  if (input.assetFileIds.length > DRIVE_PROJECT_UNUSED_ASSET_DELETE_PREFLIGHT_LIMIT) {
+    diagnostics.push(
+      `削除前preflight対象は${DRIVE_PROJECT_UNUSED_ASSET_DELETE_PREFLIGHT_LIMIT}件以内にしてください。`,
+    );
+  }
+
+  if (
+    input.assetFileIds.some((assetFileId) => !isNonEmptyString(assetFileId))
+  ) {
+    diagnostics.push("削除前preflight対象のassetFileIdに空の値が含まれています。");
+  }
+
+  return diagnostics;
+}
+
+async function fetchDriveFileMetadataForDeletePreflight(
+  accessToken: string,
+  fileId: string,
+  signal: AbortSignal,
+): Promise<DriveFileCandidate> {
+  const params = new URLSearchParams({
+    fields:
+      "id,name,mimeType,createdTime,modifiedTime,appProperties,size,parents,trashed",
+  });
+
+  const response = await fetch(
+    `${DRIVE_API_FILES_URL}/${encodeURIComponent(fileId)}?${params.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      signal,
+    },
+  );
+
+  if (!response.ok) {
+    throw new DriveApiError(response.status);
+  }
+
+  const file = normalizeDriveFile((await response.json()) as unknown);
+
+  if (!file) {
+    throw new Error("Drive file metadata response did not include required fields.");
+  }
+
+  return file;
+}
+
+function toDriveProjectUnusedAssetDeletePreflightAsset(input: {
+  assetFileId: string;
+  file: DriveFileCandidate | null;
+  error: unknown;
+  workspaceId: string;
+  project: DriveProjectSummary;
+  referenceSlideCount: number;
+}): DriveProjectUnusedAssetDeletePreflightAsset {
+  if (!input.file) {
+    return {
+      assetFileId: input.assetFileId,
+      assetFileIdPart: formatDriveIdPart(input.assetFileId),
+      assetId: null,
+      assetIdPart: "未設定",
+      assetName: "metadata取得なし",
+      mimeType: null,
+      sizeBytes: null,
+      createdTime: null,
+      modifiedTime: null,
+      referenceSlideCount: input.referenceSlideCount,
+      status: "blocked",
+      blockedReasons:
+        input.error instanceof DriveApiError && input.error.status === 404
+          ? ["notFound"]
+          : ["metadataMismatch"],
+    };
+  }
+
+  const file = input.file;
+  const appProperties = file.appProperties;
+  const blockedReasons: DriveProjectUnusedAssetDeletePreflightBlockedReason[] = [];
+  const assetId = isUuidV4(appProperties.assetId) ? appProperties.assetId : null;
+
+  if (file.id !== input.assetFileId) {
+    blockedReasons.push("metadataMismatch");
+  }
+
+  if (file.trashed === true) {
+    blockedReasons.push("trashed");
+  }
+
+  if (!assetId) {
+    blockedReasons.push("missingRequiredMetadata");
+  }
+
+  if (
+    appProperties.app !== DRIVE_WORKSPACE_APP_ID ||
+    appProperties.role !== "asset"
+  ) {
+    blockedReasons.push("notAppManagedAsset");
+  }
+
+  if (
+    appProperties.workspaceId !== input.workspaceId ||
+    appProperties.projectId !== input.project.projectId
+  ) {
+    blockedReasons.push("wrongProject");
+  }
+
+  if (!file.parents?.includes(input.project.assetsFolderId)) {
+    blockedReasons.push("wrongParent");
+  }
+
+  if (!isDriveAssetMimeType(file.mimeType)) {
+    blockedReasons.push("unsupportedMimeType");
+  }
+
+  if (input.referenceSlideCount > 0) {
+    blockedReasons.push("stillReferenced");
+  }
+
+  return {
+    assetFileId: file.id,
+    assetFileIdPart: formatDriveIdPart(file.id),
+    assetId,
+    assetIdPart: assetId ? formatDriveIdPart(assetId) : "未設定",
+    assetName: file.name,
+    mimeType: file.mimeType,
+    sizeBytes: typeof file.sizeBytes === "number" ? file.sizeBytes : null,
+    createdTime: file.createdTime ?? null,
+    modifiedTime: file.modifiedTime ?? null,
+    referenceSlideCount: input.referenceSlideCount,
+    status: blockedReasons.length > 0 ? "blocked" : "eligible",
+    blockedReasons,
+  };
+}
+
+function buildDriveProjectUnusedAssetDeletePreflightFailureDiagnostics(
+  error: unknown,
+) {
+  const diagnostics = ["未使用asset削除前preflight中にエラーが発生しました。"];
+
+  if (error instanceof DriveApiError) {
+    diagnostics.push(`Drive API status: ${error.status}`);
+  }
+
+  diagnostics.push(
+    "Drive file は削除していません。",
+    "manifest.json / index.json は更新していません。",
+  );
+
+  return diagnostics;
+}
+
 async function listDriveProjectAssetFolderChildren(input: {
   accessToken: string;
   assetsFolderId: string;
@@ -6652,6 +7054,7 @@ function normalizeDriveFile(value: unknown): DriveWorkspaceCandidate | null {
     parents: Array.isArray(value.parents)
       ? value.parents.filter((parent): parent is string => typeof parent === "string")
       : undefined,
+    trashed: typeof value.trashed === "boolean" ? value.trashed : undefined,
   };
 }
 
