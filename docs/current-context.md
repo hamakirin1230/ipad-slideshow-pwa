@@ -4,6 +4,8 @@ Date: 2026-06-13
 
 このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-06-13時点の実装状態を正とします。
 
+2026-06-22時点で、Vercel productionの既存運用を再確認済み。新規Vercel project作成、import、`vercel link` は不要。
+
 ## 最重要方針
 
 - iPadホーム画面PWAで安定して動くことを最優先にする
@@ -24,6 +26,7 @@ https://ipad-slideshow-pwa.vercel.app/
 ```
 
 GitHub Pagesは初期フェーズの公開先だったが、現在の運用対象ではない。
+GitHub Pages workflowは履歴または手動確認用途への降格を検討するが、2026-06-22時点ではまだ変更しない。
 
 現在のPWA path:
 

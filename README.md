@@ -34,8 +34,8 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/admin/` drag handle表示を「≡」のみへ簡略化し、aria-label / titleは維持
 - `/player/` のcaptionテロップ下帯をiPad PWAでも残るように背景指定を強化
 - Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
-- `/admin/` で選択中projectのunused Drive asset cleanup previewを表示
-- cleanup previewの初期フェーズではDrive fileを削除しない
+- `/admin/` で選択中projectのunused Drive asset cleanup preview / readiness / preflight / confirm previewを表示
+- cleanup preview / preflight / confirm previewはread-onlyで、Drive file、Player snapshot、IndexedDBを変更しない
 
 ## 公開URL
 
@@ -43,13 +43,13 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 https://ipad-slideshow-pwa.vercel.app/
 ```
 
-現在の本番運用対象はVercel productionです。GitHub Pages前提の`basePath: "/ipad-slideshow-pwa"`は初期段階の履歴として残っていますが、現在のmanifest / icon / Service Workerはroot path前提です。
+現在の本番運用対象はVercel productionです。GitHub Pages前提の`basePath: "/ipad-slideshow-pwa"`は初期段階の履歴として残っていますが、現在の主運用対象ではありません。現在のmanifest / icon / Service Workerはroot path前提です。
 
 ## 現在使える画面
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、Photos Picker batch素材追加、unused Drive asset preview、画像順変更、複数slide削除、slide複製、テロップ編集、offline sync、confirmed store、storage管理
+- `/admin` Drive project、Photos Picker batch素材追加、unused Drive asset cleanup preview / readiness / preflight / confirm preview、画像順変更、複数slide削除、slide複製、テロップ編集、offline sync、confirmed store、storage管理
 - `/player` iPad offline-first再生、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
 - `/auth-test` OAuth単体確認用の開発ページ
 
@@ -68,7 +68,8 @@ https://ipad-slideshow-pwa.vercel.app/
 - iPad側のローカル削除ではGoogle Drive上のデータを削除しない
 - Drive上の画像順・caption変更をiPad再生へ反映するには、対象projectのoffline syncを実行する
 - Drive上のslide削除・複製をiPad再生へ反映するにも、対象projectのoffline syncを実行する
-- Drive cleanup previewは未使用assetの検出のみで、Drive fileの物理削除は未対応
+- Drive cleanup preview / readiness / preflight / confirm previewはread-onlyで、Player snapshotやIndexedDBを変更しない
+- Drive fileの物理削除とDrive file delete APIはまだ実装しない
 
 ## ローカル起動
 
@@ -98,6 +99,9 @@ npm run build
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-06-22-vercel-existing-production-confirmation-handoff.md`
+- `docs/handoffs/2026-06-13-unused-asset-delete-preflight-handoff.md`
+- `docs/handoffs/2026-06-13-unused-asset-delete-readiness-ui-handoff.md`
 - `docs/handoffs/2026-06-13-orphan-asset-cleanup-preview-handoff.md`
 - `docs/handoffs/2026-06-13-player-admin-polish-fixes-handoff.md`
 - `docs/handoffs/2026-06-12-slide-dnd-delete-duplicate-handoff.md`
