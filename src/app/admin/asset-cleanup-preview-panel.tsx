@@ -20,6 +20,10 @@ const unusedAssetTableGridStyle: CSSProperties = {
   gridTemplateColumns: "4rem 22rem 10rem 10rem 10rem 8rem 14rem 14rem 8rem",
 };
 
+const preflightAssetSummaryGridStyle: CSSProperties = {
+  gridTemplateColumns: "18rem 10rem 8rem 24rem",
+};
+
 const deleteReadinessChecklistItems = [
   "削除直前に Drive manifest.json を再読込する",
   "削除直前に assetFileId の参照数を再計算する",
@@ -297,7 +301,7 @@ export function AssetCleanupPreviewPanel() {
                   </ul>
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200">
                   <div className="min-w-[112rem]">
                     <div
                       className="grid gap-4 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-500"
@@ -334,35 +338,40 @@ export function AssetCleanupPreviewPanel() {
                             />
                           </label>
                           <p
-                            className="truncate font-medium text-slate-900"
+                            className="min-w-0 truncate font-medium text-slate-900"
                             title={asset.assetName}
                           >
                             {asset.assetName}
                           </p>
                           <p
-                            className="truncate font-mono text-xs"
+                            className="min-w-0 truncate font-mono text-xs"
                             title={asset.assetFileIdPart}
                           >
                             {asset.assetFileIdPart}
                           </p>
                           <p
-                            className="truncate font-mono text-xs"
+                            className="min-w-0 truncate font-mono text-xs"
                             title={asset.assetIdPart}
                           >
                             {asset.assetIdPart}
                           </p>
-                          <p className="whitespace-nowrap">{asset.mimeType}</p>
+                          <p
+                            className="min-w-0 truncate font-mono text-xs"
+                            title={asset.mimeType}
+                          >
+                            {asset.mimeType}
+                          </p>
                           <p className="whitespace-nowrap">
                             {formatNullableBytes(asset.sizeBytes)}
                           </p>
                           <p
-                            className="truncate font-mono text-xs"
+                            className="min-w-0 truncate font-mono text-xs"
                             title={formatOptionalValue(asset.createdTime)}
                           >
                             {formatOptionalValue(asset.createdTime)}
                           </p>
                           <p
-                            className="truncate font-mono text-xs"
+                            className="min-w-0 truncate font-mono text-xs"
                             title={formatOptionalValue(asset.modifiedTime)}
                           >
                             {formatOptionalValue(asset.modifiedTime)}
@@ -470,11 +479,16 @@ function PreflightResultPanel({
             <p className="mt-1 text-sm">
               以下は削除直前preflightを通過した候補です。ただし、このコミットでは Drive file は削除しません。
             </p>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 max-w-full overflow-x-auto">
               {result.eligibleAssets.length > 0 ? (
-                result.eligibleAssets.map((asset) => (
-                  <PreflightAssetSummary key={asset.assetFileId} asset={asset} />
-                ))
+                <div className="min-w-[64rem] space-y-2 pr-1">
+                  {result.eligibleAssets.map((asset) => (
+                    <PreflightAssetSummary
+                      key={asset.assetFileId}
+                      asset={asset}
+                    />
+                  ))}
+                </div>
               ) : (
                 <p className="text-sm">削除confirm preview対象はありません。</p>
               )}
@@ -515,17 +529,19 @@ function PreflightAssetList({
   emptyMessage: string;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 p-3">
+    <div className="max-w-full overflow-hidden rounded-lg border border-slate-200 p-3">
       <p className="font-medium text-slate-900">{title}</p>
-      <div className="mt-2 space-y-2">
-        {assets.length > 0 ? (
-          assets.map((asset) => (
-            <PreflightAssetSummary key={asset.assetFileId} asset={asset} />
-          ))
-        ) : (
-          <p className="text-sm text-slate-500">{emptyMessage}</p>
-        )}
-      </div>
+      {assets.length > 0 ? (
+        <div className="mt-2 max-w-full overflow-x-auto">
+          <div className="min-w-[64rem] space-y-2 pr-1">
+            {assets.map((asset) => (
+              <PreflightAssetSummary key={asset.assetFileId} asset={asset} />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-slate-500">{emptyMessage}</p>
+      )}
     </div>
   );
 }
@@ -538,19 +554,34 @@ function PreflightAssetSummary({
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="min-w-0 max-w-full truncate font-medium text-slate-900" title={asset.assetName}>
+        <p
+          className="min-w-0 flex-1 truncate font-medium text-slate-900"
+          title={asset.assetName}
+        >
           {asset.assetName}
         </p>
         <Badge variant={asset.status === "eligible" ? "default" : "secondary"}>
           {asset.status}
         </Badge>
       </div>
-      <dl className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryRow label="assetFileId" value={asset.assetFileIdPart} />
-        <SummaryRow label="size" value={formatNullableBytes(asset.sizeBytes)} />
+      <dl
+        className="mt-2 grid gap-2"
+        style={preflightAssetSummaryGridStyle}
+      >
+        <SummaryRow
+          label="assetFileId"
+          value={asset.assetFileIdPart}
+          mono
+        />
+        <SummaryRow
+          label="size"
+          value={formatNullableBytes(asset.sizeBytes)}
+          mono
+        />
         <SummaryRow
           label="references"
           value={`${asset.referenceSlideCount}`}
+          mono
         />
         <SummaryRow
           label="blocked"
@@ -574,11 +605,24 @@ function SummaryPill({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
+function SummaryRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-xs font-medium text-slate-500">{label}</dt>
-      <dd className="mt-1 break-words text-slate-900">{value}</dd>
+      <dd
+        className={`mt-1 truncate text-slate-900 ${mono ? "font-mono text-xs" : ""}`}
+        title={value}
+      >
+        {value}
+      </dd>
     </div>
   );
 }
