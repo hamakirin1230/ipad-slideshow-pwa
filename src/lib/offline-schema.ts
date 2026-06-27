@@ -19,11 +19,21 @@ export type OfflineBlobStatus = "ready" | "missing" | "failed" | "corrupt";
 
 export type OfflineBlobVariant = "original" | "optimized";
 
+export type OfflineAssetType = "image" | "video";
+
+export type OfflineAssetUnsupportedReason =
+  | "videoPlaybackNotImplemented"
+  | "unsupportedVideoMimeType"
+  | "unsupportedMimeType";
+
 export type OfflineProjectSlide = {
   slideId: string;
   assetId: string;
+  type?: OfflineAssetType;
   caption: string;
   durationSeconds: number;
+  durationMs?: number;
+  unsupportedReason?: OfflineAssetUnsupportedReason;
   order: number;
   createdAt?: IsoDateTimeString;
   updatedAt?: IsoDateTimeString;
@@ -52,6 +62,10 @@ export type OfflineAsset = {
   sourceUpdatedAt?: IsoDateTimeString;
   sourceRevisionId?: string;
   sourceETag?: string;
+
+  type?: OfflineAssetType;
+  durationMs?: number;
+  unsupportedReason?: OfflineAssetUnsupportedReason;
 
   blobMimeType: string;
   blobSizeBytes: number;

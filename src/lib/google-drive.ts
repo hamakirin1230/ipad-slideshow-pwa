@@ -108,6 +108,13 @@ export type DriveProjectSummary = {
   updatedAt: string;
 };
 
+export type DriveAssetType = "image" | "video";
+
+export type DriveAssetUnsupportedReason =
+  | "videoPlaybackNotImplemented"
+  | "unsupportedVideoMimeType"
+  | "unsupportedMimeType";
+
 export type DriveAssetMimeType = "image/jpeg" | "image/png" | "image/webp";
 
 export type DriveSlideSummary = {
@@ -115,11 +122,15 @@ export type DriveSlideSummary = {
   assetId: string;
   assetFileId: string;
   assetName: string;
-  mimeType: DriveAssetMimeType;
+  type?: DriveAssetType;
+  mimeType: string;
   source: "googlePhotosPicker";
   sourceMimeType: string;
   sourceMediaItemId: string;
   sourceCreateTime?: string;
+  fileSize?: number;
+  durationMs?: number;
+  unsupportedReason?: DriveAssetUnsupportedReason;
   durationSeconds: number;
   caption: string;
   createdAt: string;
@@ -5287,6 +5298,40 @@ function normalizeDriveProjectManifestSlide(
     key: "mimeType",
     diagnostics: localDiagnostics,
   });
+  const assetType = readOptionalDriveAssetType({
+    body: value,
+    fileLabel,
+    key: "type",
+    diagnostics: localDiagnostics,
+  });
+  const normalizedAssetType = assetType ?? "image";
+  const fileSize = readOptionalNonNegativeNumber({
+    body: value,
+    fileLabel,
+    key: "fileSize",
+    diagnostics: localDiagnostics,
+  });
+  const durationMs = readOptionalPositiveNumber({
+    body: value,
+    fileLabel,
+    key: "durationMs",
+    diagnostics: localDiagnostics,
+  });
+  const explicitUnsupportedReason = readOptionalDriveAssetUnsupportedReason({
+    body: value,
+    fileLabel,
+    key: "unsupportedReason",
+    diagnostics: localDiagnostics,
+  });
+  const mimeTypeUnsupportedReason = rawMimeType
+    ? validateDriveManifestAssetMimeType({
+        assetType: normalizedAssetType,
+        mimeType: rawMimeType,
+        fileLabel,
+        diagnostics: localDiagnostics,
+      })
+    : undefined;
+  const unsupportedReason = mimeTypeUnsupportedReason ?? explicitUnsupportedReason;
   const source = readRequiredNonEmptyString({
     body: value,
     fileLabel,
@@ -5322,10 +5367,6 @@ function normalizeDriveProjectManifestSlide(
     localDiagnostics.push(`${fileLabel} の source が想定と一致していません。`);
   }
 
-  if (rawMimeType && !isDriveAssetMimeType(rawMimeType)) {
-    localDiagnostics.push(`${fileLabel} の mimeType が対応外です。`);
-  }
-
   const durationSeconds = value.durationSeconds;
 
   if (
@@ -5358,7 +5399,6 @@ function normalizeDriveProjectManifestSlide(
     !assetFileId ||
     !assetName ||
     !rawMimeType ||
-    !isDriveAssetMimeType(rawMimeType) ||
     source !== "googlePhotosPicker" ||
     !sourceMimeType ||
     !sourceMediaItemId ||
@@ -5377,11 +5417,15 @@ function normalizeDriveProjectManifestSlide(
     assetId,
     assetFileId,
     assetName,
+    ...(assetType ? { type: assetType } : {}),
     mimeType: rawMimeType,
     source: "googlePhotosPicker",
     sourceMimeType,
     sourceMediaItemId,
     ...(sourceCreateTime ? { sourceCreateTime } : {}),
+    ...(typeof fileSize === "number" ? { fileSize } : {}),
+    ...(typeof durationMs === "number" ? { durationMs } : {}),
+    ...(unsupportedReason ? { unsupportedReason } : {}),
     durationSeconds,
     caption,
     createdAt,
@@ -6419,6 +6463,123 @@ function buildDriveProjectUnusedAssetPreviewFailureDiagnostics(error: unknown) {
 
 function isDriveAssetMimeType(value: string): value is DriveAssetMimeType {
   return value === "image/jpeg" || value === "image/png" || value === "image/webp";
+}
+
+function isVideoMimeType(value: string) {
+  return value.toLowerCase().startsWith("video/");
+}
+
+function validateDriveManifestAssetMimeType(input: {
+  assetType: DriveAssetType;
+  mimeType: string;
+  fileLabel: string;
+  diagnostics: string[];
+}): DriveAssetUnsupportedReason | undefined {
+  if (input.assetType === "image") {
+    if (!isDriveAssetMimeType(input.mimeType)) {
+      input.diagnostics.push(`${input.fileLabel} の mimeType が対応外です。`);
+      return "unsupportedMimeType";
+    }
+
+    return undefined;
+  }
+
+  if (input.mimeType === "video/mp4") {
+    return "videoPlaybackNotImplemented";
+  }
+
+  if (isVideoMimeType(input.mimeType)) {
+    return "unsupportedVideoMimeType";
+  }
+
+  input.diagnostics.push(`${input.fileLabel} の video mimeType が対応外です。`);
+  return "unsupportedMimeType";
+}
+
+function readOptionalDriveAssetType(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}): DriveAssetType | undefined {
+  if (!hasOwnKey(input.body, input.key)) {
+    return undefined;
+  }
+
+  const value = input.body[input.key];
+
+  if (value === "image" || value === "video") {
+    return value;
+  }
+
+  input.diagnostics.push(
+    `${input.fileLabel} の ${input.key} は image または video である必要があります。`,
+  );
+  return undefined;
+}
+
+function readOptionalDriveAssetUnsupportedReason(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}): DriveAssetUnsupportedReason | undefined {
+  if (!hasOwnKey(input.body, input.key)) {
+    return undefined;
+  }
+
+  const value = input.body[input.key];
+
+  if (
+    value === "videoPlaybackNotImplemented" ||
+    value === "unsupportedVideoMimeType" ||
+    value === "unsupportedMimeType"
+  ) {
+    return value;
+  }
+
+  input.diagnostics.push(`${input.fileLabel} の ${input.key} が対応外です。`);
+  return undefined;
+}
+
+function readOptionalPositiveNumber(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, input.key)) {
+    return undefined;
+  }
+
+  const value = input.body[input.key];
+
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    input.diagnostics.push(`${input.fileLabel} の ${input.key} が不正です。`);
+    return undefined;
+  }
+
+  return value;
+}
+
+function readOptionalNonNegativeNumber(input: {
+  body: Record<string, unknown>;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, input.key)) {
+    return undefined;
+  }
+
+  const value = input.body[input.key];
+
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    input.diagnostics.push(`${input.fileLabel} の ${input.key} が不正です。`);
+    return undefined;
+  }
+
+  return value;
 }
 
 function validateDriveProjectAssetBlobFetchInput(input: {

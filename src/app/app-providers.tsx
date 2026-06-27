@@ -221,9 +221,13 @@ export type ProjectSlideSummary = {
   assetIdPart: string;
   assetFileId: string;
   assetName: string;
+  type?: "image" | "video";
   mimeType: string;
   sourceMimeType: string;
   sourceCreateTime: string;
+  fileSize?: number;
+  durationMs?: number;
+  unsupportedReason?: string;
   durationSeconds: number;
   caption: string;
   verified: boolean;
@@ -4432,9 +4436,17 @@ function toProjectDetails(details: DriveProjectReadyDetails): ProjectDetails {
       assetIdPart: formatIdPart(slide.assetId),
       assetFileId: slide.assetFileId,
       assetName: slide.assetName,
+      ...(slide.type ? { type: slide.type } : {}),
       mimeType: slide.mimeType,
       sourceMimeType: slide.sourceMimeType,
       sourceCreateTime: slide.sourceCreateTime ?? "取得なし",
+      ...(typeof slide.fileSize === "number" ? { fileSize: slide.fileSize } : {}),
+      ...(typeof slide.durationMs === "number"
+        ? { durationMs: slide.durationMs }
+        : {}),
+      ...(slide.unsupportedReason
+        ? { unsupportedReason: slide.unsupportedReason }
+        : {}),
       durationSeconds: slide.durationSeconds,
       caption: slide.caption,
       verified: true,

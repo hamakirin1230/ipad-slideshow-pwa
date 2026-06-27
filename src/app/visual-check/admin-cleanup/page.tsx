@@ -10,6 +10,7 @@ import {
 
 type MockCleanupAsset = {
   assetName: string;
+  assetType: "image" | "video" | "unknown";
   assetFileId: string;
   assetId: string;
   mimeType: string;
@@ -22,7 +23,8 @@ type MockCleanupAsset = {
 };
 
 const cleanupTableGridStyle: CSSProperties = {
-  gridTemplateColumns: "4rem 24rem 18rem 18rem 14rem 9rem 18rem 18rem 10rem 28rem",
+  gridTemplateColumns:
+    "4rem 24rem 8rem 18rem 18rem 14rem 9rem 18rem 18rem 10rem 28rem",
 };
 
 const preflightSummaryGridStyle: CSSProperties = {
@@ -33,6 +35,7 @@ const mockAssets: MockCleanupAsset[] = [
   {
     assetName:
       "2026年度_体育館_卒業式リハーサル_横長スクリーン確認用_とても長いファイル名_mock_only_image_001.jpg",
+    assetType: "image",
     assetFileId:
       "mock-file-id-visual-check-admin-cleanup-super-long-segment-001-not-real",
     assetId:
@@ -48,6 +51,7 @@ const mockAssets: MockCleanupAsset[] = [
   {
     assetName:
       "文化祭_入口サイネージ_差し替え前_旧バージョン_参照が残っている想定_mock_only_image_very_long_name.webp",
+    assetType: "image",
     assetFileId:
       "mock-file-id-visual-check-admin-cleanup-blocked-row-002-not-real",
     assetId:
@@ -64,6 +68,7 @@ const mockAssets: MockCleanupAsset[] = [
   {
     assetName:
       "metadata_missing_mock_only_asset_name_is_long_enough_to_test_truncation_without_real_drive_data.png",
+    assetType: "unknown",
     assetFileId:
       "mock-file-id-missing-metadata-row-003-not-real-and-not-drive-shaped",
     assetId:
@@ -76,6 +81,22 @@ const mockAssets: MockCleanupAsset[] = [
     status: "unknown",
     blockedReason:
       "missing required metadata, unsupported type label, visual check only",
+  },
+  {
+    assetName:
+      "mock-only-video-001_long_name_for_video_schema_groundwork_visual_check.mp4",
+    assetType: "video",
+    assetFileId:
+      "mock-file-id-video-schema-groundwork-row-004-not-real-and-not-drive-shaped",
+    assetId:
+      "mock-asset-id-video-schema-groundwork-row-004-not-real-and-not-drive-shaped",
+    mimeType: "video/mp4",
+    size: "18.4 MB",
+    createdTime: "2026-06-27T09:30:00.000+09:00 mock-created",
+    modifiedTime: "2026-06-27T09:45:00.000+09:00 mock-modified",
+    references: "0",
+    status: "blocked",
+    blockedReason: "video playback not implemented yet; schema mock only",
   },
 ];
 
@@ -272,13 +293,14 @@ export default function AdminCleanupVisualCheckPage() {
 function MockCleanupTable({ assets }: { assets: MockCleanupAsset[] }) {
   return (
     <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200">
-      <div className="min-w-[154rem]">
+      <div className="min-w-[164rem]">
         <div
           className="grid gap-4 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-500"
           style={cleanupTableGridStyle}
         >
           <p className="whitespace-nowrap">select</p>
           <p className="whitespace-nowrap">assetName</p>
+          <p className="whitespace-nowrap">type</p>
           <p className="whitespace-nowrap">assetFileId</p>
           <p className="whitespace-nowrap">assetId</p>
           <p className="whitespace-nowrap">mimeType</p>
@@ -307,6 +329,7 @@ function MockCleanupTable({ assets }: { assets: MockCleanupAsset[] }) {
                   />
                 </label>
                 <TruncatedCell value={asset.assetName} strong />
+                <TruncatedCell value={asset.assetType} mono />
                 <TruncatedCell value={asset.assetFileId} mono />
                 <TruncatedCell value={asset.assetId} mono />
                 <TruncatedCell value={asset.mimeType} mono />

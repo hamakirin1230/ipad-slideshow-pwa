@@ -3,7 +3,9 @@
 import {
   fetchDriveProjectAssetBlob,
   readDriveTextFile,
+  type DriveAssetType,
   type DriveAssetMimeType,
+  type DriveAssetUnsupportedReason,
   type DriveProjectReadyDetails,
   type DriveProjectSummary,
   type DriveSlideSummary,
@@ -32,7 +34,7 @@ type JsonRecord = Record<string, unknown>;
 type DriveOfflineAssetMetadata = {
   id: string;
   name: string;
-  mimeType: DriveAssetMimeType;
+  mimeType: string;
   modifiedTime?: string;
   sizeBytes: number;
   parents?: string[];
@@ -91,6 +93,7 @@ export async function fetchDriveOfflineStagingSnapshot(
   });
 
   const assetPairs: OfflineStagingAssetPairInput[] = [];
+  const offlineSlides: DriveSlideSummary[] = [];
   const diagnostics: string[] = [
     "Drive manifest.json をoffline staging snapshot用に読み取りました。",
   ];
@@ -110,6 +113,14 @@ export async function fetchDriveOfflineStagingSnapshot(
       expectedAssetsFolderId: input.project.assetsFolderId,
       slideIndex: order,
     });
+
+    if (!isDriveAssetMimeType(slide.mimeType)) {
+      diagnostics.push(
+        `manifest.json.slides[${order}] はoffline sync未対応のasset typeのためskipしました。`,
+        "動画assetのdownload / offline保存 / player再生はまだ実装していません。",
+      );
+      continue;
+    }
 
     const blob = await fetchDriveProjectAssetBlob({
       accessToken: input.accessToken,
@@ -133,6 +144,7 @@ export async function fetchDriveOfflineStagingSnapshot(
         syncedAt: input.syncedAt,
       }),
     );
+    offlineSlides.push(slide);
 
     diagnostics.push(
       `manifest.json.slides[${order}] のasset metadata/blobを取得しました。`,
@@ -142,6 +154,7 @@ export async function fetchDriveOfflineStagingSnapshot(
   const offlineProject = buildOfflineProject({
     project: input.project,
     manifest,
+    slides: offlineSlides,
     syncedAt: input.syncedAt,
   });
 
@@ -150,9 +163,9 @@ export async function fetchDriveOfflineStagingSnapshot(
     assetPairs,
     details: {
       project: input.project,
-      slides: manifest.slides,
-      slideCount: manifest.slides.length,
-      assetCount: manifest.slides.length,
+      slides: offlineSlides,
+      slideCount: offlineSlides.length,
+      assetCount: assetPairs.length,
     },
     diagnostics: [
       ...diagnostics,
@@ -286,16 +299,11 @@ function normalizeDriveOfflineAssetMetadata(
     diagnostics,
   });
 
-  if (rawMimeType && !isDriveAssetMimeType(rawMimeType)) {
-    diagnostics.push("Drive asset metadata のmimeTypeが対応外です。");
-  }
-
   if (
     diagnostics.length > 0 ||
     !id ||
     !name ||
     !rawMimeType ||
-    !isDriveAssetMimeType(rawMimeType) ||
     typeof sizeBytes !== "number"
   ) {
     throw new DriveOfflineStagingSnapshotError(diagnostics);
@@ -561,6 +569,40 @@ function normalizeDriveOfflineManifestSlide(
     key: "mimeType",
     diagnostics: localDiagnostics,
   });
+  const assetType = readOptionalDriveAssetType({
+    body: value,
+    fileLabel,
+    key: "type",
+    diagnostics: localDiagnostics,
+  });
+  const normalizedAssetType = assetType ?? "image";
+  const fileSize = readOptionalNonNegativeNumber({
+    body: value,
+    fileLabel,
+    key: "fileSize",
+    diagnostics: localDiagnostics,
+  });
+  const durationMs = readOptionalPositiveNumber({
+    body: value,
+    fileLabel,
+    key: "durationMs",
+    diagnostics: localDiagnostics,
+  });
+  const explicitUnsupportedReason = readOptionalDriveAssetUnsupportedReason({
+    body: value,
+    fileLabel,
+    key: "unsupportedReason",
+    diagnostics: localDiagnostics,
+  });
+  const mimeTypeUnsupportedReason = rawMimeType
+    ? validateDriveManifestAssetMimeType({
+        assetType: normalizedAssetType,
+        mimeType: rawMimeType,
+        fileLabel,
+        diagnostics: localDiagnostics,
+      })
+    : undefined;
+  const unsupportedReason = mimeTypeUnsupportedReason ?? explicitUnsupportedReason;
 
   const source = readRequiredNonEmptyString({
     body: value,
@@ -622,10 +664,6 @@ function normalizeDriveOfflineManifestSlide(
     localDiagnostics.push(`${fileLabel} のsourceが想定と一致していません。`);
   }
 
-  if (rawMimeType && !isDriveAssetMimeType(rawMimeType)) {
-    localDiagnostics.push(`${fileLabel} のmimeTypeが対応外です。`);
-  }
-
   diagnostics.push(...localDiagnostics);
 
   if (
@@ -635,7 +673,6 @@ function normalizeDriveOfflineManifestSlide(
     !assetFileId ||
     !assetName ||
     !rawMimeType ||
-    !isDriveAssetMimeType(rawMimeType) ||
     source !== "googlePhotosPicker" ||
     !sourceMimeType ||
     !sourceMediaItemId ||
@@ -652,11 +689,15 @@ function normalizeDriveOfflineManifestSlide(
     assetId,
     assetFileId,
     assetName,
+    ...(assetType ? { type: assetType } : {}),
     mimeType: rawMimeType,
     source: "googlePhotosPicker",
     sourceMimeType,
     sourceMediaItemId,
     ...(sourceCreateTime ? { sourceCreateTime } : {}),
+    ...(typeof fileSize === "number" ? { fileSize } : {}),
+    ...(typeof durationMs === "number" ? { durationMs } : {}),
+    ...(unsupportedReason ? { unsupportedReason } : {}),
     durationSeconds,
     caption,
     createdAt,
@@ -707,13 +748,14 @@ function validateNoDuplicateValues(
 function buildOfflineProject(input: {
   project: DriveProjectSummary;
   manifest: DriveOfflineProjectManifest;
+  slides: DriveSlideSummary[];
   syncedAt: IsoDateTimeString;
 }): OfflineProject {
   return {
     schemaVersion: OFFLINE_SCHEMA_VERSION,
     projectId: input.project.projectId,
     projectTitle: input.project.title,
-    slides: input.manifest.slides.map(toOfflineProjectSlide),
+    slides: input.slides.map(toOfflineProjectSlide),
     sourceManifestFileId: input.project.manifestFileId,
     sourceUpdatedAt: input.manifest.updatedAt,
     syncedAt: input.syncedAt,
@@ -727,8 +769,13 @@ function toOfflineProjectSlide(
   return {
     slideId: slide.slideId,
     assetId: slide.assetId,
+    ...(slide.type ? { type: slide.type } : {}),
     caption: slide.caption,
     durationSeconds: slide.durationSeconds,
+    ...(typeof slide.durationMs === "number" ? { durationMs: slide.durationMs } : {}),
+    ...(slide.unsupportedReason
+      ? { unsupportedReason: slide.unsupportedReason }
+      : {}),
     order,
     createdAt: slide.createdAt,
     updatedAt: slide.updatedAt,
@@ -751,6 +798,13 @@ function buildOfflineStagingAssetPair(input: {
     sourceMimeType: input.assetMetadata.mimeType,
     sourceSizeBytes: input.assetMetadata.sizeBytes,
     sourceUpdatedAt: input.assetMetadata.modifiedTime,
+    ...(input.slide.type ? { type: input.slide.type } : {}),
+    ...(typeof input.slide.durationMs === "number"
+      ? { durationMs: input.slide.durationMs }
+      : {}),
+    ...(input.slide.unsupportedReason
+      ? { unsupportedReason: input.slide.unsupportedReason }
+      : {}),
     blobMimeType: input.slide.mimeType,
     blobSizeBytes: input.blob.size,
     blobVariant: "original",
@@ -952,6 +1006,10 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function hasOwnKey(record: JsonRecord, key: string) {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -962,4 +1020,121 @@ function isIsoDateTimeString(value: string): boolean {
 
 function isDriveAssetMimeType(value: string): value is DriveAssetMimeType {
   return value === "image/jpeg" || value === "image/png" || value === "image/webp";
+}
+
+function isVideoMimeType(value: string) {
+  return value.toLowerCase().startsWith("video/");
+}
+
+function validateDriveManifestAssetMimeType(input: {
+  assetType: DriveAssetType;
+  mimeType: string;
+  fileLabel: string;
+  diagnostics: string[];
+}): DriveAssetUnsupportedReason | undefined {
+  if (input.assetType === "image") {
+    if (!isDriveAssetMimeType(input.mimeType)) {
+      input.diagnostics.push(`${input.fileLabel} のmimeTypeが対応外です。`);
+      return "unsupportedMimeType";
+    }
+
+    return undefined;
+  }
+
+  if (input.mimeType === "video/mp4") {
+    return "videoPlaybackNotImplemented";
+  }
+
+  if (isVideoMimeType(input.mimeType)) {
+    return "unsupportedVideoMimeType";
+  }
+
+  input.diagnostics.push(`${input.fileLabel} のvideo mimeTypeが対応外です。`);
+  return "unsupportedMimeType";
+}
+
+function readOptionalDriveAssetType(input: {
+  body: JsonRecord;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}): DriveAssetType | undefined {
+  if (!hasOwnKey(input.body, input.key)) {
+    return undefined;
+  }
+
+  const value = input.body[input.key];
+
+  if (value === "image" || value === "video") {
+    return value;
+  }
+
+  input.diagnostics.push(
+    `${input.fileLabel} の${input.key}はimageまたはvideoである必要があります。`,
+  );
+  return undefined;
+}
+
+function readOptionalDriveAssetUnsupportedReason(input: {
+  body: JsonRecord;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}): DriveAssetUnsupportedReason | undefined {
+  if (!hasOwnKey(input.body, input.key)) {
+    return undefined;
+  }
+
+  const value = input.body[input.key];
+
+  if (
+    value === "videoPlaybackNotImplemented" ||
+    value === "unsupportedVideoMimeType" ||
+    value === "unsupportedMimeType"
+  ) {
+    return value;
+  }
+
+  input.diagnostics.push(`${input.fileLabel} の${input.key}が対応外です。`);
+  return undefined;
+}
+
+function readOptionalPositiveNumber(input: {
+  body: JsonRecord;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, input.key)) {
+    return undefined;
+  }
+
+  const value = input.body[input.key];
+
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    input.diagnostics.push(`${input.fileLabel} の${input.key}が不正です。`);
+    return undefined;
+  }
+
+  return value;
+}
+
+function readOptionalNonNegativeNumber(input: {
+  body: JsonRecord;
+  fileLabel: string;
+  key: string;
+  diagnostics: string[];
+}) {
+  if (!hasOwnKey(input.body, input.key)) {
+    return undefined;
+  }
+
+  const value = input.body[input.key];
+
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    input.diagnostics.push(`${input.fileLabel} の${input.key}が不正です。`);
+    return undefined;
+  }
+
+  return value;
 }

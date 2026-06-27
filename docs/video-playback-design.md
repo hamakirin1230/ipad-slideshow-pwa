@@ -223,6 +223,32 @@ admin取り込みでの初期案:
 - staging validation / confirmed validationの拡張。
 - lint / build。
 
+2026-06-27実施範囲:
+
+- Drive manifest slideのschema groundworkとして、optionalな `type`、`fileSize`、`durationMs`、`unsupportedReason` を認識する。
+- `type` 不在の既存assetは `image` として扱う。
+- `type: "image"` + `image/jpeg` / `image/png` / `image/webp` は従来どおり画像assetとして扱う。
+- `type: "video"` + `video/mp4` はrecognized video candidateとして扱う。ただしplayer再生、download、offline保存は未実装のため `videoPlaybackNotImplemented` を付与できる。
+- `type: "video"` + `video/quicktime` / `video/webm` / その他 `video/*` は `unsupportedVideoMimeType` を付与できる。
+- `unsupportedReason` はmanifest明示値よりmimeTypeからの機械判定を優先する。
+- offline schemaにもoptionalな `type`、`durationMs`、`unsupportedReason` を追加し、既存confirmed store recordの後方互換性を保つ。
+- offline syncは画像assetのみをdownload対象にする。video assetを見つけても動画download / IndexedDB保存 / player再生へは進めず、画像assetのoffline syncは継続する。
+- video assetはstaging snapshotのconfirmed再生対象から除外し、diagnosticsにskip理由を残す。
+- `/visual-check/admin-cleanup` にmock-onlyのvideo rowを追加した。
+
+Phase 2でまだ実装していないこと:
+
+- `<video>` rendering。
+- autoplay / playsInline / ended / error handling。
+- video download。
+- video Blob / Blob URL生成。
+- IndexedDBへの動画Blob保存。
+- Cache Storageへの動画保存。
+- Drive media downloadの動画対応。
+- Photos Picker scope変更。
+- admin上の本格的なvideo asset表示。
+- player slide progression変更。
+
 ### Phase 3: admin visibility
 
 - admin上で動画assetを識別。
