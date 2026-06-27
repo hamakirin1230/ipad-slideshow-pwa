@@ -491,6 +491,7 @@ export function DriveProjectWorkspacePanel() {
                                 </div>
                                 <DriveSlidePreview
                                   assetFileId={slide.assetFileId}
+                                  assetType={getAssetTypeLabel(slide.type)}
                                   mimeType={slide.mimeType}
                                   assetName={slide.assetName}
                                   fetchProjectSlidePreviewBlob={
@@ -498,7 +499,23 @@ export function DriveProjectWorkspacePanel() {
                                   }
                                 />
                                 <div>
-                                  <p className="font-medium">{slide.assetName}</p>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="font-medium">{slide.assetName}</p>
+                                    <Badge
+                                      variant={
+                                        getAssetTypeLabel(slide.type) === "video"
+                                          ? "secondary"
+                                          : "outline"
+                                      }
+                                    >
+                                      type: {getAssetTypeLabel(slide.type)}
+                                    </Badge>
+                                    {slide.unsupportedReason ? (
+                                      <Badge variant="destructive">
+                                        {slide.unsupportedReason}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
                                   <p className="mt-1 text-xs text-slate-500">
                                     source: {slide.sourceMimeType} / createTime:{" "}
                                     {slide.sourceCreateTime}
@@ -507,6 +524,16 @@ export function DriveProjectWorkspacePanel() {
                                     slide: {slide.slideIdPart} /{" "}
                                     {slide.durationSeconds}秒 / {slide.mimeType}
                                   </p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    durationMs:{" "}
+                                    {formatOptionalNumber(slide.durationMs)} / size:{" "}
+                                    {formatOptionalBytes(slide.fileSize)}
+                                  </p>
+                                  {getAssetTypeLabel(slide.type) === "video" ? (
+                                    <p className="mt-1 text-xs leading-5 text-amber-700">
+                                      動画は認識のみ。再生・download・offline保存は未実装です。
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <SlideReorderControls
                                   slideId={slide.slideId}
@@ -802,11 +829,13 @@ type DriveSlidePreviewState =
 
 function DriveSlidePreview({
   assetFileId,
+  assetType,
   mimeType,
   assetName,
   fetchProjectSlidePreviewBlob,
 }: {
   assetFileId: string;
+  assetType: "image" | "video";
   mimeType: string;
   assetName: string;
   fetchProjectSlidePreviewBlob: (
@@ -820,6 +849,10 @@ function DriveSlidePreview({
   });
 
   useEffect(() => {
+    if (assetType !== "image") {
+      return;
+    }
+
     const abortController = new AbortController();
     let createdObjectUrl: string | null = null;
     let isMounted = true;
@@ -862,7 +895,15 @@ function DriveSlidePreview({
         createdObjectUrl = null;
       }
     };
-  }, [assetFileId, fetchProjectSlidePreviewBlob, mimeType]);
+  }, [assetFileId, assetType, fetchProjectSlidePreviewBlob, mimeType]);
+
+  if (assetType !== "image") {
+    return (
+      <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-2 text-center text-xs text-amber-800">
+        動画は認識のみ
+      </div>
+    );
+  }
 
   if (previewState.status === "loading") {
     return (
@@ -892,4 +933,32 @@ function DriveSlidePreview({
       />
     </>
   );
+}
+
+function getAssetTypeLabel(value: "image" | "video" | undefined) {
+  return value ?? "image";
+}
+
+function formatOptionalNumber(value: number | undefined) {
+  return typeof value === "number" ? `${value}` : "未設定";
+}
+
+function formatOptionalBytes(value: number | undefined) {
+  return typeof value === "number" ? formatBytes(value) : "未設定";
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return "未設定";
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

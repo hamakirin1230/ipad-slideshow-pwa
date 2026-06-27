@@ -15,6 +15,8 @@ type MockCleanupAsset = {
   assetId: string;
   mimeType: string;
   size: string;
+  durationMs: string;
+  unsupportedReason: string;
   createdTime: string;
   modifiedTime: string;
   references: string;
@@ -24,11 +26,11 @@ type MockCleanupAsset = {
 
 const cleanupTableGridStyle: CSSProperties = {
   gridTemplateColumns:
-    "4rem 24rem 8rem 18rem 18rem 14rem 9rem 18rem 18rem 10rem 28rem",
+    "4rem 24rem 8rem 18rem 18rem 14rem 10rem 12rem 18rem 18rem 10rem 34rem",
 };
 
 const preflightSummaryGridStyle: CSSProperties = {
-  gridTemplateColumns: "22rem 18rem 9rem 28rem",
+  gridTemplateColumns: "8rem 18rem 14rem 12rem 10rem 9rem 34rem 34rem",
 };
 
 const mockAssets: MockCleanupAsset[] = [
@@ -42,6 +44,8 @@ const mockAssets: MockCleanupAsset[] = [
       "mock-asset-id-project-alpha-section-main-visual-check-row-001-not-real",
     mimeType: "image/jpeg; mock-preview-long-mimetype-label",
     size: "2.4 MB",
+    durationMs: "未設定",
+    unsupportedReason: "なし",
     createdTime: "2026-06-23T09:12:34.000+09:00 mock-created",
     modifiedTime: "2026-06-23T10:45:21.000+09:00 mock-modified",
     references: "0",
@@ -58,6 +62,8 @@ const mockAssets: MockCleanupAsset[] = [
       "mock-asset-id-project-beta-stage-left-visual-check-row-002-not-real",
     mimeType: "image/webp; mock-preview-long-mimetype-label",
     size: "5.8 MB",
+    durationMs: "未設定",
+    unsupportedReason: "なし",
     createdTime: "2026-06-20T18:01:02.000+09:00 mock-created",
     modifiedTime: "2026-06-22T21:09:44.000+09:00 mock-modified",
     references: "2",
@@ -75,6 +81,8 @@ const mockAssets: MockCleanupAsset[] = [
       "mock-asset-id-missing-metadata-row-003-not-real-and-not-drive-shaped",
     mimeType: "取得なし mock-missing-mimetype",
     size: "取得なし",
+    durationMs: "取得なし",
+    unsupportedReason: "unsupportedMimeType",
     createdTime: "取得なし mock-created-time",
     modifiedTime: "取得なし mock-modified-time",
     references: "不明",
@@ -92,11 +100,69 @@ const mockAssets: MockCleanupAsset[] = [
       "mock-asset-id-video-schema-groundwork-row-004-not-real-and-not-drive-shaped",
     mimeType: "video/mp4",
     size: "18.4 MB",
+    durationMs: "124000 ms / 124秒",
+    unsupportedReason: "videoPlaybackNotImplemented",
     createdTime: "2026-06-27T09:30:00.000+09:00 mock-created",
     modifiedTime: "2026-06-27T09:45:00.000+09:00 mock-modified",
     references: "0",
     status: "blocked",
     blockedReason: "video playback not implemented yet; schema mock only",
+  },
+  {
+    assetName:
+      "mock-only-video-quicktime-unsupported-long-name-for-admin-visibility-check.mov",
+    assetType: "video",
+    assetFileId:
+      "mock-file-id-video-quicktime-row-005-not-real-and-not-drive-shaped",
+    assetId:
+      "mock-asset-id-video-quicktime-row-005-not-real-and-not-drive-shaped",
+    mimeType: "video/quicktime",
+    size: "42.9 MB",
+    durationMs: "305000 ms / 305秒",
+    unsupportedReason:
+      "unsupportedVideoMimeType: quicktime is recognized for admin review but playback download offline storage are not implemented",
+    createdTime: "2026-06-27T10:00:00.000+09:00 mock-created",
+    modifiedTime: "2026-06-27T10:05:00.000+09:00 mock-modified",
+    references: "0",
+    status: "blocked",
+    blockedReason:
+      "unsupportedVideoMimeType, video playback not implemented yet, visual check only",
+  },
+  {
+    assetName:
+      "mock-only-video-webm-unsupported-long-name-for-admin-visibility-check.webm",
+    assetType: "video",
+    assetFileId:
+      "mock-file-id-video-webm-row-006-not-real-and-not-drive-shaped",
+    assetId:
+      "mock-asset-id-video-webm-row-006-not-real-and-not-drive-shaped",
+    mimeType: "video/webm",
+    size: "29.7 MB",
+    durationMs: "98000 ms / 98秒",
+    unsupportedReason: "unsupportedVideoMimeType",
+    createdTime: "2026-06-27T10:10:00.000+09:00 mock-created",
+    modifiedTime: "2026-06-27T10:15:00.000+09:00 mock-modified",
+    references: "1",
+    status: "blocked",
+    blockedReason: "still referenced, unsupportedVideoMimeType",
+  },
+  {
+    assetName:
+      "mock-only-unknown-mimetype-long-name-for-admin-video-visibility-check.bin",
+    assetType: "unknown",
+    assetFileId:
+      "mock-file-id-unknown-mimetype-row-007-not-real-and-not-drive-shaped",
+    assetId:
+      "mock-asset-id-unknown-mimetype-row-007-not-real-and-not-drive-shaped",
+    mimeType: "application/octet-stream; mock-unknown",
+    size: "9.1 MB",
+    durationMs: "取得なし",
+    unsupportedReason: "unsupportedMimeType",
+    createdTime: "2026-06-27T10:20:00.000+09:00 mock-created",
+    modifiedTime: "2026-06-27T10:25:00.000+09:00 mock-modified",
+    references: "0",
+    status: "unknown",
+    blockedReason: "unsupportedMimeType, visual check only",
   },
 ];
 
@@ -107,6 +173,7 @@ const safetyItems = [
   "Google login は不要です。",
   "Drive API は使いません。",
   "削除処理はありません。",
+  "動画は認識のみ。再生・download・offline保存は未実装です。",
   "秘密値、認証ヘッダー、生レスポンス、取得用URL、バイナリ参照は表示しません。",
 ];
 
@@ -159,11 +226,11 @@ export default function AdminCleanupVisualCheckPage() {
         </Card>
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <SummaryPill label="scanned asset files" value="42件" />
-          <SummaryPill label="referenced asset files" value="29件" />
-          <SummaryPill label="unused asset files" value="3件" />
-          <SummaryPill label="ignored files" value="10件" />
-          <SummaryPill label="unused total size" value="8.2 MB" />
+          <SummaryPill label="scanned asset files" value="46件" />
+          <SummaryPill label="referenced asset files" value="31件" />
+          <SummaryPill label="unused asset files" value="7件" />
+          <SummaryPill label="ignored files" value="8件" />
+          <SummaryPill label="unused total size" value="108.3 MB" />
         </section>
 
         <Card className="bg-white text-slate-950">
@@ -192,10 +259,10 @@ export default function AdminCleanupVisualCheckPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-              <SummaryPill label="checked" value="3件" subtle />
+              <SummaryPill label="checked" value="7件" subtle />
               <SummaryPill label="eligible" value="1件" subtle />
-              <SummaryPill label="blocked" value="1件" subtle />
-              <SummaryPill label="unknown" value="1件" subtle />
+              <SummaryPill label="blocked" value="4件" subtle />
+              <SummaryPill label="unknown" value="2件" subtle />
               <SummaryPill label="eligible total size" value="2.4 MB" subtle />
             </div>
 
@@ -221,7 +288,7 @@ export default function AdminCleanupVisualCheckPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="max-w-full overflow-x-auto">
-              <div className="min-w-[64rem] space-y-2 pr-1">
+              <div className="min-w-[156rem] space-y-2 pr-1">
                 {eligibleAssets.map((asset) => (
                   <PreflightAssetSummary key={asset.assetFileId} asset={asset} />
                 ))}
@@ -293,7 +360,7 @@ export default function AdminCleanupVisualCheckPage() {
 function MockCleanupTable({ assets }: { assets: MockCleanupAsset[] }) {
   return (
     <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200">
-      <div className="min-w-[164rem]">
+      <div className="min-w-[190rem]">
         <div
           className="grid gap-4 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-500"
           style={cleanupTableGridStyle}
@@ -305,9 +372,11 @@ function MockCleanupTable({ assets }: { assets: MockCleanupAsset[] }) {
           <p className="whitespace-nowrap">assetId</p>
           <p className="whitespace-nowrap">mimeType</p>
           <p className="whitespace-nowrap">size</p>
+          <p className="whitespace-nowrap">durationMs</p>
           <p className="whitespace-nowrap">createdTime</p>
           <p className="whitespace-nowrap">modifiedTime</p>
           <p className="whitespace-nowrap">status</p>
+          <p className="whitespace-nowrap">unsupportedReason</p>
           <p className="whitespace-nowrap">blocked reason</p>
         </div>
 
@@ -336,9 +405,11 @@ function MockCleanupTable({ assets }: { assets: MockCleanupAsset[] }) {
                 <p className="whitespace-nowrap font-mono text-xs text-slate-900">
                   {asset.size}
                 </p>
+                <TruncatedCell value={asset.durationMs} mono />
                 <TruncatedCell value={asset.createdTime} mono />
                 <TruncatedCell value={asset.modifiedTime} mono />
                 <StatusBadge status={asset.status} />
+                <TruncatedCell value={asset.unsupportedReason} />
                 <TruncatedCell value={asset.blockedReason} />
               </div>
             ))}
@@ -367,7 +438,7 @@ function PreflightAssetList({
       <p className="font-medium text-slate-900">{title}</p>
       {assets.length > 0 ? (
         <div className="mt-2 max-w-full overflow-x-auto">
-          <div className="min-w-[78rem] space-y-2 pr-1">
+          <div className="min-w-[156rem] space-y-2 pr-1">
             {assets.map((asset) => (
               <PreflightAssetSummary key={asset.assetFileId} asset={asset} />
             ))}
@@ -388,9 +459,13 @@ function PreflightAssetSummary({ asset }: { asset: MockCleanupAsset }) {
         <StatusBadge status={asset.status} />
       </div>
       <dl className="mt-2 grid gap-2" style={preflightSummaryGridStyle}>
+        <SummaryRow label="type" value={asset.assetType} mono />
         <SummaryRow label="assetFileId" value={asset.assetFileId} mono />
+        <SummaryRow label="mimeType" value={asset.mimeType} mono />
+        <SummaryRow label="durationMs" value={asset.durationMs} mono />
         <SummaryRow label="size" value={asset.size} mono />
         <SummaryRow label="references" value={asset.references} mono />
+        <SummaryRow label="unsupported" value={asset.unsupportedReason} />
         <SummaryRow label="blocked" value={asset.blockedReason} />
       </dl>
     </div>

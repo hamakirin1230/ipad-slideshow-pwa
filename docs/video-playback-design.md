@@ -256,6 +256,25 @@ Phase 2でまだ実装していないこと:
 - `/visual-check/admin-cleanup` のmock更新。
 - cleanup previewの表示確認。
 
+2026-06-27実施範囲:
+
+- `/admin` のproject slide一覧で `type`、`durationMs`、`fileSize`、`unsupportedReason` を表示する。
+- video assetのpreview枠は認識状態のみを表示し、preview Blob取得へ進めない。
+- cleanup preview table / preflight eligible list / preflight blocked list / confirm previewに、mimeType由来のtypeとunsupported reasonを横スクロール内で表示する。
+- `/visual-check/admin-cleanup` に `video/mp4`、`video/quicktime`、`video/webm`、unknown MIME typeのmock rowを追加し、長いduration / unsupported reasonの崩れを確認できるようにする。
+
+Phase 3でまだ実装していないこと:
+
+- `<video>` rendering。
+- autoplay / playsInline / ended / error handling。
+- video download。
+- video Blob / Blob URL生成。
+- IndexedDBやCache Storageへの動画保存。
+- Drive media downloadの動画対応。
+- Photos Picker scope変更。
+- player slide progression変更。
+- Drive file物理削除またはDrive file delete API。
+
 ### Phase 4: offline sync
 
 - 動画assetのoffline保存方針を実装。

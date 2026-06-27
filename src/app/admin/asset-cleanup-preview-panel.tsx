@@ -17,11 +17,12 @@ import type {
 } from "@/lib/google-drive";
 
 const unusedAssetTableGridStyle: CSSProperties = {
-  gridTemplateColumns: "4rem 22rem 10rem 10rem 10rem 8rem 14rem 14rem 8rem",
+  gridTemplateColumns:
+    "4rem 22rem 7rem 10rem 10rem 10rem 8rem 14rem 14rem 8rem 24rem",
 };
 
 const preflightAssetSummaryGridStyle: CSSProperties = {
-  gridTemplateColumns: "18rem 10rem 8rem 24rem",
+  gridTemplateColumns: "8rem 14rem 10rem 8rem 24rem 24rem",
 };
 
 const deleteReadinessChecklistItems = [
@@ -302,13 +303,14 @@ export function AssetCleanupPreviewPanel() {
                 </div>
 
                 <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200">
-                  <div className="min-w-[112rem]">
+                  <div className="min-w-[148rem]">
                     <div
                       className="grid gap-4 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-500"
                       style={unusedAssetTableGridStyle}
                     >
                       <p className="whitespace-nowrap">select</p>
                       <p className="whitespace-nowrap">assetName</p>
+                      <p className="whitespace-nowrap">type</p>
                       <p className="whitespace-nowrap">assetFileId</p>
                       <p className="whitespace-nowrap">assetId</p>
                       <p className="whitespace-nowrap">mimeType</p>
@@ -316,6 +318,7 @@ export function AssetCleanupPreviewPanel() {
                       <p className="whitespace-nowrap">createdTime</p>
                       <p className="whitespace-nowrap">modifiedTime</p>
                       <p className="whitespace-nowrap">references</p>
+                      <p className="whitespace-nowrap">unsupportedReason</p>
                     </div>
                     <div className="divide-y divide-slate-200">
                       {unusedAssets.map((asset) => (
@@ -342,6 +345,12 @@ export function AssetCleanupPreviewPanel() {
                             title={asset.assetName}
                           >
                             {asset.assetName}
+                          </p>
+                          <p
+                            className="min-w-0 truncate font-mono text-xs"
+                            title={getAssetTypeFromMimeType(asset.mimeType)}
+                          >
+                            {getAssetTypeFromMimeType(asset.mimeType)}
                           </p>
                           <p
                             className="min-w-0 truncate font-mono text-xs"
@@ -378,6 +387,12 @@ export function AssetCleanupPreviewPanel() {
                           </p>
                           <p className="whitespace-nowrap">
                             {asset.referenceSlideCount}
+                          </p>
+                          <p
+                            className="min-w-0 truncate text-xs"
+                            title={getUnsupportedReasonLabel(asset.mimeType)}
+                          >
+                            {getUnsupportedReasonLabel(asset.mimeType)}
                           </p>
                         </div>
                       ))}
@@ -481,7 +496,7 @@ function PreflightResultPanel({
             </p>
             <div className="mt-3 max-w-full overflow-x-auto">
               {result.eligibleAssets.length > 0 ? (
-                <div className="min-w-[64rem] space-y-2 pr-1">
+                <div className="min-w-[96rem] space-y-2 pr-1">
                   {result.eligibleAssets.map((asset) => (
                     <PreflightAssetSummary
                       key={asset.assetFileId}
@@ -533,7 +548,7 @@ function PreflightAssetList({
       <p className="font-medium text-slate-900">{title}</p>
       {assets.length > 0 ? (
         <div className="mt-2 max-w-full overflow-x-auto">
-          <div className="min-w-[64rem] space-y-2 pr-1">
+          <div className="min-w-[96rem] space-y-2 pr-1">
             {assets.map((asset) => (
               <PreflightAssetSummary key={asset.assetFileId} asset={asset} />
             ))}
@@ -563,11 +578,24 @@ function PreflightAssetSummary({
         <Badge variant={asset.status === "eligible" ? "default" : "secondary"}>
           {asset.status}
         </Badge>
+        {getAssetTypeFromMimeType(asset.mimeType) === "video" ? (
+          <Badge variant="secondary">video</Badge>
+        ) : null}
       </div>
       <dl
         className="mt-2 grid gap-2"
         style={preflightAssetSummaryGridStyle}
       >
+        <SummaryRow
+          label="type"
+          value={getAssetTypeFromMimeType(asset.mimeType)}
+          mono
+        />
+        <SummaryRow
+          label="mimeType"
+          value={formatNullableValue(asset.mimeType)}
+          mono
+        />
         <SummaryRow
           label="assetFileId"
           value={asset.assetFileIdPart}
@@ -582,6 +610,10 @@ function PreflightAssetSummary({
           label="references"
           value={`${asset.referenceSlideCount}`}
           mono
+        />
+        <SummaryRow
+          label="unsupported"
+          value={getUnsupportedReasonLabel(asset.mimeType)}
         />
         <SummaryRow
           label="blocked"
@@ -680,6 +712,46 @@ function getBlockedReasonLabel(reason: string) {
 
 function formatNullableBytes(bytes: number | null) {
   return typeof bytes === "number" ? formatBytes(bytes) : "取得なし";
+}
+
+function formatNullableValue(value: string | null) {
+  return value && value.length > 0 ? value : "取得なし";
+}
+
+function getAssetTypeFromMimeType(mimeType: string | null) {
+  if (!mimeType) {
+    return "unknown";
+  }
+
+  if (mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp") {
+    return "image";
+  }
+
+  if (mimeType.startsWith("video/")) {
+    return "video";
+  }
+
+  return "unknown";
+}
+
+function getUnsupportedReasonLabel(mimeType: string | null) {
+  if (!mimeType) {
+    return "missingMimeType";
+  }
+
+  if (mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp") {
+    return "なし";
+  }
+
+  if (mimeType === "video/mp4") {
+    return "videoPlaybackNotImplemented";
+  }
+
+  if (mimeType.startsWith("video/")) {
+    return "unsupportedVideoMimeType";
+  }
+
+  return "unsupportedMimeType";
 }
 
 function formatBytes(bytes: number) {
