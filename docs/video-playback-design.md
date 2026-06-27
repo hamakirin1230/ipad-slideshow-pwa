@@ -308,6 +308,26 @@ Phase 4でまだ実装していないこと:
 - image / video混在再生。
 - iPadホーム画面PWA確認。
 
+2026-06-27 Phase 5A実施範囲:
+
+- Playerに `type: "video"` のslide分岐を追加し、`video/mp4` だけを初期のvideo rendering候補として扱う。
+- `type` 未設定の既存slideは後方互換でimage扱いにする。
+- `unsupportedReason` があるslide、`video/mp4` 以外のvideo MIME typeはfallback対象にする。
+- video候補は `<video>` で `muted`、`playsInline`、`controls={false}`、`autoPlay`、`preload="auto"` を指定する。
+- `onEnded`、`onError`、`play()` rejection、再生開始/終了timeoutでPlayer全体を止めずfallbackまたは次slideへ進む。
+- object URLはmedia elementの `src` にだけ使い、画面テキスト、console、docsへ出さない。
+- `/visual-check/player-video` を追加し、実データ・認証・実動画なしでPlayerのvideo分岐とfallback表示を確認できるようにする。
+
+Phase 5Aでまだ実装していないこと:
+
+- Drive media downloadの動画対応。
+- video Blob取得のDrive API追加。
+- offline syncでvideoを保存対象にすること。
+- confirmed storeへ通常sync経由でvideoを流すこと。
+- IndexedDBやCache Storageへの動画保存。
+- poster生成またはthumbnail利用。
+- iPadホーム画面PWAでの実動画再生確認。
+
 ### Phase 6: polish / limits
 
 - poster生成またはthumbnail利用。

@@ -8,6 +8,8 @@ import {
   OFFLINE_PROJECTS_STORE,
   OFFLINE_SYNC_STATE_STORE,
   type OfflineAsset,
+  type OfflineAssetType,
+  type OfflineAssetUnsupportedReason,
   type OfflineAssetBlobRecord,
   type OfflineProject,
   type OfflineProjectSlide,
@@ -31,6 +33,10 @@ export type OfflinePlaybackSlide = {
   order: number;
   caption: string;
   durationSeconds: number;
+  type?: OfflineAssetType;
+  mimeType: string;
+  durationMs?: number;
+  unsupportedReason?: OfflineAssetUnsupportedReason;
   assetName?: string;
   sourceDriveFileId: string;
   blob: Blob;
@@ -481,6 +487,21 @@ function toOfflinePlaybackSlide(input: {
     order: input.slide.order,
     caption: input.slide.caption,
     durationSeconds: normalizeDurationSeconds(input.slide.durationSeconds),
+    ...(input.slide.type ?? input.asset.type
+      ? { type: input.slide.type ?? input.asset.type }
+      : {}),
+    mimeType: input.assetBlob.blobMimeType,
+    ...(typeof input.slide.durationMs === "number"
+      ? { durationMs: input.slide.durationMs }
+      : typeof input.asset.durationMs === "number"
+        ? { durationMs: input.asset.durationMs }
+        : {}),
+    ...(input.slide.unsupportedReason ?? input.asset.unsupportedReason
+      ? {
+          unsupportedReason:
+            input.slide.unsupportedReason ?? input.asset.unsupportedReason,
+        }
+      : {}),
     assetName: input.asset.sourceName,
     sourceDriveFileId: input.asset.sourceDriveFileId,
     blob: input.assetBlob.blob,

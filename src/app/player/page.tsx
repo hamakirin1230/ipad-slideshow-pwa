@@ -28,12 +28,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
+import type { OfflinePlaybackSlide } from "@/lib/offline-playback-snapshot";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
 const PLAYER_CONTROLS_HIDE_DELAY_MS = 4_000;
 const PLAYER_LOCK_HOLD_DURATION_MS = 2_000;
 const SLIDE_TRANSITION_DURATION_MS = 320;
+const PLAYER_VIDEO_START_TIMEOUT_MS = 4_000;
+const PLAYER_VIDEO_FALLBACK_DISPLAY_MS = 1_500;
+const PLAYER_VIDEO_MAX_FALLBACK_MS = 60_000;
 const PLAYER_PRESENTATION_MODE_STORAGE_KEY =
   "ipad-slideshow:player-presentation-mode";
 const PLAYER_AUTO_ADVANCE_INTERVAL_STORAGE_KEY =
@@ -51,7 +55,14 @@ type PlayerSlideImage = {
   assetName: string;
 };
 
+type PlayerSlideVideo = PlayerSlideImage & {
+  durationMs?: number;
+};
+
+type PlayerSlideMediaKind = "image" | "video" | "unsupported";
 type PlayerSlideImageStatus = "idle" | "ready" | "error";
+type PlayerSlideVideoStatus = "idle" | "ready" | "error";
+type PlayerVideoSlideAdvanceIntent = "next" | "fallback";
 
 const playerAutoAdvanceIntervalOptions: Array<{
   value: PlayerAutoAdvanceIntervalSeconds;
@@ -101,11 +112,23 @@ export default function PlayerPage() {
   const [imageStatus, setImageStatus] = useState<PlayerSlideImageStatus>(
     "idle",
   );
+  const [displayedSlideVideo, setDisplayedSlideVideo] =
+    useState<PlayerSlideVideo | null>(null);
+  const [videoStatus, setVideoStatus] = useState<PlayerSlideVideoStatus>(
+    "idle",
+  );
   const [slideTransitionDirection, setSlideTransitionDirection] =
     useState<SlideTransitionDirection>("none");
   const [isSlideTransitioning, setIsSlideTransitioning] = useState(false);
   const displayedSlideImageRef = useRef<PlayerSlideImage | null>(null);
   const previousSlideImageRef = useRef<PlayerSlideImage | null>(null);
+  const displayedSlideVideoRef = useRef<PlayerSlideVideo | null>(null);
+  const currentVideoSlideKeyRef = useRef<string | null>(null);
+  const handledVideoSlideAdvanceRef =
+    useRef<PlayerVideoSlideAdvanceIntent | null>(null);
+  const videoFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const slideTransitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -241,7 +264,8 @@ export default function PlayerPage() {
 
     const dx = event.clientX - start.clientX;
     const dy = event.clientY - start.clientY;
-    const canUseSwipeNavigation = slideCount > 0 && imageStatus !== "error";
+    const canUseSwipeNavigation =
+      slideCount > 0 && imageStatus !== "error" && videoStatus !== "error";
 
     if (Math.abs(dx) < 50) return;
     if (Math.abs(dx) <= Math.abs(dy)) return;
@@ -270,7 +294,8 @@ export default function PlayerPage() {
 
     const dx = event.clientX - start.clientX;
     const dy = event.clientY - start.clientY;
-    const canUseSwipeNavigation = slideCount > 0 && imageStatus !== "error";
+    const canUseSwipeNavigation =
+      slideCount > 0 && imageStatus !== "error" && videoStatus !== "error";
 
     if (!start.didTrigger) {
       if (
@@ -344,12 +369,21 @@ export default function PlayerPage() {
       : Math.max(0, Math.min(slideCount - 1, currentSlideIndex));
 
   const currentSlide = readySnapshot?.slides[safeCurrentSlideIndex] ?? null;
+  const currentSlidePlaybackKey = currentSlide
+    ? getPlayerSlidePlaybackKey(currentSlide)
+    : null;
 
   const currentSlideCaption =
     typeof currentSlide?.caption === "string" ? currentSlide.caption.trim() : "";
 
   const canRenderCurrentSlide =
     readySnapshot !== null && slideCount > 0 && currentSlide !== null;
+  const canPlay =
+    snapshotLoadStatus === "ready" &&
+    readySnapshot !== null &&
+    slideCount > 0 &&
+    currentSlide !== null;
+  const currentSlideMediaKind = getPlayerSlideMediaKind(currentSlide);
 
   const currentSlideDurationSeconds =
     currentSlide?.durationSeconds ?? DEFAULT_SLIDE_DURATION_SECONDS;
@@ -358,6 +392,7 @@ export default function PlayerPage() {
       ? null
       : (autoAdvanceIntervalSeconds ?? currentSlideDurationSeconds);
   const isCurrentImageLoaded =
+    currentSlideMediaKind === "image" &&
     imageStatus === "ready" &&
     displayedSlideImage !== null &&
     currentSlide !== null &&
@@ -370,16 +405,46 @@ export default function PlayerPage() {
     canRenderCurrentSlide ? (currentSlide?.assetId ?? null) : null;
   const currentSlideImageAssetName =
     canRenderCurrentSlide ? (currentSlide?.assetName ?? null) : null;
+  const currentSlideVideoDurationMs =
+    canRenderCurrentSlide && currentSlideMediaKind === "video"
+      ? currentSlide?.durationMs
+      : undefined;
+
+  useEffect(() => {
+    currentVideoSlideKeyRef.current = currentSlidePlaybackKey;
+    handledVideoSlideAdvanceRef.current = null;
+    clearPlayerTimeout(videoFallbackTimeoutRef);
+  }, [currentSlidePlaybackKey]);
+
+  const markVideoSlideAdvanceHandled = useCallback(
+    (
+      slideKey: string | null,
+      intent: PlayerVideoSlideAdvanceIntent,
+    ): boolean => {
+      if (!slideKey || currentVideoSlideKeyRef.current !== slideKey) {
+        return false;
+      }
+
+      if (handledVideoSlideAdvanceRef.current !== null) {
+        return false;
+      }
+
+      handledVideoSlideAdvanceRef.current = intent;
+      return true;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (
+      currentSlideMediaKind !== "image" ||
       !currentSlideBlob ||
       !currentSlideImageSlideId ||
       !currentSlideImageAssetId
     ) {
       queueMicrotask(() => {
         setImageStatus("idle");
-        clearSlideTransitionTimeout(slideTransitionTimeoutRef);
+        clearPlayerTimeout(slideTransitionTimeoutRef);
         revokeSlideImage(previousSlideImageRef.current);
         revokeSlideImage(displayedSlideImageRef.current);
         previousSlideImageRef.current = null;
@@ -440,7 +505,7 @@ export default function PlayerPage() {
       }
 
       adopted = true;
-      clearSlideTransitionTimeout(slideTransitionTimeoutRef);
+      clearPlayerTimeout(slideTransitionTimeoutRef);
 
       if (currentDisplayed) {
         const stalePrevious = previousSlideImageRef.current;
@@ -501,20 +566,134 @@ export default function PlayerPage() {
     currentSlideImageAssetId,
     currentSlideImageAssetName,
     currentSlideImageSlideId,
+    currentSlideMediaKind,
+  ]);
+
+  useEffect(() => {
+    if (
+      currentSlideMediaKind !== "video" ||
+      !currentSlideBlob ||
+      !currentSlideImageSlideId ||
+      !currentSlideImageAssetId
+    ) {
+      queueMicrotask(() => {
+        setVideoStatus("idle");
+        revokeSlideVideo(displayedSlideVideoRef.current);
+        displayedSlideVideoRef.current = null;
+        setDisplayedSlideVideo(null);
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let nextObjectUrl: string | null = null;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setVideoStatus("idle");
+      }
+    });
+
+    try {
+      nextObjectUrl = URL.createObjectURL(currentSlideBlob);
+    } catch {
+      queueMicrotask(() => {
+        if (!cancelled) {
+          markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
+          setVideoStatus("error");
+        }
+      });
+      return;
+    }
+
+    const nextVideo: PlayerSlideVideo = {
+      objectUrl: nextObjectUrl,
+      slideId: currentSlideImageSlideId,
+      assetId: currentSlideImageAssetId,
+      assetName: currentSlideImageAssetName ?? "現在のスライド動画",
+      ...(typeof currentSlideVideoDurationMs === "number"
+        ? { durationMs: currentSlideVideoDurationMs }
+        : {}),
+    };
+
+    const currentVideo = displayedSlideVideoRef.current;
+
+    if (
+      currentVideo &&
+      currentVideo.slideId === nextVideo.slideId &&
+      currentVideo.assetId === nextVideo.assetId
+    ) {
+      revokeSlideVideo(nextVideo);
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setVideoStatus("ready");
+        }
+      });
+      return;
+    }
+
+    revokeSlideVideo(currentVideo);
+    displayedSlideVideoRef.current = nextVideo;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setDisplayedSlideVideo(nextVideo);
+        setVideoStatus("ready");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+
+      if (displayedSlideVideoRef.current === nextVideo) {
+        displayedSlideVideoRef.current = null;
+      }
+
+      revokeSlideVideo(nextVideo);
+    };
+  }, [
+    currentSlideBlob,
+    currentSlideImageAssetId,
+    currentSlideImageAssetName,
+    currentSlideImageSlideId,
+    currentSlideMediaKind,
+    currentSlideVideoDurationMs,
+    currentSlidePlaybackKey,
+    markVideoSlideAdvanceHandled,
   ]);
 
   useEffect(() => {
     return () => {
-      clearSlideTransitionTimeout(slideTransitionTimeoutRef);
+      clearPlayerTimeout(videoFallbackTimeoutRef);
+      clearPlayerTimeout(slideTransitionTimeoutRef);
       revokeSlideImage(previousSlideImageRef.current);
       revokeSlideImage(displayedSlideImageRef.current);
+      revokeSlideVideo(displayedSlideVideoRef.current);
       previousSlideImageRef.current = null;
       displayedSlideImageRef.current = null;
+      displayedSlideVideoRef.current = null;
     };
   }, []);
 
+  const handleVideoPlaybackEnded = useCallback((slideKey: string) => {
+    if (!markVideoSlideAdvanceHandled(slideKey, "next")) {
+      return;
+    }
+
+    clearPlayerTimeout(videoFallbackTimeoutRef);
+    moveToNextSlide();
+  }, [markVideoSlideAdvanceHandled, moveToNextSlide]);
+
+  const handleVideoPlaybackFailure = useCallback((slideKey: string) => {
+    if (!markVideoSlideAdvanceHandled(slideKey, "fallback")) {
+      return;
+    }
+
+    setVideoStatus("error");
+  }, [markVideoSlideAdvanceHandled]);
+
   useEffect(() => {
     if (
+      currentSlideMediaKind !== "image" ||
       effectiveAutoAdvanceIntervalSeconds === null ||
       isPlaybackPaused ||
       imageStatus !== "ready" ||
@@ -532,6 +711,7 @@ export default function PlayerPage() {
     return () => clearTimeout(timeoutId);
   }, [
     effectiveAutoAdvanceIntervalSeconds,
+    currentSlideMediaKind,
     isPlaybackPaused,
     imageStatus,
     isCurrentImageLoaded,
@@ -540,16 +720,66 @@ export default function PlayerPage() {
     moveToNextSlide,
   ]);
 
+  useEffect(() => {
+    if (
+      !canPlay ||
+      !currentSlidePlaybackKey ||
+      safeCurrentSlideIndex >= slideCount - 1 ||
+      (currentSlideMediaKind !== "unsupported" && videoStatus !== "error")
+    ) {
+      return;
+    }
+
+    if (
+      currentSlideMediaKind === "unsupported" &&
+      !markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback")
+    ) {
+      return;
+    }
+
+    if (
+      videoStatus === "error" &&
+      handledVideoSlideAdvanceRef.current !== "fallback"
+    ) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      videoFallbackTimeoutRef.current = null;
+
+      if (
+        currentVideoSlideKeyRef.current !== currentSlidePlaybackKey ||
+        handledVideoSlideAdvanceRef.current !== "fallback"
+      ) {
+        return;
+      }
+
+      moveToNextSlide();
+    }, PLAYER_VIDEO_FALLBACK_DISPLAY_MS);
+
+    videoFallbackTimeoutRef.current = timeoutId;
+
+    return () => {
+      if (videoFallbackTimeoutRef.current === timeoutId) {
+        clearPlayerTimeout(videoFallbackTimeoutRef);
+      }
+    };
+  }, [
+    canPlay,
+    currentSlidePlaybackKey,
+    currentSlideMediaKind,
+    markVideoSlideAdvanceHandled,
+    moveToNextSlide,
+    safeCurrentSlideIndex,
+    slideCount,
+    videoStatus,
+  ]);
+
   const isSnapshotLoading = snapshotLoadStatus === "loading";
   const hasSnapshotLoadError = snapshotLoadStatus === "error";
   const emptySnapshot = snapshot?.status === "empty";
   const invalidSnapshot = snapshot?.status === "invalid";
   const noSlides = readySnapshot !== null && slideCount === 0;
-  const canPlay =
-    snapshotLoadStatus === "ready" &&
-    readySnapshot !== null &&
-    slideCount > 0 &&
-    currentSlide !== null;
 
   useEffect(() => {
     if (!canPlay || !areControlsVisible) {
@@ -675,6 +905,20 @@ export default function PlayerPage() {
             userSelect: "none",
           }}
         >
+          {currentSlideMediaKind === "unsupported" ? (
+            <PlayerVideoFallback
+              title="動画はこの端末では再生できません"
+              description="このスライドは現在の再生対象外です。次のスライドへ進みます。"
+            />
+          ) : null}
+
+          {videoStatus === "error" ? (
+            <PlayerVideoFallback
+              title="動画を再生できません"
+              description="このスライドの動画を読み込めませんでした。次のスライドへ進みます。"
+            />
+          ) : null}
+
           {imageStatus === "error" ? (
             <div className="mx-4 max-w-xl rounded-2xl border border-red-400/30 bg-red-950/80 p-5 text-center text-red-50 shadow-2xl">
               <p className="text-lg font-semibold">
@@ -736,9 +980,30 @@ export default function PlayerPage() {
             />
           ) : null}
 
-          {imageStatus === "idle" && !displayedSlideImage ? (
+          {displayedSlideVideo &&
+          currentSlideMediaKind === "video" &&
+          videoStatus !== "error" ? (
+            <PlayerVideoSlide
+              key={`${displayedSlideVideo.slideId}:${displayedSlideVideo.assetId}`}
+              video={displayedSlideVideo}
+              onEnded={handleVideoPlaybackEnded}
+              onPlaybackFailure={handleVideoPlaybackFailure}
+            />
+          ) : null}
+
+          {currentSlideMediaKind === "image" &&
+          imageStatus === "idle" &&
+          !displayedSlideImage ? (
             <p className="rounded-full bg-white/10 px-4 py-2 text-sm text-slate-300">
               ローカル保存されたスライド画像を準備しています
+            </p>
+          ) : null}
+
+          {currentSlideMediaKind === "video" &&
+          videoStatus === "idle" &&
+          !displayedSlideVideo ? (
+            <p className="rounded-full bg-white/10 px-4 py-2 text-sm text-slate-300">
+              ローカル保存されたスライド動画を準備しています
             </p>
           ) : null}
         </div>
@@ -1280,6 +1545,104 @@ function ProjectSelectionCard({
   );
 }
 
+function PlayerVideoSlide({
+  video,
+  onEnded,
+  onPlaybackFailure,
+}: {
+  video: PlayerSlideVideo;
+  onEnded: (slideKey: string) => void;
+  onPlaybackFailure: (slideKey: string) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const didReportFailureRef = useRef(false);
+  const slideKey = getPlayerSlidePlaybackKey(video);
+
+  const reportPlaybackFailure = useCallback(() => {
+    if (didReportFailureRef.current) {
+      return;
+    }
+
+    didReportFailureRef.current = true;
+    onPlaybackFailure(slideKey);
+  }, [onPlaybackFailure, slideKey]);
+
+  useEffect(() => {
+    didReportFailureRef.current = false;
+
+    const videoElement = videoRef.current;
+
+    if (!videoElement) {
+      return;
+    }
+
+    let didStartPlayback = false;
+    const playbackTimeoutMs = getPlayerVideoPlaybackTimeoutMs(video.durationMs);
+    const startTimeout = setTimeout(() => {
+      if (!didStartPlayback) {
+        reportPlaybackFailure();
+      }
+    }, PLAYER_VIDEO_START_TIMEOUT_MS);
+    const playbackTimeout = setTimeout(() => {
+      reportPlaybackFailure();
+    }, playbackTimeoutMs);
+
+    const handlePlaying = () => {
+      didStartPlayback = true;
+      clearTimeout(startTimeout);
+    };
+
+    videoElement.addEventListener("playing", handlePlaying);
+
+    const playResult = videoElement.play();
+
+    if (playResult) {
+      playResult.catch(() => {
+        reportPlaybackFailure();
+      });
+    }
+
+    return () => {
+      clearTimeout(startTimeout);
+      clearTimeout(playbackTimeout);
+      videoElement.removeEventListener("playing", handlePlaying);
+    };
+  }, [reportPlaybackFailure, video.durationMs, video.objectUrl]);
+
+  return (
+    <video
+      ref={videoRef}
+      src={video.objectUrl}
+      muted
+      playsInline
+      controls={false}
+      autoPlay
+      preload="auto"
+      aria-label={video.assetName}
+      onEnded={() => onEnded(slideKey)}
+      onError={reportPlaybackFailure}
+      className="absolute inset-0 h-full w-full object-contain"
+    />
+  );
+}
+
+function PlayerVideoFallback({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mx-4 max-w-md rounded-2xl border border-amber-300/30 bg-amber-950/80 p-5 text-center text-amber-50 shadow-2xl">
+      <p className="text-lg font-semibold">{title}</p>
+      <p className="mt-3 text-sm leading-6 text-amber-100/80">
+        {description}
+      </p>
+    </div>
+  );
+}
+
 function ProductionModeOverlay({
   interactionLock,
   onLock,
@@ -1477,6 +1840,48 @@ function formatIdPart(id: string | undefined) {
   return `${id.slice(0, 8)}...`;
 }
 
+function getPlayerSlideMediaKind(
+  slide: OfflinePlaybackSlide | null,
+): PlayerSlideMediaKind {
+  if (!slide) {
+    return "image";
+  }
+
+  const slideType = slide.type ?? "image";
+
+  if (slide.unsupportedReason) {
+    return "unsupported";
+  }
+
+  if (slideType !== "video") {
+    return "image";
+  }
+
+  return slide.mimeType === "video/mp4" ? "video" : "unsupported";
+}
+
+function getPlayerSlidePlaybackKey(slide: { slideId: string; assetId: string }) {
+  return `${slide.slideId}:${slide.assetId}`;
+}
+
+function getPlayerVideoPlaybackTimeoutMs(durationMs: number | undefined) {
+  if (
+    typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs > 0
+  ) {
+    return Math.min(
+      Math.max(durationMs + PLAYER_VIDEO_FALLBACK_DISPLAY_MS, 5_000),
+      PLAYER_VIDEO_MAX_FALLBACK_MS,
+    );
+  }
+
+  return Math.min(
+    DEFAULT_SLIDE_DURATION_SECONDS * 1000 + PLAYER_VIDEO_FALLBACK_DISPLAY_MS,
+    PLAYER_VIDEO_MAX_FALLBACK_MS,
+  );
+}
+
 function getSlideTransitionClassName(direction: SlideTransitionDirection) {
   switch (direction) {
     case "next":
@@ -1498,7 +1903,15 @@ function revokeSlideImage(image: PlayerSlideImage | null) {
   URL.revokeObjectURL(image.objectUrl);
 }
 
-function clearSlideTransitionTimeout(
+function revokeSlideVideo(video: PlayerSlideVideo | null) {
+  if (!video) {
+    return;
+  }
+
+  URL.revokeObjectURL(video.objectUrl);
+}
+
+function clearPlayerTimeout(
   timeoutRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
 ) {
   if (!timeoutRef.current) {
