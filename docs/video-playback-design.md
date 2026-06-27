@@ -282,6 +282,24 @@ Phase 3でまだ実装していないこと:
 - sync失敗時の扱い。
 - unsupported videoをconfirmed storeへどう残すか、または残さないかを決める。
 
+2026-06-27実施範囲:
+
+- offline sync成功時のsummaryに、manifest slide count、image sync candidate count、video skipped count、unsupported asset count、offline staging slide countを追加する。
+- AdminのDrive offline sync結果で、video assetが現Phaseではoffline sync / player対象外としてskipされることを表示する。
+- skipは削除対象やsync失敗ではなく、動画download / offline保存 / player再生が未実装であるための意図した状態として扱う。
+- image/jpeg、image/png、image/webp の画像assetは従来どおりBlob取得、staging、confirmed store promotionの対象にする。
+- `/visual-check/admin-cleanup` にoffline sync video skip mock sectionを追加し、manifest slides: 5、image sync candidates: 2、video skipped: 2、unsupported: 1、staging slides: 2とdiagnostics listを確認できるようにする。
+
+Phase 4でまだ実装していないこと:
+
+- video download。
+- video Blob / Blob URL生成。
+- IndexedDBやCache Storageへの動画保存。
+- `<video>` rendering。
+- autoplay / playsInline / ended / error handling。
+- player slide progression変更。
+- iPadホーム画面PWAでの動画再生確認。
+
 ### Phase 5: player playback
 
 - muted + playsInline のvideo rendering。

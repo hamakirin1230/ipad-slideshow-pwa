@@ -94,6 +94,8 @@ export async function fetchDriveOfflineStagingSnapshot(
 
   const assetPairs: OfflineStagingAssetPairInput[] = [];
   const offlineSlides: DriveSlideSummary[] = [];
+  let videoSkippedCount = 0;
+  let unsupportedAssetCount = 0;
   const diagnostics: string[] = [
     "Drive manifest.json をoffline staging snapshot用に読み取りました。",
   ];
@@ -115,8 +117,26 @@ export async function fetchDriveOfflineStagingSnapshot(
     });
 
     if (!isDriveAssetMimeType(slide.mimeType)) {
+      const isVideoAsset = isOfflineVideoAsset(slide);
+
+      if (isVideoAsset) {
+        videoSkippedCount += 1;
+      }
+
+      if (
+        !isVideoAsset ||
+        (slide.unsupportedReason &&
+          slide.unsupportedReason !== "videoPlaybackNotImplemented")
+      ) {
+        unsupportedAssetCount += 1;
+      }
+
+      const unsupportedReasonDiagnostic = slide.unsupportedReason
+        ? ` / unsupportedReason: ${slide.unsupportedReason}`
+        : "";
+
       diagnostics.push(
-        `manifest.json.slides[${order}] はoffline sync未対応のasset typeのためskipしました。`,
+        `manifest.json.slides[${order}] はoffline sync対象外としてskipしました。mimeType: ${slide.mimeType}${unsupportedReasonDiagnostic}`,
         "動画assetのdownload / offline保存 / player再生はまだ実装していません。",
       );
       continue;
@@ -166,12 +186,28 @@ export async function fetchDriveOfflineStagingSnapshot(
       slides: offlineSlides,
       slideCount: offlineSlides.length,
       assetCount: assetPairs.length,
+      manifestSlideCount: manifest.slides.length,
+      imageSyncCandidateCount: assetPairs.length,
+      videoSkippedCount,
+      unsupportedAssetCount,
+      offlineStagingSlideCount: offlineSlides.length,
     },
     diagnostics: [
       ...diagnostics,
+      `manifest slide count: ${manifest.slides.length}`,
+      `image sync candidate count: ${assetPairs.length}`,
+      `video skipped count: ${videoSkippedCount}`,
+      `unsupported asset count: ${unsupportedAssetCount}`,
+      `offline staging slide count: ${offlineSlides.length}`,
       "Drive offline staging snapshot の組み立てが完了しました。",
     ],
   };
+}
+
+function isOfflineVideoAsset(slide: DriveSlideSummary) {
+  return (
+    slide.type === "video" || slide.mimeType.toLowerCase().startsWith("video/")
+  );
 }
 
 function assertFetchDriveOfflineSnapshotInput(

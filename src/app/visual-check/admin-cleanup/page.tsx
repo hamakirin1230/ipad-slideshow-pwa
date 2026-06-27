@@ -185,6 +185,22 @@ const screenshotNotes = [
   "horizontal scroll containment",
 ];
 
+const offlineSyncSkipSummary = [
+  { label: "manifest slides", value: "5" },
+  { label: "image sync candidates", value: "2" },
+  { label: "video skipped", value: "2" },
+  { label: "unsupported", value: "1" },
+  { label: "staging slides", value: "2" },
+];
+
+const offlineSyncSkipDiagnostics = [
+  "image asset fetched: mock image/jpeg row",
+  "image asset fetched: mock image/webp row",
+  "video/mp4 skipped: recognized video; offline/player target is not implemented",
+  "video/quicktime skipped unsupported: unsupportedVideoMimeType",
+  "unknown mimeType unsupported: unsupportedMimeType",
+];
+
 export default function AdminCleanupVisualCheckPage() {
   const eligibleAssets = mockAssets.filter((asset) => asset.status === "eligible");
   const blockedAssets = mockAssets.filter((asset) => asset.status === "blocked");
@@ -222,6 +238,54 @@ export default function AdminCleanupVisualCheckPage() {
                 </li>
               ))}
             </ul>
+          </CardContent>
+        </Card>
+
+        <Card className="border-sky-200 bg-sky-50 text-sky-950">
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle>offline sync video skip mock</CardTitle>
+                <CardDescription className="text-sky-900">
+                  video assetが認識済みでも、現Phaseではoffline sync /
+                  player対象外としてskipされる状態を確認します。
+                </CardDescription>
+              </div>
+              <Badge variant="outline">mock diagnostics</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {offlineSyncSkipSummary.map((item) => (
+                <SummaryPill
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                  subtle
+                />
+              ))}
+            </section>
+            <div className="rounded-lg border border-sky-200 bg-white p-3">
+              <p className="font-semibold text-sky-950">Phase 4 status</p>
+              <p className="mt-2 text-sm leading-6 text-sky-900">
+                video assetは削除対象でもsync失敗でもありません。
+                画像assetだけがstaging / confirmed storeへ進み、動画のdownload /
+                offline保存 / player再生は未実装のままです。
+              </p>
+            </div>
+            <div className="max-w-full overflow-x-auto rounded-lg border border-sky-200 bg-white">
+              <div className="min-w-[72rem] divide-y divide-sky-100">
+                {offlineSyncSkipDiagnostics.map((diagnostic) => (
+                  <p
+                    key={diagnostic}
+                    className="px-3 py-2 font-mono text-xs text-sky-950"
+                    title={diagnostic}
+                  >
+                    {diagnostic}
+                  </p>
+                ))}
+              </div>
+            </div>
           </CardContent>
         </Card>
 

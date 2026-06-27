@@ -142,6 +142,11 @@ export type DriveProjectReadyDetails = {
   slides: DriveSlideSummary[];
   slideCount: number;
   assetCount: number;
+  manifestSlideCount?: number;
+  imageSyncCandidateCount?: number;
+  videoSkippedCount?: number;
+  unsupportedAssetCount?: number;
+  offlineStagingSlideCount?: number;
 };
 
 export type DriveProjectChangedItemRole =

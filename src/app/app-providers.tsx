@@ -4149,6 +4149,11 @@ function buildOfflineSyncResultDiagnostics(
       return [
         `syncRunId: ${result.syncRunId}`,
         `projectId: ${result.projectId}`,
+        `manifest slide count: ${result.manifestSlideCount}`,
+        `image sync candidate count: ${result.imageSyncCandidateCount}`,
+        `video skipped count: ${result.videoSkippedCount}`,
+        `unsupported asset count: ${result.unsupportedAssetCount}`,
+        `offline staging slide count: ${result.offlineStagingSlideCount}`,
         `slides: ${result.slideCount}`,
         `assets: ${result.assetCount}`,
         `staging written projects: ${result.stagingWrite.writtenProjects}`,
@@ -4157,6 +4162,12 @@ function buildOfflineSyncResultDiagnostics(
         `promoted projects: ${result.promotion.promotedProjects}`,
         `promoted assets: ${result.promotion.promotedAssets}`,
         `promoted asset blobs: ${result.promotion.promotedAssetBlobs}`,
+        "video asset はoffline sync対象外としてskipされます。削除対象やsync失敗ではありません。",
+        "動画のdownload / offline保存 / player再生は未実装です。画像assetのみconfirmed storeへ反映されます。",
+        ...appendOmittedDiagnosticCount(
+          result.diagnostics,
+          result.omittedDiagnosticCount,
+        ),
       ];
 
     case "stale":

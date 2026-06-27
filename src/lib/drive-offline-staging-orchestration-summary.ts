@@ -35,6 +35,13 @@ export type DriveOfflineStagingOrchestrationSummary =
       projectId: string;
       slideCount: number;
       assetCount: number;
+      manifestSlideCount: number;
+      imageSyncCandidateCount: number;
+      videoSkippedCount: number;
+      unsupportedAssetCount: number;
+      offlineStagingSlideCount: number;
+      diagnostics: string[];
+      omittedDiagnosticCount: number;
       stagingWrite: {
         cleanup: {
           deletedProjects: number;
@@ -82,6 +89,8 @@ export function summarizeDriveOfflineStagingPromotionOrchestrationResult(
   result: DriveOfflineStagingPromotionOrchestrationResult,
 ): DriveOfflineStagingOrchestrationSummary {
   if (result.ok) {
+    const diagnostics = sanitizeDiagnostics(result.snapshot.diagnostics);
+
     return {
       ok: true,
       status: "ready",
@@ -89,6 +98,19 @@ export function summarizeDriveOfflineStagingPromotionOrchestrationResult(
       projectId: result.snapshot.project.projectId,
       slideCount: result.snapshot.details.slideCount,
       assetCount: result.snapshot.details.assetCount,
+      manifestSlideCount:
+        result.snapshot.details.manifestSlideCount ??
+        result.snapshot.details.slideCount,
+      imageSyncCandidateCount:
+        result.snapshot.details.imageSyncCandidateCount ??
+        result.snapshot.details.assetCount,
+      videoSkippedCount: result.snapshot.details.videoSkippedCount ?? 0,
+      unsupportedAssetCount: result.snapshot.details.unsupportedAssetCount ?? 0,
+      offlineStagingSlideCount:
+        result.snapshot.details.offlineStagingSlideCount ??
+        result.snapshot.details.slideCount,
+      diagnostics: diagnostics.items,
+      omittedDiagnosticCount: diagnostics.omittedCount,
       stagingWrite: {
         cleanup: {
           deletedProjects: result.stagingWrite.cleanup.deletedProjects,

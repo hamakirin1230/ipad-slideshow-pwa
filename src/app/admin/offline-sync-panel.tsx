@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAppState } from "@/app/app-providers";
+import type { DriveOfflineStagingSyncRuntimeResult } from "@/lib/drive-offline-staging-sync-runtime";
 
 export function OfflineSyncPanel() {
   const {
@@ -32,6 +33,8 @@ export function OfflineSyncPanel() {
     !canStartOfflineSync &&
     !isOfflineSyncInFlight &&
     offlineSyncBlockedReason !== null;
+  const skipVisibility =
+    getOfflineSyncVideoSkipVisibility(offlineSyncLastResult);
 
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
@@ -169,6 +172,48 @@ export function OfflineSyncPanel() {
           </div>
         ) : null}
 
+        {skipVisibility ? (
+          <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-semibold">video skip visibility</p>
+              <Badge variant="outline" className="border-sky-200 text-sky-100">
+                read-only status
+              </Badge>
+            </div>
+            <p className="mt-2 leading-6">
+              video asset は認識済みですが、現Phaseではoffline sync /
+              player対象外としてskipされます。これは削除対象やsync失敗ではありません。
+            </p>
+            <dl className="mt-3 grid gap-2 text-xs text-sky-100 sm:grid-cols-2 lg:grid-cols-5">
+              <SyncCount
+                label="manifest slides"
+                value={skipVisibility.manifestSlideCount}
+              />
+              <SyncCount
+                label="image sync candidates"
+                value={skipVisibility.imageSyncCandidateCount}
+              />
+              <SyncCount
+                label="video skipped"
+                value={skipVisibility.videoSkippedCount}
+              />
+              <SyncCount
+                label="unsupported assets"
+                value={skipVisibility.unsupportedAssetCount}
+              />
+              <SyncCount
+                label="staging slides"
+                value={skipVisibility.offlineStagingSlideCount}
+              />
+            </dl>
+            <p className="mt-3 leading-6">
+              動画のdownload / offline保存 / player再生は未実装です。
+              画像assetだけがconfirmed storeへ反映され、/player/
+              の既存再生対象になります。
+            </p>
+          </div>
+        ) : null}
+
         {offlineSyncDiagnostics.length > 0 ? (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <p className="font-semibold text-slate-50">offline sync 診断</p>
@@ -190,4 +235,29 @@ export function OfflineSyncPanel() {
       </CardContent>
     </Card>
   );
+}
+
+function SyncCount({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-sky-200/30 bg-black/20 p-2">
+      <dt className="text-sky-200">{label}</dt>
+      <dd className="mt-1 font-semibold text-slate-50">{value}</dd>
+    </div>
+  );
+}
+
+function getOfflineSyncVideoSkipVisibility(
+  result: DriveOfflineStagingSyncRuntimeResult | null,
+) {
+  if (!result || !result.ok || result.status !== "ready") {
+    return null;
+  }
+
+  return {
+    manifestSlideCount: result.manifestSlideCount,
+    imageSyncCandidateCount: result.imageSyncCandidateCount,
+    videoSkippedCount: result.videoSkippedCount,
+    unsupportedAssetCount: result.unsupportedAssetCount,
+    offlineStagingSlideCount: result.offlineStagingSlideCount,
+  };
 }
