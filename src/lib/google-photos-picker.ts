@@ -1,5 +1,6 @@
 const PHOTOS_PICKER_API_BASE_URL = "https://photospicker.googleapis.com/v1";
 const PICKED_PHOTO_SIZE_SUFFIX = "=w2732-h2732";
+const PICKED_VIDEO_DOWNLOAD_SUFFIX = "=dv";
 
 export const PICKED_PHOTO_SIZE_LIMIT_BYTES = 10 * 1024 * 1024;
 export const PICKED_VIDEO_SIZE_LIMIT_BYTES = 50 * 1024 * 1024;
@@ -880,7 +881,7 @@ function buildPickedMediaDownloadUrl(
   mediaType: PhotosPickedMediaItemType,
 ) {
   if (mediaType === "VIDEO") {
-    return baseUrl;
+    return `${baseUrl}${PICKED_VIDEO_DOWNLOAD_SUFFIX}`;
   }
 
   return `${baseUrl}${PICKED_PHOTO_SIZE_SUFFIX}`;
