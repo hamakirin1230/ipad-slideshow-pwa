@@ -116,6 +116,7 @@ export type DriveAssetUnsupportedReason =
   | "unsupportedMimeType";
 
 export type DriveAssetMimeType = "image/jpeg" | "image/png" | "image/webp";
+export type DriveAssetDownloadMimeType = DriveAssetMimeType | "video/mp4";
 
 export type DriveSlideSummary = {
   slideId: string;
@@ -144,7 +145,10 @@ export type DriveProjectReadyDetails = {
   assetCount: number;
   manifestSlideCount?: number;
   imageSyncCandidateCount?: number;
+  videoSyncCandidateCount?: number;
+  videoSyncedCount?: number;
   videoSkippedCount?: number;
+  videoTooLargeSkippedCount?: number;
   unsupportedAssetCount?: number;
   offlineStagingSlideCount?: number;
 };
@@ -1197,7 +1201,8 @@ export async function preflightDriveProjectUnusedAssetDeletion(input: {
 export async function fetchDriveProjectAssetBlob(input: {
   accessToken: string;
   assetFileId: string;
-  expectedMimeType: DriveAssetMimeType;
+  expectedMimeType: DriveAssetDownloadMimeType;
+  maxBytes?: number;
   signal: AbortSignal;
 }): Promise<Blob> {
   const inputDiagnostics = validateDriveProjectAssetBlobFetchInput(input);
@@ -1243,7 +1248,9 @@ export async function fetchDriveProjectAssetBlob(input: {
     throw new Error("Drive asset preview Blob was empty.");
   }
 
-  if (blob.size > DRIVE_PROJECT_ASSET_PREVIEW_SIZE_LIMIT_BYTES) {
+  const maxBytes = input.maxBytes ?? DRIVE_PROJECT_ASSET_PREVIEW_SIZE_LIMIT_BYTES;
+
+  if (blob.size > maxBytes) {
     throw new Error("Drive asset preview Blob exceeded the size limit.");
   }
 
@@ -6490,7 +6497,7 @@ function validateDriveManifestAssetMimeType(input: {
   }
 
   if (input.mimeType === "video/mp4") {
-    return "videoPlaybackNotImplemented";
+    return undefined;
   }
 
   if (isVideoMimeType(input.mimeType)) {
@@ -6590,7 +6597,8 @@ function readOptionalNonNegativeNumber(input: {
 function validateDriveProjectAssetBlobFetchInput(input: {
   accessToken: string;
   assetFileId: string;
-  expectedMimeType: DriveAssetMimeType;
+  expectedMimeType: DriveAssetDownloadMimeType;
+  maxBytes?: number;
 }) {
   const diagnostics: string[] = [];
 
@@ -6602,11 +6610,24 @@ function validateDriveProjectAssetBlobFetchInput(input: {
     diagnostics.push("Drive asset preview対象のassetFileIdが空です。");
   }
 
-  if (!isDriveAssetMimeType(input.expectedMimeType)) {
+  if (!isDriveAssetDownloadMimeType(input.expectedMimeType)) {
     diagnostics.push("Drive asset preview対象のexpectedMimeTypeが対応外です。");
   }
 
+  if (
+    input.maxBytes !== undefined &&
+    (!Number.isSafeInteger(input.maxBytes) || input.maxBytes <= 0)
+  ) {
+    diagnostics.push("Drive asset preview対象のmaxBytesが不正です。");
+  }
+
   return diagnostics;
+}
+
+function isDriveAssetDownloadMimeType(
+  value: string,
+): value is DriveAssetDownloadMimeType {
+  return isDriveAssetMimeType(value) || value === "video/mp4";
 }
 
 function normalizeDriveAssetContentType(value: string | null) {

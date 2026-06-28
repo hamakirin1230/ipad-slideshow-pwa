@@ -4,7 +4,6 @@ import {
   fetchDriveProjectAssetBlob,
   readDriveTextFile,
   type DriveAssetType,
-  type DriveAssetMimeType,
   type DriveAssetUnsupportedReason,
   type DriveProjectReadyDetails,
   type DriveProjectSummary,
@@ -28,6 +27,7 @@ const DRIVE_SCHEMA_VERSION = 1;
 const DRIVE_SCHEMA_VERSION_PROPERTY = "1";
 const DRIVE_ASSET_ROLE = "asset";
 const DRIVE_PROJECT_MAX_SLIDE_COUNT = 50;
+const DRIVE_VIDEO_OFFLINE_MAX_BYTES = 50 * 1024 * 1024;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -36,7 +36,7 @@ type DriveOfflineAssetMetadata = {
   name: string;
   mimeType: string;
   modifiedTime?: string;
-  sizeBytes: number;
+  sizeBytes?: number;
   parents?: string[];
   appProperties: Record<string, string>;
 };
@@ -94,7 +94,11 @@ export async function fetchDriveOfflineStagingSnapshot(
 
   const assetPairs: OfflineStagingAssetPairInput[] = [];
   const offlineSlides: DriveSlideSummary[] = [];
+  let imageSyncCandidateCount = 0;
+  let videoSyncCandidateCount = 0;
+  let videoSyncedCount = 0;
   let videoSkippedCount = 0;
+  let videoTooLargeSkippedCount = 0;
   let unsupportedAssetCount = 0;
   const diagnostics: string[] = [
     "Drive manifest.json をoffline staging snapshot用に読み取りました。",
@@ -116,36 +120,95 @@ export async function fetchDriveOfflineStagingSnapshot(
       slideIndex: order,
     });
 
-    if (!isDriveAssetMimeType(slide.mimeType)) {
-      const isVideoAsset = isOfflineVideoAsset(slide);
+    const slideAssetKind = getDriveOfflineStagingAssetKind(slide);
 
-      if (isVideoAsset) {
-        videoSkippedCount += 1;
-      }
-
-      if (
-        !isVideoAsset ||
-        (slide.unsupportedReason &&
-          slide.unsupportedReason !== "videoPlaybackNotImplemented")
-      ) {
-        unsupportedAssetCount += 1;
-      }
-
-      const unsupportedReasonDiagnostic = slide.unsupportedReason
-        ? ` / unsupportedReason: ${slide.unsupportedReason}`
-        : "";
-
+    if (slideAssetKind === "unsupported") {
+      unsupportedAssetCount += 1;
       diagnostics.push(
-        `manifest.json.slides[${order}] はoffline sync対象外としてskipしました。mimeType: ${slide.mimeType}${unsupportedReasonDiagnostic}`,
-        "動画assetのdownload / offline保存 / player再生はまだ実装していません。",
+        `manifest.json.slides[${order}] はoffline sync対象外としてskipしました。mimeType: ${slide.mimeType}`,
       );
       continue;
+    }
+
+    if (slideAssetKind === "video-unsupported") {
+      videoSkippedCount += 1;
+      unsupportedAssetCount += 1;
+      diagnostics.push(buildVideoSkipDiagnostic(order, slide));
+      continue;
+    }
+
+    if (slideAssetKind === "video-mp4") {
+      if (typeof assetMetadata.sizeBytes !== "number") {
+        videoSkippedCount += 1;
+        diagnostics.push(
+          `manifest.json.slides[${order}] のvideo/mp4 asset はDrive metadata sizeがないためoffline保存をskipしました。`,
+        );
+        continue;
+      }
+
+      if (assetMetadata.sizeBytes > DRIVE_VIDEO_OFFLINE_MAX_BYTES) {
+        videoSkippedCount += 1;
+        videoTooLargeSkippedCount += 1;
+        diagnostics.push(
+          `manifest.json.slides[${order}] のvideo/mp4 asset はoffline保存上限を超えるためskipしました。`,
+        );
+        continue;
+      }
+
+      videoSyncCandidateCount += 1;
+
+      const blob = await fetchDriveVideoAssetBlobForOfflineStaging({
+        accessToken: input.accessToken,
+        assetFileId: slide.assetFileId,
+        expectedSizeBytes: assetMetadata.sizeBytes,
+        signal: input.signal,
+        slideIndex: order,
+        diagnostics,
+      });
+
+      if (!blob) {
+        videoSkippedCount += 1;
+        continue;
+      }
+
+      assetPairs.push(
+        buildOfflineStagingAssetPair({
+          projectId: input.project.projectId,
+          slide,
+          assetMetadata,
+          blob,
+          syncedAt: input.syncedAt,
+        }),
+      );
+      offlineSlides.push(slide);
+      videoSyncedCount += 1;
+
+      diagnostics.push(
+        `manifest.json.slides[${order}] のvideo/mp4 asset metadata/blobをoffline保存対象として取得しました。`,
+      );
+      continue;
+    }
+
+    if (typeof assetMetadata.sizeBytes !== "number") {
+      throw new DriveOfflineStagingSnapshotError([
+        `manifest.json.slides[${order}] のDrive asset metadata sizeを安全なbyte数として読めません。`,
+      ]);
+    }
+
+    imageSyncCandidateCount += 1;
+
+    const expectedImageMimeType = slide.mimeType;
+
+    if (!isDriveOfflineImageMimeType(expectedImageMimeType)) {
+      throw new DriveOfflineStagingSnapshotError([
+        `manifest.json.slides[${order}] のimage MIME typeがoffline保存対象外です。`,
+      ]);
     }
 
     const blob = await fetchDriveProjectAssetBlob({
       accessToken: input.accessToken,
       assetFileId: slide.assetFileId,
-      expectedMimeType: slide.mimeType,
+      expectedMimeType: expectedImageMimeType,
       signal: input.signal,
     });
 
@@ -187,16 +250,22 @@ export async function fetchDriveOfflineStagingSnapshot(
       slideCount: offlineSlides.length,
       assetCount: assetPairs.length,
       manifestSlideCount: manifest.slides.length,
-      imageSyncCandidateCount: assetPairs.length,
+      imageSyncCandidateCount,
+      videoSyncCandidateCount,
+      videoSyncedCount,
       videoSkippedCount,
+      videoTooLargeSkippedCount,
       unsupportedAssetCount,
       offlineStagingSlideCount: offlineSlides.length,
     },
     diagnostics: [
       ...diagnostics,
       `manifest slide count: ${manifest.slides.length}`,
-      `image sync candidate count: ${assetPairs.length}`,
+      `image sync candidate count: ${imageSyncCandidateCount}`,
+      `video sync candidate count: ${videoSyncCandidateCount}`,
+      `video synced count: ${videoSyncedCount}`,
       `video skipped count: ${videoSkippedCount}`,
+      `video too large skipped count: ${videoTooLargeSkippedCount}`,
       `unsupported asset count: ${unsupportedAssetCount}`,
       `offline staging slide count: ${offlineSlides.length}`,
       "Drive offline staging snapshot の組み立てが完了しました。",
@@ -204,9 +273,101 @@ export async function fetchDriveOfflineStagingSnapshot(
   };
 }
 
-function isOfflineVideoAsset(slide: DriveSlideSummary) {
+type DriveOfflineStagingAssetKind =
+  | "image"
+  | "video-mp4"
+  | "video-unsupported"
+  | "unsupported";
+
+function getDriveOfflineStagingAssetKind(
+  slide: DriveSlideSummary,
+): DriveOfflineStagingAssetKind {
+  if (isDriveOfflineImageMimeType(slide.mimeType)) {
+    return "image";
+  }
+
+  if (slide.type === "video" && slide.mimeType === "video/mp4") {
+    return slide.unsupportedReason ? "video-unsupported" : "video-mp4";
+  }
+
+  if (slide.type === "video" || slide.mimeType.toLowerCase().startsWith("video/")) {
+    return "video-unsupported";
+  }
+
+  return "unsupported";
+}
+
+function buildVideoSkipDiagnostic(order: number, slide: DriveSlideSummary) {
+  const unsupportedReasonDiagnostic = slide.unsupportedReason
+    ? ` / unsupportedReason: ${slide.unsupportedReason}`
+    : "";
+
+  return `manifest.json.slides[${order}] のvideo assetはoffline保存対象外としてskipしました。mimeType: ${slide.mimeType}${unsupportedReasonDiagnostic}`;
+}
+
+async function fetchDriveVideoAssetBlobForOfflineStaging(input: {
+  accessToken: string;
+  assetFileId: string;
+  expectedSizeBytes: number;
+  signal: AbortSignal;
+  slideIndex: number;
+  diagnostics: string[];
+}): Promise<Blob | null> {
+  let blob: Blob;
+
+  try {
+    blob = await fetchDriveProjectAssetBlob({
+      accessToken: input.accessToken,
+      assetFileId: input.assetFileId,
+      expectedMimeType: "video/mp4",
+      maxBytes: DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+      signal: input.signal,
+    });
+  } catch (error) {
+    if (input.signal.aborted || isAbortError(error)) {
+      throw error;
+    }
+
+    input.diagnostics.push(
+      `manifest.json.slides[${input.slideIndex}] のvideo/mp4 asset のoffline保存に失敗したため、このvideoだけskipしました。`,
+    );
+    return null;
+  }
+
+  if (blob.type && normalizeBlobMimeType(blob.type) !== "video/mp4") {
+    input.diagnostics.push(
+      `manifest.json.slides[${input.slideIndex}] のvideo/mp4 asset Blob MIME typeが一致しないため、このvideoだけskipしました。`,
+    );
+    return null;
+  }
+
+  if (blob.size !== input.expectedSizeBytes) {
+    input.diagnostics.push(
+      `manifest.json.slides[${input.slideIndex}] のvideo/mp4 asset Blob sizeがmetadata sizeと一致しないため、このvideoだけskipしました。`,
+    );
+    return null;
+  }
+
+  if (blob.size > DRIVE_VIDEO_OFFLINE_MAX_BYTES) {
+    input.diagnostics.push(
+      `manifest.json.slides[${input.slideIndex}] のvideo/mp4 asset Blob sizeがoffline保存上限を超えるため、このvideoだけskipしました。`,
+    );
+    return null;
+  }
+
+  return blob;
+}
+
+function normalizeBlobMimeType(value: string) {
+  return value.split(";")[0]?.trim().toLowerCase() ?? "";
+}
+
+function isAbortError(error: unknown) {
   return (
-    slide.type === "video" || slide.mimeType.toLowerCase().startsWith("video/")
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
   );
 }
 
@@ -308,11 +469,10 @@ function normalizeDriveOfflineAssetMetadata(
     diagnostics,
   });
 
-  const sizeBytes = readRequiredSizeBytes({
+  const sizeBytes = readOptionalSizeBytes({
     body: value,
     fileLabel: "Drive asset metadata",
     key: "size",
-    diagnostics,
   });
 
   const modifiedTime = readOptionalIsoDateString({
@@ -339,8 +499,7 @@ function normalizeDriveOfflineAssetMetadata(
     diagnostics.length > 0 ||
     !id ||
     !name ||
-    !rawMimeType ||
-    typeof sizeBytes !== "number"
+    !rawMimeType
   ) {
     throw new DriveOfflineStagingSnapshotError(diagnostics);
   }
@@ -350,7 +509,7 @@ function normalizeDriveOfflineAssetMetadata(
     name,
     mimeType: rawMimeType,
     modifiedTime,
-    sizeBytes,
+    ...(typeof sizeBytes === "number" ? { sizeBytes } : {}),
     parents,
     appProperties,
   };
@@ -972,12 +1131,15 @@ function readOptionalIsoDateString(input: {
   return value;
 }
 
-function readRequiredSizeBytes(input: {
+function readOptionalSizeBytes(input: {
   body: JsonRecord;
   fileLabel: string;
   key: string;
-  diagnostics: string[];
 }): number | undefined {
+  if (!hasOwnKey(input.body, input.key)) {
+    return undefined;
+  }
+
   const value = input.body[input.key];
 
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
@@ -992,7 +1154,6 @@ function readRequiredSizeBytes(input: {
     }
   }
 
-  input.diagnostics.push(`${input.fileLabel} の${input.key}を安全なbyte数として読めません。`);
   return undefined;
 }
 
@@ -1054,7 +1215,9 @@ function isIsoDateTimeString(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(value);
 }
 
-function isDriveAssetMimeType(value: string): value is DriveAssetMimeType {
+function isDriveOfflineImageMimeType(
+  value: string,
+): value is "image/jpeg" | "image/png" | "image/webp" {
   return value === "image/jpeg" || value === "image/png" || value === "image/webp";
 }
 
@@ -1069,7 +1232,7 @@ function validateDriveManifestAssetMimeType(input: {
   diagnostics: string[];
 }): DriveAssetUnsupportedReason | undefined {
   if (input.assetType === "image") {
-    if (!isDriveAssetMimeType(input.mimeType)) {
+    if (!isDriveOfflineImageMimeType(input.mimeType)) {
       input.diagnostics.push(`${input.fileLabel} のmimeTypeが対応外です。`);
       return "unsupportedMimeType";
     }
@@ -1078,7 +1241,7 @@ function validateDriveManifestAssetMimeType(input: {
   }
 
   if (input.mimeType === "video/mp4") {
-    return "videoPlaybackNotImplemented";
+    return undefined;
   }
 
   if (isVideoMimeType(input.mimeType)) {

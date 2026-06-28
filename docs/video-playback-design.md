@@ -228,7 +228,7 @@ admin取り込みでの初期案:
 - Drive manifest slideのschema groundworkとして、optionalな `type`、`fileSize`、`durationMs`、`unsupportedReason` を認識する。
 - `type` 不在の既存assetは `image` として扱う。
 - `type: "image"` + `image/jpeg` / `image/png` / `image/webp` は従来どおり画像assetとして扱う。
-- `type: "video"` + `video/mp4` はrecognized video candidateとして扱う。ただしplayer再生、download、offline保存は未実装のため `videoPlaybackNotImplemented` を付与できる。
+- `type: "video"` + `video/mp4` はrecognized video candidateとして扱う。
 - `type: "video"` + `video/quicktime` / `video/webm` / その他 `video/*` は `unsupportedVideoMimeType` を付与できる。
 - `unsupportedReason` はmanifest明示値よりmimeTypeからの機械判定を優先する。
 - offline schemaにもoptionalな `type`、`durationMs`、`unsupportedReason` を追加し、既存confirmed store recordの後方互換性を保つ。
@@ -292,9 +292,7 @@ Phase 3でまだ実装していないこと:
 
 Phase 4でまだ実装していないこと:
 
-- video download。
-- video Blob / Blob URL生成。
-- IndexedDBやCache Storageへの動画保存。
+- Cache Storageへの動画保存。
 - `<video>` rendering。
 - autoplay / playsInline / ended / error handling。
 - player slide progression変更。
@@ -320,17 +318,31 @@ Phase 4でまだ実装していないこと:
 
 Phase 5Aでまだ実装していないこと:
 
-- Drive media downloadの動画対応。
-- video Blob取得のDrive API追加。
-- offline syncでvideoを保存対象にすること。
-- confirmed storeへ通常sync経由でvideoを流すこと。
-- IndexedDBやCache Storageへの動画保存。
 - poster生成またはthumbnail利用。
 - iPadホーム画面PWAでの実動画再生確認。
 
 ### Phase 6: polish / limits
 
+2026-06-27 Phase 6A実施範囲:
+
+- `type: "video"` + `mimeType: "video/mp4"` で `unsupportedReason` がないassetだけをoffline staging保存候補にする。
+- `video/mp4` の容量上限は `50 * 1024 * 1024` bytes。metadata sizeがないvideo、上限超過video、Blob size不整合video、Blob MIME不整合video、fetch失敗videoは、そのvideoだけskipする。
+- `video/quicktime`、`video/webm`、その他 `video/*` は未対応のままskipする。動画変換はしない。
+- image/jpeg、image/png、image/webp のoffline syncは従来どおりで、画像assetの厳格なBlob取得/size検証は維持する。
+- video fetch失敗はimage offline sync全体を壊さず、diagnosticsにskip理由を残す。
+- Cache Storageへの動画保存は未実装。IndexedDBの既存offline blob保存経路だけを使う。
+- Photos Picker / OAuth scope / Provider token管理は変更しない。
+- 本番運用では最初に小さい `video/mp4` で確認し、iPadホーム画面PWA実機確認が完了するまで完了扱いにしない。
+- `/visual-check/admin-cleanup` のoffline sync mockを、mp4 synced / too large skipped / unsupported skipped / missing size skippedが分かる表示へ更新する。
+
+Phase 6Aでまだ実装していないこと:
+
+- `video/quicktime` / `video/webm` のoffline保存。
+- 動画変換。
+- Cache Storageへの動画保存。
 - poster生成またはthumbnail利用。
+- iPadホーム画面PWAでの実動画再生確認。
+
 - duration cap。
 - admin warning。
 - release / rollback checklist更新。
@@ -338,7 +350,7 @@ Phase 5Aでまだ実装していないこと:
 
 ## 未解決事項
 
-- 動画サイズ上限。
+- 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。
 - 1projectあたりの動画総容量上限。
 - 最大duration。
 - poster生成方法。

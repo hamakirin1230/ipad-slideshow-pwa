@@ -744,7 +744,7 @@ function getUnsupportedReasonLabel(mimeType: string | null) {
   }
 
   if (mimeType === "video/mp4") {
-    return "videoPlaybackNotImplemented";
+    return "なし";
   }
 
   if (mimeType.startsWith("video/")) {

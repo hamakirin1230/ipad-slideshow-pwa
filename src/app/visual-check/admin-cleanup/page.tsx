@@ -101,12 +101,12 @@ const mockAssets: MockCleanupAsset[] = [
     mimeType: "video/mp4",
     size: "18.4 MB",
     durationMs: "124000 ms / 124秒",
-    unsupportedReason: "videoPlaybackNotImplemented",
+    unsupportedReason: "なし",
     createdTime: "2026-06-27T09:30:00.000+09:00 mock-created",
     modifiedTime: "2026-06-27T09:45:00.000+09:00 mock-modified",
     references: "0",
     status: "blocked",
-    blockedReason: "video playback not implemented yet; schema mock only",
+    blockedReason: "video/mp4 offline staging candidate; cleanup delete remains read-only",
   },
   {
     assetName:
@@ -186,18 +186,24 @@ const screenshotNotes = [
 ];
 
 const offlineSyncSkipSummary = [
-  { label: "manifest slides", value: "5" },
+  { label: "manifest slides", value: "7" },
   { label: "image sync candidates", value: "2" },
-  { label: "video skipped", value: "2" },
-  { label: "unsupported", value: "1" },
-  { label: "staging slides", value: "2" },
+  { label: "video mp4 candidates", value: "1" },
+  { label: "video synced", value: "1" },
+  { label: "video skipped", value: "4" },
+  { label: "too large skipped", value: "1" },
+  { label: "unsupported", value: "3" },
+  { label: "staging slides", value: "3" },
 ];
 
 const offlineSyncSkipDiagnostics = [
-  "image asset fetched: mock image/jpeg row",
-  "image asset fetched: mock image/webp row",
-  "video/mp4 skipped: recognized video; offline/player target is not implemented",
+  "image synced: mock image/jpeg row",
+  "image synced: mock image/webp row",
+  "video/mp4 synced: mock small mp4 within 50 MB offline limit",
+  "video/mp4 skipped: mock too large file exceeds offline limit",
   "video/quicktime skipped unsupported: unsupportedVideoMimeType",
+  "video/webm skipped unsupported: unsupportedVideoMimeType",
+  "video/mp4 skipped: mock missing size metadata",
   "unknown mimeType unsupported: unsupportedMimeType",
 ];
 
@@ -245,10 +251,10 @@ export default function AdminCleanupVisualCheckPage() {
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <CardTitle>offline sync video skip mock</CardTitle>
+                <CardTitle>offline sync video staging mock</CardTitle>
                 <CardDescription className="text-sky-900">
-                  video assetが認識済みでも、現Phaseではoffline sync /
-                  player対象外としてskipされる状態を確認します。
+                  video/mp4 が容量上限内だけoffline保存対象になり、
+                  too large / unsupported / missing size がskipされる状態を確認します。
                 </CardDescription>
               </div>
               <Badge variant="outline">mock diagnostics</Badge>
@@ -266,11 +272,11 @@ export default function AdminCleanupVisualCheckPage() {
               ))}
             </section>
             <div className="rounded-lg border border-sky-200 bg-white p-3">
-              <p className="font-semibold text-sky-950">Phase 4 status</p>
+              <p className="font-semibold text-sky-950">Phase 6A status</p>
               <p className="mt-2 text-sm leading-6 text-sky-900">
-                video assetは削除対象でもsync失敗でもありません。
-                画像assetだけがstaging / confirmed storeへ進み、動画のdownload /
-                offline保存 / player再生は未実装のままです。
+                画像assetは従来どおりstaging / confirmed storeへ進みます。
+                video/mp4 は50MB以下の場合だけoffline保存対象です。
+                QuickTime / WebM / 上限超過 / size不明videoのskipは削除対象でもsync失敗でもありません。
               </p>
             </div>
             <div className="max-w-full overflow-x-auto rounded-lg border border-sky-200 bg-white">

@@ -181,10 +181,11 @@ export function OfflineSyncPanel() {
               </Badge>
             </div>
             <p className="mt-2 leading-6">
-              video asset は認識済みですが、現Phaseではoffline sync /
-              player対象外としてskipされます。これは削除対象やsync失敗ではありません。
+              video/mp4 は容量上限内の場合のみoffline保存対象です。
+              QuickTime / WebM / 上限超過videoはskipされます。
+              skipはDrive削除やcleanup対象、sync失敗を意味しません。
             </p>
-            <dl className="mt-3 grid gap-2 text-xs text-sky-100 sm:grid-cols-2 lg:grid-cols-5">
+            <dl className="mt-3 grid gap-2 text-xs text-sky-100 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
               <SyncCount
                 label="manifest slides"
                 value={skipVisibility.manifestSlideCount}
@@ -194,8 +195,20 @@ export function OfflineSyncPanel() {
                 value={skipVisibility.imageSyncCandidateCount}
               />
               <SyncCount
+                label="video mp4 candidates"
+                value={skipVisibility.videoSyncCandidateCount}
+              />
+              <SyncCount
+                label="video synced"
+                value={skipVisibility.videoSyncedCount}
+              />
+              <SyncCount
                 label="video skipped"
                 value={skipVisibility.videoSkippedCount}
+              />
+              <SyncCount
+                label="too large skipped"
+                value={skipVisibility.videoTooLargeSkippedCount}
               />
               <SyncCount
                 label="unsupported assets"
@@ -207,9 +220,9 @@ export function OfflineSyncPanel() {
               />
             </dl>
             <p className="mt-3 leading-6">
-              動画のdownload / offline保存 / player再生は未実装です。
-              画像assetだけがconfirmed storeへ反映され、/player/
-              の既存再生対象になります。
+              imageは従来どおり保存され、video/mp4は50MB以下の場合だけ
+              confirmed storeへ反映されます。QuickTime / WebM
+              は未対応のままです。
             </p>
           </div>
         ) : null}
@@ -256,7 +269,10 @@ function getOfflineSyncVideoSkipVisibility(
   return {
     manifestSlideCount: result.manifestSlideCount,
     imageSyncCandidateCount: result.imageSyncCandidateCount,
+    videoSyncCandidateCount: result.videoSyncCandidateCount,
+    videoSyncedCount: result.videoSyncedCount,
     videoSkippedCount: result.videoSkippedCount,
+    videoTooLargeSkippedCount: result.videoTooLargeSkippedCount,
     unsupportedAssetCount: result.unsupportedAssetCount,
     offlineStagingSlideCount: result.offlineStagingSlideCount,
   };

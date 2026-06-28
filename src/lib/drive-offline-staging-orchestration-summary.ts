@@ -37,7 +37,10 @@ export type DriveOfflineStagingOrchestrationSummary =
       assetCount: number;
       manifestSlideCount: number;
       imageSyncCandidateCount: number;
+      videoSyncCandidateCount: number;
+      videoSyncedCount: number;
       videoSkippedCount: number;
+      videoTooLargeSkippedCount: number;
       unsupportedAssetCount: number;
       offlineStagingSlideCount: number;
       diagnostics: string[];
@@ -104,7 +107,12 @@ export function summarizeDriveOfflineStagingPromotionOrchestrationResult(
       imageSyncCandidateCount:
         result.snapshot.details.imageSyncCandidateCount ??
         result.snapshot.details.assetCount,
+      videoSyncCandidateCount:
+        result.snapshot.details.videoSyncCandidateCount ?? 0,
+      videoSyncedCount: result.snapshot.details.videoSyncedCount ?? 0,
       videoSkippedCount: result.snapshot.details.videoSkippedCount ?? 0,
+      videoTooLargeSkippedCount:
+        result.snapshot.details.videoTooLargeSkippedCount ?? 0,
       unsupportedAssetCount: result.snapshot.details.unsupportedAssetCount ?? 0,
       offlineStagingSlideCount:
         result.snapshot.details.offlineStagingSlideCount ??
