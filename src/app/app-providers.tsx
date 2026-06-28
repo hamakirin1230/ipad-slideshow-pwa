@@ -69,6 +69,7 @@ import {
 } from "@/lib/google-drive";
 import {
   PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
+  PICKED_VIDEO_SIZE_LIMIT_BYTES,
   createPhotosPickerSession,
   deletePhotosPickerSession,
   extractPickedMediaItems,
@@ -78,6 +79,7 @@ import {
   normalizePickedMediaItem,
   PhotosPickerApiError,
   PhotosPickerSelectionError,
+  type PhotosDownloadedAssetMimeType,
   type PhotosPickedMediaItem,
   type PhotosPickerCreatedSession,
   type PhotosPickerResolvedPollingTiming,
@@ -250,7 +252,7 @@ export type AssetImportBatchItem = {
   sourceMimeType: string;
   sourceCreateTime: string | null;
   status: AssetImportBatchItemStatus;
-  downloadedContentType?: "image/jpeg" | "image/png" | "image/webp";
+  downloadedContentType?: PhotosDownloadedAssetMimeType;
   downloadedSizeBytes?: number;
   driveFilename?: string;
   assetId?: string;
@@ -277,11 +279,11 @@ export type ProjectDetails = {
 
 type AssetImportSelectionBase = {
   mediaItemIdPart: string;
-  mediaItemType: "PHOTO";
+  mediaItemType: "PHOTO" | "VIDEO";
   filename: string;
   sourceMimeType: string;
   sourceCreateTime: string | null;
-  downloadedContentType: "image/jpeg" | "image/png" | "image/webp";
+  downloadedContentType: PhotosDownloadedAssetMimeType;
   downloadedSizeBytes: number;
   sizeLimitBytes: number;
 };
@@ -293,7 +295,7 @@ type AssetImportSelectionSavedAsset = AssetImportSelectionBase & {
   assetFileId: string;
   assetFileIdPart: string;
   driveFilename: string;
-  driveMimeType: "image/jpeg" | "image/png" | "image/webp";
+  driveMimeType: PhotosDownloadedAssetMimeType;
   driveSizeBytes: number;
 };
 
@@ -527,9 +529,9 @@ const assetImportStatusLabels: Record<AssetImportStatus, string> = {
   idle: "素材追加待機中",
   requestingPhotosPermission: "Photos権限確認中",
   openingPicker: "Photos Picker起動中",
-  waitingForSelection: "写真選択待ち",
+  waitingForSelection: "素材選択待ち",
   downloadingFromPhotos: "Photosから取得中",
-  selected: "写真選択・検証済み",
+  selected: "素材選択・検証済み",
   uploadingToDrive: "Drive保存中",
   savedToDrive: "Drive保存済み",
   updatingManifest: "manifest更新中",
@@ -920,7 +922,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             status: "cancelled",
             message: "Photos token request timed out.",
             diagnostics: [
-              "Google Photosの利用許可または写真選択待ちが30分でタイムアウトしました。",
+              "Google Photosの利用許可または素材選択待ちが30分でタイムアウトしました。",
               "Drive保存: 未実行",
               "manifest反映: 未実行",
             ],
@@ -1422,7 +1424,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetAssetImportState();
     resetAssetCleanupPreviewState();
     setAssetImportMessage(
-      "Google Photos Pickerで写真を複数件選択し、形式とサイズを確認できます。",
+      "Google Photos Pickerで写真またはvideo/mp4動画を複数件選択し、形式とサイズを確認できます。",
     );
   }
 
@@ -1823,7 +1825,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setAssetImportStatus("waitingForSelection");
       setAssetImportMessage(
-        `Photos Pickerで写真を最大${assetImportMaxBatchCount}件選択してください。`,
+        `Photos Pickerで写真またはvideo/mp4動画を最大${assetImportMaxBatchCount}件選択してください。`,
       );
 
       const waitResult = await waitForPhotosPickerSelection({
@@ -1880,6 +1882,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         savedAsset: DriveProjectSavedAsset;
         source: {
           filename: string | null;
+          mediaType: "PHOTO" | "VIDEO";
           sourceMimeType: string;
           sourceMediaItemId: string;
           sourceCreateTime: string | null;
@@ -1901,12 +1904,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
         try {
           updateAssetImportBatchItem(clientItemId, { status: "downloading" });
           setAssetImportMessage(
-            `選択写真を順次取得しています。${index + 1} / ${pickedMediaItems.length}`,
+            `選択素材を順次取得しています。${index + 1} / ${pickedMediaItems.length}`,
           );
 
           const downloadResult = await fetchAndValidatePickedPhoto({
             accessToken: photosAccessToken,
             baseUrl: pickedMediaItem.mediaFile.baseUrl,
+            mediaType: pickedMediaItem.type,
+            expectedMimeType: pickedMediaItem.mediaFile.mimeType,
+            ...(pickedMediaItem.type === "VIDEO"
+              ? { sizeLimitBytes: PICKED_VIDEO_SIZE_LIMIT_BYTES }
+              : {}),
             signal: abortSignal,
           });
 
@@ -1946,6 +1954,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             savedAsset,
             source: {
               filename: pickedMediaItem.mediaFile.filename ?? null,
+              mediaType: pickedMediaItem.type,
               sourceMimeType: pickedMediaItem.mediaFile.mimeType,
               sourceMediaItemId: pickedMediaItem.id,
               sourceCreateTime: pickedMediaItem.createTime,
@@ -1975,7 +1984,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (savedAssetsForManifest.length === 0) {
         finalStatus = "error";
         finalMessage =
-          "選択写真をDriveに保存できませんでした。成功したitemはありません。";
+          "選択素材をDriveに保存できませんでした。成功したitemはありません。";
         finalDiagnostics = [
           ...batchDiagnostics,
           "Drive保存: 成功0件",

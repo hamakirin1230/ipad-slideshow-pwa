@@ -63,16 +63,16 @@ export function AssetImportPanel() {
       ) : null}
 
       <p className="mt-3 text-slate-500">
-        Google Photos Pickerで写真を複数件選び、選択中projectの Drive assets/
-        へ順次保存し、成功分をmanifest.json にまとめて反映します。
+        Google Photos Pickerで写真またはvideo/mp4動画を複数件選び、選択中projectの
+        Drive assets/ へ順次保存し、成功分をmanifest.json にまとめて反映します。
       </p>
 
       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-        <SummaryPill label="追加可能" value={`${remainingSlideSlots}枚`} />
-        <SummaryPill label="1回の上限" value={`${assetImportMaxBatchCount}枚`} />
+        <SummaryPill label="追加可能" value={`${remainingSlideSlots}件`} />
+        <SummaryPill label="1回の上限" value={`${assetImportMaxBatchCount}件`} />
         <SummaryPill
           label="今回の選択"
-          value={`${assetImportBatchSummary.selectedCount}枚`}
+          value={`${assetImportBatchSummary.selectedCount}件`}
         />
       </div>
 
@@ -230,13 +230,13 @@ function getBatchItemBadgeVariant(status: AssetImportBatchItemStatus) {
 function getStartAssetImportButtonLabel(assetImportStatus: AssetImportStatus) {
   switch (assetImportStatus) {
     case "selected":
-      return "別の写真を選ぶ";
+      return "別の素材を選ぶ";
     case "savedToDrive":
       return "manifest反映待ち";
     case "cancelled":
       return "もう一度選択";
     case "invalid":
-      return "別の写真を選ぶ";
+      return "別の素材を選ぶ";
     case "error":
       return "もう一度試す";
     case "requestingPhotosPermission":

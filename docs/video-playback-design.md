@@ -343,6 +343,23 @@ Phase 6Aでまだ実装していないこと:
 - poster生成またはthumbnail利用。
 - iPadホーム画面PWAでの実動画再生確認。
 
+2026-06-28 Phase 6C実施範囲:
+
+- Google Photos Pickerで `VIDEO` が選ばれた場合、`video/mp4` だけを素材追加対象として許可する。
+- `video/quicktime`、`video/webm`、MIME不明video、50MB超過videoはDrive保存前に拒否する。
+- `video/mp4` は既存のDrive `assets/` 保存経路で保存し、manifestへ `type: "video"`、`mimeType: "video/mp4"`、`fileSize` を反映する。
+- offline syncはPhase 6Aの既存経路を使い、Player再生はPhase 5Aの既存video branchを使う。
+- OAuth scope、Photos Picker scope方針、Provider token管理は変更しない。
+- token、取得URL、Blob URL、raw responseはUI / docs / logsへ出さない。
+- iPad PWA実機で小さい `video/mp4` を追加、offline sync、player再生まで確認するまではproduction complete扱いにしない。
+
+Phase 6Cでまだ実装していないこと:
+
+- `video/quicktime` / `video/webm` / MIME不明videoの追加。
+- 動画変換。
+- Cache Storageへの動画保存。
+- iPadホーム画面PWAでの実動画追加から再生までの確認。
+
 - duration cap。
 - admin warning。
 - release / rollback checklist更新。

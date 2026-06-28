@@ -2,6 +2,7 @@ const PHOTOS_PICKER_API_BASE_URL = "https://photospicker.googleapis.com/v1";
 const PICKED_PHOTO_SIZE_SUFFIX = "=w2732-h2732";
 
 export const PICKED_PHOTO_SIZE_LIMIT_BYTES = 10 * 1024 * 1024;
+export const PICKED_VIDEO_SIZE_LIMIT_BYTES = 50 * 1024 * 1024;
 export const PHOTOS_PICKER_DEFAULT_POLL_INTERVAL_SECONDS = 3;
 export const PHOTOS_PICKER_MIN_POLL_INTERVAL_SECONDS = 1;
 export const PHOTOS_PICKER_DEFAULT_TIMEOUT_SECONDS = 30 * 60;
@@ -10,7 +11,10 @@ export const PHOTOS_PICKER_MAX_APP_WAIT_SECONDS = 30 * 60;
 export type PhotosDownloadedAssetMimeType =
   | "image/jpeg"
   | "image/png"
-  | "image/webp";
+  | "image/webp"
+  | "video/mp4";
+
+export type PhotosPickedMediaItemType = "PHOTO" | "VIDEO";
 
 export type PhotosPickerSelectionFailureStatus =
   | "cancelled"
@@ -22,7 +26,7 @@ export type PhotosPickerApiOperation =
   | "getSession"
   | "listMediaItems"
   | "deleteSession"
-  | "fetchPhotoBytes";
+  | "fetchMediaBytes";
 
 export type PhotosPickerResolvedPollingTiming = {
   pollIntervalSeconds: number;
@@ -54,11 +58,12 @@ export type PhotosPickedMediaItemsList = {
 
 export type PhotosPickedMediaItem = {
   id: string;
-  type: "PHOTO";
+  type: PhotosPickedMediaItemType;
   mediaFile: {
     baseUrl: string;
     mimeType: string;
     filename: string | null;
+    sizeBytes?: number;
   };
   createTime: string | null;
   diagnostics: string[];
@@ -183,6 +188,7 @@ const allowedDownloadedAssetMimeTypes = new Set<PhotosDownloadedAssetMimeType>([
   "image/jpeg",
   "image/png",
   "image/webp",
+  "video/mp4",
 ]);
 
 export async function createPhotosPickerSession(
@@ -372,13 +378,20 @@ export function extractPickedMediaItems(
 export async function fetchAndValidatePickedPhoto(input: {
   accessToken: string;
   baseUrl: string;
+  mediaType?: PhotosPickedMediaItemType;
+  expectedMimeType?: string;
   signal: AbortSignal;
   sizeLimitBytes?: number;
 }): Promise<PhotosPickedPhotoDownloadResult> {
-  const sizeLimitBytes = input.sizeLimitBytes ?? PICKED_PHOTO_SIZE_LIMIT_BYTES;
+  const mediaType = input.mediaType ?? "PHOTO";
+  const sizeLimitBytes =
+    input.sizeLimitBytes ??
+    (mediaType === "VIDEO"
+      ? PICKED_VIDEO_SIZE_LIMIT_BYTES
+      : PICKED_PHOTO_SIZE_LIMIT_BYTES);
   const diagnostics: string[] = [];
 
-  const response = await fetch(buildPickedPhotoDownloadUrl(input.baseUrl), {
+  const response = await fetch(buildPickedMediaDownloadUrl(input.baseUrl, mediaType), {
     method: "GET",
     headers: {
       Authorization: `Bearer ${input.accessToken}`,
@@ -389,27 +402,37 @@ export async function fetchAndValidatePickedPhoto(input: {
   });
 
   if (!response.ok) {
-    throw await createPhotosPickerApiError(response, "fetchPhotoBytes");
+    throw await createPhotosPickerApiError(response, "fetchMediaBytes");
   }
 
   const normalizedContentType = normalizeContentType(
     response.headers.get("content-type"),
   );
 
-  if (!isPhotosDownloadedAssetMimeType(normalizedContentType)) {
+  if (
+    !isAllowedDownloadedAssetMimeType({
+      mediaType,
+      contentType: normalizedContentType,
+      expectedMimeType: input.expectedMimeType,
+    })
+  ) {
     throw new PhotosPickerSelectionError({
       status: "invalid",
-      message: "Downloaded photo Content-Type was not supported.",
+      message: "Downloaded media Content-Type was not supported.",
       diagnostics: [
         normalizedContentType
           ? `Downloaded Content-Type was ${normalizedContentType}.`
           : "Downloaded Content-Type was empty.",
-        "Allowed downloaded Content-Type: image/jpeg, image/png, image/webp.",
+        mediaType === "VIDEO"
+          ? "Allowed downloaded Content-Type for VIDEO: video/mp4."
+          : "Allowed downloaded Content-Type for PHOTO: image/jpeg, image/png, image/webp.",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ],
     });
   }
+  const downloadedContentType =
+    normalizedContentType as PhotosDownloadedAssetMimeType;
 
   const contentLengthBytes = parseContentLengthBytes(
     response.headers.get("content-length"),
@@ -425,10 +448,13 @@ export async function fetchAndValidatePickedPhoto(input: {
   ) {
     throw new PhotosPickerSelectionError({
       status: "invalid",
-      message: "Downloaded photo exceeded the size limit.",
+      message: "Downloaded media exceeded the size limit.",
       diagnostics: [
         `Content-Length bytes: ${contentLengthBytes}`,
         `Size limit bytes: ${sizeLimitBytes}`,
+        mediaType === "VIDEO"
+          ? "video/mp4 は50MB以下のみ追加できます。"
+          : "photo は10MB以下のみ追加できます。",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ],
@@ -440,10 +466,13 @@ export async function fetchAndValidatePickedPhoto(input: {
   if (blob.size > sizeLimitBytes) {
     throw new PhotosPickerSelectionError({
       status: "invalid",
-      message: "Downloaded photo exceeded the size limit.",
+      message: "Downloaded media exceeded the size limit.",
       diagnostics: [
         `Downloaded size bytes: ${blob.size}`,
         `Size limit bytes: ${sizeLimitBytes}`,
+        mediaType === "VIDEO"
+          ? "video/mp4 は50MB以下のみ追加できます。"
+          : "photo は10MB以下のみ追加できます。",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ],
@@ -452,7 +481,7 @@ export async function fetchAndValidatePickedPhoto(input: {
 
   return {
     blob,
-    downloadedContentType: normalizedContentType,
+    downloadedContentType,
     downloadedSizeBytes: blob.size,
     sizeLimitBytes,
     diagnostics,
@@ -564,13 +593,13 @@ export function normalizePickedMediaItem(
     });
   }
 
-  if (mediaItem.type !== "PHOTO") {
+  if (mediaItem.type !== "PHOTO" && mediaItem.type !== "VIDEO") {
     throw new PhotosPickerSelectionError({
       status: "invalid",
-      message: "Picked media item type was not PHOTO.",
+      message: "Picked media item type was not supported.",
       diagnostics: [
         `Picked media item type was ${formatDiagnosticValue(mediaItem.type)}.`,
-        "第4-3初期実装では静止画像だけ対応しています。",
+        "現在追加できる素材はPHOTOとvideo/mp4のVIDEOです。",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ],
@@ -592,6 +621,7 @@ export function normalizePickedMediaItem(
   const baseUrl = readNonEmptyString(mediaItem.mediaFile.baseUrl);
   const mimeType = readNonEmptyString(mediaItem.mediaFile.mimeType);
   const filename = readNonEmptyString(mediaItem.mediaFile.filename);
+  const sizeBytes = readOptionalMediaFileSizeBytes(mediaItem.mediaFile);
 
   if (!baseUrl) {
     throw new PhotosPickerSelectionError({
@@ -617,6 +647,53 @@ export function normalizePickedMediaItem(
     });
   }
 
+  if (mediaItem.type === "VIDEO" && mimeType !== "video/mp4") {
+    throw new PhotosPickerSelectionError({
+      status: "invalid",
+      message: "Picked video MIME type was not supported.",
+      diagnostics: [
+        "Picked media item type was VIDEO.",
+        `Picked media item MIME type was ${mimeType}.`,
+        "この動画形式は未対応です。現在追加できる動画は video/mp4 のみです。",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ],
+    });
+  }
+
+  if (
+    mediaItem.type === "VIDEO" &&
+    typeof sizeBytes === "number" &&
+    sizeBytes > PICKED_VIDEO_SIZE_LIMIT_BYTES
+  ) {
+    throw new PhotosPickerSelectionError({
+      status: "invalid",
+      message: "Picked video exceeded the size limit.",
+      diagnostics: [
+        "Picked media item type was VIDEO.",
+        `Picked media item size bytes: ${sizeBytes}`,
+        `Size limit bytes: ${PICKED_VIDEO_SIZE_LIMIT_BYTES}`,
+        "video/mp4 は50MB以下のみ追加できます。",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ],
+    });
+  }
+
+  if (mediaItem.type === "PHOTO" && mimeType.startsWith("video/")) {
+    throw new PhotosPickerSelectionError({
+      status: "invalid",
+      message: "Picked photo MIME type was not supported.",
+      diagnostics: [
+        "Picked media item type was PHOTO.",
+        `Picked media item MIME type was ${mimeType}.`,
+        "PHOTOとして選択されたmedia itemにvideo MIME typeが含まれているため追加しません。",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ],
+    });
+  }
+
   const createTime = normalizeOptionalCreateTime(mediaItem.createTime);
 
   if (mediaItem.createTime === undefined || mediaItem.createTime === null) {
@@ -629,14 +706,22 @@ export function normalizePickedMediaItem(
 
   return {
     id,
-    type: "PHOTO",
+    type: mediaItem.type,
     mediaFile: {
       baseUrl,
       mimeType,
       filename,
+      ...(typeof sizeBytes === "number" ? { sizeBytes } : {}),
     },
     createTime,
-    diagnostics,
+    diagnostics:
+      mediaItem.type === "VIDEO"
+        ? [
+            ...diagnostics,
+            "Picked media item type was VIDEO.",
+            "video/mp4 を素材追加対象として処理します。",
+          ]
+        : diagnostics,
   };
 }
 
@@ -649,6 +734,27 @@ export function isPhotosDownloadedAssetMimeType(
 ): contentType is PhotosDownloadedAssetMimeType {
   return allowedDownloadedAssetMimeTypes.has(
     contentType as PhotosDownloadedAssetMimeType,
+  );
+}
+
+function isAllowedDownloadedAssetMimeType(input: {
+  mediaType: PhotosPickedMediaItemType;
+  contentType: string;
+  expectedMimeType?: string;
+}): input is {
+  mediaType: PhotosPickedMediaItemType;
+  contentType: PhotosDownloadedAssetMimeType;
+  expectedMimeType?: string;
+} {
+  if (input.mediaType === "VIDEO") {
+    return (
+      input.expectedMimeType === "video/mp4" && input.contentType === "video/mp4"
+    );
+  }
+
+  return (
+    isPhotosDownloadedAssetMimeType(input.contentType) &&
+    input.contentType !== "video/mp4"
   );
 }
 
@@ -769,7 +875,14 @@ function normalizePickingSessionResponse(
   };
 }
 
-function buildPickedPhotoDownloadUrl(baseUrl: string) {
+function buildPickedMediaDownloadUrl(
+  baseUrl: string,
+  mediaType: PhotosPickedMediaItemType,
+) {
+  if (mediaType === "VIDEO") {
+    return baseUrl;
+  }
+
   return `${baseUrl}${PICKED_PHOTO_SIZE_SUFFIX}`;
 }
 
@@ -813,6 +926,24 @@ function readNonEmptyString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : null;
+}
+
+function readOptionalMediaFileSizeBytes(mediaFile: Record<string, unknown>) {
+  const value = mediaFile.sizeBytes ?? mediaFile.size;
+
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+
+    if (Number.isSafeInteger(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+
+  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

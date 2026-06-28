@@ -115,8 +115,12 @@ export type DriveAssetUnsupportedReason =
   | "unsupportedVideoMimeType"
   | "unsupportedMimeType";
 
-export type DriveAssetMimeType = "image/jpeg" | "image/png" | "image/webp";
-export type DriveAssetDownloadMimeType = DriveAssetMimeType | "video/mp4";
+export type DriveAssetMimeType =
+  | "image/jpeg"
+  | "image/png"
+  | "image/webp"
+  | "video/mp4";
+export type DriveAssetDownloadMimeType = DriveAssetMimeType;
 
 export type DriveSlideSummary = {
   slideId: string;
@@ -227,9 +231,11 @@ export type DriveProjectManifestAppendInput = {
   savedAsset: DriveProjectSavedAsset;
   source: {
     filename: string | null;
+    mediaType?: "PHOTO" | "VIDEO";
     sourceMimeType: string;
     sourceMediaItemId: string;
     sourceCreateTime: string | null;
+    durationMs?: number;
   };
   signal: AbortSignal;
 };
@@ -5083,15 +5089,19 @@ function buildDriveProjectManifestSlide(input: {
   source: DriveProjectManifestAppendInput["source"];
   now: string;
 }): DriveSlideSummary {
+  const assetType: DriveAssetType =
+    input.savedAsset.driveMimeType === "video/mp4" ? "video" : "image";
   const slide: DriveSlideSummary = {
     slideId: crypto.randomUUID(),
     assetId: input.savedAsset.assetId,
     assetFileId: input.savedAsset.assetFileId,
     assetName: input.source.filename ?? input.savedAsset.driveFilename,
+    type: assetType,
     mimeType: input.savedAsset.driveMimeType,
     source: "googlePhotosPicker",
     sourceMimeType: input.source.sourceMimeType,
     sourceMediaItemId: input.source.sourceMediaItemId,
+    fileSize: input.savedAsset.driveSizeBytes,
     durationSeconds: DRIVE_PROJECT_DEFAULT_SLIDE_DURATION_SECONDS,
     caption: "",
     createdAt: input.now,
@@ -5100,6 +5110,10 @@ function buildDriveProjectManifestSlide(input: {
 
   if (input.source.sourceCreateTime) {
     slide.sourceCreateTime = input.source.sourceCreateTime;
+  }
+
+  if (typeof input.source.durationMs === "number") {
+    slide.durationMs = input.source.durationMs;
   }
 
   return slide;
@@ -6474,6 +6488,17 @@ function buildDriveProjectUnusedAssetPreviewFailureDiagnostics(error: unknown) {
 }
 
 function isDriveAssetMimeType(value: string): value is DriveAssetMimeType {
+  return (
+    value === "image/jpeg" ||
+    value === "image/png" ||
+    value === "image/webp" ||
+    value === "video/mp4"
+  );
+}
+
+function isDriveImageAssetMimeType(
+  value: string,
+): value is "image/jpeg" | "image/png" | "image/webp" {
   return value === "image/jpeg" || value === "image/png" || value === "image/webp";
 }
 
@@ -6488,7 +6513,7 @@ function validateDriveManifestAssetMimeType(input: {
   diagnostics: string[];
 }): DriveAssetUnsupportedReason | undefined {
   if (input.assetType === "image") {
-    if (!isDriveAssetMimeType(input.mimeType)) {
+    if (!isDriveImageAssetMimeType(input.mimeType)) {
       input.diagnostics.push(`${input.fileLabel} の mimeType が対応外です。`);
       return "unsupportedMimeType";
     }
@@ -6627,7 +6652,7 @@ function validateDriveProjectAssetBlobFetchInput(input: {
 function isDriveAssetDownloadMimeType(
   value: string,
 ): value is DriveAssetDownloadMimeType {
-  return isDriveAssetMimeType(value) || value === "video/mp4";
+  return isDriveAssetMimeType(value);
 }
 
 function normalizeDriveAssetContentType(value: string | null) {
@@ -6666,6 +6691,8 @@ function getDriveAssetExtension(mimeType: DriveAssetMimeType) {
       return "png";
     case "image/webp":
       return "webp";
+    case "video/mp4":
+      return "mp4";
     default:
       return assertNeverDriveAssetMimeType(mimeType);
   }
