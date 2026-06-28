@@ -121,6 +121,7 @@ export type DriveAssetMimeType =
   | "image/webp"
   | "video/mp4";
 export type DriveAssetDownloadMimeType = DriveAssetMimeType;
+export type DriveAssetSource = "googlePhotosPicker" | "localFile";
 
 export type DriveSlideSummary = {
   slideId: string;
@@ -129,7 +130,7 @@ export type DriveSlideSummary = {
   assetName: string;
   type?: DriveAssetType;
   mimeType: string;
-  source: "googlePhotosPicker";
+  source: DriveAssetSource;
   sourceMimeType: string;
   sourceMediaItemId: string;
   sourceCreateTime?: string;
@@ -202,6 +203,7 @@ export type DriveProjectAssetSaveInput = {
   blob: Blob;
   mimeType: DriveAssetMimeType;
   sizeBytes: number;
+  source?: DriveAssetSource;
   signal: AbortSignal;
 };
 
@@ -230,6 +232,7 @@ export type DriveProjectManifestAppendInput = {
   project: DriveProjectSummary;
   savedAsset: DriveProjectSavedAsset;
   source: {
+    source?: DriveAssetSource;
     filename: string | null;
     mediaType?: "PHOTO" | "VIDEO";
     sourceMimeType: string;
@@ -1280,6 +1283,7 @@ export async function saveDriveProjectAsset(
     workspaceId: input.workspaceId,
     projectId: input.project.projectId,
     assetId,
+    source: input.source ?? "googlePhotosPicker",
   });
   let possibleCreatedAsset: DriveProjectSavedAsset | null = null;
 
@@ -1336,6 +1340,7 @@ export async function saveDriveProjectAsset(
       expectedWorkspaceId: input.workspaceId,
       expectedProjectId: input.project.projectId,
       expectedSizeBytes: input.sizeBytes,
+      expectedSource: input.source ?? "googlePhotosPicker",
     });
 
     if (verificationDiagnostics.length > 0) {
@@ -1605,7 +1610,7 @@ export async function appendDriveProjectAssetToManifest(
       !addedSlide ||
       addedSlide.assetId !== input.savedAsset.assetId ||
       addedSlide.assetFileId !== input.savedAsset.assetFileId ||
-      addedSlide.source !== "googlePhotosPicker" ||
+      addedSlide.source !== (input.source.source ?? "googlePhotosPicker") ||
       addedSlide.mimeType !== input.savedAsset.driveMimeType
     ) {
       throw new DriveProjectManifestAppendError({
@@ -4860,6 +4865,13 @@ function validateDriveProjectManifestAppendInput(
   }
 
   if (
+    input.source.source !== undefined &&
+    !isDriveAssetSource(input.source.source)
+  ) {
+    diagnostics.push("manifest反映対象のsourceが不正です。");
+  }
+
+  if (
     input.source.sourceCreateTime !== null &&
     !isRfc3339UtcTimestamp(input.source.sourceCreateTime)
   ) {
@@ -5098,7 +5110,7 @@ function buildDriveProjectManifestSlide(input: {
     assetName: input.source.filename ?? input.savedAsset.driveFilename,
     type: assetType,
     mimeType: input.savedAsset.driveMimeType,
-    source: "googlePhotosPicker",
+    source: input.source.source ?? "googlePhotosPicker",
     sourceMimeType: input.source.sourceMimeType,
     sourceMediaItemId: input.source.sourceMediaItemId,
     fileSize: input.savedAsset.driveSizeBytes,
@@ -5389,7 +5401,7 @@ function normalizeDriveProjectManifestSlide(
     diagnostics: localDiagnostics,
   });
 
-  if (source !== "googlePhotosPicker") {
+  if (!isDriveAssetSource(source)) {
     localDiagnostics.push(`${fileLabel} の source が想定と一致していません。`);
   }
 
@@ -5425,7 +5437,7 @@ function normalizeDriveProjectManifestSlide(
     !assetFileId ||
     !assetName ||
     !rawMimeType ||
-    source !== "googlePhotosPicker" ||
+    !isDriveAssetSource(source) ||
     !sourceMimeType ||
     !sourceMediaItemId ||
     typeof durationSeconds !== "number" ||
@@ -5445,7 +5457,7 @@ function normalizeDriveProjectManifestSlide(
     assetName,
     ...(assetType ? { type: assetType } : {}),
     mimeType: rawMimeType,
-    source: "googlePhotosPicker",
+    source,
     sourceMimeType,
     sourceMediaItemId,
     ...(sourceCreateTime ? { sourceCreateTime } : {}),
@@ -6496,6 +6508,10 @@ function isDriveAssetMimeType(value: string): value is DriveAssetMimeType {
   );
 }
 
+function isDriveAssetSource(value: string | undefined): value is DriveAssetSource {
+  return value === "googlePhotosPicker" || value === "localFile";
+}
+
 function isDriveImageAssetMimeType(
   value: string,
 ): value is "image/jpeg" | "image/png" | "image/webp" {
@@ -6671,6 +6687,7 @@ function buildDriveAssetAppProperties(input: {
   workspaceId: string;
   projectId: string;
   assetId: string;
+  source: DriveAssetSource;
 }) {
   return {
     app: DRIVE_WORKSPACE_APP_ID,
@@ -6679,7 +6696,7 @@ function buildDriveAssetAppProperties(input: {
     workspaceId: input.workspaceId,
     projectId: input.projectId,
     assetId: input.assetId,
-    source: "googlePhotosPicker",
+    source: input.source,
   };
 }
 
@@ -6738,6 +6755,13 @@ function validateDriveProjectAssetSaveInput(input: {
 
   if (input.input.blob.type && input.input.blob.type !== input.input.mimeType) {
     diagnostics.push("Drive asset保存対象のBlob typeが検証済みMIME typeと一致していません。");
+  }
+
+  if (
+    input.input.source !== undefined &&
+    !isDriveAssetSource(input.input.source)
+  ) {
+    diagnostics.push("Drive asset保存対象のsourceが不正です。");
   }
 
   return diagnostics;
@@ -6808,6 +6832,7 @@ function validateDriveProjectAssetMetadata(input: {
   expectedWorkspaceId: string;
   expectedProjectId: string;
   expectedSizeBytes: number;
+  expectedSource: DriveAssetSource;
 }) {
   const diagnostics: string[] = [];
 
@@ -6862,7 +6887,7 @@ function validateDriveProjectAssetMetadata(input: {
     diagnostics,
   });
 
-  if (appProperties.source !== "googlePhotosPicker") {
+  if (appProperties.source !== input.expectedSource) {
     diagnostics.push("Drive asset file のappProperties.sourceが不正です。");
   }
 

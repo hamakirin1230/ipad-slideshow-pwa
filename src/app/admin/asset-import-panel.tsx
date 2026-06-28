@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, type ChangeEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,8 +24,24 @@ export function AssetImportPanel() {
     assetImportBlockedReason,
     isAssetImportInFlight,
     startAssetImport,
+    startLocalVideoFileImport,
     cancelAssetImport,
   } = useAppState();
+  const localVideoInputRef = useRef<HTMLInputElement | null>(null);
+
+  function openLocalVideoFilePicker() {
+    localVideoInputRef.current?.click();
+  }
+
+  function handleLocalVideoFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const { files } = event.currentTarget;
+
+    if (files && files.length > 0) {
+      startLocalVideoFileImport(files);
+    }
+
+    event.currentTarget.value = "";
+  }
 
   return (
     <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
@@ -51,6 +68,25 @@ export function AssetImportPanel() {
           {getStartAssetImportButtonLabel(assetImportStatus)}
         </Button>
 
+        <input
+          ref={localVideoInputRef}
+          type="file"
+          accept="video/mp4"
+          multiple
+          className="sr-only"
+          onChange={handleLocalVideoFileChange}
+          disabled={!canStartAssetImport}
+        />
+
+        <Button
+          type="button"
+          variant="outline"
+          onClick={openLocalVideoFilePicker}
+          disabled={!canStartAssetImport}
+        >
+          video/mp4ファイルを選ぶ
+        </Button>
+
         {isAssetImportInFlight ? (
           <Button type="button" variant="outline" onClick={cancelAssetImport}>
             素材追加を中止
@@ -63,9 +99,18 @@ export function AssetImportPanel() {
       ) : null}
 
       <p className="mt-3 text-slate-500">
-        Google Photos Pickerで写真またはvideo/mp4動画を複数件選び、選択中projectの
-        Drive assets/ へ順次保存し、成功分をmanifest.json にまとめて反映します。
+        Google Photos Pickerは写真追加が主目的です。video/mp4は、Google Photos
+        Pickerではなく「video/mp4ファイルから追加」を推奨します。
       </p>
+
+      <div className="mt-4 border-t border-slate-200 pt-4">
+        <p className="font-medium text-slate-900">video/mp4ファイルから追加</p>
+        <p className="mt-2 text-slate-500">
+          端末上のvideo/mp4ファイルを選び、Drive assets/
+          へ保存してmanifest.jsonへ反映します。1回の上限は
+          {assetImportMaxBatchCount}件、1ファイル50MB以下です。
+        </p>
+      </div>
 
       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
         <SummaryPill label="追加可能" value={`${remainingSlideSlots}件`} />
@@ -240,6 +285,7 @@ function getStartAssetImportButtonLabel(assetImportStatus: AssetImportStatus) {
     case "error":
       return "もう一度試す";
     case "requestingPhotosPermission":
+    case "validatingLocalFiles":
     case "openingPicker":
     case "waitingForSelection":
     case "downloadingFromPhotos":

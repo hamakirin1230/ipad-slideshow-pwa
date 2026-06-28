@@ -372,6 +372,14 @@ Phase 6Cでまだ実装していないこと:
 - Photos bytes取得がresponse受信前に失敗した場合は、media type、期待Content-Type、download parameter種別、fetch error種別だけを診断に残す。
 - 実URL、認可情報、raw responseは表示・保存・console出力しない。
 
+2026-06-28 Phase 6F実施範囲:
+
+- `/admin` の素材管理に、Google Photos Pickerとは別の `video/mp4ファイルから追加` 導線を追加する。
+- local file導線は端末上の `File` / `Blob` を直接Drive assets/へ保存し、成功分だけmanifest.jsonへ反映する。server-side proxyやAPI routeへのtoken送信は実装しない。
+- local file導線では `file.type === "video/mp4"`、50MB以下、0 byteではないことをDrive保存前に検証する。`.MOV` / `video/quicktime` / `video/webm` / MIME不明は拒否する。
+- manifest slideは `source: "localFile"`、`type: "video"`、`mimeType: "video/mp4"`、`fileSize` 付きで保存し、`unsupportedReason` は付けない。
+- token、取得元URL、Blobの参照文字列、file path、raw Blob body、raw Drive response bodyはUI / docs / logsへ出さない。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。
