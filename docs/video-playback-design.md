@@ -365,6 +365,13 @@ Phase 6Cでまだ実装していないこと:
 - release / rollback checklist更新。
 - Playwright screenshot smoke testやmock visual check拡張。
 
+2026-06-28 Phase 6E実施範囲:
+
+- Photos PickerのVIDEO itemで `mediaFileMetadata.videoMetadata.processingStatus` を読み取り、素材追加診断に `READY` / `PROCESSING` / `FAILED` / `UNSPECIFIED` / `UNKNOWN` のみを表示する。
+- `PROCESSING` と `FAILED` はPhotos bytes取得前に拒否し、Drive保存とmanifest反映は実行しない。
+- Photos bytes取得がresponse受信前に失敗した場合は、media type、期待Content-Type、download parameter種別、fetch error種別だけを診断に残す。
+- 実URL、認可情報、raw responseは表示・保存・console出力しない。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

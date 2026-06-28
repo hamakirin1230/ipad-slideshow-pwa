@@ -16,6 +16,12 @@ export type PhotosDownloadedAssetMimeType =
   | "video/mp4";
 
 export type PhotosPickedMediaItemType = "PHOTO" | "VIDEO";
+export type PhotosPickedVideoProcessingStatus =
+  | "READY"
+  | "PROCESSING"
+  | "FAILED"
+  | "UNSPECIFIED"
+  | "UNKNOWN";
 
 export type PhotosPickerSelectionFailureStatus =
   | "cancelled"
@@ -65,6 +71,7 @@ export type PhotosPickedMediaItem = {
     mimeType: string;
     filename: string | null;
     sizeBytes?: number;
+    videoProcessingStatus?: PhotosPickedVideoProcessingStatus;
   };
   createTime: string | null;
   diagnostics: string[];
@@ -160,11 +167,29 @@ function extractPhotosPickerApiErrorDiagnostics(body: unknown) {
 function sanitizePhotosPickerApiErrorText(value: string) {
   return value
     .replace(/https?:\/\/\S+/g, "[url omitted]")
+    .replace(/blob:\S+/g, "[blob omitted]")
+    .replace(/authorization\s*[:=]?\s*\S*/gi, "auth omitted")
+    .replace(/bearer\s+\S+/gi, "auth omitted")
+    .replace(/access[_-]?token[=:]\S+/gi, "credential omitted")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 240);
 }
 
+function formatSafeFetchErrorDiagnostics(error: unknown) {
+  if (!(error instanceof Error)) {
+    return ["Fetch error: unknown."];
+  }
+
+  const name = sanitizePhotosPickerApiErrorText(error.name);
+  const message = sanitizePhotosPickerApiErrorText(error.message);
+
+  if (!name && !message) {
+    return ["Fetch error: Error."];
+  }
+
+  return [`Fetch error: ${name || "Error"}${message ? `: ${message}` : ""}.`];
+}
 
 export class PhotosPickerSelectionError extends Error {
   readonly status: PhotosPickerSelectionFailureStatus;
@@ -392,15 +417,38 @@ export async function fetchAndValidatePickedPhoto(input: {
       : PICKED_PHOTO_SIZE_LIMIT_BYTES);
   const diagnostics: string[] = [];
 
-  const response = await fetch(buildPickedMediaDownloadUrl(input.baseUrl, mediaType), {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${input.accessToken}`,
-    },
-    cache: "no-store",
-    credentials: "omit",
-    signal: input.signal,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(buildPickedMediaDownloadUrl(input.baseUrl, mediaType), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+      },
+      cache: "no-store",
+      credentials: "omit",
+      signal: input.signal,
+    });
+  } catch (error) {
+    throw new PhotosPickerSelectionError({
+      status: "error",
+      message: "Downloaded media fetch failed before receiving a response.",
+      diagnostics: [
+        "Downloaded media fetch failed before receiving a response.",
+        `Media type: ${mediaType}`,
+        mediaType === "VIDEO"
+          ? "Expected downloaded Content-Type: video/mp4"
+          : "Expected downloaded Content-Type: image/jpeg, image/png, or image/webp",
+        mediaType === "VIDEO"
+          ? "Video download parameter: dv"
+          : "Photo download parameter: w2732-h2732",
+        ...formatSafeFetchErrorDiagnostics(error),
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ],
+      cause: error,
+    });
+  }
 
   if (!response.ok) {
     throw await createPhotosPickerApiError(response, "fetchMediaBytes");
@@ -623,6 +671,10 @@ export function normalizePickedMediaItem(
   const mimeType = readNonEmptyString(mediaItem.mediaFile.mimeType);
   const filename = readNonEmptyString(mediaItem.mediaFile.filename);
   const sizeBytes = readOptionalMediaFileSizeBytes(mediaItem.mediaFile);
+  const videoProcessingStatus =
+    mediaItem.type === "VIDEO"
+      ? readPickedVideoProcessingStatus(mediaItem.mediaFile)
+      : null;
 
   if (!baseUrl) {
     throw new PhotosPickerSelectionError({
@@ -713,6 +765,9 @@ export function normalizePickedMediaItem(
       mimeType,
       filename,
       ...(typeof sizeBytes === "number" ? { sizeBytes } : {}),
+      ...(videoProcessingStatus
+        ? { videoProcessingStatus }
+        : {}),
     },
     createTime,
     diagnostics:
@@ -720,10 +775,47 @@ export function normalizePickedMediaItem(
         ? [
             ...diagnostics,
             "Picked media item type was VIDEO.",
+            `Picked video processingStatus was ${videoProcessingStatus ?? "UNKNOWN"}.`,
             "video/mp4 を素材追加対象として処理します。",
           ]
         : diagnostics,
   };
+}
+
+export function assertPickedMediaItemDownloadReady(
+  mediaItem: PhotosPickedMediaItem,
+) {
+  if (mediaItem.type !== "VIDEO") {
+    return;
+  }
+
+  if (mediaItem.mediaFile.videoProcessingStatus === "PROCESSING") {
+    throw new PhotosPickerSelectionError({
+      status: "invalid",
+      message:
+        "Google Photos側でvideo processingが完了していないため、まだ追加できません。少し待って再試行してください。",
+      diagnostics: [
+        ...mediaItem.diagnostics,
+        "Google Photos側でvideo processingが完了していないため、まだ追加できません。少し待って再試行してください。",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ],
+    });
+  }
+
+  if (mediaItem.mediaFile.videoProcessingStatus === "FAILED") {
+    throw new PhotosPickerSelectionError({
+      status: "invalid",
+      message:
+        "Google Photos側でvideo processingが失敗しているため、この動画は追加できません。",
+      diagnostics: [
+        ...mediaItem.diagnostics,
+        "Google Photos側でvideo processingが失敗しているため、この動画は追加できません。",
+        "Drive保存: 未実行",
+        "manifest反映: 未実行",
+      ],
+    });
+  }
 }
 
 export function normalizeContentType(contentType: string | null) {
@@ -945,6 +1037,32 @@ function readOptionalMediaFileSizeBytes(mediaFile: Record<string, unknown>) {
   }
 
   return undefined;
+}
+
+function readPickedVideoProcessingStatus(
+  mediaFile: Record<string, unknown>,
+): PhotosPickedVideoProcessingStatus {
+  const mediaFileMetadata = isRecord(mediaFile.mediaFileMetadata)
+    ? mediaFile.mediaFileMetadata
+    : null;
+  const videoMetadata =
+    mediaFileMetadata && isRecord(mediaFileMetadata.videoMetadata)
+      ? mediaFileMetadata.videoMetadata
+      : null;
+  const rawStatus = readNonEmptyString(videoMetadata?.processingStatus);
+
+  switch (rawStatus?.toUpperCase()) {
+    case "READY":
+      return "READY";
+    case "PROCESSING":
+      return "PROCESSING";
+    case "FAILED":
+      return "FAILED";
+    case "UNSPECIFIED":
+      return "UNSPECIFIED";
+    default:
+      return "UNKNOWN";
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

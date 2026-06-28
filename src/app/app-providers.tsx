@@ -70,6 +70,7 @@ import {
 import {
   PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
   PICKED_VIDEO_SIZE_LIMIT_BYTES,
+  assertPickedMediaItemDownloadReady,
   createPhotosPickerSession,
   deletePhotosPickerSession,
   extractPickedMediaItems,
@@ -1902,6 +1903,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
         const clientItemId = batchItems[index].clientItemId;
 
         try {
+          assertPickedMediaItemDownloadReady(pickedMediaItem);
+
           updateAssetImportBatchItem(clientItemId, { status: "downloading" });
           setAssetImportMessage(
             `選択素材を順次取得しています。${index + 1} / ${pickedMediaItems.length}`,
@@ -1977,6 +1980,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
           });
           batchDiagnostics.push(
             `item ${index + 1}: ${getAssetImportItemErrorMessage(itemError)}`,
+            ...pickedMediaItem.diagnostics,
+            ...getAssetImportItemFailureDiagnostics(itemError),
           );
         }
       }
@@ -4602,6 +4607,17 @@ function getAssetImportItemErrorMessage(error: unknown) {
   }
 
   return "処理に失敗しました。";
+}
+
+function getAssetImportItemFailureDiagnostics(error: unknown) {
+  if (
+    error instanceof PhotosPickerSelectionError ||
+    error instanceof PhotosPickerApiError
+  ) {
+    return error.diagnostics;
+  }
+
+  return [];
 }
 
 function buildAssetImportDriveSaveFailureDiagnostics(
