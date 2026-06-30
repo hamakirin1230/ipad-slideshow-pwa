@@ -380,6 +380,14 @@ Phase 6Cでまだ実装していないこと:
 - manifest slideは `source: "localFile"`、`type: "video"`、`mimeType: "video/mp4"`、`fileSize` 付きで保存し、`unsupportedReason` は付けない。
 - token、取得元URL、Blobの参照文字列、file path、raw Blob body、raw Drive response bodyはUI / docs / logsへ出さない。
 
+2026-06-30 Phase 6G実施範囲:
+
+- local file導線のimport上限を2GBに拡張する。Photos Picker download上限とoffline video保存上限は変更しない。
+- local file導線で `video/mp4` と `video/quicktime` を許可する。MIME不明video、`video/webm`、0 byte、2GB超過はDrive保存前に拒否する。
+- local file導線のDrive保存はresumable uploadを使う。upload sessionの参照文字列、認可情報、raw response bodyはUI / docs / logs / diagnosticsへ出さない。
+- `video/quicktime` はmanifestへ `source: "localFile"`、`type: "video"`、`mimeType: "video/quicktime"`、`unsupportedReason: "unsupportedVideoMimeType"`、`fileSize` 付きで登録する。
+- 1GB超videoやMOVはDrive保存とmanifest登録までを目的とし、offline syncでは対象外としてskipする。Player再生ロジックは変更しない。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

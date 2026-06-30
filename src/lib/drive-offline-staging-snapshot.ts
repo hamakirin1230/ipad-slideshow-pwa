@@ -3,6 +3,7 @@
 import {
   fetchDriveProjectAssetBlob,
   readDriveTextFile,
+  type DriveAssetSource,
   type DriveAssetType,
   type DriveAssetUnsupportedReason,
   type DriveProjectReadyDetails,
@@ -27,7 +28,7 @@ const DRIVE_SCHEMA_VERSION = 1;
 const DRIVE_SCHEMA_VERSION_PROPERTY = "1";
 const DRIVE_ASSET_ROLE = "asset";
 const DRIVE_PROJECT_MAX_SLIDE_COUNT = 50;
-const DRIVE_VIDEO_OFFLINE_MAX_BYTES = 50 * 1024 * 1024;
+export const DRIVE_VIDEO_OFFLINE_MAX_BYTES = 50 * 1024 * 1024;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -855,7 +856,7 @@ function normalizeDriveOfflineManifestSlide(
     diagnostics: localDiagnostics,
   });
 
-  if (source !== "googlePhotosPicker") {
+  if (!isDriveOfflineAssetSource(source)) {
     localDiagnostics.push(`${fileLabel} のsourceが想定と一致していません。`);
   }
 
@@ -868,7 +869,7 @@ function normalizeDriveOfflineManifestSlide(
     !assetFileId ||
     !assetName ||
     !rawMimeType ||
-    source !== "googlePhotosPicker" ||
+    !isDriveOfflineAssetSource(source) ||
     !sourceMimeType ||
     !sourceMediaItemId ||
     typeof durationSeconds !== "number" ||
@@ -886,7 +887,7 @@ function normalizeDriveOfflineManifestSlide(
     assetName,
     ...(assetType ? { type: assetType } : {}),
     mimeType: rawMimeType,
-    source: "googlePhotosPicker",
+    source,
     sourceMimeType,
     sourceMediaItemId,
     ...(sourceCreateTime ? { sourceCreateTime } : {}),
@@ -1223,6 +1224,12 @@ function isDriveOfflineImageMimeType(
 
 function isVideoMimeType(value: string) {
   return value.toLowerCase().startsWith("video/");
+}
+
+function isDriveOfflineAssetSource(
+  value: string | undefined,
+): value is DriveAssetSource {
+  return value === "googlePhotosPicker" || value === "localFile";
 }
 
 function validateDriveManifestAssetMimeType(input: {

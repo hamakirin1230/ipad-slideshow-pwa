@@ -25,6 +25,7 @@ const DRIVE_PROJECT_ASSET_PREVIEW_SIZE_LIMIT_BYTES = 10 * 1024 * 1024;
 const DRIVE_PROJECT_DEFAULT_SLIDE_DURATION_SECONDS = 10;
 const DRIVE_PROJECT_UNUSED_ASSET_SCAN_LIMIT = 500;
 const DRIVE_PROJECT_UNUSED_ASSET_DELETE_PREFLIGHT_LIMIT = 50;
+const DRIVE_RESUMABLE_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 
 const CREATE_FOLDER_FIELDS =
   "id,name,mimeType,createdTime,modifiedTime,appProperties";
@@ -119,9 +120,11 @@ export type DriveAssetMimeType =
   | "image/jpeg"
   | "image/png"
   | "image/webp"
-  | "video/mp4";
+  | "video/mp4"
+  | "video/quicktime";
 export type DriveAssetDownloadMimeType = DriveAssetMimeType;
 export type DriveAssetSource = "googlePhotosPicker" | "localFile";
+export type DriveAssetUploadType = "multipart" | "resumable";
 
 export type DriveSlideSummary = {
   slideId: string;
@@ -204,6 +207,7 @@ export type DriveProjectAssetSaveInput = {
   mimeType: DriveAssetMimeType;
   sizeBytes: number;
   source?: DriveAssetSource;
+  uploadType?: DriveAssetUploadType;
   signal: AbortSignal;
 };
 
@@ -1301,18 +1305,28 @@ export async function saveDriveProjectAsset(
   }
 
   try {
-    const uploadedFile = await createDriveProjectAssetFile({
-      accessToken: input.accessToken,
-      metadata: {
-        name: driveFilename,
-        mimeType: input.mimeType,
-        parents: [input.project.assetsFolderId],
-        appProperties,
-      },
-      blob: input.blob,
-      fields: DRIVE_ASSET_FILE_FIELDS,
-      signal: input.signal,
-    });
+    const metadata = {
+      name: driveFilename,
+      mimeType: input.mimeType,
+      parents: [input.project.assetsFolderId],
+      appProperties,
+    };
+    const uploadedFile =
+      input.uploadType === "resumable"
+        ? await createDriveProjectAssetFileResumable({
+            accessToken: input.accessToken,
+            metadata,
+            blob: input.blob,
+            fields: DRIVE_ASSET_FILE_FIELDS,
+            signal: input.signal,
+          })
+        : await createDriveProjectAssetFile({
+            accessToken: input.accessToken,
+            metadata,
+            blob: input.blob,
+            fields: DRIVE_ASSET_FILE_FIELDS,
+            signal: input.signal,
+          });
 
     possibleCreatedAsset = toDriveProjectSavedAsset({
       file: uploadedFile,
@@ -1393,6 +1407,7 @@ export async function saveDriveProjectAsset(
       diagnostics: buildDriveProjectAssetSaveFailureDiagnostics({
         error,
         possibleCreatedAsset,
+        uploadType: input.uploadType ?? "multipart",
       }),
       cause: error,
     });
@@ -5102,7 +5117,13 @@ function buildDriveProjectManifestSlide(input: {
   now: string;
 }): DriveSlideSummary {
   const assetType: DriveAssetType =
-    input.savedAsset.driveMimeType === "video/mp4" ? "video" : "image";
+    isVideoMimeType(input.savedAsset.driveMimeType) ? "video" : "image";
+  const unsupportedReason = validateDriveManifestAssetMimeType({
+    assetType,
+    mimeType: input.savedAsset.driveMimeType,
+    fileLabel: "追加するslide",
+    diagnostics: [],
+  });
   const slide: DriveSlideSummary = {
     slideId: crypto.randomUUID(),
     assetId: input.savedAsset.assetId,
@@ -5114,6 +5135,7 @@ function buildDriveProjectManifestSlide(input: {
     sourceMimeType: input.source.sourceMimeType,
     sourceMediaItemId: input.source.sourceMediaItemId,
     fileSize: input.savedAsset.driveSizeBytes,
+    ...(unsupportedReason ? { unsupportedReason } : {}),
     durationSeconds: DRIVE_PROJECT_DEFAULT_SLIDE_DURATION_SECONDS,
     caption: "",
     createdAt: input.now,
@@ -6504,7 +6526,8 @@ function isDriveAssetMimeType(value: string): value is DriveAssetMimeType {
     value === "image/jpeg" ||
     value === "image/png" ||
     value === "image/webp" ||
-    value === "video/mp4"
+    value === "video/mp4" ||
+    value === "video/quicktime"
   );
 }
 
@@ -6710,6 +6733,8 @@ function getDriveAssetExtension(mimeType: DriveAssetMimeType) {
       return "webp";
     case "video/mp4":
       return "mp4";
+    case "video/quicktime":
+      return "mov";
     default:
       return assertNeverDriveAssetMimeType(mimeType);
   }
@@ -6762,6 +6787,14 @@ function validateDriveProjectAssetSaveInput(input: {
     !isDriveAssetSource(input.input.source)
   ) {
     diagnostics.push("Drive asset保存対象のsourceが不正です。");
+  }
+
+  if (
+    input.input.uploadType !== undefined &&
+    input.input.uploadType !== "multipart" &&
+    input.input.uploadType !== "resumable"
+  ) {
+    diagnostics.push("Drive asset保存対象のuploadTypeが不正です。");
   }
 
   return diagnostics;
@@ -6821,6 +6854,121 @@ async function createDriveProjectAssetFile(input: {
   }
 
   return file;
+}
+
+async function createDriveProjectAssetFileResumable(input: {
+  accessToken: string;
+  metadata: DriveCreateMetadata;
+  blob: Blob;
+  fields: string;
+  signal: AbortSignal;
+}): Promise<DriveFileCandidate> {
+  const sessionUrl = await createDriveResumableUploadSession(input);
+  const totalBytes = input.blob.size;
+  let offset = 0;
+
+  while (offset < totalBytes) {
+    input.signal.throwIfAborted();
+
+    const endExclusive = Math.min(
+      offset + DRIVE_RESUMABLE_UPLOAD_CHUNK_BYTES,
+      totalBytes,
+    );
+    const chunk = input.blob.slice(offset, endExclusive, input.metadata.mimeType);
+    const response = await fetch(sessionUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": input.metadata.mimeType,
+        "Content-Range": `bytes ${offset}-${endExclusive - 1}/${totalBytes}`,
+      },
+      body: chunk,
+      signal: input.signal,
+    });
+
+    if (response.status === 308) {
+      offset = resolveNextResumableUploadOffset(
+        response.headers.get("range"),
+        endExclusive,
+      );
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new DriveApiError(response.status);
+    }
+
+    const file = normalizeDriveFile((await response.json()) as unknown);
+
+    if (!file) {
+      throw new Error("Drive resumable upload response did not include required fields.");
+    }
+
+    return file;
+  }
+
+  throw new Error("Drive resumable upload completed without a final response.");
+}
+
+async function createDriveResumableUploadSession(input: {
+  accessToken: string;
+  metadata: DriveCreateMetadata;
+  blob: Blob;
+  fields: string;
+  signal: AbortSignal;
+}) {
+  const params = new URLSearchParams({
+    uploadType: "resumable",
+    fields: input.fields,
+  });
+  const response = await fetch(
+    `${DRIVE_API_UPLOAD_FILES_URL}?${params.toString()}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": input.metadata.mimeType,
+        "X-Upload-Content-Length": String(input.blob.size),
+      },
+      body: JSON.stringify(input.metadata),
+      signal: input.signal,
+    },
+  );
+
+  if (!response.ok) {
+    throw new DriveApiError(response.status);
+  }
+
+  const sessionUrl = response.headers.get("location");
+
+  if (!sessionUrl) {
+    throw new Error("Drive resumable upload session did not include a location header.");
+  }
+
+  return sessionUrl;
+}
+
+function resolveNextResumableUploadOffset(
+  rangeHeader: string | null,
+  fallbackOffset: number,
+) {
+  if (!rangeHeader) {
+    return fallbackOffset;
+  }
+
+  const match = /^bytes=0-(\d+)$/.exec(rangeHeader.trim());
+
+  if (!match) {
+    return fallbackOffset;
+  }
+
+  const lastReceivedByte = Number(match[1]);
+
+  if (!Number.isSafeInteger(lastReceivedByte) || lastReceivedByte < 0) {
+    return fallbackOffset;
+  }
+
+  return lastReceivedByte + 1;
 }
 
 function validateDriveProjectAssetMetadata(input: {
@@ -6963,6 +7111,7 @@ function toDriveProjectAssetSaveFailureStatus(
 function buildDriveProjectAssetSaveFailureDiagnostics(input: {
   error: unknown;
   possibleCreatedAsset: DriveProjectSavedAsset | null;
+  uploadType: DriveAssetUploadType;
 }) {
   const diagnostics = ["Drive asset保存中にエラーが発生しました。"];
 
@@ -6978,6 +7127,12 @@ function buildDriveProjectAssetSaveFailureDiagnostics(input: {
     );
   } else {
     diagnostics.push("Drive asset file の作成完了は確認できていません。");
+  }
+
+  if (input.uploadType === "resumable") {
+    diagnostics.push(
+      "resumable upload が中断したため、Drive上に中間状態が残る可能性があります。",
+    );
   }
 
   diagnostics.push(

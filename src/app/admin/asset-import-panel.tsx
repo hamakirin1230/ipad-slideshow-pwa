@@ -71,7 +71,7 @@ export function AssetImportPanel() {
         <input
           ref={localVideoInputRef}
           type="file"
-          accept="video/mp4"
+          accept="video/mp4,video/quicktime,.mov,.mp4"
           multiple
           className="sr-only"
           onChange={handleLocalVideoFileChange}
@@ -84,7 +84,7 @@ export function AssetImportPanel() {
           onClick={openLocalVideoFilePicker}
           disabled={!canStartAssetImport}
         >
-          video/mp4ファイルを選ぶ
+          動画ファイルを選ぶ
         </Button>
 
         {isAssetImportInFlight ? (
@@ -100,15 +100,15 @@ export function AssetImportPanel() {
 
       <p className="mt-3 text-slate-500">
         Google Photos Pickerは写真追加が主目的です。video/mp4は、Google Photos
-        Pickerではなく「video/mp4ファイルから追加」を推奨します。
+        Pickerではなく「動画ファイルから追加」を推奨します。
       </p>
 
       <div className="mt-4 border-t border-slate-200 pt-4">
-        <p className="font-medium text-slate-900">video/mp4ファイルから追加</p>
+        <p className="font-medium text-slate-900">動画ファイルから追加</p>
         <p className="mt-2 text-slate-500">
-          端末上のvideo/mp4ファイルを選び、Drive assets/
-          へ保存してmanifest.jsonへ反映します。1回の上限は
-          {assetImportMaxBatchCount}件、1ファイル50MB以下です。
+          端末上のvideo/mp4またはMOVファイルをDrive assets/
+          へ保存してmanifest.jsonへ反映します。大容量動画はDrive保存とmanifest登録のみ行い、offline保存対象外としてskipされます。1回の上限は
+          {assetImportMaxBatchCount}件、1ファイル2GB以下です。
         </p>
       </div>
 
