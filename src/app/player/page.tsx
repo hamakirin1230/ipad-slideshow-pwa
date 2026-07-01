@@ -83,6 +83,61 @@ type OnlineVideoPlaybackStatus =
   | "playing"
   | "skipped"
   | "error";
+type RemoteVideoContentTypeLabel = "video/mp4" | "missing" | "other";
+type RemoteVideoRangeRequestLabel = "present" | "absent";
+type RemoteVideoCanPlayTypeLabel = "probably" | "maybe" | "empty";
+type RemoteVideoMediaEventName =
+  | "loadstart"
+  | "loadedmetadata"
+  | "loadeddata"
+  | "canplay"
+  | "playing"
+  | "waiting"
+  | "stalled"
+  | "error"
+  | "ended";
+
+type RemoteVideoStreamDiagnostics = {
+  status: number;
+  rangeRequest: RemoteVideoRangeRequestLabel;
+  contentType: RemoteVideoContentTypeLabel;
+  hasContentRange: boolean;
+  hasAcceptRanges: boolean;
+  hasContentLength: boolean;
+  upstreamError?: "fetchFailed";
+};
+
+type RemoteVideoProbeDiagnostics = RemoteVideoStreamDiagnostics;
+
+type RemoteVideoMediaDiagnostics = {
+  canPlayType: RemoteVideoCanPlayTypeLabel;
+  errorCode: number | null;
+  errorLabel: string | null;
+  readyState: number;
+  networkState: number;
+  events: RemoteVideoMediaEventName[];
+};
+
+type RemoteVideoMediaDiagnosticsUpdate = {
+  canPlayType?: RemoteVideoCanPlayTypeLabel;
+  errorCode?: number | null;
+  readyState: number;
+  networkState: number;
+  eventName?: RemoteVideoMediaEventName;
+};
+
+const REMOTE_VIDEO_MEDIA_EVENT_NAMES: RemoteVideoMediaEventName[] = [
+  "loadstart",
+  "loadedmetadata",
+  "loadeddata",
+  "canplay",
+  "playing",
+  "waiting",
+  "stalled",
+  "error",
+  "ended",
+];
+const REMOTE_VIDEO_MEDIA_EVENT_MAX_COUNT = 6;
 
 const playerAutoAdvanceIntervalOptions: Array<{
   value: PlayerAutoAdvanceIntervalSeconds;
@@ -147,6 +202,12 @@ export default function PlayerPage() {
     useState<OnlineVideoPlaybackStatus>("idle");
   const [onlineVideoPlaybackMessage, setOnlineVideoPlaybackMessage] =
     useState("online video playback: enabled");
+  const [remoteVideoStreamDiagnostics, setRemoteVideoStreamDiagnostics] =
+    useState<RemoteVideoStreamDiagnostics | null>(null);
+  const [remoteVideoProbeDiagnostics, setRemoteVideoProbeDiagnostics] =
+    useState<RemoteVideoProbeDiagnostics | null>(null);
+  const [remoteVideoMediaDiagnostics, setRemoteVideoMediaDiagnostics] =
+    useState<RemoteVideoMediaDiagnostics | null>(null);
   const [slideTransitionDirection, setSlideTransitionDirection] =
     useState<SlideTransitionDirection>("none");
   const [isSlideTransitioning, setIsSlideTransitioning] = useState(false);
@@ -385,6 +446,12 @@ export default function PlayerPage() {
             payload?: {
               sessionId?: unknown;
               status?: unknown;
+              rangeRequest?: unknown;
+              contentType?: unknown;
+              hasContentRange?: unknown;
+              hasAcceptRanges?: unknown;
+              hasContentLength?: unknown;
+              upstreamError?: unknown;
             };
           }
         | null;
@@ -394,15 +461,19 @@ export default function PlayerPage() {
       }
 
       const sessionId = message.payload?.sessionId;
-      const status = message.payload?.status;
+      const diagnostics = normalizeRemoteVideoStreamDiagnostics(message.payload);
 
       if (
         typeof sessionId !== "string" ||
         sessionId !== remoteVideoSessionIdRef.current ||
-        typeof status !== "number"
+        !diagnostics
       ) {
         return;
       }
+
+      setRemoteVideoStreamDiagnostics(diagnostics);
+
+      const { status } = diagnostics;
 
       if (status === 200 || status === 206) {
         setOnlineVideoPlaybackStatus("registered");
@@ -521,6 +592,9 @@ export default function PlayerPage() {
     currentSlide,
     googleStatus,
     isOnline,
+    streamDiagnostics: remoteVideoStreamDiagnostics,
+    probeDiagnostics: remoteVideoProbeDiagnostics,
+    mediaDiagnostics: remoteVideoMediaDiagnostics,
   });
 
   useEffect(() => {
@@ -790,6 +864,9 @@ export default function PlayerPage() {
         if (!isCurrentRemoteVideo) {
           setOnlineVideoPlaybackStatus("idle");
           setOnlineVideoPlaybackMessage("online video playback: enabled");
+          setRemoteVideoStreamDiagnostics(null);
+          setRemoteVideoProbeDiagnostics(null);
+          setRemoteVideoMediaDiagnostics(null);
         }
       });
       return;
@@ -822,6 +899,7 @@ export default function PlayerPage() {
     let cancelled = false;
     const sessionId = createPlayerVideoSessionId();
     const sourceUrl = buildPlayerVideoStreamSourceUrl(sessionId);
+    const probeController = new AbortController();
     remoteVideoSessionIdRef.current = sessionId;
 
     queueMicrotask(() => {
@@ -832,6 +910,9 @@ export default function PlayerPage() {
       setVideoStatus("idle");
       setOnlineVideoPlaybackStatus("registering");
       setOnlineVideoPlaybackMessage("stream session: registering");
+      setRemoteVideoStreamDiagnostics(null);
+      setRemoteVideoProbeDiagnostics(null);
+      setRemoteVideoMediaDiagnostics(null);
     });
 
     void registerDriveVideoPlaybackSession({
@@ -873,10 +954,19 @@ export default function PlayerPage() {
       setVideoStatus("ready");
       setOnlineVideoPlaybackStatus("registered");
       setOnlineVideoPlaybackMessage("stream session: registered");
+
+      void probeRemoteVideoStream(sourceUrl, probeController.signal).then(
+        (diagnostics) => {
+          if (!cancelled) {
+            setRemoteVideoProbeDiagnostics(diagnostics);
+          }
+        },
+      );
     });
 
     return () => {
       cancelled = true;
+      probeController.abort();
       unregisterDriveVideoPlaybackSession(sessionId);
       if (remoteVideoSessionIdRef.current === sessionId) {
         remoteVideoSessionIdRef.current = null;
@@ -947,6 +1037,33 @@ export default function PlayerPage() {
 
       setOnlineVideoPlaybackStatus(status);
       setOnlineVideoPlaybackMessage(message);
+    },
+    [],
+  );
+
+  const handleRemoteVideoMediaDiagnostics = useCallback(
+    (update: RemoteVideoMediaDiagnosticsUpdate) => {
+      setRemoteVideoMediaDiagnostics((current) => {
+        const events = update.eventName
+          ? [...(current?.events ?? []), update.eventName].slice(
+              -REMOTE_VIDEO_MEDIA_EVENT_MAX_COUNT,
+            )
+          : (current?.events ?? []);
+        const errorCode =
+          update.errorCode === undefined
+            ? (current?.errorCode ?? null)
+            : update.errorCode;
+
+        return {
+          canPlayType:
+            update.canPlayType ?? current?.canPlayType ?? "empty",
+          errorCode,
+          errorLabel: getMediaErrorLabel(errorCode),
+          readyState: update.readyState,
+          networkState: update.networkState,
+          events,
+        };
+      });
     },
     [],
   );
@@ -1249,6 +1366,7 @@ export default function PlayerPage() {
               onEnded={handleVideoPlaybackEnded}
               onPlaybackFailure={handleVideoPlaybackFailure}
               onPlaybackMessage={handleVideoPlaybackMessage}
+              onRemoteMediaDiagnostics={handleRemoteVideoMediaDiagnostics}
             />
           ) : null}
 
@@ -1820,6 +1938,7 @@ function PlayerVideoSlide({
   onEnded,
   onPlaybackFailure,
   onPlaybackMessage,
+  onRemoteMediaDiagnostics,
 }: {
   video: PlayerSlideVideo;
   onEnded: (slideKey: string) => void;
@@ -1827,6 +1946,9 @@ function PlayerVideoSlide({
   onPlaybackMessage: (
     message: string,
     status?: OnlineVideoPlaybackStatus,
+  ) => void;
+  onRemoteMediaDiagnostics: (
+    update: RemoteVideoMediaDiagnosticsUpdate,
   ) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -1856,6 +1978,33 @@ function PlayerVideoSlide({
     let stallTimeout: ReturnType<typeof setTimeout> | null = null;
     let playbackTimeout: ReturnType<typeof setTimeout> | null = null;
     const isRemoteVideo = video.sourceKind === "remote";
+
+    const reportRemoteMediaDiagnostics = (
+      eventName?: RemoteVideoMediaEventName,
+    ) => {
+      if (!isRemoteVideo) {
+        return;
+      }
+
+      onRemoteMediaDiagnostics({
+        eventName,
+        canPlayType: normalizeCanPlayType(
+          videoElement.canPlayType("video/mp4"),
+        ),
+        errorCode: videoElement.error?.code ?? null,
+        readyState: videoElement.readyState,
+        networkState: videoElement.networkState,
+      });
+    };
+
+    const handleDiagnosticEvent = (event: Event) => {
+      if (isRemoteVideoMediaEventName(event.type)) {
+        reportRemoteMediaDiagnostics(event.type);
+      }
+    };
+
+    reportRemoteMediaDiagnostics();
+
     const metadataTimeout = isRemoteVideo
       ? setTimeout(() => {
           if (!metadataLoaded) {
@@ -1955,6 +2104,10 @@ function PlayerVideoSlide({
     videoElement.addEventListener("waiting", handleWaitingOrStalled);
     videoElement.addEventListener("stalled", handleWaitingOrStalled);
 
+    for (const eventName of REMOTE_VIDEO_MEDIA_EVENT_NAMES) {
+      videoElement.addEventListener(eventName, handleDiagnosticEvent);
+    }
+
     if (!isRemoteVideo) {
       schedulePlaybackTimeout(getPlayerVideoPlaybackTimeoutMs(video.durationMs));
     }
@@ -1981,9 +2134,14 @@ function PlayerVideoSlide({
       videoElement.removeEventListener("playing", handlePlaying);
       videoElement.removeEventListener("waiting", handleWaitingOrStalled);
       videoElement.removeEventListener("stalled", handleWaitingOrStalled);
+
+      for (const eventName of REMOTE_VIDEO_MEDIA_EVENT_NAMES) {
+        videoElement.removeEventListener(eventName, handleDiagnosticEvent);
+      }
     };
   }, [
     onPlaybackMessage,
+    onRemoteMediaDiagnostics,
     reportPlaybackFailure,
     video.durationMs,
     video.sourceKind,
@@ -2242,6 +2400,9 @@ function buildOnlineVideoDiagnostics(input: {
   currentSlide: OfflinePlaybackSlide | null;
   googleStatus: string;
   isOnline: boolean | null;
+  streamDiagnostics: RemoteVideoStreamDiagnostics | null;
+  probeDiagnostics: RemoteVideoProbeDiagnostics | null;
+  mediaDiagnostics: RemoteVideoMediaDiagnostics | null;
 }) {
   const diagnostics = [
     "online video playback: enabled",
@@ -2270,7 +2431,179 @@ function buildOnlineVideoDiagnostics(input: {
     diagnostics.push("stream session: registered");
   }
 
+  if (input.streamDiagnostics) {
+    diagnostics.push(
+      ...formatRemoteVideoStreamDiagnostics(
+        "stream response",
+        input.streamDiagnostics,
+      ),
+      `stream request: range ${input.streamDiagnostics.rangeRequest}`,
+    );
+  }
+
+  if (input.probeDiagnostics) {
+    diagnostics.push(
+      ...formatRemoteVideoStreamDiagnostics(
+        "stream probe",
+        input.probeDiagnostics,
+      ),
+    );
+  }
+
+  if (input.mediaDiagnostics) {
+    diagnostics.push(
+      `media canPlayType video/mp4: ${input.mediaDiagnostics.canPlayType}`,
+      `media error: ${input.mediaDiagnostics.errorLabel ?? "none"}`,
+      `media readyState: ${input.mediaDiagnostics.readyState}`,
+      `media networkState: ${input.mediaDiagnostics.networkState}`,
+    );
+
+    if (input.mediaDiagnostics.events.length > 0) {
+      diagnostics.push(
+        `media events: ${input.mediaDiagnostics.events.join(" -> ")}`,
+      );
+    }
+  }
+
   return [...new Set(diagnostics)];
+}
+
+function formatRemoteVideoStreamDiagnostics(
+  label: "stream response" | "stream probe",
+  diagnostics: RemoteVideoStreamDiagnostics,
+) {
+  return [
+    `${label} status: ${diagnostics.status}`,
+    `${label} content-type: ${diagnostics.contentType}`,
+    `${label} content-range: ${formatPresentAbsent(diagnostics.hasContentRange)}`,
+    `${label} accept-ranges: ${formatPresentAbsent(diagnostics.hasAcceptRanges)}`,
+    `${label} content-length: ${formatPresentAbsent(diagnostics.hasContentLength)}`,
+    ...(diagnostics.upstreamError
+      ? [`${label} upstream error: ${diagnostics.upstreamError}`]
+      : []),
+    ...(label === "stream probe"
+      ? [`stream probe range request: ${diagnostics.rangeRequest}`]
+      : []),
+  ];
+}
+
+function formatPresentAbsent(value: boolean) {
+  return value ? "present" : "absent";
+}
+
+function normalizeRemoteVideoStreamDiagnostics(
+  value: unknown,
+): RemoteVideoStreamDiagnostics | null {
+  if (!isRecord(value) || typeof value.status !== "number") {
+    return null;
+  }
+
+  return {
+    status: value.status,
+    rangeRequest: value.rangeRequest === true ? "present" : "absent",
+    contentType: normalizeRemoteVideoContentTypeLabel(value.contentType),
+    hasContentRange: value.hasContentRange === true,
+    hasAcceptRanges: value.hasAcceptRanges === true,
+    hasContentLength: value.hasContentLength === true,
+    ...(value.upstreamError === "fetchFailed"
+      ? { upstreamError: "fetchFailed" }
+      : {}),
+  };
+}
+
+function normalizeRemoteVideoContentTypeLabel(
+  value: unknown,
+): RemoteVideoContentTypeLabel {
+  return value === "video/mp4" || value === "other" ? value : "missing";
+}
+
+async function probeRemoteVideoStream(
+  sourceUrl: string,
+  signal: AbortSignal,
+): Promise<RemoteVideoProbeDiagnostics> {
+  let response: Response;
+
+  try {
+    response = await fetch(sourceUrl, {
+      method: "GET",
+      headers: {
+        Range: "bytes=0-1023",
+      },
+      cache: "no-store",
+      signal,
+    });
+  } catch {
+    return {
+      status: 0,
+      rangeRequest: "present",
+      contentType: "missing",
+      hasContentRange: false,
+      hasAcceptRanges: false,
+      hasContentLength: false,
+      upstreamError: "fetchFailed",
+    };
+  }
+
+  if (response.body) {
+    void response.body.cancel().catch(() => {
+      // Probe body is intentionally discarded; cancellation is best-effort.
+    });
+  }
+
+  return {
+    status: response.status,
+    rangeRequest: "present",
+    contentType: normalizeProbeContentType(response.headers.get("Content-Type")),
+    hasContentRange: response.headers.has("Content-Range"),
+    hasAcceptRanges: response.headers.has("Accept-Ranges"),
+    hasContentLength: response.headers.has("Content-Length"),
+  };
+}
+
+function normalizeProbeContentType(
+  value: string | null,
+): RemoteVideoContentTypeLabel {
+  if (!value) {
+    return "missing";
+  }
+
+  const normalizedValue = value.split(";")[0]?.trim().toLowerCase() ?? "";
+  return normalizedValue === "video/mp4" ? "video/mp4" : "other";
+}
+
+function normalizeCanPlayType(value: string): RemoteVideoCanPlayTypeLabel {
+  if (value === "probably" || value === "maybe") {
+    return value;
+  }
+
+  return "empty";
+}
+
+function getMediaErrorLabel(errorCode: number | null): string | null {
+  switch (errorCode) {
+    case 1:
+      return "MEDIA_ERR_ABORTED";
+    case 2:
+      return "MEDIA_ERR_NETWORK";
+    case 3:
+      return "MEDIA_ERR_DECODE";
+    case 4:
+      return "MEDIA_ERR_SRC_NOT_SUPPORTED";
+    default:
+      return null;
+  }
+}
+
+function isRemoteVideoMediaEventName(
+  value: string,
+): value is RemoteVideoMediaEventName {
+  return REMOTE_VIDEO_MEDIA_EVENT_NAMES.includes(
+    value as RemoteVideoMediaEventName,
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function getServiceWorkerDiagnosticsLabel() {

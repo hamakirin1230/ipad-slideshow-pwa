@@ -138,15 +138,44 @@ function buildDriveMediaResponseHeaders(response) {
   return headers;
 }
 
-function postDriveVideoStreamStatus(sessionId, status) {
+function safeContentTypeLabel(contentType) {
+  if (!contentType) {
+    return "missing";
+  }
+
+  const normalizedContentType =
+    contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+
+  return normalizedContentType === "video/mp4" ? "video/mp4" : "other";
+}
+
+function buildDriveVideoStreamStatusPayload(input) {
+  return {
+    sessionId: input.sessionId,
+    status: input.status,
+    rangeRequest: input.request.headers.has("Range"),
+    contentType: input.response
+      ? safeContentTypeLabel(input.response.headers.get("Content-Type"))
+      : "missing",
+    hasContentRange: input.response
+      ? input.response.headers.has("Content-Range")
+      : false,
+    hasAcceptRanges: input.response
+      ? input.response.headers.has("Accept-Ranges")
+      : false,
+    hasContentLength: input.response
+      ? input.response.headers.has("Content-Length")
+      : false,
+    ...(input.upstreamError ? { upstreamError: input.upstreamError } : {}),
+  };
+}
+
+function postDriveVideoStreamStatus(payload) {
   self.clients.matchAll({ type: "window" }).then((clients) => {
     for (const client of clients) {
       client.postMessage({
         type: "DRIVE_VIDEO_STREAM_STATUS",
-        payload: {
-          sessionId,
-          status,
-        },
+        payload,
       });
     }
   });
@@ -165,11 +194,25 @@ async function handleDriveVideoStreamRequest(request, url) {
   const session = driveVideoSessions.get(sessionId);
 
   if (!session) {
+    postDriveVideoStreamStatus(
+      buildDriveVideoStreamStatusPayload({
+        sessionId,
+        status: 404,
+        request,
+      }),
+    );
     return buildSafeStreamErrorResponse(404, "video stream session not found");
   }
 
   if (session.expiresAt <= nowMs()) {
     driveVideoSessions.delete(sessionId);
+    postDriveVideoStreamStatus(
+      buildDriveVideoStreamStatusPayload({
+        sessionId,
+        status: 401,
+        request,
+      }),
+    );
     return buildSafeStreamErrorResponse(401, "video stream session expired");
   }
 
@@ -195,7 +238,14 @@ async function handleDriveVideoStreamRequest(request, url) {
       },
     );
   } catch {
-    postDriveVideoStreamStatus(sessionId, 0);
+    postDriveVideoStreamStatus(
+      buildDriveVideoStreamStatusPayload({
+        sessionId,
+        status: 502,
+        request,
+        upstreamError: "fetchFailed",
+      }),
+    );
     return buildSafeStreamErrorResponse(
       502,
       "video stream upstream fetch failed",
@@ -203,7 +253,14 @@ async function handleDriveVideoStreamRequest(request, url) {
   }
 
   if (![200, 206, 403, 404, 416].includes(response.status)) {
-    postDriveVideoStreamStatus(sessionId, response.status);
+    postDriveVideoStreamStatus(
+      buildDriveVideoStreamStatusPayload({
+        sessionId,
+        status: response.status,
+        request,
+        response,
+      }),
+    );
     return buildSafeStreamErrorResponse(
       response.status,
       "video stream upstream response was not playable",
@@ -211,14 +268,28 @@ async function handleDriveVideoStreamRequest(request, url) {
   }
 
   if (![200, 206, 416].includes(response.status)) {
-    postDriveVideoStreamStatus(sessionId, response.status);
+    postDriveVideoStreamStatus(
+      buildDriveVideoStreamStatusPayload({
+        sessionId,
+        status: response.status,
+        request,
+        response,
+      }),
+    );
     return buildSafeStreamErrorResponse(
       response.status,
       "video stream upstream access failed",
     );
   }
 
-  postDriveVideoStreamStatus(sessionId, response.status);
+  postDriveVideoStreamStatus(
+    buildDriveVideoStreamStatusPayload({
+      sessionId,
+      status: response.status,
+      request,
+      response,
+    }),
+  );
 
   return new Response(response.body, {
     status: response.status,
