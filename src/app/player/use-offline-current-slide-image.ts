@@ -44,7 +44,7 @@ export function useOfflineCurrentSlideImage({
   const currentObjectUrlRef = useRef<string | null>(null);
 
   const requestKey =
-    canRender && slide
+    canRender && slide?.offlineAvailability === "offline"
       ? [
           slide.slideId,
           slide.assetId,
@@ -55,7 +55,7 @@ export function useOfflineCurrentSlideImage({
       : null;
 
   useEffect(() => {
-    if (!requestKey || !slide) {
+    if (!requestKey || slide?.offlineAvailability !== "offline") {
       return;
     }
 

@@ -499,12 +499,35 @@ type AppContextValue = {
   cancelAssetImport: () => void;
   startOfflineSync: () => void;
   cancelOfflineSync: () => void;
+  registerDriveVideoPlaybackSession: (
+    input: DriveVideoPlaybackSessionRegistrationInput,
+  ) => Promise<DriveVideoPlaybackSessionRegistrationResult>;
+  unregisterDriveVideoPlaybackSession: (sessionId: string) => void;
+  clearDriveVideoPlaybackSessions: () => void;
   fetchProjectSlidePreviewBlob: (
     assetFileId: string,
     expectedMimeType: ProjectSlideSummary["mimeType"],
     signal: AbortSignal,
   ) => Promise<Blob>;
 };
+
+export type DriveVideoPlaybackSessionRegistrationInput = {
+  sessionId: string;
+  assetFileId: string;
+  mimeType: "video/mp4";
+  expiresAt: number;
+};
+
+export type DriveVideoPlaybackSessionRegistrationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason:
+        | "accessTokenMissing"
+        | "serviceWorkerUnavailable"
+        | "serviceWorkerNotReady"
+        | "messageFailed";
+    };
 
 const googleStatusLabels: Record<GoogleConnectionStatus, string> = {
   scriptLoading: "Google認証の準備中",
@@ -1444,6 +1467,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function resetProjectState() {
+    clearDriveVideoPlaybackSessions();
     setProjectStatus("idle");
     setProjectMessage(initialProjectMessage);
     setDriveProjects([]);
@@ -1474,6 +1498,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function resetGoogleAfterDriveAuthFailure() {
+    clearDriveVideoPlaybackSessions();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
@@ -1701,6 +1726,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
   function resetGoogleAuthFlow() {
+    clearDriveVideoPlaybackSessions();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
@@ -1717,6 +1743,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function disconnectGoogle() {
+    clearDriveVideoPlaybackSessions();
     abortDriveOperation();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
@@ -4354,6 +4381,90 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  async function registerDriveVideoPlaybackSession(
+    input: DriveVideoPlaybackSessionRegistrationInput,
+  ): Promise<DriveVideoPlaybackSessionRegistrationResult> {
+    const accessToken = accessTokenRef.current;
+
+    if (!accessToken) {
+      return { ok: false, reason: "accessTokenMissing" };
+    }
+
+    if (!("serviceWorker" in navigator)) {
+      return { ok: false, reason: "serviceWorkerUnavailable" };
+    }
+
+    let registration: ServiceWorkerRegistration;
+
+    try {
+      registration = await navigator.serviceWorker.ready;
+    } catch {
+      return { ok: false, reason: "serviceWorkerNotReady" };
+    }
+
+    const targetWorker = navigator.serviceWorker.controller ?? registration.active;
+
+    if (!navigator.serviceWorker.controller || !targetWorker) {
+      return { ok: false, reason: "serviceWorkerNotReady" };
+    }
+
+    try {
+      const result = await postDriveVideoPlaybackSessionMessage(targetWorker, {
+        type: "REGISTER_DRIVE_VIDEO_SESSION",
+        payload: {
+          sessionId: input.sessionId,
+          assetFileId: input.assetFileId,
+          accessToken,
+          mimeType: input.mimeType,
+          expiresAt: input.expiresAt,
+        },
+      });
+
+      return result.ok ? { ok: true } : { ok: false, reason: "messageFailed" };
+    } catch {
+      return { ok: false, reason: "messageFailed" };
+    }
+  }
+
+  function unregisterDriveVideoPlaybackSession(sessionId: string): void {
+    if (!("serviceWorker" in navigator)) {
+      return;
+    }
+
+    const targetWorker = navigator.serviceWorker.controller;
+
+    if (!targetWorker) {
+      return;
+    }
+
+    void postDriveVideoPlaybackSessionMessage(targetWorker, {
+      type: "UNREGISTER_DRIVE_VIDEO_SESSION",
+      payload: {
+        sessionId,
+      },
+    }).catch(() => {
+      // Playback session cleanup is best-effort and does not expose internals.
+    });
+  }
+
+  function clearDriveVideoPlaybackSessions(): void {
+    if (!("serviceWorker" in navigator)) {
+      return;
+    }
+
+    const targetWorker = navigator.serviceWorker.controller;
+
+    if (!targetWorker) {
+      return;
+    }
+
+    void postDriveVideoPlaybackSessionMessage(targetWorker, {
+      type: "CLEAR_DRIVE_VIDEO_SESSIONS",
+    }).catch(() => {
+      // Playback session cleanup is best-effort and does not expose internals.
+    });
+  }
+
   const value: AppContextValue = {
     googleStatus,
     googleStatusLabel: googleStatusLabels[googleStatus],
@@ -4445,6 +4556,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     cancelAssetImport,
     startOfflineSync,
     cancelOfflineSync,
+    registerDriveVideoPlaybackSession,
+    unregisterDriveVideoPlaybackSession,
+    clearDriveVideoPlaybackSessions,
     fetchProjectSlidePreviewBlob,
   };
 
@@ -5140,6 +5254,55 @@ type PhotosPickerWaitResult = {
 type PhotosPickerCleanupResult = {
   diagnostics: string[];
 };
+
+type DriveVideoPlaybackSessionMessage =
+  | {
+      type: "REGISTER_DRIVE_VIDEO_SESSION";
+      payload: {
+        sessionId: string;
+        assetFileId: string;
+        accessToken: string;
+        mimeType: "video/mp4";
+        expiresAt: number;
+      };
+    }
+  | {
+      type: "UNREGISTER_DRIVE_VIDEO_SESSION";
+      payload: {
+        sessionId: string;
+      };
+    }
+  | {
+      type: "CLEAR_DRIVE_VIDEO_SESSIONS";
+    };
+
+function postDriveVideoPlaybackSessionMessage(
+  targetWorker: ServiceWorker,
+  message: DriveVideoPlaybackSessionMessage,
+): Promise<{ ok: boolean }> {
+  return new Promise((resolve, reject) => {
+    const channel = new MessageChannel();
+    const timeoutId = setTimeout(() => {
+      channel.port1.close();
+      reject(new Error("Drive video playback session message timed out."));
+    }, 3_000);
+
+    channel.port1.onmessage = (event) => {
+      clearTimeout(timeoutId);
+      channel.port1.close();
+      const data = event.data as { ok?: unknown } | null;
+      resolve({ ok: data?.ok === true });
+    };
+
+    try {
+      targetWorker.postMessage(message, [channel.port2]);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      channel.port1.close();
+      reject(error);
+    }
+  });
+}
 
 export function abortableSleep(
   delayMs: number,

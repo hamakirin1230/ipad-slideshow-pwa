@@ -23,6 +23,7 @@ export type OfflineAssetType = "image" | "video";
 
 export type OfflineAssetUnsupportedReason =
   | "videoPlaybackNotImplemented"
+  | "videoOfflineTooLarge"
   | "unsupportedVideoMimeType"
   | "unsupportedMimeType";
 

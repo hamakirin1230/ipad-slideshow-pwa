@@ -62,6 +62,7 @@ export type FetchDriveOfflineStagingSnapshotInput = {
 export type DriveOfflineStagingSnapshot = {
   project: OfflineProject;
   assetPairs: OfflineStagingAssetPairInput[];
+  assetsWithoutBlobs: OfflineAsset[];
   details: DriveProjectReadyDetails;
   diagnostics: string[];
 };
@@ -94,6 +95,7 @@ export async function fetchDriveOfflineStagingSnapshot(
   });
 
   const assetPairs: OfflineStagingAssetPairInput[] = [];
+  const assetsWithoutBlobs: OfflineAsset[] = [];
   const offlineSlides: DriveSlideSummary[] = [];
   let imageSyncCandidateCount = 0;
   let videoSyncCandidateCount = 0;
@@ -134,6 +136,16 @@ export async function fetchDriveOfflineStagingSnapshot(
     if (slideAssetKind === "video-unsupported") {
       videoSkippedCount += 1;
       unsupportedAssetCount += 1;
+      assetsWithoutBlobs.push(
+        buildOfflineStagingAssetWithoutBlob({
+          projectId: input.project.projectId,
+          slide,
+          assetMetadata,
+          syncedAt: input.syncedAt,
+          unsupportedReason: slide.unsupportedReason ?? "unsupportedVideoMimeType",
+        }),
+      );
+      offlineSlides.push(slide);
       diagnostics.push(buildVideoSkipDiagnostic(order, slide));
       continue;
     }
@@ -141,6 +153,16 @@ export async function fetchDriveOfflineStagingSnapshot(
     if (slideAssetKind === "video-mp4") {
       if (typeof assetMetadata.sizeBytes !== "number") {
         videoSkippedCount += 1;
+        assetsWithoutBlobs.push(
+          buildOfflineStagingAssetWithoutBlob({
+            projectId: input.project.projectId,
+            slide,
+            assetMetadata,
+            syncedAt: input.syncedAt,
+            unsupportedReason: "videoOfflineTooLarge",
+          }),
+        );
+        offlineSlides.push(slide);
         diagnostics.push(
           `manifest.json.slides[${order}] のvideo/mp4 asset はDrive metadata sizeがないためoffline保存をskipしました。`,
         );
@@ -150,8 +172,17 @@ export async function fetchDriveOfflineStagingSnapshot(
       if (assetMetadata.sizeBytes > DRIVE_VIDEO_OFFLINE_MAX_BYTES) {
         videoSkippedCount += 1;
         videoTooLargeSkippedCount += 1;
+        assetsWithoutBlobs.push(
+          buildOfflineStagingAssetWithoutBlob({
+            projectId: input.project.projectId,
+            slide,
+            assetMetadata,
+            syncedAt: input.syncedAt,
+          }),
+        );
+        offlineSlides.push(slide);
         diagnostics.push(
-          `manifest.json.slides[${order}] のvideo/mp4 asset はoffline保存上限を超えるためskipしました。`,
+          `manifest.json.slides[${order}] のvideo/mp4 asset はoffline保存上限を超えるためskipしました。online playback実験が有効な場合はGoogle接続中のみstream再生を試みます。`,
         );
         continue;
       }
@@ -245,11 +276,12 @@ export async function fetchDriveOfflineStagingSnapshot(
   return {
     project: offlineProject,
     assetPairs,
+    assetsWithoutBlobs,
     details: {
       project: input.project,
       slides: offlineSlides,
       slideCount: offlineSlides.length,
-      assetCount: assetPairs.length,
+      assetCount: assetPairs.length + assetsWithoutBlobs.length,
       manifestSlideCount: manifest.slides.length,
       imageSyncCandidateCount,
       videoSyncCandidateCount,
@@ -1022,6 +1054,39 @@ function buildOfflineStagingAssetPair(input: {
   return {
     asset,
     assetBlobRecord,
+  };
+}
+
+function buildOfflineStagingAssetWithoutBlob(input: {
+  projectId: string;
+  slide: DriveSlideSummary;
+  assetMetadata: DriveOfflineAssetMetadata;
+  syncedAt: IsoDateTimeString;
+  unsupportedReason?: OfflineAsset["unsupportedReason"];
+}): OfflineAsset {
+  return {
+    schemaVersion: OFFLINE_SCHEMA_VERSION,
+    assetId: input.slide.assetId,
+    projectId: input.projectId,
+    sourceDriveFileId: input.slide.assetFileId,
+    sourceName: input.assetMetadata.name,
+    sourceMimeType: input.assetMetadata.mimeType,
+    sourceSizeBytes: input.assetMetadata.sizeBytes,
+    sourceUpdatedAt: input.assetMetadata.modifiedTime,
+    ...(input.slide.type ? { type: input.slide.type } : {}),
+    ...(typeof input.slide.durationMs === "number"
+      ? { durationMs: input.slide.durationMs }
+      : {}),
+    ...(input.unsupportedReason
+      ? { unsupportedReason: input.unsupportedReason }
+      : input.slide.unsupportedReason
+        ? { unsupportedReason: input.slide.unsupportedReason }
+        : {}),
+    blobMimeType: input.slide.mimeType,
+    blobSizeBytes: 0,
+    blobVariant: "original",
+    blobStatus: "missing",
+    syncedAt: input.syncedAt,
   };
 }
 

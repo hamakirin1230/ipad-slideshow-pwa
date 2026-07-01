@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
 import type { OfflinePlaybackSlide } from "@/lib/offline-playback-snapshot";
+import { useAppState } from "@/app/app-providers";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
@@ -36,6 +37,10 @@ const PLAYER_CONTROLS_HIDE_DELAY_MS = 4_000;
 const PLAYER_LOCK_HOLD_DURATION_MS = 2_000;
 const SLIDE_TRANSITION_DURATION_MS = 320;
 const PLAYER_VIDEO_START_TIMEOUT_MS = 4_000;
+const PLAYER_REMOTE_VIDEO_SESSION_TTL_MS = 45 * 60 * 1000;
+const PLAYER_REMOTE_VIDEO_METADATA_TIMEOUT_MS = 15_000;
+const PLAYER_REMOTE_VIDEO_START_TIMEOUT_MS = 20_000;
+const PLAYER_REMOTE_VIDEO_STALL_TIMEOUT_MS = 30_000;
 const PLAYER_VIDEO_FALLBACK_DISPLAY_MS = 1_500;
 const PLAYER_VIDEO_MAX_FALLBACK_MS = 60_000;
 const PLAYER_PRESENTATION_MODE_STORAGE_KEY =
@@ -55,7 +60,14 @@ type PlayerSlideImage = {
   assetName: string;
 };
 
-type PlayerSlideVideo = PlayerSlideImage & {
+type PlayerSlideVideo = {
+  slideId: string;
+  assetId: string;
+  assetName: string;
+  objectUrl?: string;
+  sourceUrl: string;
+  sourceKind: "offline" | "remote";
+  sessionId?: string;
   durationMs?: number;
 };
 
@@ -63,6 +75,14 @@ type PlayerSlideMediaKind = "image" | "video" | "unsupported";
 type PlayerSlideImageStatus = "idle" | "ready" | "error";
 type PlayerSlideVideoStatus = "idle" | "ready" | "error";
 type PlayerVideoSlideAdvanceIntent = "next" | "fallback";
+type OnlineVideoPlaybackStatus =
+  | "idle"
+  | "enabled"
+  | "registering"
+  | "registered"
+  | "playing"
+  | "skipped"
+  | "error";
 
 const playerAutoAdvanceIntervalOptions: Array<{
   value: PlayerAutoAdvanceIntervalSeconds;
@@ -95,6 +115,12 @@ type PlayerGuidanceItem = {
 
 export default function PlayerPage() {
   const {
+    googleStatus,
+    registerDriveVideoPlaybackSession,
+    unregisterDriveVideoPlaybackSession,
+    clearDriveVideoPlaybackSessions,
+  } = useAppState();
+  const {
     status: snapshotLoadStatus,
     snapshot,
     errorMessage,
@@ -117,6 +143,10 @@ export default function PlayerPage() {
   const [videoStatus, setVideoStatus] = useState<PlayerSlideVideoStatus>(
     "idle",
   );
+  const [onlineVideoPlaybackStatus, setOnlineVideoPlaybackStatus] =
+    useState<OnlineVideoPlaybackStatus>("idle");
+  const [onlineVideoPlaybackMessage, setOnlineVideoPlaybackMessage] =
+    useState("online video playback: enabled");
   const [slideTransitionDirection, setSlideTransitionDirection] =
     useState<SlideTransitionDirection>("none");
   const [isSlideTransitioning, setIsSlideTransitioning] = useState(false);
@@ -124,6 +154,7 @@ export default function PlayerPage() {
   const previousSlideImageRef = useRef<PlayerSlideImage | null>(null);
   const displayedSlideVideoRef = useRef<PlayerSlideVideo | null>(null);
   const currentVideoSlideKeyRef = useRef<string | null>(null);
+  const remoteVideoSessionIdRef = useRef<string | null>(null);
   const handledVideoSlideAdvanceRef =
     useRef<PlayerVideoSlideAdvanceIntent | null>(null);
   const videoFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -343,6 +374,70 @@ export default function PlayerPage() {
   }, []);
 
   useEffect(() => {
+    if (!("serviceWorker" in navigator)) {
+      return;
+    }
+
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      const message = event.data as
+        | {
+            type?: unknown;
+            payload?: {
+              sessionId?: unknown;
+              status?: unknown;
+            };
+          }
+        | null;
+
+      if (message?.type !== "DRIVE_VIDEO_STREAM_STATUS") {
+        return;
+      }
+
+      const sessionId = message.payload?.sessionId;
+      const status = message.payload?.status;
+
+      if (
+        typeof sessionId !== "string" ||
+        sessionId !== remoteVideoSessionIdRef.current ||
+        typeof status !== "number"
+      ) {
+        return;
+      }
+
+      if (status === 200 || status === 206) {
+        setOnlineVideoPlaybackStatus("registered");
+        setOnlineVideoPlaybackMessage("stream session: registered");
+        return;
+      }
+
+      if (status === 0) {
+        setOnlineVideoPlaybackStatus("error");
+        setOnlineVideoPlaybackMessage(
+          "online video playback error: stream fetch failed",
+        );
+        return;
+      }
+
+      setOnlineVideoPlaybackStatus("error");
+      setOnlineVideoPlaybackMessage(
+        `online video playback error: stream response status ${status}`,
+      );
+    };
+
+    navigator.serviceWorker.addEventListener(
+      "message",
+      handleServiceWorkerMessage,
+    );
+
+    return () => {
+      navigator.serviceWorker.removeEventListener(
+        "message",
+        handleServiceWorkerMessage,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     writeStoredPresentationMode(presentationMode);
   }, [presentationMode]);
 
@@ -372,6 +467,10 @@ export default function PlayerPage() {
   const currentSlidePlaybackKey = currentSlide
     ? getPlayerSlidePlaybackKey(currentSlide)
     : null;
+  const remoteVideoSlideCount =
+    readySnapshot?.slides.filter(
+      (slide) => slide.offlineAvailability === "remoteOnly",
+    ).length ?? 0;
 
   const currentSlideCaption =
     typeof currentSlide?.caption === "string" ? currentSlide.caption.trim() : "";
@@ -384,6 +483,9 @@ export default function PlayerPage() {
     slideCount > 0 &&
     currentSlide !== null;
   const currentSlideMediaKind = getPlayerSlideMediaKind(currentSlide);
+  const isCurrentRemoteVideo =
+    currentSlideMediaKind === "video" &&
+    currentSlide?.offlineAvailability === "remoteOnly";
 
   const currentSlideDurationSeconds =
     currentSlide?.durationSeconds ?? DEFAULT_SLIDE_DURATION_SECONDS;
@@ -398,7 +500,10 @@ export default function PlayerPage() {
     currentSlide !== null &&
     displayedSlideImage.slideId === currentSlide.slideId &&
     displayedSlideImage.assetId === currentSlide.assetId;
-  const currentSlideBlob = canRenderCurrentSlide ? (currentSlide?.blob ?? null) : null;
+  const currentSlideBlob =
+    canRenderCurrentSlide && currentSlide?.offlineAvailability === "offline"
+      ? currentSlide.blob
+      : null;
   const currentSlideImageSlideId =
     canRenderCurrentSlide ? (currentSlide?.slideId ?? null) : null;
   const currentSlideImageAssetId =
@@ -409,6 +514,14 @@ export default function PlayerPage() {
     canRenderCurrentSlide && currentSlideMediaKind === "video"
       ? currentSlide?.durationMs
       : undefined;
+  const onlineVideoDiagnostics = buildOnlineVideoDiagnostics({
+    status: onlineVideoPlaybackStatus,
+    message: onlineVideoPlaybackMessage,
+    remoteVideoSlideCount,
+    currentSlide,
+    googleStatus,
+    isOnline,
+  });
 
   useEffect(() => {
     currentVideoSlideKeyRef.current = currentSlidePlaybackKey;
@@ -572,6 +685,7 @@ export default function PlayerPage() {
   useEffect(() => {
     if (
       currentSlideMediaKind !== "video" ||
+      isCurrentRemoteVideo ||
       !currentSlideBlob ||
       !currentSlideImageSlideId ||
       !currentSlideImageAssetId
@@ -608,6 +722,8 @@ export default function PlayerPage() {
 
     const nextVideo: PlayerSlideVideo = {
       objectUrl: nextObjectUrl,
+      sourceUrl: nextObjectUrl,
+      sourceKind: "offline",
       slideId: currentSlideImageSlideId,
       assetId: currentSlideImageAssetId,
       assetName: currentSlideImageAssetName ?? "現在のスライド動画",
@@ -658,7 +774,131 @@ export default function PlayerPage() {
     currentSlideMediaKind,
     currentSlideVideoDurationMs,
     currentSlidePlaybackKey,
+    isCurrentRemoteVideo,
     markVideoSlideAdvanceHandled,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isCurrentRemoteVideo ||
+      !currentSlide ||
+      !currentSlidePlaybackKey ||
+      !currentSlideImageSlideId ||
+      !currentSlideImageAssetId
+    ) {
+      queueMicrotask(() => {
+        if (!isCurrentRemoteVideo) {
+          setOnlineVideoPlaybackStatus("idle");
+          setOnlineVideoPlaybackMessage("online video playback: enabled");
+        }
+      });
+      return;
+    }
+
+    if (isOnline === false) {
+      queueMicrotask(() => {
+        setOnlineVideoPlaybackStatus("skipped");
+        setOnlineVideoPlaybackMessage(
+          "online video playback skipped: offline",
+        );
+        markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
+        setVideoStatus("error");
+      });
+      return;
+    }
+
+    if (googleStatus !== "connected") {
+      queueMicrotask(() => {
+        setOnlineVideoPlaybackStatus("skipped");
+        setOnlineVideoPlaybackMessage(
+          "online video playback skipped: access token missing",
+        );
+        markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
+        setVideoStatus("error");
+      });
+      return;
+    }
+
+    let cancelled = false;
+    const sessionId = createPlayerVideoSessionId();
+    const sourceUrl = buildPlayerVideoStreamSourceUrl(sessionId);
+    remoteVideoSessionIdRef.current = sessionId;
+
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+
+      setVideoStatus("idle");
+      setOnlineVideoPlaybackStatus("registering");
+      setOnlineVideoPlaybackMessage("stream session: registering");
+    });
+
+    void registerDriveVideoPlaybackSession({
+      sessionId,
+      assetFileId: currentSlide.sourceDriveFileId,
+      mimeType: "video/mp4",
+      expiresAt: Date.now() + PLAYER_REMOTE_VIDEO_SESSION_TTL_MS,
+    }).then((result) => {
+      if (cancelled) {
+        unregisterDriveVideoPlaybackSession(sessionId);
+        return;
+      }
+
+      if (!result.ok) {
+        setOnlineVideoPlaybackStatus("skipped");
+        setOnlineVideoPlaybackMessage(
+          getOnlineVideoRegistrationFailureMessage(result.reason),
+        );
+        markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
+        setVideoStatus("error");
+        return;
+      }
+
+      const nextVideo: PlayerSlideVideo = {
+        sourceUrl,
+        sourceKind: "remote",
+        sessionId,
+        slideId: currentSlideImageSlideId,
+        assetId: currentSlideImageAssetId,
+        assetName: currentSlide.assetName ?? "オンライン動画",
+        ...(typeof currentSlideVideoDurationMs === "number"
+          ? { durationMs: currentSlideVideoDurationMs }
+          : {}),
+      };
+
+      revokeSlideVideo(displayedSlideVideoRef.current);
+      displayedSlideVideoRef.current = nextVideo;
+      setDisplayedSlideVideo(nextVideo);
+      setVideoStatus("ready");
+      setOnlineVideoPlaybackStatus("registered");
+      setOnlineVideoPlaybackMessage("stream session: registered");
+    });
+
+    return () => {
+      cancelled = true;
+      unregisterDriveVideoPlaybackSession(sessionId);
+      if (remoteVideoSessionIdRef.current === sessionId) {
+        remoteVideoSessionIdRef.current = null;
+      }
+
+      if (displayedSlideVideoRef.current?.sessionId === sessionId) {
+        displayedSlideVideoRef.current = null;
+        setDisplayedSlideVideo(null);
+      }
+    };
+  }, [
+    currentSlide,
+    currentSlideImageAssetId,
+    currentSlideImageSlideId,
+    currentSlidePlaybackKey,
+    currentSlideVideoDurationMs,
+    googleStatus,
+    isCurrentRemoteVideo,
+    isOnline,
+    markVideoSlideAdvanceHandled,
+    registerDriveVideoPlaybackSession,
+    unregisterDriveVideoPlaybackSession,
   ]);
 
   useEffect(() => {
@@ -668,13 +908,17 @@ export default function PlayerPage() {
       revokeSlideImage(previousSlideImageRef.current);
       revokeSlideImage(displayedSlideImageRef.current);
       revokeSlideVideo(displayedSlideVideoRef.current);
+      clearDriveVideoPlaybackSessions();
       previousSlideImageRef.current = null;
       displayedSlideImageRef.current = null;
       displayedSlideVideoRef.current = null;
     };
-  }, []);
+  }, [clearDriveVideoPlaybackSessions]);
 
   const handleVideoPlaybackEnded = useCallback((slideKey: string) => {
+    setOnlineVideoPlaybackStatus((current) =>
+      current === "playing" || current === "registered" ? "idle" : current,
+    );
     if (!markVideoSlideAdvanceHandled(slideKey, "next")) {
       return;
     }
@@ -688,8 +932,24 @@ export default function PlayerPage() {
       return;
     }
 
+    setOnlineVideoPlaybackStatus((current) =>
+      current === "playing" || current === "registered" ? "error" : current,
+    );
+    setOnlineVideoPlaybackMessage("online video playback error: media error");
     setVideoStatus("error");
   }, [markVideoSlideAdvanceHandled]);
+
+  const handleVideoPlaybackMessage = useCallback(
+    (message: string, status: OnlineVideoPlaybackStatus = "playing") => {
+      if (!message.startsWith("online video playback")) {
+        return;
+      }
+
+      setOnlineVideoPlaybackStatus(status);
+      setOnlineVideoPlaybackMessage(message);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (
@@ -988,6 +1248,7 @@ export default function PlayerPage() {
               video={displayedSlideVideo}
               onEnded={handleVideoPlaybackEnded}
               onPlaybackFailure={handleVideoPlaybackFailure}
+              onPlaybackMessage={handleVideoPlaybackMessage}
             />
           ) : null}
 
@@ -1037,6 +1298,11 @@ export default function PlayerPage() {
                 <span className="hidden max-w-[42vw] truncate rounded-full border border-white/15 bg-black/30 px-2 py-0.5 sm:inline">
                   synced {readySnapshot.syncedAt}
                 </span>
+                {remoteVideoSlideCount > 0 ? (
+                  <span className="max-w-[60vw] truncate rounded-full border border-sky-200/30 bg-sky-400/15 px-2 py-0.5 text-sky-50">
+                    {onlineVideoPlaybackMessage}
+                  </span>
+                ) : null}
                 <label className="flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-2 py-0.5">
                   <span>自動送り</span>
                   <select
@@ -1285,6 +1551,10 @@ export default function PlayerPage() {
               </Button>
             </div>
           </div>
+        ) : null}
+
+        {remoteVideoSlideCount > 0 && !isProductionMode ? (
+          <PlayerOnlineVideoDiagnostics diagnostics={onlineVideoDiagnostics} />
         ) : null}
       </main>
     );
@@ -1549,10 +1819,15 @@ function PlayerVideoSlide({
   video,
   onEnded,
   onPlaybackFailure,
+  onPlaybackMessage,
 }: {
   video: PlayerSlideVideo;
   onEnded: (slideKey: string) => void;
   onPlaybackFailure: (slideKey: string) => void;
+  onPlaybackMessage: (
+    message: string,
+    status?: OnlineVideoPlaybackStatus,
+  ) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const didReportFailureRef = useRef(false);
@@ -1577,52 +1852,172 @@ function PlayerVideoSlide({
     }
 
     let didStartPlayback = false;
-    const playbackTimeoutMs = getPlayerVideoPlaybackTimeoutMs(video.durationMs);
+    let metadataLoaded = false;
+    let stallTimeout: ReturnType<typeof setTimeout> | null = null;
+    let playbackTimeout: ReturnType<typeof setTimeout> | null = null;
+    const isRemoteVideo = video.sourceKind === "remote";
+    const metadataTimeout = isRemoteVideo
+      ? setTimeout(() => {
+          if (!metadataLoaded) {
+            onPlaybackMessage(
+              "online video playback error: timeout",
+              "error",
+            );
+            reportPlaybackFailure();
+          }
+        }, PLAYER_REMOTE_VIDEO_METADATA_TIMEOUT_MS)
+      : null;
     const startTimeout = setTimeout(() => {
       if (!didStartPlayback) {
+        if (isRemoteVideo) {
+          onPlaybackMessage("online video playback error: timeout", "error");
+        }
         reportPlaybackFailure();
       }
-    }, PLAYER_VIDEO_START_TIMEOUT_MS);
-    const playbackTimeout = setTimeout(() => {
-      reportPlaybackFailure();
-    }, playbackTimeoutMs);
+    }, isRemoteVideo
+      ? PLAYER_REMOTE_VIDEO_START_TIMEOUT_MS
+      : PLAYER_VIDEO_START_TIMEOUT_MS);
+
+    const clearStallTimeout = () => {
+      if (!stallTimeout) {
+        return;
+      }
+
+      clearTimeout(stallTimeout);
+      stallTimeout = null;
+    };
+
+    const clearPlaybackTimeout = () => {
+      if (!playbackTimeout) {
+        return;
+      }
+
+      clearTimeout(playbackTimeout);
+      playbackTimeout = null;
+    };
+
+    const schedulePlaybackTimeout = (timeoutMs: number) => {
+      clearPlaybackTimeout();
+      playbackTimeout = setTimeout(() => {
+        if (isRemoteVideo) {
+          onPlaybackMessage("online video playback error: timeout", "error");
+        }
+
+        reportPlaybackFailure();
+      }, timeoutMs);
+    };
+
+    const handleLoadedMetadata = () => {
+      metadataLoaded = true;
+
+      if (metadataTimeout) {
+        clearTimeout(metadataTimeout);
+      }
+
+      if (!isRemoteVideo) {
+        return;
+      }
+
+      const durationSeconds = videoElement.duration;
+
+      if (
+        Number.isFinite(durationSeconds) &&
+        durationSeconds > 0
+      ) {
+        schedulePlaybackTimeout(durationSeconds * 1000 + 10_000);
+      }
+    };
 
     const handlePlaying = () => {
       didStartPlayback = true;
       clearTimeout(startTimeout);
+      clearStallTimeout();
+
+      if (isRemoteVideo) {
+        onPlaybackMessage("online video playback: playing", "playing");
+      }
     };
 
+    const handleWaitingOrStalled = () => {
+      if (!isRemoteVideo) {
+        return;
+      }
+
+      clearStallTimeout();
+      stallTimeout = setTimeout(() => {
+        onPlaybackMessage("online video playback error: timeout", "error");
+        reportPlaybackFailure();
+      }, PLAYER_REMOTE_VIDEO_STALL_TIMEOUT_MS);
+    };
+
+    videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
     videoElement.addEventListener("playing", handlePlaying);
+    videoElement.addEventListener("waiting", handleWaitingOrStalled);
+    videoElement.addEventListener("stalled", handleWaitingOrStalled);
+
+    if (!isRemoteVideo) {
+      schedulePlaybackTimeout(getPlayerVideoPlaybackTimeoutMs(video.durationMs));
+    }
 
     const playResult = videoElement.play();
 
     if (playResult) {
       playResult.catch(() => {
+        if (isRemoteVideo) {
+          onPlaybackMessage("online video playback error: media error", "error");
+        }
         reportPlaybackFailure();
       });
     }
 
     return () => {
+      if (metadataTimeout) {
+        clearTimeout(metadataTimeout);
+      }
       clearTimeout(startTimeout);
-      clearTimeout(playbackTimeout);
+      clearPlaybackTimeout();
+      clearStallTimeout();
+      videoElement.removeEventListener("loadedmetadata", handleLoadedMetadata);
       videoElement.removeEventListener("playing", handlePlaying);
+      videoElement.removeEventListener("waiting", handleWaitingOrStalled);
+      videoElement.removeEventListener("stalled", handleWaitingOrStalled);
     };
-  }, [reportPlaybackFailure, video.durationMs, video.objectUrl]);
+  }, [
+    onPlaybackMessage,
+    reportPlaybackFailure,
+    video.durationMs,
+    video.sourceKind,
+    video.sourceUrl,
+  ]);
 
   return (
     <video
       ref={videoRef}
-      src={video.objectUrl}
+      src={video.sourceUrl}
       muted
       playsInline
       controls={false}
       autoPlay
-      preload="auto"
+      preload={video.sourceKind === "remote" ? "metadata" : "auto"}
       aria-label={video.assetName}
       onEnded={() => onEnded(slideKey)}
       onError={reportPlaybackFailure}
       className="absolute inset-0 h-full w-full object-contain"
     />
+  );
+}
+
+function PlayerOnlineVideoDiagnostics({
+  diagnostics,
+}: {
+  diagnostics: string[];
+}) {
+  return (
+    <div className="pointer-events-none absolute bottom-24 left-4 z-20 max-w-sm rounded-xl border border-sky-200/20 bg-black/55 p-3 text-xs leading-5 text-sky-50 shadow-2xl sm:bottom-28">
+      {diagnostics.map((diagnostic) => (
+        <p key={diagnostic}>{diagnostic}</p>
+      ))}
+    </div>
   );
 }
 
@@ -1840,6 +2235,84 @@ function formatIdPart(id: string | undefined) {
   return `${id.slice(0, 8)}...`;
 }
 
+function buildOnlineVideoDiagnostics(input: {
+  status: OnlineVideoPlaybackStatus;
+  message: string;
+  remoteVideoSlideCount: number;
+  currentSlide: OfflinePlaybackSlide | null;
+  googleStatus: string;
+  isOnline: boolean | null;
+}) {
+  const diagnostics = [
+    "online video playback: enabled",
+    `remote video slides: ${input.remoteVideoSlideCount}`,
+    `service worker: ${getServiceWorkerDiagnosticsLabel()}`,
+    input.message,
+  ];
+
+  if (input.currentSlide?.offlineAvailability === "remoteOnly") {
+    diagnostics.splice(
+      2,
+      0,
+      `current remote video: ${input.currentSlide.mimeType} / ${formatBytesForDiagnostics(input.currentSlide.sourceSizeBytes)}`,
+    );
+  }
+
+  if (input.isOnline === false) {
+    diagnostics.push("online video playback skipped: offline");
+  }
+
+  if (input.googleStatus !== "connected") {
+    diagnostics.push("online video playback skipped: access token missing");
+  }
+
+  if (input.status === "registered") {
+    diagnostics.push("stream session: registered");
+  }
+
+  return [...new Set(diagnostics)];
+}
+
+function getServiceWorkerDiagnosticsLabel() {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+    return "unavailable";
+  }
+
+  return navigator.serviceWorker.controller ? "ready" : "not ready";
+}
+
+function formatBytesForDiagnostics(value: number | undefined) {
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? `${value} bytes`
+    : "size unknown";
+}
+
+function createPlayerVideoSessionId() {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  const randomValues = new Uint32Array(4);
+  crypto.getRandomValues(randomValues);
+  return Array.from(randomValues, (value) => value.toString(16)).join("");
+}
+
+function buildPlayerVideoStreamSourceUrl(sessionId: string) {
+  return `/__drive-video-stream/${encodeURIComponent(sessionId)}`;
+}
+
+function getOnlineVideoRegistrationFailureMessage(reason: string) {
+  switch (reason) {
+    case "accessTokenMissing":
+      return "online video playback skipped: access token missing";
+    case "serviceWorkerUnavailable":
+    case "serviceWorkerNotReady":
+      return "online video playback skipped: service worker not ready";
+    default:
+      return "online video playback error: stream session registration failed";
+  }
+}
+
 function getPlayerSlideMediaKind(
   slide: OfflinePlaybackSlide | null,
 ): PlayerSlideMediaKind {
@@ -1904,7 +2377,7 @@ function revokeSlideImage(image: PlayerSlideImage | null) {
 }
 
 function revokeSlideVideo(video: PlayerSlideVideo | null) {
-  if (!video) {
+  if (!video?.objectUrl) {
     return;
   }
 

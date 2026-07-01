@@ -221,9 +221,13 @@ function buildConfirmedStoreDiagnostics(input: {
       );
     }
 
-    if (projectAssetBlobs.length !== projectAssets.length) {
+    const readyProjectAssets = projectAssets.filter(
+      (asset) => asset.blobStatus === "ready",
+    );
+
+    if (projectAssetBlobs.length !== readyProjectAssets.length) {
       diagnostics.push(
-        `project ${project.projectId}: asset count と asset blob count が一致しません。 assets=${projectAssets.length}, blobs=${projectAssetBlobs.length}`,
+        `project ${project.projectId}: ready asset count と asset blob count が一致しません。 readyAssets=${readyProjectAssets.length}, blobs=${projectAssetBlobs.length}`,
       );
     }
 

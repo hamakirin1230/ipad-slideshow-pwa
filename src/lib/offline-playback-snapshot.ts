@@ -27,7 +27,7 @@ type OfflinePlaybackSnapshotStores = {
   [OFFLINE_SYNC_STATE_STORE]: IDBObjectStore;
 };
 
-export type OfflinePlaybackSlide = {
+type OfflinePlaybackSlideBase = {
   slideId: string;
   assetId: string;
   order: number;
@@ -39,10 +39,26 @@ export type OfflinePlaybackSlide = {
   unsupportedReason?: OfflineAssetUnsupportedReason;
   assetName?: string;
   sourceDriveFileId: string;
-  blob: Blob;
-  blobMimeType: string;
-  blobSizeBytes: number;
+  sourceSizeBytes?: number;
 };
+
+export type OfflinePlaybackSlide =
+  | (OfflinePlaybackSlideBase & {
+      offlineAvailability: "offline";
+      blob: Blob;
+      blobMimeType: string;
+      blobSizeBytes: number;
+    })
+  | (OfflinePlaybackSlideBase & {
+      type: "video";
+      mimeType: "video/mp4";
+      offlineAvailability: "remoteOnly";
+      unsupportedReason?: undefined;
+    })
+  | (OfflinePlaybackSlideBase & {
+      offlineAvailability: "unsupported";
+      unsupportedReason: OfflineAssetUnsupportedReason;
+    });
 
 export type OfflinePlaybackProjectOption = {
   projectId: string;
@@ -252,9 +268,9 @@ function buildOfflinePlaybackSnapshot(input: {
       const asset = assetsById.get(slide.assetId);
       const assetBlob = assetBlobsById.get(slide.assetId);
 
-      if (!asset || !assetBlob) {
+      if (!asset) {
         throw new Error(
-          `Validated offline playback record was missing asset or blob for ${slide.assetId}.`,
+          `Validated offline playback record was missing asset for ${slide.assetId}.`,
         );
       }
 
@@ -366,6 +382,7 @@ function validatePlaybackRecords(input: {
   const slideAssetIds = new Set(input.project.slides.map((slide) => slide.assetId));
   const assetIds = new Set(input.assets.map((asset) => asset.assetId));
   const assetBlobIds = new Set(input.assetBlobs.map((assetBlob) => assetBlob.assetId));
+  const readyAssets = input.assets.filter((asset) => asset.blobStatus === "ready");
 
   if (slideAssetIds.size !== input.project.slides.length) {
     diagnostics.push("project slides に duplicate assetId があります。");
@@ -384,7 +401,9 @@ function validatePlaybackRecords(input: {
       diagnostics.push(`slide ${slide.slideId}: asset が見つかりません。`);
     }
 
-    if (!assetBlobIds.has(slide.assetId)) {
+    const asset = input.assets.find((candidate) => candidate.assetId === slide.assetId);
+
+    if (asset?.blobStatus === "ready" && !assetBlobIds.has(slide.assetId)) {
       diagnostics.push(`slide ${slide.slideId}: asset blob が見つかりません。`);
     }
   }
@@ -398,15 +417,27 @@ function validatePlaybackRecords(input: {
       diagnostics.push(`asset ${asset.assetId}: projectId が一致しません。`);
     }
 
-    if (asset.blobStatus !== "ready") {
+    if (asset.blobStatus !== "ready" && asset.blobStatus !== "missing") {
       diagnostics.push(
-        `asset ${asset.assetId}: blobStatus が ready ではありません。 status=${asset.blobStatus}`,
+        `asset ${asset.assetId}: blobStatus が playback対象外です。 status=${asset.blobStatus}`,
       );
     }
 
-    if (!assetBlobIds.has(asset.assetId)) {
+    if (asset.blobStatus === "ready" && !assetBlobIds.has(asset.assetId)) {
       diagnostics.push(`asset ${asset.assetId}: asset blob が見つかりません。`);
     }
+
+    if (asset.blobStatus === "missing" && assetBlobIds.has(asset.assetId)) {
+      diagnostics.push(
+        `asset ${asset.assetId}: blobStatus missing ですが asset blob が存在します。`,
+      );
+    }
+  }
+
+  if (input.assetBlobs.length !== readyAssets.length) {
+    diagnostics.push(
+      `ready assets と asset blob count が一致しません。 readyAssets=${readyAssets.length}, blobs=${input.assetBlobs.length}`,
+    );
   }
 
   for (const assetBlob of input.assetBlobs) {
@@ -479,9 +510,9 @@ function normalizeOptionalProjectId(projectId: string | null | undefined) {
 function toOfflinePlaybackSlide(input: {
   slide: OfflineProjectSlide;
   asset: OfflineAsset;
-  assetBlob: OfflineAssetBlobRecord;
+  assetBlob?: OfflineAssetBlobRecord;
 }): OfflinePlaybackSlide {
-  return {
+  const baseSlide: OfflinePlaybackSlideBase = {
     slideId: input.slide.slideId,
     assetId: input.slide.assetId,
     order: input.slide.order,
@@ -490,7 +521,7 @@ function toOfflinePlaybackSlide(input: {
     ...(input.slide.type ?? input.asset.type
       ? { type: input.slide.type ?? input.asset.type }
       : {}),
-    mimeType: input.assetBlob.blobMimeType,
+    mimeType: input.asset.blobMimeType,
     ...(typeof input.slide.durationMs === "number"
       ? { durationMs: input.slide.durationMs }
       : typeof input.asset.durationMs === "number"
@@ -504,6 +535,48 @@ function toOfflinePlaybackSlide(input: {
       : {}),
     assetName: input.asset.sourceName,
     sourceDriveFileId: input.asset.sourceDriveFileId,
+    sourceSizeBytes: input.asset.sourceSizeBytes,
+  };
+
+  if (input.asset.blobStatus === "missing") {
+    if (
+      baseSlide.type === "video" &&
+      baseSlide.mimeType === "video/mp4" &&
+      !baseSlide.unsupportedReason
+    ) {
+      return {
+        slideId: baseSlide.slideId,
+        assetId: baseSlide.assetId,
+        order: baseSlide.order,
+        caption: baseSlide.caption,
+        durationSeconds: baseSlide.durationSeconds,
+        durationMs: baseSlide.durationMs,
+        assetName: baseSlide.assetName,
+        sourceDriveFileId: baseSlide.sourceDriveFileId,
+        sourceSizeBytes: baseSlide.sourceSizeBytes,
+        type: "video",
+        mimeType: "video/mp4",
+        offlineAvailability: "remoteOnly",
+      };
+    }
+
+    return {
+      ...baseSlide,
+      offlineAvailability: "unsupported",
+      unsupportedReason:
+        baseSlide.unsupportedReason ?? "videoPlaybackNotImplemented",
+    };
+  }
+
+  if (!input.assetBlob) {
+    throw new Error(
+      `Validated offline playback record was missing blob for ${input.asset.assetId}.`,
+    );
+  }
+
+  return {
+    ...baseSlide,
+    offlineAvailability: "offline",
     blob: input.assetBlob.blob,
     blobMimeType: input.assetBlob.blobMimeType,
     blobSizeBytes: input.assetBlob.blobSizeBytes,

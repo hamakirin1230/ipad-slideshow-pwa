@@ -106,14 +106,18 @@ export function validateOfflineStagingRecordsForSyncRun(
     assetBlobRecords.map((assetBlobRecord) => assetBlobRecord.assetId),
   );
 
-  for (const assetId of assetIds) {
-    if (!assetBlobRecordAssetIds.has(assetId)) {
+  for (const asset of assets) {
+    if (asset.blobStatus === "ready" && !assetBlobRecordAssetIds.has(asset.assetId)) {
       return { ok: false, reason: "missing-asset-blob" };
     }
   }
 
   for (const assetBlobRecordAssetId of assetBlobRecordAssetIds) {
-    if (!assetIds.has(assetBlobRecordAssetId)) {
+    const asset = assets.find(
+      (candidate) => candidate.assetId === assetBlobRecordAssetId,
+    );
+
+    if (!asset || asset.blobStatus !== "ready") {
       return { ok: false, reason: "unexpected-asset-blob" };
     }
   }

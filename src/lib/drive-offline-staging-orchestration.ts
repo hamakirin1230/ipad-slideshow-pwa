@@ -127,6 +127,7 @@ export async function runDriveOfflineStagingPromotionOrchestration(
       syncRunId,
       project: snapshot.project,
       assetPairs: snapshot.assetPairs,
+      assetsWithoutBlobs: snapshot.assetsWithoutBlobs,
       clearExistingProjectStaging: true,
     });
 

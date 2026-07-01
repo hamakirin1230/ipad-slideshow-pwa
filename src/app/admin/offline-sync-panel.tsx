@@ -184,6 +184,8 @@ export function OfflineSyncPanel() {
               video/mp4 は容量上限内の場合のみoffline保存対象です。
               QuickTime / WebM / 上限超過videoはskipされます。
               skipはDrive削除やcleanup対象、sync失敗を意味しません。
+              50MB超videoはonline playback実験が有効な場合、Google接続中のみ
+              playerでstream再生を試みます。
             </p>
             <dl className="mt-3 grid gap-2 text-xs text-sky-100 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
               <SyncCount
@@ -241,8 +243,8 @@ export function OfflineSyncPanel() {
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
           <p className="font-semibold">このコミットでまだ扱わないこと</p>
           <p className="mt-2">
-            confirmed offline store を使った player 表示、Service Worker、
-            retry policy、自動修復、詳細な user-facing error copy は後続で追加します。
+            retry policy、自動修復、MOV online playback、
+            詳細な user-facing error copy は後続で追加します。
           </p>
         </div>
       </CardContent>

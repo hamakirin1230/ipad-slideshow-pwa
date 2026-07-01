@@ -38,6 +38,7 @@ export type WriteCompleteOfflineStagingSnapshotArgs = {
   syncRunId: string;
   project: OfflineProject;
   assetPairs: OfflineStagingAssetPairInput[];
+  assetsWithoutBlobs?: OfflineAsset[];
 
   /**
    * true の場合、同じ projectId の既存 staging records を先に削除する。
@@ -186,11 +187,30 @@ function assertAssetPairMatches(
   assertBlobRecordHasUsableBlob(assetBlobRecord);
 }
 
+function assertAssetWithoutBlobMatches(asset: OfflineAsset): void {
+  assertNonBlankInternalId("asset.assetId", asset.assetId);
+  assertNonBlankInternalId("asset.projectId", asset.projectId);
+  assertSchemaVersion("asset", asset.schemaVersion);
+
+  if (asset.blobStatus !== "missing") {
+    throw new OfflineStagingWritePreconditionError(
+      'asset.blobStatus must be "missing" when writing an asset without a blob.',
+    );
+  }
+
+  if (asset.blobSizeBytes !== 0) {
+    throw new OfflineStagingWritePreconditionError(
+      "asset.blobSizeBytes must be 0 when writing an asset without a blob.",
+    );
+  }
+}
+
 function assertProjectMatchesAssetPairs(input: {
   project: OfflineProject;
   assetPairs: OfflineStagingAssetPairInput[];
+  assetsWithoutBlobs: OfflineAsset[];
 }): void {
-  const { project, assetPairs } = input;
+  const { project, assetPairs, assetsWithoutBlobs } = input;
 
   assertNonBlankInternalId("project.projectId", project.projectId);
   assertSchemaVersion("project", project.schemaVersion);
@@ -214,6 +234,24 @@ function assertProjectMatchesAssetPairs(input: {
     if (writtenAssetIds.has(asset.assetId)) {
       throw new OfflineStagingWritePreconditionError(
         "assetPairs must not include duplicate assetId values.",
+      );
+    }
+
+    writtenAssetIds.add(asset.assetId);
+  }
+
+  for (const asset of assetsWithoutBlobs) {
+    assertAssetWithoutBlobMatches(asset);
+
+    if (asset.projectId !== project.projectId) {
+      throw new OfflineStagingWritePreconditionError(
+        "asset.projectId must match project.projectId.",
+      );
+    }
+
+    if (writtenAssetIds.has(asset.assetId)) {
+      throw new OfflineStagingWritePreconditionError(
+        "asset records must not include duplicate assetId values.",
       );
     }
 
@@ -408,6 +446,45 @@ export async function putOfflineStagingAssetPairInTransaction(
   };
 }
 
+export async function putOfflineStagingAssetWithoutBlobInTransaction(
+  stores: OfflineStagingWriteStores,
+  args: {
+    syncRunId: string;
+    asset: OfflineAsset;
+  },
+): Promise<{ writtenAssets: number }> {
+  assertNonBlankInternalId("syncRunId", args.syncRunId);
+  assertAssetWithoutBlobMatches(args.asset);
+
+  const stagingAsset = toOfflineStagingAsset({
+    syncRunId: args.syncRunId,
+    asset: args.asset,
+  });
+
+  await requestToPromise(
+    stores[OFFLINE_STAGING_ASSETS_STORE].put(stagingAsset),
+  );
+
+  return {
+    writtenAssets: 1,
+  };
+}
+
+export function putOfflineStagingAssetWithoutBlob(args: {
+  syncRunId: string;
+  asset: OfflineAsset;
+}): Promise<{ writtenAssets: number }> {
+  assertNonBlankInternalId("syncRunId", args.syncRunId);
+  assertAssetWithoutBlobMatches(args.asset);
+
+  return runOfflineTransaction(
+    [OFFLINE_STAGING_ASSETS_STORE],
+    "readwrite",
+    async ({ stores }) =>
+      putOfflineStagingAssetWithoutBlobInTransaction(stores, args),
+  );
+}
+
 export function putOfflineStagingAssetPair(
   args: PutOfflineStagingAssetPairArgs,
 ): Promise<PutOfflineStagingAssetPairResult> {
@@ -475,9 +552,11 @@ export async function writeCompleteOfflineStagingSnapshot(
   args: WriteCompleteOfflineStagingSnapshotArgs,
 ): Promise<WriteCompleteOfflineStagingSnapshotResult> {
   assertNonBlankInternalId("syncRunId", args.syncRunId);
+  const assetsWithoutBlobs = args.assetsWithoutBlobs ?? [];
   assertProjectMatchesAssetPairs({
     project: args.project,
     assetPairs: args.assetPairs,
+    assetsWithoutBlobs,
   });
 
   const shouldClearExistingProjectStaging =
@@ -502,6 +581,15 @@ export async function writeCompleteOfflineStagingSnapshot(
 
     writtenAssets += result.writtenAssets;
     writtenAssetBlobs += result.writtenAssetBlobs;
+  }
+
+  for (const asset of assetsWithoutBlobs) {
+    const result = await putOfflineStagingAssetWithoutBlob({
+      syncRunId: args.syncRunId,
+      asset,
+    });
+
+    writtenAssets += result.writtenAssets;
   }
 
   const projectResult = await putOfflineStagingProject({

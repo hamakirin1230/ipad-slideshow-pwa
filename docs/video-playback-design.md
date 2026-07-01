@@ -13,7 +13,7 @@ iPad用スライドショーPWAで、動画assetをスライドショーに含�
 - 静止画再生を壊さない。
 - 既存のoffline-first playerを壊さない。
 - Drive tokenや取得用URLを永続化しない。
-- access token、Authorization header、Drive raw response、取得用URL、Blob本体、Blob URLをUI / docs / logsに出さない。
+- Google認可情報、Drive raw response、取得用URL、Blob本体、Blob参照文字列をUI / docs / logsに出さない。
 - iPadホーム画面PWAで確認できないものを完了扱いにしない。
 
 ## 前提
@@ -388,6 +388,14 @@ Phase 6Cでまだ実装していないこと:
 - `video/quicktime` はmanifestへ `source: "localFile"`、`type: "video"`、`mimeType: "video/quicktime"`、`unsupportedReason: "unsupportedVideoMimeType"`、`fileSize` 付きで登録する。
 - 1GB超videoやMOVはDrive保存とmanifest登録までを目的とし、offline syncでは対象外としてskipする。Player再生ロジックは変更しない。
 
+2026-06-30 Phase 6H実施範囲:
+
+- 50MB超の `video/mp4` はIndexedDBへBlob保存せず、confirmed playback snapshotでは `remoteOnly` video slideとしてmanifest順に残す。
+- `/player` はGoogle接続中かつService Worker controlled状態の場合だけ、短命のmemory sessionをService Workerへ登録し、same-origin streaming経由で再生を試みる。
+- Service WorkerはRange headerをDrive media fetchへ転送し、`Content-Type` / `Content-Length` / `Content-Range` / `Accept-Ranges` と `Cache-Control: no-store` だけをvideo elementへ返す。
+- token、Drive URL、streaming session URL、file id全文、raw response bodyはUI / docs / logs / diagnosticsへ出さない。
+- `video/quicktime` は引き続きunsupportedとして扱い、MOV online playbackはmp4 online playback検証後に判断する。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。
@@ -403,7 +411,7 @@ Phase 6Cでまだ実装していないこと:
 - PWA cache reset手順。
 - IndexedDB reset手順。
 - 既存 `workspace.json` / `index.json` / `manifest.json` との互換性。
-- unsupported assetをconfirmed storeへ残すか、sync対象から外すか。
+- unsupported assetをconfirmed storeでどの程度詳細に表示するか。
 - 動画Blob取得失敗時にsync run全体をfailedにするか、部分成功にするか。
 
 ## 禁止事項
@@ -411,7 +419,7 @@ Phase 6Cでまだ実装していないこと:
 - access tokenを保存しない。
 - access tokenを表示しない。
 - access tokenをconsole出力しない。
-- Authorization headerをUI / docs / logsに出さない。
+- Google認可headerをUI / docs / logsに出さない。
 - Drive raw responseをUI / docs / logsに出さない。
 - Drive file取得用URLをUI / docs / logsに出さない。
 - Blob本体やBlob URLをUI / docs / logsに出さない。
@@ -419,4 +427,4 @@ Phase 6Cでまだ実装していないこと:
 - Drive file物理削除は実装しない。
 - Drive file delete APIは実装しない。
 - cleanup preview / preflight / confirm previewを実削除処理へ変えない。
-- 今回は動画再生を実装しない。
+- server-side proxy、Drive public共有、Drive file物理削除は実装しない。
