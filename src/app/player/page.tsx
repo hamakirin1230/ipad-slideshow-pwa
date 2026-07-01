@@ -41,6 +41,7 @@ const PLAYER_REMOTE_VIDEO_SESSION_TTL_MS = 45 * 60 * 1000;
 const PLAYER_REMOTE_VIDEO_METADATA_TIMEOUT_MS = 15_000;
 const PLAYER_REMOTE_VIDEO_START_TIMEOUT_MS = 20_000;
 const PLAYER_REMOTE_VIDEO_STALL_TIMEOUT_MS = 30_000;
+const PLAYER_REMOTE_VIDEO_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 const PLAYER_VIDEO_FALLBACK_DISPLAY_MS = 1_500;
 const PLAYER_VIDEO_MAX_FALLBACK_MS = 60_000;
 const PLAYER_PRESENTATION_MODE_STORAGE_KEY =
@@ -85,6 +86,7 @@ type OnlineVideoPlaybackStatus =
   | "error";
 type RemoteVideoContentTypeLabel = "video/mp4" | "missing" | "other";
 type RemoteVideoRangeRequestLabel = "present" | "absent";
+type RemoteVideoHeaderSourceLabel = "present" | "synthesized" | "absent";
 type RemoteVideoCanPlayTypeLabel = "probably" | "maybe" | "empty";
 type RemoteVideoMediaEventName =
   | "loadstart"
@@ -101,8 +103,8 @@ type RemoteVideoStreamDiagnostics = {
   status: number;
   rangeRequest: RemoteVideoRangeRequestLabel;
   contentType: RemoteVideoContentTypeLabel;
-  hasContentRange: boolean;
-  hasAcceptRanges: boolean;
+  contentRange: RemoteVideoHeaderSourceLabel;
+  acceptRanges: RemoteVideoHeaderSourceLabel;
   hasContentLength: boolean;
   upstreamError?: "fetchFailed";
 };
@@ -448,6 +450,8 @@ export default function PlayerPage() {
               status?: unknown;
               rangeRequest?: unknown;
               contentType?: unknown;
+              contentRange?: unknown;
+              acceptRanges?: unknown;
               hasContentRange?: unknown;
               hasAcceptRanges?: unknown;
               hasContentLength?: unknown;
@@ -896,6 +900,20 @@ export default function PlayerPage() {
       return;
     }
 
+    const remoteVideoFileSize = currentSlide.sourceSizeBytes;
+
+    if (!isValidRemoteVideoFileSize(remoteVideoFileSize)) {
+      queueMicrotask(() => {
+        setOnlineVideoPlaybackStatus("skipped");
+        setOnlineVideoPlaybackMessage(
+          "online video playback skipped: file size missing",
+        );
+        markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
+        setVideoStatus("error");
+      });
+      return;
+    }
+
     let cancelled = false;
     const sessionId = createPlayerVideoSessionId();
     const sourceUrl = buildPlayerVideoStreamSourceUrl(sessionId);
@@ -919,6 +937,7 @@ export default function PlayerPage() {
       sessionId,
       assetFileId: currentSlide.sourceDriveFileId,
       mimeType: "video/mp4",
+      fileSize: remoteVideoFileSize,
       expiresAt: Date.now() + PLAYER_REMOTE_VIDEO_SESSION_TTL_MS,
     }).then((result) => {
       if (cancelled) {
@@ -2475,8 +2494,8 @@ function formatRemoteVideoStreamDiagnostics(
   return [
     `${label} status: ${diagnostics.status}`,
     `${label} content-type: ${diagnostics.contentType}`,
-    `${label} content-range: ${formatPresentAbsent(diagnostics.hasContentRange)}`,
-    `${label} accept-ranges: ${formatPresentAbsent(diagnostics.hasAcceptRanges)}`,
+    `${label} content-range: ${diagnostics.contentRange}`,
+    `${label} accept-ranges: ${diagnostics.acceptRanges}`,
     `${label} content-length: ${formatPresentAbsent(diagnostics.hasContentLength)}`,
     ...(diagnostics.upstreamError
       ? [`${label} upstream error: ${diagnostics.upstreamError}`]
@@ -2502,13 +2521,30 @@ function normalizeRemoteVideoStreamDiagnostics(
     status: value.status,
     rangeRequest: value.rangeRequest === true ? "present" : "absent",
     contentType: normalizeRemoteVideoContentTypeLabel(value.contentType),
-    hasContentRange: value.hasContentRange === true,
-    hasAcceptRanges: value.hasAcceptRanges === true,
+    contentRange: normalizeRemoteVideoHeaderSourceLabel(
+      value.contentRange,
+      value.hasContentRange,
+    ),
+    acceptRanges: normalizeRemoteVideoHeaderSourceLabel(
+      value.acceptRanges,
+      value.hasAcceptRanges,
+    ),
     hasContentLength: value.hasContentLength === true,
     ...(value.upstreamError === "fetchFailed"
       ? { upstreamError: "fetchFailed" }
       : {}),
   };
+}
+
+function normalizeRemoteVideoHeaderSourceLabel(
+  value: unknown,
+  fallbackPresent: unknown,
+): RemoteVideoHeaderSourceLabel {
+  if (value === "present" || value === "synthesized") {
+    return value;
+  }
+
+  return fallbackPresent === true ? "present" : "absent";
 }
 
 function normalizeRemoteVideoContentTypeLabel(
@@ -2537,8 +2573,8 @@ async function probeRemoteVideoStream(
       status: 0,
       rangeRequest: "present",
       contentType: "missing",
-      hasContentRange: false,
-      hasAcceptRanges: false,
+      contentRange: "absent",
+      acceptRanges: "absent",
       hasContentLength: false,
       upstreamError: "fetchFailed",
     };
@@ -2554,8 +2590,14 @@ async function probeRemoteVideoStream(
     status: response.status,
     rangeRequest: "present",
     contentType: normalizeProbeContentType(response.headers.get("Content-Type")),
-    hasContentRange: response.headers.has("Content-Range"),
-    hasAcceptRanges: response.headers.has("Accept-Ranges"),
+    contentRange: normalizeRemoteVideoHeaderSourceLabel(
+      response.headers.get("X-Drive-Video-Content-Range-Source"),
+      response.headers.has("Content-Range"),
+    ),
+    acceptRanges: normalizeRemoteVideoHeaderSourceLabel(
+      response.headers.get("X-Drive-Video-Accept-Ranges-Source"),
+      response.headers.has("Accept-Ranges"),
+    ),
     hasContentLength: response.headers.has("Content-Length"),
   };
 }
@@ -2618,6 +2660,17 @@ function formatBytesForDiagnostics(value: number | undefined) {
   return typeof value === "number" && Number.isSafeInteger(value)
     ? `${value} bytes`
     : "size unknown";
+}
+
+function isValidRemoteVideoFileSize(
+  value: number | undefined,
+): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value > 0 &&
+    value <= PLAYER_REMOTE_VIDEO_MAX_FILE_SIZE_BYTES
+  );
 }
 
 function createPlayerVideoSessionId() {

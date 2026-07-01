@@ -515,6 +515,7 @@ export type DriveVideoPlaybackSessionRegistrationInput = {
   sessionId: string;
   assetFileId: string;
   mimeType: "video/mp4";
+  fileSize: number;
   expiresAt: number;
 };
 
@@ -4416,6 +4417,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           assetFileId: input.assetFileId,
           accessToken,
           mimeType: input.mimeType,
+          fileSize: input.fileSize,
           expiresAt: input.expiresAt,
         },
       });
@@ -5263,6 +5265,7 @@ type DriveVideoPlaybackSessionMessage =
         assetFileId: string;
         accessToken: string;
         mimeType: "video/mp4";
+        fileSize: number;
         expiresAt: number;
       };
     }
