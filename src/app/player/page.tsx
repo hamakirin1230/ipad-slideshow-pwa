@@ -22,6 +22,8 @@ import {
   RefreshCw,
   Settings,
   Unlock,
+  Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -42,6 +44,7 @@ const PLAYER_REMOTE_VIDEO_METADATA_TIMEOUT_MS = 15_000;
 const PLAYER_REMOTE_VIDEO_START_TIMEOUT_MS = 20_000;
 const PLAYER_REMOTE_VIDEO_STALL_TIMEOUT_MS = 30_000;
 const PLAYER_REMOTE_VIDEO_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
+const PLAYER_VIDEO_CONTROLS_HIDE_DELAY_MS = 5_000;
 const PLAYER_VIDEO_FALLBACK_DISPLAY_MS = 1_500;
 const PLAYER_VIDEO_MAX_FALLBACK_MS = 60_000;
 const PLAYER_PRESENTATION_MODE_STORAGE_KEY =
@@ -210,6 +213,7 @@ export default function PlayerPage() {
     useState<RemoteVideoProbeDiagnostics | null>(null);
   const [remoteVideoMediaDiagnostics, setRemoteVideoMediaDiagnostics] =
     useState<RemoteVideoMediaDiagnostics | null>(null);
+  const [videoDiagnosticsVisible, setVideoDiagnosticsVisible] = useState(false);
   const [slideTransitionDirection, setSlideTransitionDirection] =
     useState<SlideTransitionDirection>("none");
   const [isSlideTransitioning, setIsSlideTransitioning] = useState(false);
@@ -297,6 +301,16 @@ export default function PlayerPage() {
     revealControls();
     moveToNextSlide();
   }, [canUseVisibleControls, moveToNextSlide, revealControls]);
+
+  const handleVideoPreviousSlide = useCallback(() => {
+    revealControls();
+    moveToPreviousSlide();
+  }, [moveToPreviousSlide, revealControls]);
+
+  const handleVideoNextSlide = useCallback(() => {
+    revealControls();
+    moveToNextSlide();
+  }, [moveToNextSlide, revealControls]);
 
   const enterProductionMode = useCallback(() => {
     setPresentationMode("production");
@@ -605,7 +619,18 @@ export default function PlayerPage() {
     currentVideoSlideKeyRef.current = currentSlidePlaybackKey;
     handledVideoSlideAdvanceRef.current = null;
     clearPlayerTimeout(videoFallbackTimeoutRef);
+    queueMicrotask(() => {
+      setVideoDiagnosticsVisible(false);
+    });
   }, [currentSlidePlaybackKey]);
+
+  useEffect(() => {
+    if (videoStatus === "error" || onlineVideoPlaybackStatus === "error") {
+      queueMicrotask(() => {
+        setVideoDiagnosticsVisible(true);
+      });
+    }
+  }, [onlineVideoPlaybackStatus, videoStatus]);
 
   const markVideoSlideAdvanceHandled = useCallback(
     (
@@ -1386,6 +1411,15 @@ export default function PlayerPage() {
               onPlaybackFailure={handleVideoPlaybackFailure}
               onPlaybackMessage={handleVideoPlaybackMessage}
               onRemoteMediaDiagnostics={handleRemoteVideoMediaDiagnostics}
+              canGoPrevious={safeCurrentSlideIndex > 0}
+              canGoNext={safeCurrentSlideIndex < slideCount - 1}
+              onPrevious={handleVideoPreviousSlide}
+              onNext={handleVideoNextSlide}
+              diagnostics={isCurrentRemoteVideo ? onlineVideoDiagnostics : []}
+              diagnosticsVisible={videoDiagnosticsVisible}
+              onToggleDiagnostics={() =>
+                setVideoDiagnosticsVisible((current) => !current)
+              }
             />
           ) : null}
 
@@ -1643,7 +1677,9 @@ export default function PlayerPage() {
 
         {!isProductionMode ? (
           <div
-            className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/35 to-transparent px-4 pt-20 sm:px-6"
+            className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/35 to-transparent px-4 pt-20 sm:px-6 ${
+              currentSlideMediaKind === "video" ? "hidden" : ""
+            }`}
             style={{
               paddingBottom: "max(env(safe-area-inset-bottom), 1rem)",
             }}
@@ -1690,7 +1726,10 @@ export default function PlayerPage() {
           </div>
         ) : null}
 
-        {remoteVideoSlideCount > 0 && !isProductionMode ? (
+        {isCurrentRemoteVideo &&
+        videoDiagnosticsVisible &&
+        !isProductionMode &&
+        videoStatus === "error" ? (
           <PlayerOnlineVideoDiagnostics diagnostics={onlineVideoDiagnostics} />
         ) : null}
       </main>
@@ -1958,6 +1997,13 @@ function PlayerVideoSlide({
   onPlaybackFailure,
   onPlaybackMessage,
   onRemoteMediaDiagnostics,
+  canGoPrevious,
+  canGoNext,
+  onPrevious,
+  onNext,
+  diagnostics,
+  diagnosticsVisible,
+  onToggleDiagnostics,
 }: {
   video: PlayerSlideVideo;
   onEnded: (slideKey: string) => void;
@@ -1969,10 +2015,37 @@ function PlayerVideoSlide({
   onRemoteMediaDiagnostics: (
     update: RemoteVideoMediaDiagnosticsUpdate,
   ) => void;
+  canGoPrevious: boolean;
+  canGoNext: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+  diagnostics: string[];
+  diagnosticsVisible: boolean;
+  onToggleDiagnostics: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const didReportFailureRef = useRef(false);
+  const userPausedRef = useRef(false);
+  const videoSeekingRef = useRef(false);
+  const [videoControlsVisible, setVideoControlsVisible] = useState(true);
+  const [videoPausedByUser, setVideoPausedByUser] = useState(false);
+  const [videoPaused, setVideoPaused] = useState(false);
+  const [videoMuted, setVideoMuted] = useState(true);
+  const [videoVolume, setVideoVolume] = useState(1);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  const [videoSeeking, setVideoSeeking] = useState(false);
+  const [videoControlMessage, setVideoControlMessage] = useState<string | null>(
+    null,
+  );
   const slideKey = getPlayerSlidePlaybackKey(video);
+  const hasKnownDuration = videoDuration !== null;
+  const showVideoControls =
+    videoControlsVisible ||
+    videoPaused ||
+    videoPausedByUser ||
+    diagnosticsVisible ||
+    videoControlMessage !== null;
 
   const reportPlaybackFailure = useCallback(() => {
     if (didReportFailureRef.current) {
@@ -1982,6 +2055,182 @@ function PlayerVideoSlide({
     didReportFailureRef.current = true;
     onPlaybackFailure(slideKey);
   }, [onPlaybackFailure, slideKey]);
+
+  const revealVideoControls = useCallback(() => {
+    setVideoControlsVisible(true);
+  }, []);
+
+  useEffect(() => {
+    videoSeekingRef.current = videoSeeking;
+  }, [videoSeeking]);
+
+  useEffect(() => {
+    userPausedRef.current = false;
+    didReportFailureRef.current = false;
+    queueMicrotask(() => {
+      setVideoControlsVisible(true);
+      setVideoPausedByUser(false);
+      setVideoPaused(false);
+      setVideoMuted(true);
+      setVideoVolume(1);
+      setVideoCurrentTime(0);
+      setVideoDuration(null);
+      setVideoSeeking(false);
+      setVideoControlMessage(null);
+    });
+  }, [video.assetId, video.slideId, video.sourceUrl]);
+
+  useEffect(() => {
+    if (
+      !videoControlsVisible ||
+      videoPaused ||
+      videoPausedByUser ||
+      diagnosticsVisible ||
+      videoControlMessage !== null
+    ) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setVideoControlsVisible(false);
+    }, PLAYER_VIDEO_CONTROLS_HIDE_DELAY_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    diagnosticsVisible,
+    videoControlMessage,
+    videoControlsVisible,
+    videoPaused,
+    videoPausedByUser,
+  ]);
+
+  const playVideoFromUserAction = useCallback(async () => {
+    const videoElement = videoRef.current;
+
+    if (!videoElement) {
+      return;
+    }
+
+    try {
+      userPausedRef.current = false;
+      setVideoPausedByUser(false);
+      const playResult = videoElement.play();
+
+      if (playResult) {
+        await playResult;
+      }
+
+      setVideoPaused(false);
+      setVideoControlMessage(null);
+      revealVideoControls();
+    } catch {
+      setVideoControlMessage(
+        "再生を開始できませんでした。もう一度タップしてください。",
+      );
+      revealVideoControls();
+    }
+  }, [revealVideoControls]);
+
+  const handlePlayPauseClick = useCallback(() => {
+    const videoElement = videoRef.current;
+
+    if (!videoElement) {
+      return;
+    }
+
+    revealVideoControls();
+
+    if (videoElement.paused) {
+      void playVideoFromUserAction();
+      return;
+    }
+
+    userPausedRef.current = true;
+    setVideoPausedByUser(true);
+    videoElement.pause();
+    setVideoPaused(true);
+  }, [playVideoFromUserAction, revealVideoControls]);
+
+  const handleMuteClick = useCallback(() => {
+    const videoElement = videoRef.current;
+
+    if (!videoElement) {
+      return;
+    }
+
+    revealVideoControls();
+
+    if (videoElement.muted) {
+      videoElement.muted = false;
+      userPausedRef.current = false;
+      setVideoPausedByUser(false);
+      setVideoMuted(false);
+      void videoElement.play().catch(() => {
+        videoElement.muted = true;
+        setVideoMuted(true);
+        setVideoControlMessage(
+          "音声を有効にできませんでした。もう一度タップしてください。",
+        );
+        revealVideoControls();
+      });
+      return;
+    }
+
+    videoElement.muted = true;
+    setVideoMuted(true);
+    setVideoControlMessage(null);
+  }, [revealVideoControls]);
+
+  const handleVolumeChange = useCallback(
+    (nextValue: string) => {
+      const videoElement = videoRef.current;
+      const nextVolume = clampNumber(Number(nextValue), 0, 1);
+
+      setVideoVolume(nextVolume);
+      revealVideoControls();
+
+      if (!videoElement) {
+        return;
+      }
+
+      try {
+        videoElement.volume = nextVolume;
+        videoElement.muted = nextVolume === 0;
+        setVideoMuted(videoElement.muted);
+      } catch {
+        // Some iPad/Safari contexts ignore programmatic volume changes.
+      }
+    },
+    [revealVideoControls],
+  );
+
+  const handleSeekChange = useCallback(
+    (nextValue: string) => {
+      const videoElement = videoRef.current;
+
+      if (videoDuration === null || !videoElement) {
+        return;
+      }
+
+      const nextTime = clampNumber(Number(nextValue), 0, videoDuration);
+      setVideoSeeking(true);
+      setVideoCurrentTime(nextTime);
+      revealVideoControls();
+
+      try {
+        videoElement.currentTime = nextTime;
+        setVideoControlMessage(null);
+      } catch {
+        setVideoControlMessage("この動画ではシークできませんでした。");
+      }
+    },
+    [revealVideoControls, videoDuration],
+  );
+
+  const finishSeeking = useCallback(() => {
+    setVideoSeeking(false);
+    revealVideoControls();
+  }, [revealVideoControls]);
 
   useEffect(() => {
     didReportFailureRef.current = false;
@@ -2037,6 +2286,10 @@ function PlayerVideoSlide({
       : null;
     const startTimeout = setTimeout(() => {
       if (!didStartPlayback) {
+        if (userPausedRef.current) {
+          return;
+        }
+
         if (isRemoteVideo) {
           onPlaybackMessage("online video playback error: timeout", "error");
         }
@@ -2067,6 +2320,10 @@ function PlayerVideoSlide({
     const schedulePlaybackTimeout = (timeoutMs: number) => {
       clearPlaybackTimeout();
       playbackTimeout = setTimeout(() => {
+        if (userPausedRef.current) {
+          return;
+        }
+
         if (isRemoteVideo) {
           onPlaybackMessage("online video playback error: timeout", "error");
         }
@@ -2077,6 +2334,7 @@ function PlayerVideoSlide({
 
     const handleLoadedMetadata = () => {
       metadataLoaded = true;
+      setVideoDuration(readFiniteVideoDuration(videoElement));
 
       if (metadataTimeout) {
         clearTimeout(metadataTimeout);
@@ -2088,10 +2346,7 @@ function PlayerVideoSlide({
 
       const durationSeconds = videoElement.duration;
 
-      if (
-        Number.isFinite(durationSeconds) &&
-        durationSeconds > 0
-      ) {
+      if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
         schedulePlaybackTimeout(durationSeconds * 1000 + 10_000);
       }
     };
@@ -2100,6 +2355,9 @@ function PlayerVideoSlide({
       didStartPlayback = true;
       clearTimeout(startTimeout);
       clearStallTimeout();
+      setVideoPaused(false);
+      setVideoPausedByUser(false);
+      userPausedRef.current = false;
 
       if (isRemoteVideo) {
         onPlaybackMessage("online video playback: playing", "playing");
@@ -2113,15 +2371,47 @@ function PlayerVideoSlide({
 
       clearStallTimeout();
       stallTimeout = setTimeout(() => {
+        if (userPausedRef.current) {
+          return;
+        }
+
         onPlaybackMessage("online video playback error: timeout", "error");
         reportPlaybackFailure();
       }, PLAYER_REMOTE_VIDEO_STALL_TIMEOUT_MS);
+    };
+
+    const handleTimeUpdate = () => {
+      if (!videoSeekingRef.current) {
+        setVideoCurrentTime(videoElement.currentTime);
+      }
+    };
+
+    const handleDurationChange = () => {
+      setVideoDuration(readFiniteVideoDuration(videoElement));
+    };
+
+    const handlePlay = () => {
+      setVideoPaused(false);
+    };
+
+    const handlePause = () => {
+      setVideoPaused(true);
+    };
+
+    const handleVolumeChangeEvent = () => {
+      setVideoMuted(videoElement.muted);
+      setVideoVolume(videoElement.volume);
     };
 
     videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
     videoElement.addEventListener("playing", handlePlaying);
     videoElement.addEventListener("waiting", handleWaitingOrStalled);
     videoElement.addEventListener("stalled", handleWaitingOrStalled);
+    videoElement.addEventListener("timeupdate", handleTimeUpdate);
+    videoElement.addEventListener("durationchange", handleDurationChange);
+    videoElement.addEventListener("play", handlePlay);
+    videoElement.addEventListener("pause", handlePause);
+    videoElement.addEventListener("volumechange", handleVolumeChangeEvent);
 
     for (const eventName of REMOTE_VIDEO_MEDIA_EVENT_NAMES) {
       videoElement.addEventListener(eventName, handleDiagnosticEvent);
@@ -2153,6 +2443,14 @@ function PlayerVideoSlide({
       videoElement.removeEventListener("playing", handlePlaying);
       videoElement.removeEventListener("waiting", handleWaitingOrStalled);
       videoElement.removeEventListener("stalled", handleWaitingOrStalled);
+      videoElement.removeEventListener("timeupdate", handleTimeUpdate);
+      videoElement.removeEventListener("durationchange", handleDurationChange);
+      videoElement.removeEventListener("play", handlePlay);
+      videoElement.removeEventListener("pause", handlePause);
+      videoElement.removeEventListener(
+        "volumechange",
+        handleVolumeChangeEvent,
+      );
 
       for (const eventName of REMOTE_VIDEO_MEDIA_EVENT_NAMES) {
         videoElement.removeEventListener(eventName, handleDiagnosticEvent);
@@ -2168,29 +2466,197 @@ function PlayerVideoSlide({
   ]);
 
   return (
-    <video
-      ref={videoRef}
-      src={video.sourceUrl}
-      muted
-      playsInline
-      controls={false}
-      autoPlay
-      preload={video.sourceKind === "remote" ? "metadata" : "auto"}
-      aria-label={video.assetName}
-      onEnded={() => onEnded(slideKey)}
-      onError={reportPlaybackFailure}
-      className="absolute inset-0 h-full w-full object-contain"
-    />
+    <div className="absolute inset-0" onPointerDown={revealVideoControls}>
+      <video
+        ref={videoRef}
+        src={video.sourceUrl}
+        muted={videoMuted}
+        playsInline
+        controls={false}
+        autoPlay
+        preload={video.sourceKind === "remote" ? "metadata" : "auto"}
+        aria-label={video.assetName}
+        onEnded={() => {
+          userPausedRef.current = false;
+          setVideoPaused(true);
+          onEnded(slideKey);
+        }}
+        onError={() => {
+          setVideoControlMessage("動画を再生できませんでした。");
+          revealVideoControls();
+          reportPlaybackFailure();
+        }}
+        className="absolute inset-0 h-full w-full object-contain"
+      />
+
+      <div
+        className={`absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pt-16 transition-opacity duration-300 sm:px-6 ${
+          showVideoControls ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        style={{
+          paddingBottom: "max(env(safe-area-inset-bottom), 1rem)",
+        }}
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerMove={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
+        onPointerCancel={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 rounded-xl border border-white/10 bg-black/50 p-3 text-slate-50 shadow-2xl backdrop-blur-sm">
+          <div className="flex items-center justify-center gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-lg"
+              className="size-12 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
+              aria-label="前のスライドへ"
+              title="前のスライドへ"
+              disabled={!canGoPrevious}
+              onClick={onPrevious}
+            >
+              <ChevronLeft className="size-7" />
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-lg"
+              className="h-12 min-w-24 rounded-full border border-white/15 bg-white/15 px-5 text-slate-50 hover:bg-white/25"
+              aria-label={videoPaused ? "動画を再生" : "動画を一時停止"}
+              title={videoPaused ? "動画を再生" : "動画を一時停止"}
+              onClick={handlePlayPauseClick}
+            >
+              {videoPaused ? (
+                <>
+                  <Play className="size-5" />
+                  再生
+                </>
+              ) : (
+                <>
+                  <Pause className="size-5" />
+                  一時停止
+                </>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-lg"
+              className="size-12 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
+              aria-label="次のスライドへ"
+              title="次のスライドへ"
+              disabled={!canGoNext}
+              onClick={onNext}
+            >
+              <ChevronRight className="size-7" />
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-center gap-3 text-sm tabular-nums text-slate-100">
+            <span className="text-right">
+              {formatVideoTimestamp(videoCurrentTime)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={videoDuration ?? 0}
+              step="0.1"
+              value={hasKnownDuration ? videoCurrentTime : 0}
+              disabled={!hasKnownDuration}
+              aria-label="動画の再生位置"
+              className="h-8 w-full accent-white disabled:opacity-40"
+              onChange={(event) => handleSeekChange(event.target.value)}
+              onPointerUp={finishSeeking}
+              onTouchEnd={finishSeeking}
+              onKeyUp={finishSeeking}
+            />
+            <span>{formatVideoTimestamp(videoDuration)}</span>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-lg"
+              className="h-11 min-w-28 rounded-full border border-white/15 bg-black/45 px-4 text-slate-50 hover:bg-white/20"
+              aria-label={videoMuted ? "音声ON" : "ミュート"}
+              title={videoMuted ? "音声ON" : "ミュート"}
+              onClick={handleMuteClick}
+            >
+              {videoMuted ? (
+                <>
+                  <VolumeX className="size-5" />
+                  音声ON
+                </>
+              ) : (
+                <>
+                  <Volume2 className="size-5" />
+                  ミュート
+                </>
+              )}
+            </Button>
+            <label className="flex h-11 min-w-44 items-center gap-3 rounded-full border border-white/15 bg-black/45 px-4 text-sm text-slate-50">
+              <span>音量</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={videoMuted ? 0 : videoVolume}
+                aria-label="動画の音量"
+                className="h-8 w-24 accent-white"
+                onChange={(event) => handleVolumeChange(event.target.value)}
+              />
+            </label>
+            {diagnostics.length > 0 ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon-lg"
+                className="h-11 rounded-full border border-sky-200/25 bg-sky-400/15 px-4 text-sky-50 hover:bg-sky-300/25"
+                aria-pressed={diagnosticsVisible}
+                onClick={() => {
+                  revealVideoControls();
+                  onToggleDiagnostics();
+                }}
+              >
+                診断
+              </Button>
+            ) : null}
+          </div>
+
+          {videoControlMessage ? (
+            <p className="rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-center text-sm text-amber-50">
+              {videoControlMessage}
+            </p>
+          ) : null}
+
+          {diagnosticsVisible && diagnostics.length > 0 ? (
+            <PlayerOnlineVideoDiagnostics
+              diagnostics={diagnostics}
+              floating={false}
+            />
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
 
 function PlayerOnlineVideoDiagnostics({
   diagnostics,
+  floating = true,
 }: {
   diagnostics: string[];
+  floating?: boolean;
 }) {
   return (
-    <div className="pointer-events-none absolute bottom-24 left-4 z-20 max-w-sm rounded-xl border border-sky-200/20 bg-black/55 p-3 text-xs leading-5 text-sky-50 shadow-2xl sm:bottom-28">
+    <div
+      className={
+        floating
+          ? "pointer-events-none absolute bottom-24 left-4 z-20 max-w-sm rounded-xl border border-sky-200/20 bg-black/55 p-3 text-xs leading-5 text-sky-50 shadow-2xl sm:bottom-28"
+          : "max-h-36 overflow-auto rounded-lg border border-sky-200/20 bg-black/55 p-3 text-xs leading-5 text-sky-50"
+      }
+    >
       {diagnostics.map((diagnostic) => (
         <p key={diagnostic}>{diagnostic}</p>
       ))}
@@ -2660,6 +3126,37 @@ function formatBytesForDiagnostics(value: number | undefined) {
   return typeof value === "number" && Number.isSafeInteger(value)
     ? `${value} bytes`
     : "size unknown";
+}
+
+function readFiniteVideoDuration(videoElement: HTMLVideoElement) {
+  return Number.isFinite(videoElement.duration) && videoElement.duration > 0
+    ? videoElement.duration
+    : null;
+}
+
+function formatVideoTimestamp(value: number | null) {
+  if (value === null || !Number.isFinite(value) || value < 0) {
+    return "--:--";
+  }
+
+  const totalSeconds = Math.floor(value);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(max, Math.max(min, value));
 }
 
 function isValidRemoteVideoFileSize(
