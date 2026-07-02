@@ -396,6 +396,24 @@ Phase 6Cでまだ実装していないこと:
 - token、Drive URL、streaming session URL、file id全文、raw response bodyはUI / docs / logs / diagnosticsへ出さない。
 - `video/quicktime` は引き続きunsupportedとして扱い、MOV online playbackはmp4 online playback検証後に判断する。
 
+2026-07-02 Phase 6I/6J実施範囲:
+
+- remote `video/mp4` streamの診断として、upstream status、safe content-type label、Range request有無、Content-Range / Accept-Ranges / Content-Lengthの有無、media readyState / networkState / media event列を表示できるようにした。
+- Google DriveのCORSでRange系response headerをService Workerから読めない場合に備え、manifest由来のfileSizeとsingle byte range requestから `Content-Range` と `Accept-Ranges` を安全に合成する。
+- diagnosticsには `present` / `synthesized` / `absent` だけを表示し、Range実値、Content-Range実値、Drive取得先、session識別子、file id全文は表示しない。
+- 1GB級 `video/mp4` のDrive remote online stream再生は、iPad PWA実機で `206` / `video/mp4` / synthesized range headersの状態で成功を確認した。
+
+2026-07-02 Phase 6K/6L実施範囲:
+
+- `/player` のvideo slideにcustom controlsを追加し、再生 / 一時停止、前へ / 次へ、シークバー、経過時間 / 総時間表示、音声ON / ミュート、音量、診断toggleを提供する。
+- 初期再生は引き続き `muted`、`playsInline`、`autoPlay`、`controls={false}` を維持する。音声ONはユーザー操作後のhandler内でのみ行い、mute / volume状態はsession内のReact stateだけに保持して永続化しない。
+- controls overlayはiPad横向きPWA向けに44px以上のhit areaを確保し、tapで表示、約5秒で自動非表示、paused / seeking / pointer操作中 / diagnostics表示中 / error中は表示維持する。
+- buffering / waiting中は短い安全文言だけを表示し、既存timeoutで失敗判定する。ended時は既存のdouble advance guardを維持して次slideへ進む。
+- diagnosticsは初期非表示にし、「診断」ボタンで表示 / 非表示を切り替える。error時はsafe diagnosticsを自動表示する。
+- `/visual-check/player-video-controls` を追加し、認証・Drive接続・実動画なしでcontrols layout、paused、buffering、error、diagnostics toggleを確認できるようにした。
+- 1GB級動画はIndexedDBへBlob保存しない方針を維持し、offline保存上限50MBも変更しない。
+- 認可情報、Drive取得先、streaming経路の参照文字列、file id全文、Blob参照文字列、Range実値、Content-Range実値はUI / diagnostics / console / docsへ出さない。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

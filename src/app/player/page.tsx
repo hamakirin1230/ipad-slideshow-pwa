@@ -2035,16 +2035,26 @@ function PlayerVideoSlide({
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const [videoSeeking, setVideoSeeking] = useState(false);
+  const [videoSeekPreviewTime, setVideoSeekPreviewTime] = useState<
+    number | null
+  >(null);
+  const [videoPointerActive, setVideoPointerActive] = useState(false);
+  const [videoBuffering, setVideoBuffering] = useState(false);
+  const [videoHasError, setVideoHasError] = useState(false);
   const [videoControlMessage, setVideoControlMessage] = useState<string | null>(
     null,
   );
   const slideKey = getPlayerSlidePlaybackKey(video);
   const hasKnownDuration = videoDuration !== null;
+  const displayedVideoCurrentTime = videoSeekPreviewTime ?? videoCurrentTime;
   const showVideoControls =
     videoControlsVisible ||
     videoPaused ||
     videoPausedByUser ||
+    videoSeeking ||
+    videoPointerActive ||
     diagnosticsVisible ||
+    videoHasError ||
     videoControlMessage !== null;
 
   const reportPlaybackFailure = useCallback(() => {
@@ -2076,6 +2086,10 @@ function PlayerVideoSlide({
       setVideoCurrentTime(0);
       setVideoDuration(null);
       setVideoSeeking(false);
+      setVideoSeekPreviewTime(null);
+      setVideoPointerActive(false);
+      setVideoBuffering(false);
+      setVideoHasError(false);
       setVideoControlMessage(null);
     });
   }, [video.assetId, video.slideId, video.sourceUrl]);
@@ -2085,7 +2099,10 @@ function PlayerVideoSlide({
       !videoControlsVisible ||
       videoPaused ||
       videoPausedByUser ||
+      videoSeeking ||
+      videoPointerActive ||
       diagnosticsVisible ||
+      videoHasError ||
       videoControlMessage !== null
     ) {
       return;
@@ -2098,10 +2115,13 @@ function PlayerVideoSlide({
     return () => clearTimeout(timeoutId);
   }, [
     diagnosticsVisible,
+    videoHasError,
     videoControlMessage,
     videoControlsVisible,
+    videoPointerActive,
     videoPaused,
     videoPausedByUser,
+    videoSeeking,
   ]);
 
   const playVideoFromUserAction = useCallback(async () => {
@@ -2121,6 +2141,7 @@ function PlayerVideoSlide({
       }
 
       setVideoPaused(false);
+      setVideoHasError(false);
       setVideoControlMessage(null);
       revealVideoControls();
     } catch {
@@ -2165,6 +2186,7 @@ function PlayerVideoSlide({
       userPausedRef.current = false;
       setVideoPausedByUser(false);
       setVideoMuted(false);
+      setVideoHasError(false);
       void videoElement.play().catch(() => {
         videoElement.muted = true;
         setVideoMuted(true);
@@ -2206,29 +2228,44 @@ function PlayerVideoSlide({
 
   const handleSeekChange = useCallback(
     (nextValue: string) => {
-      const videoElement = videoRef.current;
-
-      if (videoDuration === null || !videoElement) {
+      if (videoDuration === null) {
         return;
       }
 
       const nextTime = clampNumber(Number(nextValue), 0, videoDuration);
       setVideoSeeking(true);
-      setVideoCurrentTime(nextTime);
+      setVideoSeekPreviewTime(nextTime);
       revealVideoControls();
-
-      try {
-        videoElement.currentTime = nextTime;
-        setVideoControlMessage(null);
-      } catch {
-        setVideoControlMessage("この動画ではシークできませんでした。");
-      }
     },
     [revealVideoControls, videoDuration],
   );
 
   const finishSeeking = useCallback(() => {
+    const videoElement = videoRef.current;
+    const nextTime = videoSeekPreviewTime;
+
+    if (videoElement && nextTime !== null) {
+      try {
+        videoElement.currentTime = nextTime;
+        setVideoCurrentTime(nextTime);
+        setVideoControlMessage(null);
+      } catch {
+        setVideoControlMessage("この動画ではシークできませんでした。");
+      }
+    }
+
     setVideoSeeking(false);
+    setVideoSeekPreviewTime(null);
+    revealVideoControls();
+  }, [revealVideoControls, videoSeekPreviewTime]);
+
+  const handleVideoControlPointerDown = useCallback(() => {
+    setVideoPointerActive(true);
+    revealVideoControls();
+  }, [revealVideoControls]);
+
+  const handleVideoControlPointerRelease = useCallback(() => {
+    setVideoPointerActive(false);
     revealVideoControls();
   }, [revealVideoControls]);
 
@@ -2357,6 +2394,8 @@ function PlayerVideoSlide({
       clearStallTimeout();
       setVideoPaused(false);
       setVideoPausedByUser(false);
+      setVideoBuffering(false);
+      setVideoHasError(false);
       userPausedRef.current = false;
 
       if (isRemoteVideo) {
@@ -2369,6 +2408,7 @@ function PlayerVideoSlide({
         return;
       }
 
+      setVideoBuffering(true);
       clearStallTimeout();
       stallTimeout = setTimeout(() => {
         if (userPausedRef.current) {
@@ -2392,10 +2432,16 @@ function PlayerVideoSlide({
 
     const handlePlay = () => {
       setVideoPaused(false);
+      setVideoHasError(false);
     };
 
     const handlePause = () => {
       setVideoPaused(true);
+      setVideoBuffering(false);
+    };
+
+    const handleCanPlay = () => {
+      setVideoBuffering(false);
     };
 
     const handleVolumeChangeEvent = () => {
@@ -2411,6 +2457,8 @@ function PlayerVideoSlide({
     videoElement.addEventListener("durationchange", handleDurationChange);
     videoElement.addEventListener("play", handlePlay);
     videoElement.addEventListener("pause", handlePause);
+    videoElement.addEventListener("canplay", handleCanPlay);
+    videoElement.addEventListener("loadeddata", handleCanPlay);
     videoElement.addEventListener("volumechange", handleVolumeChangeEvent);
 
     for (const eventName of REMOTE_VIDEO_MEDIA_EVENT_NAMES) {
@@ -2447,6 +2495,8 @@ function PlayerVideoSlide({
       videoElement.removeEventListener("durationchange", handleDurationChange);
       videoElement.removeEventListener("play", handlePlay);
       videoElement.removeEventListener("pause", handlePause);
+      videoElement.removeEventListener("canplay", handleCanPlay);
+      videoElement.removeEventListener("loadeddata", handleCanPlay);
       videoElement.removeEventListener(
         "volumechange",
         handleVolumeChangeEvent,
@@ -2479,9 +2529,12 @@ function PlayerVideoSlide({
         onEnded={() => {
           userPausedRef.current = false;
           setVideoPaused(true);
+          setVideoBuffering(false);
           onEnded(slideKey);
         }}
         onError={() => {
+          setVideoHasError(true);
+          setVideoBuffering(false);
           setVideoControlMessage("動画を再生できませんでした。");
           revealVideoControls();
           reportPlaybackFailure();
@@ -2496,10 +2549,20 @@ function PlayerVideoSlide({
         style={{
           paddingBottom: "max(env(safe-area-inset-bottom), 1rem)",
         }}
-        onPointerDown={(event) => event.stopPropagation()}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          handleVideoControlPointerDown();
+        }}
         onPointerMove={(event) => event.stopPropagation()}
-        onPointerUp={(event) => event.stopPropagation()}
-        onPointerCancel={(event) => event.stopPropagation()}
+        onPointerUp={(event) => {
+          event.stopPropagation();
+          handleVideoControlPointerRelease();
+        }}
+        onPointerCancel={(event) => {
+          event.stopPropagation();
+          handleVideoControlPointerRelease();
+        }}
+        onPointerLeave={handleVideoControlPointerRelease}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 rounded-xl border border-white/10 bg-black/50 p-3 text-slate-50 shadow-2xl backdrop-blur-sm">
@@ -2508,13 +2571,14 @@ function PlayerVideoSlide({
               type="button"
               variant="secondary"
               size="icon-lg"
-              className="size-12 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
+              className="h-12 min-w-20 rounded-full border border-white/15 bg-black/45 px-4 text-slate-50 hover:bg-white/20 disabled:opacity-30"
               aria-label="前のスライドへ"
               title="前のスライドへ"
               disabled={!canGoPrevious}
               onClick={onPrevious}
             >
               <ChevronLeft className="size-7" />
+              前へ
             </Button>
             <Button
               type="button"
@@ -2541,29 +2605,30 @@ function PlayerVideoSlide({
               type="button"
               variant="secondary"
               size="icon-lg"
-              className="size-12 rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20 disabled:opacity-30"
+              className="h-12 min-w-20 rounded-full border border-white/15 bg-black/45 px-4 text-slate-50 hover:bg-white/20 disabled:opacity-30"
               aria-label="次のスライドへ"
               title="次のスライドへ"
               disabled={!canGoNext}
               onClick={onNext}
             >
+              次へ
               <ChevronRight className="size-7" />
             </Button>
           </div>
 
           <div className="grid grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-center gap-3 text-sm tabular-nums text-slate-100">
             <span className="text-right">
-              {formatVideoTimestamp(videoCurrentTime)}
+              {formatVideoTimestamp(displayedVideoCurrentTime)}
             </span>
             <input
               type="range"
               min={0}
               max={videoDuration ?? 0}
               step="0.1"
-              value={hasKnownDuration ? videoCurrentTime : 0}
+              value={hasKnownDuration ? displayedVideoCurrentTime : 0}
               disabled={!hasKnownDuration}
               aria-label="動画の再生位置"
-              className="h-8 w-full accent-white disabled:opacity-40"
+              className="h-9 w-full accent-white disabled:opacity-40"
               onChange={(event) => handleSeekChange(event.target.value)}
               onPointerUp={finishSeeking}
               onTouchEnd={finishSeeking}
@@ -2577,7 +2642,7 @@ function PlayerVideoSlide({
               type="button"
               variant="secondary"
               size="icon-lg"
-              className="h-11 min-w-28 rounded-full border border-white/15 bg-black/45 px-4 text-slate-50 hover:bg-white/20"
+              className="h-12 min-w-32 rounded-full border border-white/15 bg-black/45 px-4 text-slate-50 hover:bg-white/20"
               aria-label={videoMuted ? "音声ON" : "ミュート"}
               title={videoMuted ? "音声ON" : "ミュート"}
               onClick={handleMuteClick}
@@ -2594,7 +2659,7 @@ function PlayerVideoSlide({
                 </>
               )}
             </Button>
-            <label className="flex h-11 min-w-44 items-center gap-3 rounded-full border border-white/15 bg-black/45 px-4 text-sm text-slate-50">
+            <label className="flex h-12 min-w-48 items-center gap-3 rounded-full border border-white/15 bg-black/45 px-4 text-sm text-slate-50">
               <span>音量</span>
               <input
                 type="range"
@@ -2603,7 +2668,7 @@ function PlayerVideoSlide({
                 step={0.05}
                 value={videoMuted ? 0 : videoVolume}
                 aria-label="動画の音量"
-                className="h-8 w-24 accent-white"
+                className="h-9 w-28 accent-white"
                 onChange={(event) => handleVolumeChange(event.target.value)}
               />
             </label>
@@ -2612,7 +2677,7 @@ function PlayerVideoSlide({
                 type="button"
                 variant="secondary"
                 size="icon-lg"
-                className="h-11 rounded-full border border-sky-200/25 bg-sky-400/15 px-4 text-sky-50 hover:bg-sky-300/25"
+                className="h-12 rounded-full border border-sky-200/25 bg-sky-400/15 px-5 text-sky-50 hover:bg-sky-300/25"
                 aria-pressed={diagnosticsVisible}
                 onClick={() => {
                   revealVideoControls();
@@ -2623,6 +2688,10 @@ function PlayerVideoSlide({
               </Button>
             ) : null}
           </div>
+
+          {videoBuffering ? (
+            <p className="text-center text-sm text-slate-200">読み込み中</p>
+          ) : null}
 
           {videoControlMessage ? (
             <p className="rounded-lg border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-center text-sm text-amber-50">
