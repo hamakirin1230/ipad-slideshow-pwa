@@ -409,7 +409,7 @@ Phase 6Cでまだ実装していないこと:
 - 初期再生は引き続き `muted`、`playsInline`、`autoPlay`、`controls={false}` を維持する。音声ONはユーザー操作後のhandler内でのみ行い、mute / volume状態はsession内のReact stateだけに保持して永続化しない。
 - controls overlayはiPad横向きPWA向けに44px以上のhit areaを確保し、tapで表示、約5秒で自動非表示、paused / seeking / pointer操作中 / diagnostics表示中 / error中は表示維持する。
 - buffering / waiting中は短い安全文言だけを表示し、既存timeoutで失敗判定する。ended時は既存のdouble advance guardを維持して次slideへ進む。
-- diagnosticsは初期非表示にし、「診断」ボタンで表示 / 非表示を切り替える。error時はsafe diagnosticsを自動表示する。
+- remote video diagnosticsは通常再生時に表示せず、error時のみ「診断」ボタンで表示 / 非表示を切り替える。error時はsafe diagnosticsを自動表示する。
 - `/visual-check/player-video-controls` を追加し、認証・Drive接続・実動画なしでcontrols layout、paused、buffering、error、diagnostics toggleを確認できるようにした。
 - 1GB級動画はIndexedDBへBlob保存しない方針を維持し、offline保存上限50MBも変更しない。
 - 認可情報、Drive取得先、streaming経路の参照文字列、file id全文、Blob参照文字列、Range実値、Content-Range実値はUI / diagnostics / console / docsへ出さない。
@@ -423,6 +423,13 @@ Phase 6Cでまだ実装していないこと:
 - diagnosticsにはrange window、range kind、content-length match、upstream range status、buffered ahead bucket、stall count / stateだけを出し、Range実値やContent-Range実値は出さない。
 - `<video>` は引き続き `muted`、`playsInline`、`autoPlay`、`controls={false}` を維持し、remote videoでも `preload="auto"` を指定する。
 - 音声ONはユーザー操作後だけで、認可情報、Drive取得先、streaming経路の参照文字列、file id全文、Blob参照文字列はUI / diagnostics / console / docsへ出さない。
+
+2026-07-04 Phase 6N実施範囲:
+
+- `/player` の通常利用時はremote video diagnosticsの入口とpanelを表示しない。
+- remote video error時のみsafe diagnosticsを自動表示し、必要に応じて「診断」ボタンで閉じられるようにする。
+- 通常controlsには内部状態文言を表示せず、error時だけ一般向けの短い再生失敗メッセージを表示する。
+- diagnosticsは分類済みlabelのみを表示し、token、URL、id全文、raw range values、raw response bodyはUI / diagnostics / console / docsへ出さない。
 
 ## 未解決事項
 

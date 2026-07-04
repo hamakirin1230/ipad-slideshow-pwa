@@ -658,6 +658,15 @@ export default function PlayerPage() {
     probeDiagnostics: remoteVideoProbeDiagnostics,
     mediaDiagnostics: remoteVideoMediaDiagnostics,
   });
+  const canShowVideoDiagnostics =
+    isCurrentRemoteVideo &&
+    !isProductionMode &&
+    (videoStatus === "error" || onlineVideoPlaybackStatus === "error");
+  const onlineVideoUserMessage =
+    isCurrentRemoteVideo &&
+    (videoStatus === "error" || onlineVideoPlaybackStatus === "error")
+      ? "オンライン動画を再生できません"
+      : null;
 
   useEffect(() => {
     currentVideoSlideKeyRef.current = currentSlidePlaybackKey;
@@ -1480,7 +1489,10 @@ export default function PlayerPage() {
               onPrevious={handleVideoPreviousSlide}
               onNext={handleVideoNextSlide}
               diagnostics={isCurrentRemoteVideo ? onlineVideoDiagnostics : []}
-              diagnosticsVisible={videoDiagnosticsVisible}
+              diagnosticsVisible={
+                canShowVideoDiagnostics && videoDiagnosticsVisible
+              }
+              canShowDiagnosticsToggle={canShowVideoDiagnostics}
               onToggleDiagnostics={() =>
                 setVideoDiagnosticsVisible((current) => !current)
               }
@@ -1533,9 +1545,9 @@ export default function PlayerPage() {
                 <span className="hidden max-w-[42vw] truncate rounded-full border border-white/15 bg-black/30 px-2 py-0.5 sm:inline">
                   synced {readySnapshot.syncedAt}
                 </span>
-                {remoteVideoSlideCount > 0 ? (
-                  <span className="max-w-[60vw] truncate rounded-full border border-sky-200/30 bg-sky-400/15 px-2 py-0.5 text-sky-50">
-                    {onlineVideoPlaybackMessage}
+                {onlineVideoUserMessage ? (
+                  <span className="max-w-[60vw] truncate rounded-full border border-amber-200/30 bg-amber-400/15 px-2 py-0.5 text-amber-50">
+                    {onlineVideoUserMessage}
                   </span>
                 ) : null}
                 <label className="flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-2 py-0.5">
@@ -2067,6 +2079,7 @@ function PlayerVideoSlide({
   onNext,
   diagnostics,
   diagnosticsVisible,
+  canShowDiagnosticsToggle,
   onToggleDiagnostics,
 }: {
   video: PlayerSlideVideo;
@@ -2085,6 +2098,7 @@ function PlayerVideoSlide({
   onNext: () => void;
   diagnostics: string[];
   diagnosticsVisible: boolean;
+  canShowDiagnosticsToggle: boolean;
   onToggleDiagnostics: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -2738,7 +2752,7 @@ function PlayerVideoSlide({
                 onChange={(event) => handleVolumeChange(event.target.value)}
               />
             </label>
-            {diagnostics.length > 0 ? (
+            {canShowDiagnosticsToggle && diagnostics.length > 0 ? (
               <Button
                 type="button"
                 variant="secondary"
@@ -2765,7 +2779,9 @@ function PlayerVideoSlide({
             </p>
           ) : null}
 
-          {diagnosticsVisible && diagnostics.length > 0 ? (
+          {canShowDiagnosticsToggle &&
+          diagnosticsVisible &&
+          diagnostics.length > 0 ? (
             <PlayerOnlineVideoDiagnostics
               diagnostics={diagnostics}
               floating={false}

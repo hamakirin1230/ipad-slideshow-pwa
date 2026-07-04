@@ -20,11 +20,10 @@ import {
 } from "@/components/ui/card";
 
 const safeDiagnostics = [
-  "online video playback: playing",
   "remote video slides: 2",
-  "current remote video: video/mp4 / 1048264319 bytes",
+  "current remote video: video/mp4",
   "service worker: ready",
-  "stream response status: 206",
+  "stream response status: ok",
   "stream response content-type: video/mp4",
   "stream response content-range: synthesized",
   "stream response accept-ranges: synthesized",
@@ -60,6 +59,7 @@ export default function PlayerVideoControlsVisualCheckPage() {
   const [mockState, setMockState] = useState<"normal" | "buffering" | "error">(
     "normal",
   );
+  const canShowDiagnosticsToggle = mockState === "error";
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-6 text-slate-50 sm:px-6 lg:px-8">
@@ -74,7 +74,7 @@ export default function PlayerVideoControlsVisualCheckPage() {
             </h1>
             <p className="max-w-3xl text-base leading-7 text-slate-300">
               iPad横向き相当の幅で、動画custom controlsのhit area、paused、
-              error、diagnostics toggleの見え方を確認します。
+              error、安全診断の見え方を確認します。
             </p>
           </div>
         </section>
@@ -221,18 +221,20 @@ export default function PlayerVideoControlsVisualCheckPage() {
                         className="h-9 w-28 accent-white"
                       />
                     </label>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="icon-lg"
-                      className="h-12 rounded-full border border-sky-200/25 bg-sky-400/15 px-5 text-sky-50 hover:bg-sky-300/25"
-                      aria-pressed={diagnosticsVisible}
-                      onClick={() =>
-                        setDiagnosticsVisible((current) => !current)
-                      }
-                    >
-                      診断
-                    </Button>
+                    {canShowDiagnosticsToggle ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon-lg"
+                        className="h-12 rounded-full border border-sky-200/25 bg-sky-400/15 px-5 text-sky-50 hover:bg-sky-300/25"
+                        aria-pressed={diagnosticsVisible}
+                        onClick={() =>
+                          setDiagnosticsVisible((current) => !current)
+                        }
+                      >
+                        診断
+                      </Button>
+                    ) : null}
                   </div>
 
                   {mockState === "buffering" ? (
@@ -241,7 +243,7 @@ export default function PlayerVideoControlsVisualCheckPage() {
                     </p>
                   ) : null}
 
-                  {diagnosticsVisible || mockState === "error" ? (
+                  {canShowDiagnosticsToggle && diagnosticsVisible ? (
                     <div className="max-h-36 overflow-auto rounded-lg border border-sky-200/20 bg-black/55 p-3 text-xs leading-5 text-sky-50">
                       {safeDiagnostics.map((diagnostic) => (
                         <p key={diagnostic}>{diagnostic}</p>
@@ -258,7 +260,10 @@ export default function PlayerVideoControlsVisualCheckPage() {
           <Button
             type="button"
             variant="secondary"
-            onClick={() => setMockState("normal")}
+            onClick={() => {
+              setMockState("normal");
+              setDiagnosticsVisible(false);
+            }}
           >
             通常
           </Button>
@@ -268,6 +273,7 @@ export default function PlayerVideoControlsVisualCheckPage() {
             onClick={() => {
               setMockState("normal");
               setIsPaused(true);
+              setDiagnosticsVisible(false);
             }}
           >
             paused
@@ -275,7 +281,10 @@ export default function PlayerVideoControlsVisualCheckPage() {
           <Button
             type="button"
             variant="secondary"
-            onClick={() => setMockState("buffering")}
+            onClick={() => {
+              setMockState("buffering");
+              setDiagnosticsVisible(false);
+            }}
           >
             読み込み中
           </Button>
