@@ -90,12 +90,41 @@ type OnlineVideoPlaybackStatus =
 type RemoteVideoContentTypeLabel = "video/mp4" | "missing" | "other";
 type RemoteVideoRangeRequestLabel = "present" | "absent";
 type RemoteVideoHeaderSourceLabel = "present" | "synthesized" | "absent";
+type RemoteVideoRangeWindowLabel = "capped" | "full" | "none";
+type RemoteVideoRangeKindLabel =
+  | "start-end"
+  | "start-open"
+  | "suffix"
+  | "missing"
+  | "invalid"
+  | "multi-range"
+  | "unsatisfiable";
+type RemoteVideoContentLengthMatchLabel = "yes" | "no" | "unknown";
+type RemoteVideoUpstreamRangeStatusLabel =
+  | "honored"
+  | "ignored"
+  | "not-requested"
+  | "unknown";
 type RemoteVideoCanPlayTypeLabel = "probably" | "maybe" | "empty";
+type RemoteVideoBufferedAheadLabel =
+  | "none"
+  | "0-2s"
+  | "2-5s"
+  | "5-15s"
+  | "15s+"
+  | "unknown";
+type RemoteVideoStallStateLabel =
+  | "playing"
+  | "buffering"
+  | "recovered"
+  | "error"
+  | "unknown";
 type RemoteVideoMediaEventName =
   | "loadstart"
   | "loadedmetadata"
   | "loadeddata"
   | "canplay"
+  | "progress"
   | "playing"
   | "waiting"
   | "stalled"
@@ -108,6 +137,10 @@ type RemoteVideoStreamDiagnostics = {
   contentType: RemoteVideoContentTypeLabel;
   contentRange: RemoteVideoHeaderSourceLabel;
   acceptRanges: RemoteVideoHeaderSourceLabel;
+  rangeWindow: RemoteVideoRangeWindowLabel;
+  rangeKind: RemoteVideoRangeKindLabel;
+  contentLengthMatch: RemoteVideoContentLengthMatchLabel;
+  upstreamRangeStatus: RemoteVideoUpstreamRangeStatusLabel;
   hasContentLength: boolean;
   upstreamError?: "fetchFailed";
 };
@@ -121,6 +154,11 @@ type RemoteVideoMediaDiagnostics = {
   readyState: number;
   networkState: number;
   events: RemoteVideoMediaEventName[];
+  bufferedAhead: RemoteVideoBufferedAheadLabel;
+  waitingCount: number;
+  stalledCount: number;
+  recoveryCount: number;
+  stallState: RemoteVideoStallStateLabel;
 };
 
 type RemoteVideoMediaDiagnosticsUpdate = {
@@ -129,6 +167,7 @@ type RemoteVideoMediaDiagnosticsUpdate = {
   readyState: number;
   networkState: number;
   eventName?: RemoteVideoMediaEventName;
+  bufferedAhead?: RemoteVideoBufferedAheadLabel;
 };
 
 const REMOTE_VIDEO_MEDIA_EVENT_NAMES: RemoteVideoMediaEventName[] = [
@@ -136,6 +175,7 @@ const REMOTE_VIDEO_MEDIA_EVENT_NAMES: RemoteVideoMediaEventName[] = [
   "loadedmetadata",
   "loadeddata",
   "canplay",
+  "progress",
   "playing",
   "waiting",
   "stalled",
@@ -466,6 +506,10 @@ export default function PlayerPage() {
               contentType?: unknown;
               contentRange?: unknown;
               acceptRanges?: unknown;
+              rangeWindow?: unknown;
+              rangeKind?: unknown;
+              contentLengthMatch?: unknown;
+              upstreamRangeStatus?: unknown;
               hasContentRange?: unknown;
               hasAcceptRanges?: unknown;
               hasContentLength?: unknown;
@@ -1097,6 +1141,17 @@ export default function PlayerPage() {
           update.errorCode === undefined
             ? (current?.errorCode ?? null)
             : update.errorCode;
+        const waitingCount =
+          (current?.waitingCount ?? 0) +
+          (update.eventName === "waiting" ? 1 : 0);
+        const stalledCount =
+          (current?.stalledCount ?? 0) +
+          (update.eventName === "stalled" ? 1 : 0);
+        const recoveryCount =
+          (current?.recoveryCount ?? 0) +
+          (update.eventName === "canplay" || update.eventName === "playing"
+            ? 1
+            : 0);
 
         return {
           canPlayType:
@@ -1106,6 +1161,15 @@ export default function PlayerPage() {
           readyState: update.readyState,
           networkState: update.networkState,
           events,
+          bufferedAhead:
+            update.bufferedAhead ?? current?.bufferedAhead ?? "unknown",
+          waitingCount,
+          stalledCount,
+          recoveryCount,
+          stallState:
+            update.eventName === undefined
+              ? (current?.stallState ?? "unknown")
+              : getRemoteVideoStallState(update.eventName, errorCode),
         };
       });
     },
@@ -2299,6 +2363,7 @@ function PlayerVideoSlide({
         errorCode: videoElement.error?.code ?? null,
         readyState: videoElement.readyState,
         networkState: videoElement.networkState,
+        bufferedAhead: getRemoteVideoBufferedAheadLabel(videoElement),
       });
     };
 
@@ -2424,6 +2489,7 @@ function PlayerVideoSlide({
       if (!videoSeekingRef.current) {
         setVideoCurrentTime(videoElement.currentTime);
       }
+      reportRemoteMediaDiagnostics();
     };
 
     const handleDurationChange = () => {
@@ -2524,7 +2590,7 @@ function PlayerVideoSlide({
         playsInline
         controls={false}
         autoPlay
-        preload={video.sourceKind === "remote" ? "metadata" : "auto"}
+        preload="auto"
         aria-label={video.assetName}
         onEnded={() => {
           userPausedRef.current = false;
@@ -3010,6 +3076,10 @@ function buildOnlineVideoDiagnostics(input: {
       `media error: ${input.mediaDiagnostics.errorLabel ?? "none"}`,
       `media readyState: ${input.mediaDiagnostics.readyState}`,
       `media networkState: ${input.mediaDiagnostics.networkState}`,
+      `buffered ahead: ${input.mediaDiagnostics.bufferedAhead}`,
+      `stall count: waiting ${input.mediaDiagnostics.waitingCount} / stalled ${input.mediaDiagnostics.stalledCount}`,
+      `stall recovered: ${input.mediaDiagnostics.recoveryCount}`,
+      `stall state: ${input.mediaDiagnostics.stallState}`,
     );
 
     if (input.mediaDiagnostics.events.length > 0) {
@@ -3032,6 +3102,10 @@ function formatRemoteVideoStreamDiagnostics(
     `${label} content-range: ${diagnostics.contentRange}`,
     `${label} accept-ranges: ${diagnostics.acceptRanges}`,
     `${label} content-length: ${formatPresentAbsent(diagnostics.hasContentLength)}`,
+    `${label} range window: ${diagnostics.rangeWindow}`,
+    `${label} range kind: ${diagnostics.rangeKind}`,
+    `${label} content-length match: ${diagnostics.contentLengthMatch}`,
+    `${label} upstream range status: ${diagnostics.upstreamRangeStatus}`,
     ...(diagnostics.upstreamError
       ? [`${label} upstream error: ${diagnostics.upstreamError}`]
       : []),
@@ -3064,6 +3138,14 @@ function normalizeRemoteVideoStreamDiagnostics(
       value.acceptRanges,
       value.hasAcceptRanges,
     ),
+    rangeWindow: normalizeRemoteVideoRangeWindowLabel(value.rangeWindow),
+    rangeKind: normalizeRemoteVideoRangeKindLabel(value.rangeKind),
+    contentLengthMatch: normalizeRemoteVideoContentLengthMatchLabel(
+      value.contentLengthMatch,
+    ),
+    upstreamRangeStatus: normalizeRemoteVideoUpstreamRangeStatusLabel(
+      value.upstreamRangeStatus,
+    ),
     hasContentLength: value.hasContentLength === true,
     ...(value.upstreamError === "fetchFailed"
       ? { upstreamError: "fetchFailed" }
@@ -3080,6 +3162,49 @@ function normalizeRemoteVideoHeaderSourceLabel(
   }
 
   return fallbackPresent === true ? "present" : "absent";
+}
+
+function normalizeRemoteVideoRangeWindowLabel(
+  value: unknown,
+): RemoteVideoRangeWindowLabel {
+  return value === "capped" || value === "full" ? value : "none";
+}
+
+function normalizeRemoteVideoRangeKindLabel(
+  value: unknown,
+): RemoteVideoRangeKindLabel {
+  if (
+    value === "start-end" ||
+    value === "start-open" ||
+    value === "suffix" ||
+    value === "invalid" ||
+    value === "multi-range" ||
+    value === "unsatisfiable"
+  ) {
+    return value;
+  }
+
+  return "missing";
+}
+
+function normalizeRemoteVideoContentLengthMatchLabel(
+  value: unknown,
+): RemoteVideoContentLengthMatchLabel {
+  return value === "yes" || value === "no" ? value : "unknown";
+}
+
+function normalizeRemoteVideoUpstreamRangeStatusLabel(
+  value: unknown,
+): RemoteVideoUpstreamRangeStatusLabel {
+  if (
+    value === "honored" ||
+    value === "ignored" ||
+    value === "not-requested"
+  ) {
+    return value;
+  }
+
+  return "unknown";
 }
 
 function normalizeRemoteVideoContentTypeLabel(
@@ -3110,6 +3235,10 @@ async function probeRemoteVideoStream(
       contentType: "missing",
       contentRange: "absent",
       acceptRanges: "absent",
+      rangeWindow: "none",
+      rangeKind: "missing",
+      contentLengthMatch: "unknown",
+      upstreamRangeStatus: "unknown",
       hasContentLength: false,
       upstreamError: "fetchFailed",
     };
@@ -3132,6 +3261,18 @@ async function probeRemoteVideoStream(
     acceptRanges: normalizeRemoteVideoHeaderSourceLabel(
       response.headers.get("X-Drive-Video-Accept-Ranges-Source"),
       response.headers.has("Accept-Ranges"),
+    ),
+    rangeWindow: normalizeRemoteVideoRangeWindowLabel(
+      response.headers.get("X-Drive-Video-Range-Window"),
+    ),
+    rangeKind: normalizeRemoteVideoRangeKindLabel(
+      response.headers.get("X-Drive-Video-Range-Kind"),
+    ),
+    contentLengthMatch: normalizeRemoteVideoContentLengthMatchLabel(
+      response.headers.get("X-Drive-Video-Content-Length-Match"),
+    ),
+    upstreamRangeStatus: normalizeRemoteVideoUpstreamRangeStatusLabel(
+      response.headers.get("X-Drive-Video-Upstream-Range-Status"),
     ),
     hasContentLength: response.headers.has("Content-Length"),
   };
@@ -3169,6 +3310,70 @@ function getMediaErrorLabel(errorCode: number | null): string | null {
     default:
       return null;
   }
+}
+
+function getRemoteVideoBufferedAheadLabel(
+  videoElement: HTMLVideoElement,
+): RemoteVideoBufferedAheadLabel {
+  try {
+    const { buffered, currentTime } = videoElement;
+
+    for (let index = 0; index < buffered.length; index += 1) {
+      const start = buffered.start(index);
+      const end = buffered.end(index);
+
+      if (currentTime >= start && currentTime <= end) {
+        return formatBufferedAheadLabel(end - currentTime);
+      }
+    }
+
+    return buffered.length > 0 ? "none" : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function formatBufferedAheadLabel(value: number): RemoteVideoBufferedAheadLabel {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "none";
+  }
+
+  if (value <= 2) {
+    return "0-2s";
+  }
+
+  if (value <= 5) {
+    return "2-5s";
+  }
+
+  if (value <= 15) {
+    return "5-15s";
+  }
+
+  return "15s+";
+}
+
+function getRemoteVideoStallState(
+  eventName: RemoteVideoMediaEventName | undefined,
+  errorCode: number | null,
+): RemoteVideoStallStateLabel {
+  if (errorCode !== null || eventName === "error") {
+    return "error";
+  }
+
+  if (eventName === "waiting" || eventName === "stalled") {
+    return "buffering";
+  }
+
+  if (eventName === "canplay") {
+    return "recovered";
+  }
+
+  if (eventName === "playing") {
+    return "playing";
+  }
+
+  return "unknown";
 }
 
 function isRemoteVideoMediaEventName(

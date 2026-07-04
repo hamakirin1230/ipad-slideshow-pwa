@@ -2,11 +2,18 @@ const APP_CACHE_NAME = "ipad-slideshow-pwa-app-shell-v1";
 const DRIVE_VIDEO_STREAM_PATH_PREFIX = "/__drive-video-stream/";
 const DRIVE_VIDEO_SESSION_MAX_TTL_MS = 45 * 60 * 1000;
 const DRIVE_VIDEO_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
+const DRIVE_VIDEO_STREAM_CHUNK_SIZE_BYTES = 32 * 1024 * 1024;
 const DRIVE_API_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_VIDEO_CONTENT_RANGE_SOURCE_HEADER =
   "X-Drive-Video-Content-Range-Source";
 const DRIVE_VIDEO_ACCEPT_RANGES_SOURCE_HEADER =
   "X-Drive-Video-Accept-Ranges-Source";
+const DRIVE_VIDEO_RANGE_WINDOW_HEADER = "X-Drive-Video-Range-Window";
+const DRIVE_VIDEO_RANGE_KIND_HEADER = "X-Drive-Video-Range-Kind";
+const DRIVE_VIDEO_CONTENT_LENGTH_MATCH_HEADER =
+  "X-Drive-Video-Content-Length-Match";
+const DRIVE_VIDEO_UPSTREAM_RANGE_STATUS_HEADER =
+  "X-Drive-Video-Upstream-Range-Status";
 const driveVideoSessions = new Map();
 
 const APP_SHELL_URLS = [
@@ -140,6 +147,18 @@ function buildSafeStreamErrorResponse(status, message) {
   });
 }
 
+function buildRangeNotSatisfiableResponse(fileSize) {
+  return new Response("video stream range not satisfiable", {
+    status: 416,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Range": `bytes */${fileSize}`,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 function parseSingleByteRange(rangeHeader, fileSize) {
   if (!rangeHeader) {
     return { ok: false, reason: "missing" };
@@ -180,7 +199,7 @@ function parseSingleByteRange(rangeHeader, fileSize) {
       ok: true,
       start: Math.max(fileSize - suffixLength, 0),
       requestedEnd: fileSize - 1,
-      suffix: true,
+      kind: "suffix",
     };
   }
 
@@ -207,7 +226,7 @@ function parseSingleByteRange(rangeHeader, fileSize) {
     ok: true,
     start,
     requestedEnd,
-    suffix: false,
+    kind: requestedEnd === null ? "start-open" : "start-end",
   };
 }
 
@@ -225,40 +244,97 @@ function parseContentLength(value) {
   return parsedValue;
 }
 
-function buildSynthesizedContentRange(parsedRange, contentLength, fileSize) {
+function buildSafeRangeWindow(parsedRange, fileSize) {
   if (!parsedRange.ok) {
     return null;
   }
 
-  let end;
+  if (parsedRange.kind === "suffix") {
+    const suffixEnd = parsedRange.requestedEnd;
+    const suffixLength = suffixEnd - parsedRange.start + 1;
+    const safeLength = Math.min(
+      suffixLength,
+      DRIVE_VIDEO_STREAM_CHUNK_SIZE_BYTES,
+    );
 
-  if (parsedRange.requestedEnd !== null) {
-    end = Math.min(parsedRange.requestedEnd, fileSize - 1);
-  } else if (contentLength !== null) {
-    end = Math.min(parsedRange.start + contentLength - 1, fileSize - 1);
-  } else {
-    end = fileSize - 1;
+    return {
+      start: Math.max(suffixEnd - safeLength + 1, 0),
+      end: suffixEnd,
+      kind: parsedRange.kind,
+      window: suffixLength > safeLength ? "capped" : "full",
+    };
   }
 
-  if (end < parsedRange.start) {
+  const requestedEnd =
+    parsedRange.requestedEnd === null
+      ? fileSize - 1
+      : Math.min(parsedRange.requestedEnd, fileSize - 1);
+  const requestedLength = requestedEnd - parsedRange.start + 1;
+  const safeLength = Math.min(
+    requestedLength,
+    DRIVE_VIDEO_STREAM_CHUNK_SIZE_BYTES,
+  );
+
+  return {
+    start: parsedRange.start,
+    end: Math.min(parsedRange.start + safeLength - 1, fileSize - 1),
+    kind: parsedRange.kind,
+    window:
+      parsedRange.requestedEnd === null || requestedLength > safeLength
+        ? "capped"
+        : "full",
+  };
+}
+
+function buildRangeHeader(rangeWindow) {
+  return `bytes=${rangeWindow.start}-${rangeWindow.end}`;
+}
+
+function getRangeWindowLength(rangeWindow) {
+  return rangeWindow.end - rangeWindow.start + 1;
+}
+
+function buildContentLengthMatchLabel(actualLength, expectedLength) {
+  if (actualLength === null) {
+    return "unknown";
+  }
+
+  return actualLength === expectedLength ? "yes" : "no";
+}
+
+function buildContentRangeForWindow(rangeWindow, contentLength, fileSize) {
+  const expectedLength = getRangeWindowLength(rangeWindow);
+  const safeLength = contentLength ?? expectedLength;
+  const safeEnd = Math.min(rangeWindow.start + safeLength - 1, fileSize - 1);
+
+  if (safeEnd < rangeWindow.start) {
     return null;
   }
 
-  return `bytes ${parsedRange.start}-${end}/${fileSize}`;
+  return {
+    value: `bytes ${rangeWindow.start}-${safeEnd}/${fileSize}`,
+    length: safeEnd - rangeWindow.start + 1,
+  };
 }
 
-function buildDriveMediaResponseHeaders(response, request, session) {
+function buildDriveMediaResponseHeaders(response, session, rangeWindow) {
   const headers = new Headers();
   const contentLength = response.headers.get("Content-Length");
   const contentRange = response.headers.get("Content-Range");
   const acceptRanges = response.headers.get("Accept-Ranges");
-  const parsedRange = parseSingleByteRange(
-    request.headers.get("Range"),
-    session.fileSize,
-  );
+  const actualLength = parseContentLength(contentLength);
+  const expectedLength = rangeWindow ? getRangeWindowLength(rangeWindow) : null;
   const headerSources = {
     contentRange: "absent",
     acceptRanges: "absent",
+    rangeWindow: rangeWindow ? rangeWindow.window : "none",
+    rangeKind: rangeWindow ? rangeWindow.kind : "missing",
+    contentLengthMatch:
+      expectedLength === null
+        ? "unknown"
+        : buildContentLengthMatchLabel(actualLength, expectedLength),
+    upstreamRangeStatus: "honored",
+    hasContentLength: false,
   };
 
   headers.set(
@@ -266,27 +342,32 @@ function buildDriveMediaResponseHeaders(response, request, session) {
     response.headers.get("Content-Type") || session.mimeType,
   );
 
-  if (contentLength) {
-    headers.set("Content-Length", contentLength);
-  }
-
-  if (contentRange) {
-    headers.set("Content-Range", contentRange);
-    headerSources.contentRange = "present";
-  } else if (response.status === 206) {
-    const synthesizedContentRange = buildSynthesizedContentRange(
-      parsedRange,
-      parseContentLength(contentLength),
+  if (response.status === 206 && rangeWindow) {
+    const synthesizedContentRange = buildContentRangeForWindow(
+      rangeWindow,
+      actualLength,
       session.fileSize,
     );
 
     if (synthesizedContentRange) {
-      headers.set("Content-Range", synthesizedContentRange);
+      headers.set("Content-Range", synthesizedContentRange.value);
+      headers.set("Content-Length", String(synthesizedContentRange.length));
       headerSources.contentRange = "synthesized";
+      headerSources.hasContentLength = true;
+    }
+  } else if (contentRange) {
+    headers.set("Content-Range", contentRange);
+    headerSources.contentRange = "present";
+    if (contentLength) {
+      headers.set("Content-Length", contentLength);
+      headerSources.hasContentLength = true;
     }
   } else if (response.status === 416) {
     headers.set("Content-Range", `bytes */${session.fileSize}`);
     headerSources.contentRange = "synthesized";
+  } else if (contentLength) {
+    headers.set("Content-Length", contentLength);
+    headerSources.hasContentLength = true;
   }
 
   if (acceptRanges) {
@@ -304,6 +385,16 @@ function buildDriveMediaResponseHeaders(response, request, session) {
   headers.set(
     DRIVE_VIDEO_ACCEPT_RANGES_SOURCE_HEADER,
     headerSources.acceptRanges,
+  );
+  headers.set(DRIVE_VIDEO_RANGE_WINDOW_HEADER, headerSources.rangeWindow);
+  headers.set(DRIVE_VIDEO_RANGE_KIND_HEADER, headerSources.rangeKind);
+  headers.set(
+    DRIVE_VIDEO_CONTENT_LENGTH_MATCH_HEADER,
+    headerSources.contentLengthMatch,
+  );
+  headers.set(
+    DRIVE_VIDEO_UPSTREAM_RANGE_STATUS_HEADER,
+    headerSources.upstreamRangeStatus,
   );
   headers.set("Cache-Control", "no-store");
   return { headers, headerSources };
@@ -341,11 +432,23 @@ function buildDriveVideoStreamStatusPayload(input) {
       : "missing",
     contentRange,
     acceptRanges,
+    rangeWindow: input.headerSources
+      ? input.headerSources.rangeWindow
+      : "none",
+    rangeKind: input.headerSources ? input.headerSources.rangeKind : "missing",
+    contentLengthMatch: input.headerSources
+      ? input.headerSources.contentLengthMatch
+      : "unknown",
+    upstreamRangeStatus: input.headerSources
+      ? input.headerSources.upstreamRangeStatus
+      : "unknown",
     hasContentRange: contentRange !== "absent",
     hasAcceptRanges: acceptRanges !== "absent",
-    hasContentLength: input.response
-      ? input.response.headers.has("Content-Length")
-      : false,
+    hasContentLength: input.headerSources
+      ? input.headerSources.hasContentLength === true
+      : input.response
+        ? input.response.headers.has("Content-Length")
+        : false,
     ...(input.upstreamError ? { upstreamError: input.upstreamError } : {}),
   };
 }
@@ -400,15 +503,50 @@ async function handleDriveVideoStreamRequest(request, url) {
     Authorization: `Bearer ${session.accessToken}`,
   });
   const range = request.headers.get("Range");
-
-  if (range) {
-    headers.set("Range", range);
-  }
-
   const parsedRange = parseSingleByteRange(range, session.fileSize);
+  const rangeWindow = buildSafeRangeWindow(parsedRange, session.fileSize);
 
   if (parsedRange.reason === "multiRange" || parsedRange.reason === "invalid") {
-    return buildSafeStreamErrorResponse(416, "video stream range not satisfiable");
+    postDriveVideoStreamStatus(
+      buildDriveVideoStreamStatusPayload({
+        sessionId,
+        status: 416,
+        request,
+        headerSources: {
+          contentRange: "synthesized",
+          acceptRanges: "synthesized",
+          rangeWindow: "none",
+          rangeKind:
+            parsedRange.reason === "multiRange" ? "multi-range" : "invalid",
+          contentLengthMatch: "unknown",
+          upstreamRangeStatus: "not-requested",
+        },
+      }),
+    );
+    return buildRangeNotSatisfiableResponse(session.fileSize);
+  }
+
+  if (parsedRange.reason === "unsatisfiable") {
+    postDriveVideoStreamStatus(
+      buildDriveVideoStreamStatusPayload({
+        sessionId,
+        status: 416,
+        request,
+        headerSources: {
+          contentRange: "synthesized",
+          acceptRanges: "synthesized",
+          rangeWindow: "none",
+          rangeKind: "unsatisfiable",
+          contentLengthMatch: "unknown",
+          upstreamRangeStatus: "not-requested",
+        },
+      }),
+    );
+    return buildRangeNotSatisfiableResponse(session.fileSize);
+  }
+
+  if (rangeWindow) {
+    headers.set("Range", buildRangeHeader(rangeWindow));
   }
 
   let response;
@@ -468,8 +606,33 @@ async function handleDriveVideoStreamRequest(request, url) {
     );
   }
 
+  if (rangeWindow && response.status === 200) {
+    postDriveVideoStreamStatus(
+      buildDriveVideoStreamStatusPayload({
+        sessionId,
+        status: response.status,
+        request,
+        response,
+        headerSources: {
+          contentRange: "absent",
+          acceptRanges: response.headers.has("Accept-Ranges")
+            ? "present"
+            : "absent",
+          rangeWindow: rangeWindow.window,
+          rangeKind: rangeWindow.kind,
+          contentLengthMatch: "unknown",
+          upstreamRangeStatus: "ignored",
+        },
+      }),
+    );
+    return buildSafeStreamErrorResponse(
+      502,
+      "video stream upstream ignored range",
+    );
+  }
+
   const { headers: responseHeaders, headerSources } =
-    buildDriveMediaResponseHeaders(response, request, session);
+    buildDriveMediaResponseHeaders(response, session, rangeWindow);
 
   postDriveVideoStreamStatus(
     buildDriveVideoStreamStatusPayload({

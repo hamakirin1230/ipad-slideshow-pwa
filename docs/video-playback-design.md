@@ -414,6 +414,16 @@ Phase 6Cでまだ実装していないこと:
 - 1GB級動画はIndexedDBへBlob保存しない方針を維持し、offline保存上限50MBも変更しない。
 - 認可情報、Drive取得先、streaming経路の参照文字列、file id全文、Blob参照文字列、Range実値、Content-Range実値はUI / diagnostics / console / docsへ出さない。
 
+2026-07-04 Phase 6M実施範囲:
+
+- iPad実機で1GB級remote mp4が数秒ごとにbuffering / waitingから再開する症状があったため、Service Worker側のRange応答を安定化する。
+- Service Workerはopen-ended RangeをDriveへそのままforwardせず、32MiBの有限chunk windowへ変換してDriveへ送る。
+- start-end / start-open / suffix rangeはいずれもfileSize内のsingle rangeへ正規化し、multi-range / invalid / unsatisfiableはsafe 416で返す。
+- `206` responseでは、windowに合わせて `Content-Range` と `Content-Length` の整合を取り、upstream `Content-Length` が読める場合はその長さに合わせる。
+- diagnosticsにはrange window、range kind、content-length match、upstream range status、buffered ahead bucket、stall count / stateだけを出し、Range実値やContent-Range実値は出さない。
+- `<video>` は引き続き `muted`、`playsInline`、`autoPlay`、`controls={false}` を維持し、remote videoでも `preload="auto"` を指定する。
+- 音声ONはユーザー操作後だけで、認可情報、Drive取得先、streaming経路の参照文字列、file id全文、Blob参照文字列はUI / diagnostics / console / docsへ出さない。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

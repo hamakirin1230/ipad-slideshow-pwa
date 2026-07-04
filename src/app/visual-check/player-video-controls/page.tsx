@@ -29,10 +29,18 @@ const safeDiagnostics = [
   "stream response content-range: synthesized",
   "stream response accept-ranges: synthesized",
   "stream response content-length: present",
+  "stream response range window: capped",
+  "stream response range kind: start-open",
+  "stream response content-length match: yes",
+  "stream response upstream range status: honored",
   "stream request: range present",
   "media error: none",
   "media readyState: 4",
   "media networkState: 2",
+  "buffered ahead: 5-15s",
+  "stall count: waiting 2 / stalled 0",
+  "stall recovered: 2",
+  "stall state: recovered",
   "media events: waiting -> canplay -> playing",
 ];
 
