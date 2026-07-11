@@ -79,6 +79,10 @@ type PlayerSlideVideo = {
 type PlayerSlideMediaKind = "image" | "video" | "unsupported";
 type PlayerSlideImageStatus = "idle" | "ready" | "error";
 type PlayerSlideVideoStatus = "idle" | "ready" | "error";
+type PlayerVideoUnavailableReason =
+  | "remoteOffline"
+  | "remoteConnectionRequired"
+  | "playbackFailed";
 type PlayerVideoSlideAdvanceIntent = "next" | "fallback";
 type OnlineVideoPlaybackStatus =
   | "idle"
@@ -668,6 +672,13 @@ export default function PlayerPage() {
     (videoStatus === "error" || onlineVideoPlaybackStatus === "error")
       ? "オンライン動画を再生できません"
       : null;
+  const videoUnavailableReason = getPlayerVideoUnavailableReason({
+    isCurrentRemoteVideo,
+    isOnline,
+  });
+  const videoUnavailableCopy = getPlayerVideoUnavailableCopy(
+    videoUnavailableReason,
+  );
 
   useEffect(() => {
     currentVideoSlideKeyRef.current = currentSlidePlaybackKey;
@@ -1233,21 +1244,13 @@ export default function PlayerPage() {
       !canPlay ||
       !currentSlidePlaybackKey ||
       safeCurrentSlideIndex >= slideCount - 1 ||
-      (currentSlideMediaKind !== "unsupported" && videoStatus !== "error")
+      currentSlideMediaKind !== "unsupported"
     ) {
       return;
     }
 
     if (
-      currentSlideMediaKind === "unsupported" &&
       !markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback")
-    ) {
-      return;
-    }
-
-    if (
-      videoStatus === "error" &&
-      handledVideoSlideAdvanceRef.current !== "fallback"
     ) {
       return;
     }
@@ -1280,7 +1283,6 @@ export default function PlayerPage() {
     moveToNextSlide,
     safeCurrentSlideIndex,
     slideCount,
-    videoStatus,
   ]);
 
   const isSnapshotLoading = snapshotLoadStatus === "loading";
@@ -1422,8 +1424,13 @@ export default function PlayerPage() {
 
           {videoStatus === "error" ? (
             <PlayerVideoFallback
-              title="動画を再生できません"
-              description="このスライドの動画を読み込めませんでした。次のスライドへ進みます。"
+              badge={videoUnavailableCopy.badge}
+              title={videoUnavailableCopy.title}
+              description={videoUnavailableCopy.description}
+              canGoPrevious={safeCurrentSlideIndex > 0}
+              canGoNext={safeCurrentSlideIndex < slideCount - 1}
+              onPrevious={handleVideoPreviousSlide}
+              onNext={handleVideoNextSlide}
             />
           ) : null}
 
@@ -2886,20 +2893,113 @@ function PlayerOnlineVideoDiagnostics({
 }
 
 function PlayerVideoFallback({
+  badge,
   title,
   description,
+  canGoPrevious,
+  canGoNext,
+  onPrevious,
+  onNext,
 }: {
+  badge?: string;
   title: string;
   description: string;
+  canGoPrevious?: boolean;
+  canGoNext?: boolean;
+  onPrevious?: () => void;
+  onNext?: () => void;
 }) {
+  const canShowNavigation = onPrevious !== undefined && onNext !== undefined;
+
   return (
-    <div className="mx-4 max-w-md rounded-2xl border border-amber-300/30 bg-amber-950/80 p-5 text-center text-amber-50 shadow-2xl">
+    <div className="relative z-10 mx-4 max-w-md rounded-2xl border border-amber-300/30 bg-amber-950/90 p-5 text-center text-amber-50 shadow-2xl">
+      {badge ? (
+        <Badge variant="outline" className="border-amber-200/40 text-amber-50">
+          {badge}
+        </Badge>
+      ) : null}
       <p className="text-lg font-semibold">{title}</p>
       <p className="mt-3 text-sm leading-6 text-amber-100/80">
         {description}
       </p>
+      {canShowNavigation ? (
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-12 min-w-36 rounded-full border border-white/15 bg-black/45 px-4 text-amber-50 hover:bg-white/20"
+            disabled={!canGoPrevious}
+            onClick={onPrevious}
+          >
+            <ChevronLeft className="size-5" />
+            前のスライド
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-12 min-w-36 rounded-full border border-white/15 bg-black/45 px-4 text-amber-50 hover:bg-white/20"
+            disabled={!canGoNext}
+            onClick={onNext}
+          >
+            次のスライド
+            <ChevronRight className="size-5" />
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function getPlayerVideoUnavailableReason({
+  isCurrentRemoteVideo,
+  isOnline,
+}: {
+  isCurrentRemoteVideo: boolean;
+  isOnline: boolean | null;
+}): PlayerVideoUnavailableReason {
+  if (isCurrentRemoteVideo && isOnline === false) {
+    return "remoteOffline";
+  }
+
+  if (isCurrentRemoteVideo) {
+    return "remoteConnectionRequired";
+  }
+
+  return "playbackFailed";
+}
+
+function getPlayerVideoUnavailableCopy(reason: PlayerVideoUnavailableReason) {
+  switch (reason) {
+    case "remoteOffline":
+      return {
+        badge: "オンライン再生専用",
+        title: "この動画はオンライン再生が必要です",
+        description:
+          "この端末には動画本体を保存していないため、オフラインでは再生できません。インターネット接続を確認してから再度開くか、前後のスライドへ移動してください。",
+      };
+
+    case "remoteConnectionRequired":
+      return {
+        badge: "オンライン動画",
+        title: "動画を再生できませんでした",
+        description:
+          "インターネット接続とGoogle接続を確認してください。この動画はオンライン時にDriveから再生します。",
+      };
+
+    case "playbackFailed":
+      return {
+        title: "この動画を再生できませんでした",
+        description:
+          "前後のスライドへ移動するか、管理画面でoffline syncの状態を確認してください。",
+      };
+
+    default:
+      return assertNeverPlayerVideoUnavailableReason(reason);
+  }
+}
+
+function assertNeverPlayerVideoUnavailableReason(reason: never): never {
+  throw new Error(`Unexpected player video unavailable reason: ${reason}`);
 }
 
 function ProductionModeOverlay({

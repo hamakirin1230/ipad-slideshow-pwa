@@ -460,6 +460,16 @@ Phase 6Cでまだ実装していないこと:
 - runtime timeoutは引き続きcancelledへ正規化し、安全な診断でtimeoutを識別する。今回、runtime result型とtimeout処理は変更しない。
 - remoteOnly video、50MBのoffline保存上限、player、Service Workerの挙動は変更しない。
 
+2026-07-11 Phase 6R実施範囲:
+
+- remoteOnly videoをオフラインで開いた場合、動画本体を端末保存していないためオンライン再生が必要であることを一般文言で案内する。ファイル破損、sync失敗、削除とは断定しない。
+- remote videoのオンライン再生失敗と、Blob保存済みoffline videoの再生失敗は案内を分ける。前者は接続確認、後者はoffline sync状態の確認を案内する。
+- video error時は既存の前後移動handlerを使うボタンをerror overlayに表示する。production modeまたはinteraction lock中も、再生不能から退避する操作としてこのボタンだけは利用できる。
+- video errorから自動で次slideへ移動しない。unsupported slideに対する既存fallbackの自動遷移は維持する。
+- online復帰時の自動retry、streaming sessionの再登録、動画の自動再開は追加しない。接続確認後は利用者がslideを開き直す。
+- 通常再生時はerror overlayとdiagnosticsを表示しない。診断は既存どおりremote video error時だけ利用し、内部状態やraw errorを一般案内へ混ぜない。
+- autoplay属性、video duration override、remoteOnly保存方針、50MB上限、Service Workerは変更しない。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

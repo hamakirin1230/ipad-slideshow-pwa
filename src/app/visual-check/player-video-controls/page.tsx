@@ -52,6 +52,36 @@ const safetyItems = [
   "認証情報、取得用URL、file id全文、バイナリ参照は表示しません。",
 ];
 
+const unavailableStateMocks = [
+  {
+    state: "remote / offline",
+    badge: "オンライン再生専用",
+    title: "この動画はオンライン再生が必要です",
+    description:
+      "この端末には動画本体を保存していないため、オフラインでは再生できません。インターネット接続を確認してから再度開くか、前後のスライドへ移動してください。",
+  },
+  {
+    state: "remote / online error",
+    badge: "オンライン動画",
+    title: "動画を再生できませんでした",
+    description:
+      "インターネット接続とGoogle接続を確認してください。この動画はオンライン時にDriveから再生します。",
+  },
+  {
+    state: "offline Blob / error",
+    title: "この動画を再生できませんでした",
+    description:
+      "前後のスライドへ移動するか、管理画面でoffline syncの状態を確認してください。",
+  },
+  {
+    state: "production mode / remote offline",
+    badge: "オンライン再生専用",
+    title: "この動画はオンライン再生が必要です",
+    description:
+      "通常controlsが非表示でも、再生不能から退避するための前後移動だけを表示します。",
+  },
+];
+
 export default function PlayerVideoControlsVisualCheckPage() {
   const [isPaused, setIsPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -125,12 +155,26 @@ export default function PlayerVideoControlsVisualCheckPage() {
               {mockState === "error" ? (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="mx-4 max-w-md rounded-2xl border border-amber-300/30 bg-amber-950/85 p-5 text-center text-amber-50 shadow-2xl">
+                    <Badge variant="outline" className="border-amber-200/40 text-amber-50">
+                      オンライン動画
+                    </Badge>
                     <p className="text-lg font-semibold">
-                      動画を再生できません
+                      動画を再生できませんでした
                     </p>
                     <p className="mt-3 text-sm leading-6 text-amber-100/80">
-                      このスライドの動画を読み込めませんでした。
+                      インターネット接続とGoogle接続を確認してください。
+                      この動画はオンライン時にDriveから再生します。
                     </p>
+                    <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                      <Button type="button" variant="secondary" className="h-12 rounded-full">
+                        <ChevronLeft className="size-5" />
+                        前のスライド
+                      </Button>
+                      <Button type="button" variant="secondary" className="h-12 rounded-full">
+                        次のスライド
+                        <ChevronRight className="size-5" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -256,6 +300,41 @@ export default function PlayerVideoControlsVisualCheckPage() {
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-amber-300/30 bg-amber-50 text-amber-950">
+          <CardHeader>
+            <CardTitle>video unavailable states</CardTitle>
+            <CardDescription className="text-amber-900">
+              remoteOnlyと端末保存済みvideoを分け、自動retry・自動nextなしで案内します。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            {unavailableStateMocks.map((mock) => (
+              <div key={mock.state} className="rounded-xl border border-amber-200 bg-white p-4">
+                <p className="text-xs font-medium text-amber-700">{mock.state}</p>
+                {mock.badge ? (
+                  <Badge variant="outline" className="mt-3 border-amber-300 text-amber-900">
+                    {mock.badge}
+                  </Badge>
+                ) : null}
+                <p className="mt-3 font-semibold">{mock.title}</p>
+                <p className="mt-2 text-sm leading-6 text-amber-900">
+                  {mock.description}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary">
+                    <ChevronLeft className="size-4" />
+                    前のスライド
+                  </Button>
+                  <Button type="button" variant="secondary">
+                    次のスライド
+                    <ChevronRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
           </CardContent>
         </Card>
 
