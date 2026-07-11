@@ -182,7 +182,7 @@ export async function fetchDriveOfflineStagingSnapshot(
         );
         offlineSlides.push(slide);
         diagnostics.push(
-          `manifest.json.slides[${order}] のvideo/mp4 asset はoffline保存上限を超えるためskipしました。online playback実験が有効な場合はGoogle接続中のみstream再生を試みます。`,
+          `manifest.json.slides[${order}] のvideo/mp4 asset はoffline保存上限を超えるためBlob未保存です。remoteOnly metadataはconfirmed storeに残り、オンライン時はGoogle接続中にstream再生対象になります。`,
         );
         continue;
       }
@@ -296,9 +296,9 @@ export async function fetchDriveOfflineStagingSnapshot(
       `manifest slide count: ${manifest.slides.length}`,
       `image sync candidate count: ${imageSyncCandidateCount}`,
       `video sync candidate count: ${videoSyncCandidateCount}`,
-      `video synced count: ${videoSyncedCount}`,
-      `video skipped count: ${videoSkippedCount}`,
-      `video too large skipped count: ${videoTooLargeSkippedCount}`,
+      `video Blob saved count: ${videoSyncedCount}`,
+      `video Blob not saved count: ${videoSkippedCount}`,
+      `remoteOnly video count: ${videoTooLargeSkippedCount}`,
       `unsupported asset count: ${unsupportedAssetCount}`,
       `offline staging slide count: ${offlineSlides.length}`,
       "Drive offline staging snapshot の組み立てが完了しました。",

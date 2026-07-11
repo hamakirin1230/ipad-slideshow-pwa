@@ -628,6 +628,16 @@ function ConfirmedStoreSnapshotView({
         />
       </div>
 
+      <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100">
+        <p className="font-semibold">asset metadataとBlob本体</p>
+        <p className="mt-2 leading-6">
+          asset countとasset Blob countは一致しない場合があります。大容量videoは
+          remoteOnly metadataのみをconfirmed storeに保持し、Blob本体は保存しません。
+          この差は異常やsync失敗を意味せず、オンライン時はDrive streamingで
+          /playerの再生対象になります。
+        </p>
+      </div>
+
       <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
         <p className="font-semibold text-slate-50">確認日時</p>
         <p className="mt-2 text-slate-300">{snapshot.checkedAt}</p>
@@ -641,6 +651,7 @@ function ConfirmedStoreSnapshotView({
             </p>
             <p className="text-xs text-slate-500">
               project ごとの asset metadata / asset Blob 件数、保存容量、最終同期状態です。
+              大容量videoではmetadataのみを保持するため、件数が一致しない場合があります。
             </p>
           </div>
 

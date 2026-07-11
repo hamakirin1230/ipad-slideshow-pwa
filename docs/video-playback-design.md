@@ -441,6 +441,15 @@ Phase 6Cでまだ実装していないこと:
 - 大容量videoはIndexedDBへBlob保存せず、remoteOnly metadataとして再生対象に残し、オンライン時にDriveからストリーミング再生する方針を維持する。
 - Drive URL、file id全文、token、Blob URL、Range実値、Content-Range実値、raw response bodyはUI / diagnostics / console / docsへ出さない。
 
+2026-07-11 Phase 6P実施範囲:
+
+- offline sync結果の `video skipped` はsync failureではなく、動画本体をIndexedDBへBlob保存しなかった状態を表す。
+- 50MB超の `video/mp4` はBlob保存しない一方、remoteOnly metadataとしてconfirmed storeに残す。Drive上のassetは削除せず、cleanup対象にも含めない。
+- remoteOnly videoはオンライン時にGoogle接続とDrive streaming sessionが有効であれば `/player` の再生対象になる。
+- オフライン時のremoteOnly videoには再生用のBlob本体がないため再生できない可能性がある。画像とBlob保存済みの小容量素材は引き続きoffline-first再生対象とする。
+- confirmed storeのasset countとasset Blob countは、大容量videoのmetadataだけを保持する正常な状態では一致しない場合がある。
+- `/admin` の同期結果とconfirmed store表示では、`skip` を失敗や削除と誤解しないよう `Blob未保存` と `remoteOnly video` を明示する。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

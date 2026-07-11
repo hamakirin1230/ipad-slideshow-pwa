@@ -175,17 +175,16 @@ export function OfflineSyncPanel() {
         {skipVisibility ? (
           <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="font-semibold">video skip visibility</p>
+              <p className="font-semibold">動画の保存状態</p>
               <Badge variant="outline" className="border-sky-200 text-sky-100">
                 read-only status
               </Badge>
             </div>
             <p className="mt-2 leading-6">
-              video/mp4 は容量上限内の場合のみoffline保存対象です。
-              QuickTime / WebM / 上限超過videoはskipされます。
-              skipはDrive削除やcleanup対象、sync失敗を意味しません。
-              50MB超videoはonline playback実験が有効な場合、Google接続中のみ
-              playerでstream再生を試みます。
+              大容量videoはIndexedDBにBlob保存しません。ただしremoteOnly
+              metadataとしてconfirmed storeに残り、オンライン時はDrive streamingで
+              /playerの再生対象になります。Blob未保存はDrive削除、cleanup対象、
+              sync失敗を意味しません。
             </p>
             <dl className="mt-3 grid gap-2 text-xs text-sky-100 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
               <SyncCount
@@ -193,27 +192,27 @@ export function OfflineSyncPanel() {
                 value={skipVisibility.manifestSlideCount}
               />
               <SyncCount
-                label="image sync candidates"
+                label="image Blob保存対象"
                 value={skipVisibility.imageSyncCandidateCount}
               />
               <SyncCount
-                label="video mp4 candidates"
+                label="mp4 video"
                 value={skipVisibility.videoSyncCandidateCount}
               />
               <SyncCount
-                label="video synced"
+                label="video Blob保存済み"
                 value={skipVisibility.videoSyncedCount}
               />
               <SyncCount
-                label="video skipped"
+                label="video Blob未保存"
                 value={skipVisibility.videoSkippedCount}
               />
               <SyncCount
-                label="too large skipped"
-                value={skipVisibility.videoTooLargeSkippedCount}
+                label="remoteOnly video"
+                value={skipVisibility.remoteOnlyVideoCount}
               />
               <SyncCount
-                label="unsupported assets"
+                label="未対応素材"
                 value={skipVisibility.unsupportedAssetCount}
               />
               <SyncCount
@@ -222,9 +221,10 @@ export function OfflineSyncPanel() {
               />
             </dl>
             <p className="mt-3 leading-6">
-              imageは従来どおり保存され、video/mp4は50MB以下の場合だけ
-              confirmed storeへ反映されます。QuickTime / WebM
-              は未対応のままです。
+              Blob未保存のvideoは、オフラインでは本体を再生できません。
+              オンライン時はGoogle接続とDrive streaming sessionが有効な場合に
+              再生対象になります。画像とBlob保存済みの小容量videoは
+              offline-first再生対象です。QuickTime / WebMは未対応のままです。
             </p>
           </div>
         ) : null}
@@ -241,10 +241,10 @@ export function OfflineSyncPanel() {
         ) : null}
 
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-          <p className="font-semibold">このコミットでまだ扱わないこと</p>
+          <p className="font-semibold">今後の対象</p>
           <p className="mt-2">
-            retry policy、自動修復、MOV online playback、
-            詳細な user-facing error copy は後続で追加します。
+            retry policy、自動修復、MOV / QuickTimeのオンライン再生対応、
+            詳細なエラー案内。
           </p>
         </div>
       </CardContent>
@@ -274,7 +274,7 @@ function getOfflineSyncVideoSkipVisibility(
     videoSyncCandidateCount: result.videoSyncCandidateCount,
     videoSyncedCount: result.videoSyncedCount,
     videoSkippedCount: result.videoSkippedCount,
-    videoTooLargeSkippedCount: result.videoTooLargeSkippedCount,
+    remoteOnlyVideoCount: result.videoTooLargeSkippedCount,
     unsupportedAssetCount: result.unsupportedAssetCount,
     offlineStagingSlideCount: result.offlineStagingSlideCount,
   };

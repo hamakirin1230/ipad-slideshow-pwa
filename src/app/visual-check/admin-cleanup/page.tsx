@@ -187,12 +187,12 @@ const screenshotNotes = [
 
 const offlineSyncSkipSummary = [
   { label: "manifest slides", value: "7" },
-  { label: "image sync candidates", value: "2" },
-  { label: "video mp4 candidates", value: "1" },
-  { label: "video synced", value: "1" },
-  { label: "video skipped", value: "4" },
-  { label: "too large skipped", value: "1" },
-  { label: "unsupported", value: "3" },
+  { label: "image Blob保存対象", value: "2" },
+  { label: "mp4 video", value: "1" },
+  { label: "video Blob保存済み", value: "1" },
+  { label: "video Blob未保存", value: "4" },
+  { label: "remoteOnly video", value: "1" },
+  { label: "未対応素材", value: "3" },
   { label: "staging slides", value: "3" },
 ];
 
