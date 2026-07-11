@@ -470,6 +470,16 @@ Phase 6Cでまだ実装していないこと:
 - 通常再生時はerror overlayとdiagnosticsを表示しない。診断は既存どおりremote video error時だけ利用し、内部状態やraw errorを一般案内へ混ぜない。
 - autoplay属性、video duration override、remoteOnly保存方針、50MB上限、Service Workerは変更しない。
 
+2026-07-11 Phase 6S実施範囲:
+
+- remote video error時だけ、ユーザー操作で開始する手動再試行を提供する。offline Blob video、image、unsupported slideはretry対象外とする。
+- offline中、Google未接続、retry実行中は再試行できない。online復帰イベントだけでは自動retryせず、利用者が再試行ボタンを押した場合だけ開始する。
+- retry開始時は現在のremote streaming sessionだけを解除し、古いvideo state、diagnostics、fallback timeout、advance処理済み状態を片付けてから既存のsession登録effectを再実行する。
+- retry generation、slide playback key、effectのcancelled guardにより、slide移動や二重押下後の古い非同期結果を現在slideへ反映しない。
+- session登録と `PlayerSlideVideo` の再設定に成功した場合は、既存のmuted autoplayとduration overrideへ処理を戻す。自動unmute、再生位置変更、独自の `play()` は追加しない。
+- retry失敗時も自動nextしない。一般案内と手動再試行、前後移動を残し、内部識別子やraw errorは表示しない。
+- diagnosticsは通常時非表示のままとし、Service Worker、session TTL、offline sync、50MB上限、remoteOnly形式は変更しない。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

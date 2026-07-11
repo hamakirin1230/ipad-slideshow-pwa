@@ -52,13 +52,24 @@ const safetyItems = [
   "認証情報、取得用URL、file id全文、バイナリ参照は表示しません。",
 ];
 
-const unavailableStateMocks = [
+const unavailableStateMocks: Array<{
+  state: string;
+  badge?: string;
+  title: string;
+  description: string;
+  retryLabel?: string;
+  retryGuidance?: string;
+  retryDisabled?: boolean;
+}> = [
   {
     state: "remote / offline",
     badge: "オンライン再生専用",
     title: "この動画はオンライン再生が必要です",
     description:
       "この端末には動画本体を保存していないため、オフラインでは再生できません。インターネット接続を確認してから再度開くか、前後のスライドへ移動してください。",
+    retryLabel: "再試行",
+    retryGuidance: "オンライン接続後に再試行できます。",
+    retryDisabled: true,
   },
   {
     state: "remote / online error",
@@ -66,6 +77,25 @@ const unavailableStateMocks = [
     title: "動画を再生できませんでした",
     description:
       "インターネット接続とGoogle接続を確認してください。この動画はオンライン時にDriveから再生します。",
+    retryLabel: "再試行",
+    retryGuidance: "接続を確認してから再試行してください。",
+  },
+  {
+    state: "remote / retrying",
+    badge: "オンライン動画",
+    title: "動画を再生できませんでした",
+    description: "インターネット接続とGoogle接続を確認してください。",
+    retryLabel: "再接続中…",
+    retryGuidance: "動画の再接続を試みています。",
+    retryDisabled: true,
+  },
+  {
+    state: "remote / retry failed",
+    badge: "オンライン動画",
+    title: "動画を再生できませんでした",
+    description: "インターネット接続とGoogle接続を確認してください。",
+    retryLabel: "再試行",
+    retryGuidance: "再接続できませんでした。接続を確認して再試行してください。",
   },
   {
     state: "offline Blob / error",
@@ -79,6 +109,8 @@ const unavailableStateMocks = [
     title: "この動画はオンライン再生が必要です",
     description:
       "通常controlsが非表示でも、再生不能から退避するための前後移動だけを表示します。",
+    retryLabel: "再試行",
+    retryGuidance: "接続を確認してから再試行してください。",
   },
 ];
 
@@ -165,6 +197,9 @@ export default function PlayerVideoControlsVisualCheckPage() {
                       インターネット接続とGoogle接続を確認してください。
                       この動画はオンライン時にDriveから再生します。
                     </p>
+                    <Button type="button" variant="secondary" className="mt-5 h-12 rounded-full">
+                      再試行
+                    </Button>
                     <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
                       <Button type="button" variant="secondary" className="h-12 rounded-full">
                         <ChevronLeft className="size-5" />
@@ -323,6 +358,21 @@ export default function PlayerVideoControlsVisualCheckPage() {
                 <p className="mt-2 text-sm leading-6 text-amber-900">
                   {mock.description}
                 </p>
+                {mock.retryGuidance ? (
+                  <p className="mt-2 text-sm font-medium text-amber-900">
+                    {mock.retryGuidance}
+                  </p>
+                ) : null}
+                {mock.retryLabel ? (
+                  <Button
+                    type="button"
+                    variant="default"
+                    className="mt-4"
+                    disabled={mock.retryDisabled}
+                  >
+                    {mock.retryLabel}
+                  </Button>
+                ) : null}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button type="button" variant="secondary">
                     <ChevronLeft className="size-4" />

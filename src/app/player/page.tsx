@@ -83,6 +83,7 @@ type PlayerVideoUnavailableReason =
   | "remoteOffline"
   | "remoteConnectionRequired"
   | "playbackFailed";
+type PlayerRemoteVideoRetryStatus = "idle" | "retrying" | "failed";
 type PlayerVideoSlideAdvanceIntent = "next" | "fallback";
 type OnlineVideoPlaybackStatus =
   | "idle"
@@ -259,6 +260,10 @@ export default function PlayerPage() {
   const [remoteVideoMediaDiagnostics, setRemoteVideoMediaDiagnostics] =
     useState<RemoteVideoMediaDiagnostics | null>(null);
   const [videoDiagnosticsVisible, setVideoDiagnosticsVisible] = useState(false);
+  const [remoteVideoRetryStatus, setRemoteVideoRetryStatus] =
+    useState<PlayerRemoteVideoRetryStatus>("idle");
+  const [remoteVideoRetryGeneration, setRemoteVideoRetryGeneration] =
+    useState(0);
   const [slideTransitionDirection, setSlideTransitionDirection] =
     useState<SlideTransitionDirection>("none");
   const [isSlideTransitioning, setIsSlideTransitioning] = useState(false);
@@ -267,6 +272,8 @@ export default function PlayerPage() {
   const displayedSlideVideoRef = useRef<PlayerSlideVideo | null>(null);
   const currentVideoSlideKeyRef = useRef<string | null>(null);
   const remoteVideoSessionIdRef = useRef<string | null>(null);
+  const remoteVideoRetryInFlightRef = useRef(false);
+  const remoteVideoRetrySlideKeyRef = useRef<string | null>(null);
   const handledVideoSlideAdvanceRef =
     useRef<PlayerVideoSlideAdvanceIntent | null>(null);
   const videoFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -679,6 +686,73 @@ export default function PlayerPage() {
   const videoUnavailableCopy = getPlayerVideoUnavailableCopy(
     videoUnavailableReason,
   );
+  const canRetryCurrentRemoteVideo =
+    isCurrentRemoteVideo &&
+    (videoStatus === "error" || onlineVideoPlaybackStatus === "error") &&
+    isOnline === true &&
+    googleStatus === "connected" &&
+    remoteVideoRetryStatus !== "retrying";
+
+  const completeRemoteVideoRetry = useCallback(
+    (slideKey: string, status: "idle" | "failed") => {
+      if (
+        remoteVideoRetrySlideKeyRef.current !== slideKey ||
+        currentVideoSlideKeyRef.current !== slideKey
+      ) {
+        return;
+      }
+
+      remoteVideoRetryInFlightRef.current = false;
+      remoteVideoRetrySlideKeyRef.current = null;
+      setRemoteVideoRetryStatus(status);
+    },
+    [],
+  );
+
+  const retryRemoteVideoPlayback = useCallback(() => {
+    const slideKey = currentSlidePlaybackKey;
+
+    if (
+      !slideKey ||
+      currentVideoSlideKeyRef.current !== slideKey ||
+      !isCurrentRemoteVideo ||
+      (videoStatus !== "error" && onlineVideoPlaybackStatus !== "error") ||
+      isOnline !== true ||
+      googleStatus !== "connected" ||
+      remoteVideoRetryInFlightRef.current
+    ) {
+      return;
+    }
+
+    remoteVideoRetryInFlightRef.current = true;
+    remoteVideoRetrySlideKeyRef.current = slideKey;
+    setRemoteVideoRetryStatus("retrying");
+
+    const currentSessionId = remoteVideoSessionIdRef.current;
+    remoteVideoSessionIdRef.current = null;
+    if (currentSessionId) {
+      unregisterDriveVideoPlaybackSession(currentSessionId);
+    }
+
+    revokeSlideVideo(displayedSlideVideoRef.current);
+    displayedSlideVideoRef.current = null;
+    setDisplayedSlideVideo(null);
+    setRemoteVideoStreamDiagnostics(null);
+    setRemoteVideoProbeDiagnostics(null);
+    setRemoteVideoMediaDiagnostics(null);
+    setVideoDiagnosticsVisible(false);
+    clearPlayerTimeout(videoFallbackTimeoutRef);
+    handledVideoSlideAdvanceRef.current = null;
+    setRemoteVideoRetryGeneration((current) => current + 1);
+  }, [
+    currentSlidePlaybackKey,
+    googleStatus,
+    isCurrentRemoteVideo,
+    isOnline,
+    onlineVideoPlaybackStatus,
+    unregisterDriveVideoPlaybackSession,
+    videoStatus,
+  ]);
 
   useEffect(() => {
     currentVideoSlideKeyRef.current = currentSlidePlaybackKey;
@@ -686,7 +760,10 @@ export default function PlayerPage() {
     clearPlayerTimeout(videoFallbackTimeoutRef);
     queueMicrotask(() => {
       setVideoDiagnosticsVisible(false);
+      setRemoteVideoRetryStatus("idle");
     });
+    remoteVideoRetryInFlightRef.current = false;
+    remoteVideoRetrySlideKeyRef.current = null;
   }, [currentSlidePlaybackKey]);
 
   useEffect(() => {
@@ -985,6 +1062,7 @@ export default function PlayerPage() {
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
+        completeRemoteVideoRetry(currentSlidePlaybackKey, "failed");
       });
       return;
     }
@@ -997,6 +1075,7 @@ export default function PlayerPage() {
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
+        completeRemoteVideoRetry(currentSlidePlaybackKey, "failed");
       });
       return;
     }
@@ -1011,6 +1090,7 @@ export default function PlayerPage() {
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
+        completeRemoteVideoRetry(currentSlidePlaybackKey, "failed");
       });
       return;
     }
@@ -1053,6 +1133,7 @@ export default function PlayerPage() {
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
+        completeRemoteVideoRetry(currentSlidePlaybackKey, "failed");
         return;
       }
 
@@ -1075,6 +1156,7 @@ export default function PlayerPage() {
       setVideoStatus("ready");
       setOnlineVideoPlaybackStatus("registered");
       setOnlineVideoPlaybackMessage("stream session: registered");
+      completeRemoteVideoRetry(currentSlidePlaybackKey, "idle");
 
       void probeRemoteVideoStream(sourceUrl, probeController.signal).then(
         (diagnostics) => {
@@ -1105,11 +1187,13 @@ export default function PlayerPage() {
     currentSlidePlaybackKey,
     currentSlideVideoDurationMs,
     currentSlideDurationSeconds,
+    completeRemoteVideoRetry,
     googleStatus,
     isCurrentRemoteVideo,
     isOnline,
     markVideoSlideAdvanceHandled,
     registerDriveVideoPlaybackSession,
+    remoteVideoRetryGeneration,
     unregisterDriveVideoPlaybackSession,
   ]);
 
@@ -1422,7 +1506,7 @@ export default function PlayerPage() {
             />
           ) : null}
 
-          {videoStatus === "error" ? (
+          {videoStatus === "error" || remoteVideoRetryStatus === "retrying" ? (
             <PlayerVideoFallback
               badge={videoUnavailableCopy.badge}
               title={videoUnavailableCopy.title}
@@ -1431,6 +1515,17 @@ export default function PlayerPage() {
               canGoNext={safeCurrentSlideIndex < slideCount - 1}
               onPrevious={handleVideoPreviousSlide}
               onNext={handleVideoNextSlide}
+              retryStatus={remoteVideoRetryStatus}
+              canRetry={canRetryCurrentRemoteVideo}
+              retryGuidance={getRemoteVideoRetryGuidance({
+                isCurrentRemoteVideo,
+                isOnline,
+                googleStatus,
+                retryStatus: remoteVideoRetryStatus,
+              })}
+              onRetry={
+                isCurrentRemoteVideo ? retryRemoteVideoPlayback : undefined
+              }
             />
           ) : null}
 
@@ -2900,6 +2995,10 @@ function PlayerVideoFallback({
   canGoNext,
   onPrevious,
   onNext,
+  retryStatus,
+  canRetry,
+  retryGuidance,
+  onRetry,
 }: {
   badge?: string;
   title: string;
@@ -2908,6 +3007,10 @@ function PlayerVideoFallback({
   canGoNext?: boolean;
   onPrevious?: () => void;
   onNext?: () => void;
+  retryStatus?: PlayerRemoteVideoRetryStatus;
+  canRetry?: boolean;
+  retryGuidance?: string | null;
+  onRetry?: () => void;
 }) {
   const canShowNavigation = onPrevious !== undefined && onNext !== undefined;
 
@@ -2922,6 +3025,22 @@ function PlayerVideoFallback({
       <p className="mt-3 text-sm leading-6 text-amber-100/80">
         {description}
       </p>
+      {retryGuidance ? (
+        <p className="mt-3 text-sm leading-6 text-amber-100">
+          {retryGuidance}
+        </p>
+      ) : null}
+      {onRetry ? (
+        <Button
+          type="button"
+          variant="secondary"
+          className="mt-5 h-12 min-w-36 rounded-full border border-amber-100/20 bg-amber-100 text-amber-950 hover:bg-amber-50"
+          disabled={!canRetry || retryStatus === "retrying"}
+          onClick={onRetry}
+        >
+          {retryStatus === "retrying" ? "再接続中…" : "再試行"}
+        </Button>
+      ) : null}
       {canShowNavigation ? (
         <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
           <Button
@@ -2996,6 +3115,38 @@ function getPlayerVideoUnavailableCopy(reason: PlayerVideoUnavailableReason) {
     default:
       return assertNeverPlayerVideoUnavailableReason(reason);
   }
+}
+
+function getRemoteVideoRetryGuidance({
+  isCurrentRemoteVideo,
+  isOnline,
+  googleStatus,
+  retryStatus,
+}: {
+  isCurrentRemoteVideo: boolean;
+  isOnline: boolean | null;
+  googleStatus: string;
+  retryStatus: PlayerRemoteVideoRetryStatus;
+}): string | null {
+  if (!isCurrentRemoteVideo) {
+    return null;
+  }
+
+  if (retryStatus === "retrying") {
+    return "動画の再接続を試みています。";
+  }
+
+  if (isOnline !== true) {
+    return "オンライン接続後に再試行できます。";
+  }
+
+  if (googleStatus !== "connected") {
+    return "設定画面でGoogle接続を確認してください。";
+  }
+
+  return retryStatus === "failed"
+    ? "再接続できませんでした。接続を確認して再試行してください。"
+    : "接続を確認してから再試行してください。";
 }
 
 function assertNeverPlayerVideoUnavailableReason(reason: never): never {
