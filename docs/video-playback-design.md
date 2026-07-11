@@ -431,6 +431,15 @@ Phase 6Cでまだ実装していないこと:
 - 通常controlsには内部状態文言を表示せず、error時だけ一般向けの短い再生失敗メッセージを表示する。
 - diagnosticsは分類済みlabelのみを表示し、token、URL、id全文、raw range values、raw response bodyはUI / diagnostics / console / docsへ出さない。
 
+2026-07-11 Phase 6O実施範囲:
+
+- `/admin` の本編スライド順UIを画像前提からslide / media前提の表現に更新する。
+- slide orderは `/player` の再生順であり、テロップと `durationSeconds` の変更もiPad再生へ反映するにはoffline syncが必要。
+- `durationSeconds` はslideの管理上の表示秒数として1〜600秒の整数で保存する。image slideでは自動送り秒数として使う。
+- video slideでは今回 `durationSeconds` を管理値として保存するところまで実装し、`/player` の動画再生打ち切りoverrideにはまだ使わない。動画は現在、再生終了で次へ進む。
+- 大容量videoはIndexedDBへBlob保存せず、remoteOnly metadataとして再生対象に残し、オンライン時にDriveからストリーミング再生する方針を維持する。
+- Drive URL、file id全文、token、Blob URL、Range実値、Content-Range実値、raw response bodyはUI / diagnostics / console / docsへ出さない。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

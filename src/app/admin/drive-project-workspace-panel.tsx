@@ -28,6 +28,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAppState } from "@/app/app-providers";
+import {
+  DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS,
+  DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS,
+} from "@/lib/google-drive";
 import { AssetCleanupPreviewPanel } from "./asset-cleanup-preview-panel";
 import { AssetImportPanel } from "./asset-import-panel";
 
@@ -50,6 +54,7 @@ export function DriveProjectWorkspacePanel() {
     projectDetails,
     fetchProjectSlidePreviewBlob,
     updateProjectSlideCaption,
+    updateProjectSlideDuration,
     moveProjectSlide,
     reorderProjectSlidesByDrag,
     deleteProjectSlides,
@@ -57,6 +62,9 @@ export function DriveProjectWorkspacePanel() {
     captionUpdateSlideId,
     captionUpdateMessage,
     captionUpdateDiagnostics,
+    durationUpdateSlideId,
+    durationUpdateMessage,
+    durationUpdateDiagnostics,
     slideEditMessage,
     slideEditDiagnostics,
     isSlideEditInFlight,
@@ -176,7 +184,7 @@ export function DriveProjectWorkspacePanel() {
     const confirmed = window.confirm(
       [
         `選択した${slideIdsToDelete.length}件の slide をこの project から削除します。`,
-        "Drive assets/ の画像ファイルは削除しません。",
+        "Drive assets/ の素材ファイルは削除しません。",
         "iPad再生に反映するには offline sync が必要です。",
       ].join("\n"),
     );
@@ -338,7 +346,7 @@ export function DriveProjectWorkspacePanel() {
                   </div>
                   <div>
                     <dt className="font-medium text-slate-900">スライド編集</dt>
-                    <dd>テロップ編集に対応</dd>
+                    <dd>順番、テロップ、表示時間の編集に対応</dd>
                   </div>
                 </dl>
               </div>
@@ -373,12 +381,12 @@ export function DriveProjectWorkspacePanel() {
           <CardHeader>
             <CardTitle>本編スライド順</CardTitle>
             <CardDescription>
-              画像の順番とテロップを編集します。反映にはoffline syncが必要です。
+              スライドの順番、テロップ、表示時間を編集します。反映にはoffline syncが必要です。
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              <p className="font-semibold text-slate-900">画像の順番</p>
+              <p className="font-semibold text-slate-900">スライドの順番</p>
               <p className="mt-1">
                 この順番が /player の再生順になります。変更後、iPad再生に反映するには
                 offline sync を実行してください。
@@ -400,7 +408,7 @@ export function DriveProjectWorkspacePanel() {
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
                       すべて削除すると、この project は再生対象 slide がない状態になります。
-                      Drive assets/ の画像ファイルは削除しません。
+                      Drive assets/ の素材ファイルは削除しません。
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -458,7 +466,7 @@ export function DriveProjectWorkspacePanel() {
                         <p>asset</p>
                         <p>並び替え</p>
                         <p>操作</p>
-                        <p>テロップ</p>
+                        <p>編集</p>
                       </div>
                       <div className="divide-y divide-slate-200">
                         {orderedSlides.map((slide, index) => (
@@ -522,16 +530,17 @@ export function DriveProjectWorkspacePanel() {
                                   </p>
                                   <p className="mt-1 text-xs text-slate-500">
                                     slide: {slide.slideIdPart} /{" "}
-                                    {slide.durationSeconds}秒 / {slide.mimeType}
+                                    管理上の表示秒数: {slide.durationSeconds}秒 /{" "}
+                                    {slide.mimeType}
                                   </p>
                                   <p className="mt-1 text-xs text-slate-500">
-                                    durationMs:{" "}
-                                    {formatOptionalNumber(slide.durationMs)} / size:{" "}
+                                    動画の実時間:{" "}
+                                    {formatOptionalDurationMs(slide.durationMs)} / size:{" "}
                                     {formatOptionalBytes(slide.fileSize)}
                                   </p>
                                   {getAssetTypeLabel(slide.type) === "video" ? (
-                                    <p className="mt-1 text-xs leading-5 text-amber-700">
-                                      動画は認識のみ。再生・download・offline保存は未実装です。
+                                    <p className="mt-1 text-xs leading-5 text-slate-600">
+                                      大容量動画はoffline Blob保存せず、オンライン時にDriveからストリーミング再生します。offline sync後もmetadataとして再生対象に残ります。
                                     </p>
                                   ) : null}
                                 </div>
@@ -554,14 +563,30 @@ export function DriveProjectWorkspacePanel() {
                                   }
                                   onDuplicate={duplicateProjectSlide}
                                 />
-                                <SlideCaptionEditor
-                                  key={`${slide.slideId}:${slide.caption}`}
-                                  slideId={slide.slideId}
-                                  caption={slide.caption}
-                                  isSaving={captionUpdateSlideId === slide.slideId}
-                                  isDisabled={isSlideEditInFlight}
-                                  onSave={updateProjectSlideCaption}
-                                />
+                                <div className="space-y-3">
+                                  <SlideDurationEditor
+                                    key={`${slide.slideId}:${slide.durationSeconds}:${slide.durationMs ?? "none"}`}
+                                    slideId={slide.slideId}
+                                    durationSeconds={slide.durationSeconds}
+                                    assetType={getAssetTypeLabel(slide.type)}
+                                    durationMs={slide.durationMs}
+                                    isSaving={
+                                      durationUpdateSlideId === slide.slideId
+                                    }
+                                    isDisabled={areSlideActionsDisabled}
+                                    onSave={updateProjectSlideDuration}
+                                  />
+                                  <SlideCaptionEditor
+                                    key={`${slide.slideId}:${slide.caption}`}
+                                    slideId={slide.slideId}
+                                    caption={slide.caption}
+                                    isSaving={
+                                      captionUpdateSlideId === slide.slideId
+                                    }
+                                    isDisabled={areSlideActionsDisabled}
+                                    onSave={updateProjectSlideCaption}
+                                  />
+                                </div>
                               </>
                             )}
                           </SortableSlideRow>
@@ -583,7 +608,7 @@ export function DriveProjectWorkspacePanel() {
               </div>
             )}
             <p className="mt-3 text-xs leading-5 text-slate-500">
-              画像順とテロップ変更をiPad再生に反映するには、このprojectをoffline syncしてください。
+              スライド順、テロップ、表示時間の変更をiPad再生に反映するには、このprojectをoffline syncしてください。
             </p>
             {slideEditMessage ? (
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -615,6 +640,18 @@ export function DriveProjectWorkspacePanel() {
                 {captionUpdateDiagnostics.length > 0 ? (
                   <div className="mt-2 space-y-1 text-xs">
                     {captionUpdateDiagnostics.map((diagnostic, index) => (
+                      <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {durationUpdateMessage ? (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">{durationUpdateMessage}</p>
+                {durationUpdateDiagnostics.length > 0 ? (
+                  <div className="mt-2 space-y-1 text-xs">
+                    {durationUpdateDiagnostics.map((diagnostic, index) => (
                       <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
                     ))}
                   </div>
@@ -680,6 +717,91 @@ function SortableSlideRow({
       }
     >
       {children({ dragHandle })}
+    </div>
+  );
+}
+
+function SlideDurationEditor({
+  slideId,
+  durationSeconds,
+  assetType,
+  durationMs,
+  isSaving,
+  isDisabled,
+  onSave,
+}: {
+  slideId: string;
+  durationSeconds: number;
+  assetType: "image" | "video";
+  durationMs?: number;
+  isSaving: boolean;
+  isDisabled: boolean;
+  onSave: (slideId: string, durationSeconds: number) => void;
+}) {
+  const [draftDurationSeconds, setDraftDurationSeconds] = useState(
+    `${durationSeconds}`,
+  );
+  const parsedDurationSeconds = parseSlideDurationSeconds(draftDurationSeconds);
+  const hasValidDuration = parsedDurationSeconds !== null;
+  const hasUnsavedChange =
+    hasValidDuration && parsedDurationSeconds !== durationSeconds;
+  const isEmpty = draftDurationSeconds.trim() === "";
+  const isInvalid = !isEmpty && !hasValidDuration;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-medium text-slate-900">表示時間</p>
+        {hasUnsavedChange ? <Badge variant="outline">未保存</Badge> : null}
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+        <input
+          type="number"
+          min={DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS}
+          max={DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS}
+          step={1}
+          value={draftDurationSeconds}
+          onChange={(event) => setDraftDurationSeconds(event.target.value)}
+          className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+          aria-label="スライドの表示時間"
+        />
+        <span>秒</span>
+      </label>
+      <p className="mt-2 text-xs leading-5 text-slate-500">
+        {assetType === "video"
+          ? `動画は現在、再生終了で次へ進みます。この秒数は管理値として保存します。動画の実時間: ${formatOptionalDurationMs(durationMs)}`
+          : "画像slideの自動送り秒数として保存します。"}
+      </p>
+      {isEmpty ? (
+        <p className="mt-2 text-xs text-red-700">表示時間を入力してください。</p>
+      ) : null}
+      {isInvalid ? (
+        <p className="mt-2 text-xs text-red-700">
+          表示時間は {DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS}〜
+          {DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS} 秒の整数で入力してください。
+        </p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">offline sync 後にiPad再生へ反映</p>
+        <Button
+          type="button"
+          size="sm"
+          variant={hasUnsavedChange ? "default" : "secondary"}
+          disabled={
+            !hasUnsavedChange ||
+            !hasValidDuration ||
+            isSaving ||
+            isDisabled
+          }
+          onClick={() => {
+            if (parsedDurationSeconds !== null) {
+              onSave(slideId, parsedDurationSeconds);
+            }
+          }}
+        >
+          {isSaving ? "保存中" : "保存"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -900,7 +1022,7 @@ function DriveSlidePreview({
   if (assetType !== "image") {
     return (
       <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-2 text-center text-xs text-amber-800">
-        動画は認識のみ
+        動画素材
       </div>
     );
   }
@@ -939,8 +1061,41 @@ function getAssetTypeLabel(value: "image" | "video" | undefined) {
   return value ?? "image";
 }
 
-function formatOptionalNumber(value: number | undefined) {
-  return typeof value === "number" ? `${value}` : "未設定";
+function parseSlideDurationSeconds(value: string) {
+  const trimmedValue = value.trim();
+
+  if (trimmedValue === "") {
+    return null;
+  }
+
+  const parsedValue = Number(trimmedValue);
+
+  if (
+    !Number.isInteger(parsedValue) ||
+    parsedValue < DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS ||
+    parsedValue > DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS
+  ) {
+    return null;
+  }
+
+  return parsedValue;
+}
+
+function formatOptionalDurationMs(value: number | undefined) {
+  if (typeof value !== "number") {
+    return "未設定";
+  }
+
+  const totalSeconds = Math.max(0, Math.floor(value / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function formatOptionalBytes(value: number | undefined) {
