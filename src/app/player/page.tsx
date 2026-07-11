@@ -73,6 +73,7 @@ type PlayerSlideVideo = {
   sourceKind: "offline" | "remote";
   sessionId?: string;
   durationMs?: number;
+  durationSeconds?: number;
 };
 
 type PlayerSlideMediaKind = "image" | "video" | "unsupported";
@@ -886,6 +887,7 @@ export default function PlayerPage() {
       ...(typeof currentSlideVideoDurationMs === "number"
         ? { durationMs: currentSlideVideoDurationMs }
         : {}),
+      durationSeconds: currentSlideDurationSeconds,
     };
 
     const currentVideo = displayedSlideVideoRef.current;
@@ -895,9 +897,18 @@ export default function PlayerPage() {
       currentVideo.slideId === nextVideo.slideId &&
       currentVideo.assetId === nextVideo.assetId
     ) {
+      const updatedVideo: PlayerSlideVideo = {
+        ...currentVideo,
+        ...(typeof currentSlideVideoDurationMs === "number"
+          ? { durationMs: currentSlideVideoDurationMs }
+          : {}),
+        durationSeconds: currentSlideDurationSeconds,
+      };
+      displayedSlideVideoRef.current = updatedVideo;
       revokeSlideVideo(nextVideo);
       queueMicrotask(() => {
         if (!cancelled) {
+          setDisplayedSlideVideo(updatedVideo);
           setVideoStatus("ready");
         }
       });
@@ -929,6 +940,7 @@ export default function PlayerPage() {
     currentSlideImageSlideId,
     currentSlideMediaKind,
     currentSlideVideoDurationMs,
+    currentSlideDurationSeconds,
     currentSlidePlaybackKey,
     isCurrentRemoteVideo,
     markVideoSlideAdvanceHandled,
@@ -1043,6 +1055,7 @@ export default function PlayerPage() {
         ...(typeof currentSlideVideoDurationMs === "number"
           ? { durationMs: currentSlideVideoDurationMs }
           : {}),
+        durationSeconds: currentSlideDurationSeconds,
       };
 
       revokeSlideVideo(displayedSlideVideoRef.current);
@@ -1080,6 +1093,7 @@ export default function PlayerPage() {
     currentSlideImageSlideId,
     currentSlidePlaybackKey,
     currentSlideVideoDurationMs,
+    currentSlideDurationSeconds,
     googleStatus,
     isCurrentRemoteVideo,
     isOnline,
@@ -2105,6 +2119,8 @@ function PlayerVideoSlide({
   const didReportFailureRef = useRef(false);
   const userPausedRef = useRef(false);
   const videoSeekingRef = useRef(false);
+  const videoBufferingRef = useRef(false);
+  const didAdvanceByDurationOverrideRef = useRef(false);
   const [videoControlsVisible, setVideoControlsVisible] = useState(true);
   const [videoPausedByUser, setVideoPausedByUser] = useState(false);
   const [videoPaused, setVideoPaused] = useState(false);
@@ -2153,8 +2169,14 @@ function PlayerVideoSlide({
   }, [videoSeeking]);
 
   useEffect(() => {
+    didAdvanceByDurationOverrideRef.current = false;
+  }, [video.durationSeconds, video.sourceUrl]);
+
+  useEffect(() => {
     userPausedRef.current = false;
     didReportFailureRef.current = false;
+    videoBufferingRef.current = false;
+    didAdvanceByDurationOverrideRef.current = false;
     queueMicrotask(() => {
       setVideoControlsVisible(true);
       setVideoPausedByUser(false);
@@ -2448,6 +2470,46 @@ function PlayerVideoSlide({
       }, timeoutMs);
     };
 
+    const maybeAdvanceByDurationOverride = () => {
+      if (didAdvanceByDurationOverrideRef.current) {
+        return;
+      }
+
+      const overrideSeconds = getVideoDurationOverrideSeconds({
+        configuredDurationSeconds: video.durationSeconds,
+        actualDurationSeconds: videoElement.duration,
+      });
+
+      if (overrideSeconds === null) {
+        return;
+      }
+
+      if (
+        videoSeekingRef.current ||
+        userPausedRef.current ||
+        videoBufferingRef.current ||
+        videoElement.paused ||
+        videoElement.readyState < 2 ||
+        videoElement.currentTime < overrideSeconds
+      ) {
+        return;
+      }
+
+      didAdvanceByDurationOverrideRef.current = true;
+      userPausedRef.current = false;
+      setVideoPaused(true);
+      setVideoBuffering(false);
+      videoBufferingRef.current = false;
+
+      try {
+        videoElement.pause();
+      } catch {
+        // The parent slide advance guard owns the transition.
+      }
+
+      onEnded(slideKey);
+    };
+
     const handleLoadedMetadata = () => {
       metadataLoaded = true;
       setVideoDuration(readFiniteVideoDuration(videoElement));
@@ -2474,6 +2536,7 @@ function PlayerVideoSlide({
       setVideoPaused(false);
       setVideoPausedByUser(false);
       setVideoBuffering(false);
+      videoBufferingRef.current = false;
       setVideoHasError(false);
       userPausedRef.current = false;
 
@@ -2488,6 +2551,7 @@ function PlayerVideoSlide({
       }
 
       setVideoBuffering(true);
+      videoBufferingRef.current = true;
       clearStallTimeout();
       stallTimeout = setTimeout(() => {
         if (userPausedRef.current) {
@@ -2504,6 +2568,7 @@ function PlayerVideoSlide({
         setVideoCurrentTime(videoElement.currentTime);
       }
       reportRemoteMediaDiagnostics();
+      maybeAdvanceByDurationOverride();
     };
 
     const handleDurationChange = () => {
@@ -2518,10 +2583,12 @@ function PlayerVideoSlide({
     const handlePause = () => {
       setVideoPaused(true);
       setVideoBuffering(false);
+      videoBufferingRef.current = false;
     };
 
     const handleCanPlay = () => {
       setVideoBuffering(false);
+      videoBufferingRef.current = false;
     };
 
     const handleVolumeChangeEvent = () => {
@@ -2587,10 +2654,13 @@ function PlayerVideoSlide({
       }
     };
   }, [
+    onEnded,
     onPlaybackMessage,
     onRemoteMediaDiagnostics,
     reportPlaybackFailure,
+    slideKey,
     video.durationMs,
+    video.durationSeconds,
     video.sourceKind,
     video.sourceUrl,
   ]);
@@ -3447,6 +3517,35 @@ function clampNumber(value: number, min: number, max: number) {
   }
 
   return Math.min(max, Math.max(min, value));
+}
+
+function getVideoDurationOverrideSeconds(input: {
+  configuredDurationSeconds?: number;
+  actualDurationSeconds: number;
+}) {
+  const configuredDurationSeconds = input.configuredDurationSeconds;
+
+  if (
+    typeof configuredDurationSeconds !== "number" ||
+    !Number.isFinite(configuredDurationSeconds)
+  ) {
+    return null;
+  }
+
+  if (
+    !Number.isFinite(input.actualDurationSeconds) ||
+    input.actualDurationSeconds <= 0
+  ) {
+    return null;
+  }
+
+  const configured = Math.floor(configuredDurationSeconds);
+
+  if (configured < 1 || configured >= input.actualDurationSeconds) {
+    return null;
+  }
+
+  return configured;
 }
 
 function isValidRemoteVideoFileSize(

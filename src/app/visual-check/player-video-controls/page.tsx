@@ -117,6 +117,9 @@ export default function PlayerVideoControlsVisualCheckPage() {
                 <span className="rounded-full border border-white/15 bg-black/50 px-3 py-1">
                   controls off
                 </span>
+                <span className="rounded-full border border-white/15 bg-black/50 px-3 py-1">
+                  duration override configured
+                </span>
               </div>
 
               {mockState === "error" ? (

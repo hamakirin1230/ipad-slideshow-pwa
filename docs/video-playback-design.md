@@ -436,7 +436,8 @@ Phase 6Cでまだ実装していないこと:
 - `/admin` の本編スライド順UIを画像前提からslide / media前提の表現に更新する。
 - slide orderは `/player` の再生順であり、テロップと `durationSeconds` の変更もiPad再生へ反映するにはoffline syncが必要。
 - `durationSeconds` はslideの管理上の表示秒数として1〜600秒の整数で保存する。image slideでは自動送り秒数として使う。
-- video slideでは今回 `durationSeconds` を管理値として保存するところまで実装し、`/player` の動画再生打ち切りoverrideにはまだ使わない。動画は現在、再生終了で次へ進む。
+- video slideでは、`durationSeconds` が動画実時間より短い場合だけ `/player` でその秒数に到達した時点で次slideへ進む。動画実時間以上、または実時間不明の場合は動画終了で次へ進む。
+- video duration override は `timeupdate` ベースで判定し、pause / buffering / seeking 中はoverrideで勝手に進めない。
 - 大容量videoはIndexedDBへBlob保存せず、remoteOnly metadataとして再生対象に残し、オンライン時にDriveからストリーミング再生する方針を維持する。
 - Drive URL、file id全文、token、Blob URL、Range実値、Content-Range実値、raw response bodyはUI / diagnostics / console / docsへ出さない。
 
