@@ -450,6 +450,16 @@ Phase 6Cでまだ実装していないこと:
 - confirmed storeのasset countとasset Blob countは、大容量videoのmetadataだけを保持する正常な状態では一致しない場合がある。
 - `/admin` の同期結果とconfirmed store表示では、`skip` を失敗や削除と誤解しないよう `Blob未保存` と `remoteOnly video` を明示する。
 
+2026-07-11 Phase 6Q実施範囲:
+
+- offline syncのretryは自動実行せず、管理者がDrive workspaceとprojectの状態を確認してから既存の実行ボタンで手動再実行する。
+- failed / cancelled時も既存confirmed storeとDrive assetは自動削除しない。stagingの内容でconfirmed storeを置き換えるのはpromotion成功時だけとする。
+- staleは、より新しいsync runが優先されて古いrunの結果を反映しなかった状態を表す。保存データの破損や削除対象を意味しない。
+- failed / cancelledでは実行ボタンを `offline syncを再実行`、staleでは `最新内容を同期` と表示する。blocked / syncing時の実行不可は維持する。
+- exponential backoff、定期ポーリング、自動repair、stale storeの自動promotionは追加しない。
+- runtime timeoutは引き続きcancelledへ正規化し、安全な診断でtimeoutを識別する。今回、runtime result型とtimeout処理は変更しない。
+- remoteOnly video、50MBのoffline保存上限、player、Service Workerの挙動は変更しない。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

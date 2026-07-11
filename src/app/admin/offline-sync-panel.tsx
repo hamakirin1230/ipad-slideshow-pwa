@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useAppState } from "@/app/app-providers";
+import { useAppState, type OfflineSyncStatus } from "@/app/app-providers";
 import type { DriveOfflineStagingSyncRuntimeResult } from "@/lib/drive-offline-staging-sync-runtime";
 
 export function OfflineSyncPanel() {
@@ -35,6 +35,10 @@ export function OfflineSyncPanel() {
     offlineSyncBlockedReason !== null;
   const skipVisibility =
     getOfflineSyncVideoSkipVisibility(offlineSyncLastResult);
+  const startButtonLabel = getOfflineSyncStartButtonLabel({
+    isOfflineSyncInFlight,
+    offlineSyncStatus,
+  });
 
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
@@ -91,9 +95,7 @@ export function OfflineSyncPanel() {
             onClick={startOfflineSync}
             disabled={!canStartOfflineSync || isOfflineSyncInFlight}
           >
-            {isOfflineSyncInFlight
-              ? "offline sync 実行中"
-              : "offline sync を実行"}
+            {startButtonLabel}
           </Button>
 
           <Button
@@ -135,19 +137,46 @@ export function OfflineSyncPanel() {
 
         {offlineSyncStatus === "failed" ? (
           <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-red-100">
-            <p className="font-semibold">offline sync 失敗</p>
-            <p className="mt-2">
-              診断を確認し、必要に応じて Drive状態とプロジェクト状態を再確認してください。
+            <p className="font-semibold">offline syncに失敗しました</p>
+            <p className="mt-2 leading-6">
+              現在のconfirmed storeは自動削除していません。上部の
+              「Driveワークスペース状態」と「Driveプロジェクト状態」がreadyであることを
+              確認し、原因を解消してから手動で再実行してください。
             </p>
           </div>
         ) : null}
 
         {offlineSyncStatus === "cancelled" ? (
           <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-            <p className="font-semibold">offline sync 中止</p>
-            <p className="mt-2">
-              中止時点で Drive fetch / staging write / promotion
-              のどこまで進んだかは、この表示だけでは判断しません。
+            <p className="font-semibold">offline syncを中止しました</p>
+            <p className="mt-2 leading-6">
+              中止前のconfirmed storeは維持されます。中止した処理を理由に
+              confirmed storeやDrive assetを自動削除しません。
+              必要になった時点で手動で再実行してください。
+            </p>
+          </div>
+        ) : null}
+
+        {offlineSyncStatus === "stale" ? (
+          <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
+            <p className="font-semibold">今回の同期結果が古くなっています</p>
+            <p className="mt-2 leading-6">
+              このsync runより新しい処理が優先されたため、今回の結果はconfirmed storeへ
+              反映していません。現在の保存データは削除せず維持しています。
+              上部のDrive状態とプロジェクト状態を確認し、最新内容を反映する場合は
+              offline syncを手動で再実行してください。
+            </p>
+          </div>
+        ) : null}
+
+        {offlineSyncStatus === "failed" ||
+        offlineSyncStatus === "cancelled" ||
+        offlineSyncStatus === "stale" ? (
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <p className="font-semibold text-slate-50">手動リカバリー方針</p>
+            <p className="mt-2 leading-6">
+              自動retry、自動修復、自動削除は行いません。stagingの結果でconfirmed
+              storeを置き換えるのはpromotion成功時だけです。
             </p>
           </div>
         ) : null}
@@ -259,6 +288,28 @@ function SyncCount({ label, value }: { label: string; value: number }) {
       <dd className="mt-1 font-semibold text-slate-50">{value}</dd>
     </div>
   );
+}
+
+function getOfflineSyncStartButtonLabel({
+  isOfflineSyncInFlight,
+  offlineSyncStatus,
+}: {
+  isOfflineSyncInFlight: boolean;
+  offlineSyncStatus: OfflineSyncStatus;
+}) {
+  if (isOfflineSyncInFlight) {
+    return "offline sync 実行中";
+  }
+
+  if (offlineSyncStatus === "stale") {
+    return "最新内容を同期";
+  }
+
+  if (offlineSyncStatus === "failed" || offlineSyncStatus === "cancelled") {
+    return "offline sync を再実行";
+  }
+
+  return "offline sync を実行";
 }
 
 function getOfflineSyncVideoSkipVisibility(

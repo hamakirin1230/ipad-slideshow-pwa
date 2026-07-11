@@ -594,7 +594,7 @@ const offlineSyncStatusLabels: Record<OfflineSyncStatus, string> = {
   idle: "offline sync 待機中",
   syncing: "offline sync 実行中",
   ready: "offline sync 完了",
-  stale: "offline sync stale",
+  stale: "今回の同期結果が古い",
   failed: "offline sync 失敗",
   cancelled: "offline sync 中止",
   blocked: "offline sync 開始不可",
@@ -4778,7 +4778,7 @@ function buildOfflineSyncResultMessage(
       return "Drive取得、staging write、confirmed promotion が完了しました。";
 
     case "stale":
-      return "offline sync は stale として無視されました。";
+      return "より新しいsync runが優先されたため、今回の結果はconfirmed storeへ反映していません。";
 
     case "driveFetchOrStagingWriteFailed":
       return "Drive取得、または staging write に失敗しました。";

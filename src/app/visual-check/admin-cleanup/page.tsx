@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -207,6 +208,47 @@ const offlineSyncSkipDiagnostics = [
   "unknown mimeType unsupported: unsupportedMimeType",
 ];
 
+const offlineSyncRecoveryStates = [
+  {
+    status: "ready",
+    title: "offline sync完了",
+    buttonLabel: "offline syncを実行",
+    description: "promotion成功後のconfirmed storeを再生に使用します。",
+  },
+  {
+    status: "failed",
+    title: "offline syncに失敗しました",
+    buttonLabel: "offline syncを再実行",
+    description: "confirmed storeは自動削除せず、Drive状態を確認して手動で再実行します。",
+  },
+  {
+    status: "cancelled",
+    title: "offline syncを中止しました",
+    buttonLabel: "offline syncを再実行",
+    description: "中止前のconfirmed storeを維持し、必要な時点で手動で再実行します。",
+  },
+  {
+    status: "stale",
+    title: "今回の同期結果が古くなっています",
+    buttonLabel: "最新内容を同期",
+    description: "破損や削除対象ではありません。より新しいsync runを優先した状態です。",
+  },
+  {
+    status: "blocked",
+    title: "offline syncを開始できません",
+    buttonLabel: "offline syncを実行",
+    description: "Drive workspaceとprojectがreadyになるまで実行できません。",
+    disabled: true,
+  },
+  {
+    status: "syncing",
+    title: "同期中",
+    buttonLabel: "offline sync実行中",
+    description: "二重実行を防ぐため、完了または中止まで再実行できません。",
+    disabled: true,
+  },
+];
+
 export default function AdminCleanupVisualCheckPage() {
   const eligibleAssets = mockAssets.filter((asset) => asset.status === "eligible");
   const blockedAssets = mockAssets.filter((asset) => asset.status === "blocked");
@@ -244,6 +286,29 @@ export default function AdminCleanupVisualCheckPage() {
                 </li>
               ))}
             </ul>
+          </CardContent>
+        </Card>
+
+        <Card className="border-sky-300/30 bg-sky-50 text-sky-950">
+          <CardHeader>
+            <CardTitle>offline sync recovery states mock</CardTitle>
+            <CardDescription className="text-sky-900">
+              自動retryや保存データの自動削除を行わない、状態別の手動リカバリー表示です。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {offlineSyncRecoveryStates.map((state) => (
+              <div key={state.status} className="rounded-xl border border-sky-200 bg-white p-4">
+                <Badge variant="outline">{state.status}</Badge>
+                <p className="mt-3 font-semibold">{state.title}</p>
+                <p className="mt-2 min-h-12 text-sm leading-6 text-sky-900">
+                  {state.description}
+                </p>
+                <Button className="mt-3" type="button" disabled={state.disabled}>
+                  {state.buttonLabel}
+                </Button>
+              </div>
+            ))}
           </CardContent>
         </Card>
 
