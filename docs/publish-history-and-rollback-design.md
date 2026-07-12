@@ -162,7 +162,7 @@ type ProjectPublishRevision = {
 
 初期版では `publishedBy`、notes、app version、source snapshot IDを必須にしない。とくに `publishedBy` のためにGoogle profileや個人情報を新規取得・保存しない。app versionは安定したbuild識別子を既に安全に供給できる段階でoptional追加を検討する。
 
-checksumは2種類を区別する。`manifestContentHash` はJSON正規化後のSHA-256でcurrent比較と整合性検証に使う。assetはDrive metadataで得られるchecksumが存在する場合だけ保存し、存在しない場合は `null` とする。公開のために大容量assetを再downloadしてhash計算しない。
+checksumは2種類を区別する。`manifestContentHash` はcanonical JSONのFNV-1a 64-bit hashを変更検知に使う。このhashは決定的な比較用であり、署名・認証・改ざん防止には使用しない。assetはDrive metadataで得られるchecksumが存在する場合だけ保存し、存在しない場合は `null` とする。公開のために大容量assetを再downloadしてhash計算しない。
 
 ## 5. Drive上の保存構造
 
@@ -290,7 +290,7 @@ check結果をrevision fileへ追記するとimmutable性を壊すため、初�
 最低限、次のoptimistic concurrency guardを組み合わせる。
 
 - preflight開始時とcurrent切替直前のmanifest file `modifiedTime` 一致
-- 正規化manifest SHA-256一致
+- 正規化manifest canonical hash一致（FNV-1a 64-bit。security判定には使わない）
 - expected `currentRevisionId` 一致（履歴導入前は `null`）
 - revision作成前後のtarget revision / asset metadata再検証
 - `operationId` と `revisionId` によるidempotency
@@ -431,13 +431,13 @@ Drive file IDはrevision内部の参照整合性に必要だが、UIでは全文
 
 いずれもGoal 5-1 / 5-3の詳細実装判断で閉じられ、今回の推奨方針を複数案へ戻すものではない。
 
-## 18. 次commitの具体的スコープ
+## 18. Goal 5-1Aの具体的スコープ
 
-次の1commitはGoal 5-1のうちpure foundationだけに限定する。
+Goal 5-1AはGoal 5-1のうちpure foundationだけに限定して実装した。
 
-- `src/lib/project-publish-revision.ts` を追加
+- `src/lib/publish-history/project-publish-revision.ts` を追加
 - revision / asset schema、parser、validator、canonical manifest hash input生成、ID / filename helperを実装
-- `src/lib/project-publish-revision.test.ts` を追加
+- `src/lib/publish-history/project-publish-revision.test.ts` を追加
 - Drive read / write、folder作成、UI、manifest / index schema更新は行わない
 
 commit例:
@@ -447,3 +447,7 @@ feat: add publish revision schema helpers
 ```
 
 read-only Drive loaderとrole検索は、そのpure foundationがtestで固定された次commitに分ける。これにより最初のruntime差分を小さくし、Driveへの書込みを一切伴わずschema判断をレビューできる。
+
+### Goal 5-1A 実装結果
+
+Goal 5-1AではschemaVersion 1のpure revision schema、既存manifest validatorを再利用するparser、summary / asset整合性検証、canonical JSON、FNV-1a 64-bit canonical hash、pure revision ID helperを実装した。hashは変更検知用でありsecurity用途ではない。Drive loader / role metadata、current manifest schema変更、Drive read / write、UIはまだ実装していない。

@@ -499,7 +499,7 @@ export type DriveProjectUnusedAssetDeletePreflightResult = {
   diagnostics: string[];
 };
 
-type DriveProjectManifestBody = {
+export type ProjectManifest = {
   app: typeof DRIVE_WORKSPACE_APP_ID;
   role: "projectManifest";
   schemaVersion: typeof DRIVE_WORKSPACE_SCHEMA_VERSION;
@@ -510,6 +510,50 @@ type DriveProjectManifestBody = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type ProjectManifestParseResult =
+  | { ok: true; value: ProjectManifest }
+  | { ok: false; errors: string[] };
+
+export function parseProjectManifest(input: unknown): ProjectManifestParseResult {
+  if (!isRecord(input)) {
+    return { ok: false, errors: ["manifest must be a JSON object"] };
+  }
+
+  let manifestJsonText: string;
+
+  try {
+    manifestJsonText = JSON.stringify(input);
+  } catch {
+    return { ok: false, errors: ["manifest must be JSON serializable"] };
+  }
+
+  const workspaceId = typeof input.workspaceId === "string" ? input.workspaceId : "";
+  const projectId = typeof input.projectId === "string" ? input.projectId : "";
+  const title = typeof input.title === "string" ? input.title : "";
+  const createdAt = typeof input.createdAt === "string" ? input.createdAt : "";
+  const updatedAt = typeof input.updatedAt === "string" ? input.updatedAt : "";
+  const result = parseDriveProjectManifestJson({
+    manifestJsonText,
+    expectedWorkspaceId: workspaceId,
+    project: {
+      projectId,
+      title,
+      projectFolderId: "manifest-parse-only",
+      manifestFileId: "manifest-parse-only",
+      assetsFolderId: "manifest-parse-only",
+      manifestPath: "manifest.json",
+      createdAt,
+      updatedAt,
+    },
+  });
+
+  return result.status === "valid"
+    ? { ok: true, value: result.manifest }
+    : { ok: false, errors: [...result.diagnostics] };
+}
+
+type DriveProjectManifestBody = ProjectManifest;
 
 type DriveProjectManifestParseResult =
   | {
