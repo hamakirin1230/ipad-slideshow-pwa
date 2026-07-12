@@ -455,3 +455,7 @@ Goal 5-1AではschemaVersion 1のpure revision schema、既存manifest validator
 ### Goal 5-1B 実装結果
 
 Goal 5-1Bでは既存の履歴構造だけを読むDrive loaderを追加した。`projectHistory` / `projectPublishRevisions` / `projectPublishRevision` roleを厳格検証し、folderやrevision IDの重複時は自動選択しない。一覧は最新50件までのmetadataだけをpage取得し、本文は詳細取得時だけschemaとmetadataの一致を検証する。revision Drive file IDとraw errorはpublic resultへ返さない。folder / file作成、Drive write / delete、`currentRevisionId`、UIはまだ実装していない。
+
+### Goal 5-2A 実装結果
+
+Goal 5-2Aでは `/admin/history` にread-only UIを追加した。project選択後の初期取得と明示的な手動再読込ではmetadata一覧だけを読み、revision本文は有効なitemの詳細選択時だけ取得・検証する。current判定、publish / rollback操作、自動retry / polling、Drive writeは行わない。access tokenはAppProviders内のrefに維持し、Drive file ID、assetのDrive内部ID、raw errorを画面へ出さない。

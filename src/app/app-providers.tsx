@@ -22,6 +22,12 @@ import {
   hasGrantedDriveFileScope,
 } from "@/lib/google-auth";
 import {
+  listProjectPublishRevisions,
+  loadProjectPublishRevision,
+  type ListProjectPublishRevisionsResult,
+  type LoadProjectPublishRevisionResult,
+} from "@/lib/publish-history/project-publish-revision-loader";
+import {
   DRIVE_PROJECT_TITLE_MAX_LENGTH,
   DriveApiError,
   DriveProjectAssetSaveError,
@@ -489,6 +495,15 @@ type AppContextValue = {
   createWorkspace: () => void;
   checkProject: () => void;
   selectProject: (projectId: string) => void;
+  listProjectPublishRevisionsForProject: (
+    projectId: string,
+    signal: AbortSignal,
+  ) => Promise<ListProjectPublishRevisionsResult>;
+  loadProjectPublishRevisionForProject: (
+    projectId: string,
+    revisionId: string,
+    signal: AbortSignal,
+  ) => Promise<LoadProjectPublishRevisionResult>;
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
   updateProjectSlideCaption: (slideId: string, caption: string) => void;
@@ -4608,6 +4623,72 @@ export function AppProviders({ children }: { children: ReactNode }) {
     });
   }
 
+  async function listProjectPublishRevisionsForProject(
+    projectId: string,
+    signal: AbortSignal,
+  ): Promise<ListProjectPublishRevisionsResult> {
+    const accessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+
+    if (
+      !accessToken ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      !workspace ||
+      !project ||
+      project.projectId !== projectId
+    ) {
+      return {
+        ok: false,
+        code: "driveReadFailed",
+        message: "公開履歴を読み込む準備ができていません。",
+      };
+    }
+
+    return listProjectPublishRevisions({
+      accessToken,
+      workspaceId: workspace.workspaceId,
+      projectId,
+      projectFolderId: project.projectFolderId,
+      signal,
+    });
+  }
+
+  async function loadProjectPublishRevisionForProject(
+    projectId: string,
+    revisionId: string,
+    signal: AbortSignal,
+  ): Promise<LoadProjectPublishRevisionResult> {
+    const accessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+
+    if (
+      !accessToken ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      !workspace ||
+      !project ||
+      project.projectId !== projectId
+    ) {
+      return {
+        ok: false,
+        code: "driveReadFailed",
+        message: "公開履歴を読み込む準備ができていません。",
+      };
+    }
+
+    return loadProjectPublishRevision({
+      accessToken,
+      workspaceId: workspace.workspaceId,
+      projectId,
+      projectFolderId: project.projectFolderId,
+      revisionId,
+      signal,
+    });
+  }
+
   const value: AppContextValue = {
     googleStatus,
     googleStatusLabel: googleStatusLabels[googleStatus],
@@ -4687,6 +4768,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     createWorkspace,
     checkProject,
     selectProject,
+    listProjectPublishRevisionsForProject,
+    loadProjectPublishRevisionForProject,
     createProject,
     updateSelectedProjectTitle,
     updateProjectSlideCaption,
