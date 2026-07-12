@@ -33,6 +33,16 @@ import { DriveStatusSummary } from "@/components/drive-status-summary";
 import type { OfflinePlaybackSlide } from "@/lib/offline-playback-snapshot";
 import { useAppState } from "@/app/app-providers";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
+import {
+  canApplyRemoteVideoResult,
+  canRetryRemoteVideoPlayback,
+  createRemoteVideoRetryOwnerKey,
+  getPlayerVideoUnavailableCopy,
+  getPlayerVideoUnavailableReason,
+  getRemoteVideoRetryGuidance,
+  isCurrentVideoSourceIdentity,
+  type PlayerRemoteVideoRetryStatus,
+} from "./player-video-playback-state";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
 const PLAYER_CONTROLS_HIDE_DELAY_MS = 4_000;
@@ -79,11 +89,6 @@ type PlayerSlideVideo = {
 type PlayerSlideMediaKind = "image" | "video" | "unsupported";
 type PlayerSlideImageStatus = "idle" | "ready" | "error";
 type PlayerSlideVideoStatus = "idle" | "ready" | "error";
-type PlayerVideoUnavailableReason =
-  | "remoteOffline"
-  | "remoteConnectionRequired"
-  | "playbackFailed";
-type PlayerRemoteVideoRetryStatus = "idle" | "retrying" | "failed";
 type PlayerRemoteVideoRetryState = {
   ownerKey: string | null;
   status: PlayerRemoteVideoRetryStatus;
@@ -279,6 +284,7 @@ export default function PlayerPage() {
   const releasedRemoteVideoSessionIdsRef = useRef(new Set<string>());
   const remoteVideoRetryInFlightRef = useRef(false);
   const remoteVideoRetrySlideKeyRef = useRef<string | null>(null);
+  const remoteVideoRetryGenerationRef = useRef(0);
   const handledVideoSlideAdvanceRef =
     useRef<PlayerVideoSlideAdvanceIntent | null>(null);
   const videoFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -617,10 +623,11 @@ export default function PlayerPage() {
   const currentSlidePlaybackKey = currentSlide
     ? getPlayerSlidePlaybackKey(currentSlide)
     : null;
-  const currentRemoteVideoRetryOwnerKey =
-    readySnapshot && currentSlidePlaybackKey
-      ? `${readySnapshot.projectId}:${readySnapshot.syncedAt}:${currentSlidePlaybackKey}`
-      : null;
+  const currentRemoteVideoRetryOwnerKey = createRemoteVideoRetryOwnerKey({
+    projectKey: readySnapshot?.projectId ?? null,
+    snapshotKey: readySnapshot?.syncedAt ?? null,
+    slideKey: currentSlidePlaybackKey,
+  });
   const remoteVideoRetryStatus =
     remoteVideoRetryState.ownerKey === currentRemoteVideoRetryOwnerKey
       ? remoteVideoRetryState.status
@@ -699,18 +706,30 @@ export default function PlayerPage() {
   const videoUnavailableCopy = getPlayerVideoUnavailableCopy(
     videoUnavailableReason,
   );
-  const canRetryCurrentRemoteVideo =
-    isCurrentRemoteVideo &&
-    (videoStatus === "error" || onlineVideoPlaybackStatus === "error") &&
-    isOnline === true &&
-    googleStatus === "connected" &&
-    remoteVideoRetryStatus !== "retrying";
+  const canRetryCurrentRemoteVideo = canRetryRemoteVideoPlayback({
+    isRemoteVideo: isCurrentRemoteVideo,
+    hasPlaybackError:
+      videoStatus === "error" || onlineVideoPlaybackStatus === "error",
+    isOnline,
+    isGoogleConnected: googleStatus === "connected",
+    isRetrying: remoteVideoRetryStatus === "retrying",
+    ownerMatches: currentRemoteVideoRetryOwnerKey !== null,
+  });
 
   const completeRemoteVideoRetry = useCallback(
-    (ownerKey: string, status: "idle" | "failed") => {
-      if (
-        remoteVideoRetrySlideKeyRef.current !== ownerKey
-      ) {
+    (
+      ownerKey: string,
+      generation: number,
+      status: "idle" | "failed",
+      isCancelled = false,
+    ) => {
+      if (!canApplyRemoteVideoResult({
+        expectedOwnerKey: ownerKey,
+        currentOwnerKey: remoteVideoRetrySlideKeyRef.current,
+        expectedGeneration: generation,
+        currentGeneration: remoteVideoRetryGenerationRef.current,
+        isCancelled,
+      })) {
         return;
       }
 
@@ -773,7 +792,9 @@ export default function PlayerPage() {
     setVideoDiagnosticsVisible(false);
     clearPlayerTimeout(videoFallbackTimeoutRef);
     handledVideoSlideAdvanceRef.current = null;
-    setRemoteVideoRetryGeneration((current) => current + 1);
+    const nextGeneration = remoteVideoRetryGenerationRef.current + 1;
+    remoteVideoRetryGenerationRef.current = nextGeneration;
+    setRemoteVideoRetryGeneration(nextGeneration);
   }, [
     currentSlidePlaybackKey,
     currentRemoteVideoRetryOwnerKey,
@@ -1070,6 +1091,7 @@ export default function PlayerPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const setupGeneration = remoteVideoRetryGeneration;
 
     if (
       !isCurrentRemoteVideo ||
@@ -1105,7 +1127,12 @@ export default function PlayerPage() {
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
-        completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "idle");
+        completeRemoteVideoRetry(
+          currentRemoteVideoRetryOwnerKey,
+          setupGeneration,
+          "idle",
+          cancelled,
+        );
       });
       return () => {
         cancelled = true;
@@ -1124,7 +1151,12 @@ export default function PlayerPage() {
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
-        completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "idle");
+        completeRemoteVideoRetry(
+          currentRemoteVideoRetryOwnerKey,
+          setupGeneration,
+          "idle",
+          cancelled,
+        );
       });
       return () => {
         cancelled = true;
@@ -1145,7 +1177,12 @@ export default function PlayerPage() {
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
-        completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "failed");
+        completeRemoteVideoRetry(
+          currentRemoteVideoRetryOwnerKey,
+          setupGeneration,
+          "failed",
+          cancelled,
+        );
       });
       return () => {
         cancelled = true;
@@ -1189,7 +1226,12 @@ export default function PlayerPage() {
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
-        completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "failed");
+        completeRemoteVideoRetry(
+          currentRemoteVideoRetryOwnerKey,
+          setupGeneration,
+          "failed",
+          cancelled,
+        );
         return;
       }
 
@@ -1212,7 +1254,12 @@ export default function PlayerPage() {
       setVideoStatus("ready");
       setOnlineVideoPlaybackStatus("registered");
       setOnlineVideoPlaybackMessage("stream session: registered");
-      completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "idle");
+      completeRemoteVideoRetry(
+        currentRemoteVideoRetryOwnerKey,
+        setupGeneration,
+        "idle",
+        cancelled,
+      );
 
       void probeRemoteVideoStream(sourceUrl, probeController.signal).then(
         (diagnostics) => {
@@ -1272,7 +1319,10 @@ export default function PlayerPage() {
     slideKey: string,
     sourceUrl: string,
   ) => {
-    if (displayedSlideVideoRef.current?.sourceUrl !== sourceUrl) {
+    if (!isCurrentVideoSourceIdentity(
+      displayedSlideVideoRef.current?.sourceUrl ?? null,
+      sourceUrl,
+    )) {
       return;
     }
 
@@ -1291,7 +1341,10 @@ export default function PlayerPage() {
     slideKey: string,
     sourceUrl: string,
   ) => {
-    if (displayedSlideVideoRef.current?.sourceUrl !== sourceUrl) {
+    if (!isCurrentVideoSourceIdentity(
+      displayedSlideVideoRef.current?.sourceUrl ?? null,
+      sourceUrl,
+    )) {
       return;
     }
 
@@ -1315,7 +1368,10 @@ export default function PlayerPage() {
     ) => {
       if (
         currentVideoSlideKeyRef.current !== slideKey ||
-        displayedSlideVideoRef.current?.sourceUrl !== sourceUrl
+        !isCurrentVideoSourceIdentity(
+          displayedSlideVideoRef.current?.sourceUrl ?? null,
+          sourceUrl,
+        )
       ) {
         return;
       }
@@ -1338,7 +1394,10 @@ export default function PlayerPage() {
     ) => {
       if (
         currentVideoSlideKeyRef.current !== slideKey ||
-        displayedSlideVideoRef.current?.sourceUrl !== sourceUrl
+        !isCurrentVideoSourceIdentity(
+          displayedSlideVideoRef.current?.sourceUrl ?? null,
+          sourceUrl,
+        )
       ) {
         return;
       }
@@ -3205,90 +3264,6 @@ function PlayerVideoFallback({
       ) : null}
     </div>
   );
-}
-
-function getPlayerVideoUnavailableReason({
-  isCurrentRemoteVideo,
-  isOnline,
-}: {
-  isCurrentRemoteVideo: boolean;
-  isOnline: boolean | null;
-}): PlayerVideoUnavailableReason {
-  if (isCurrentRemoteVideo && isOnline === false) {
-    return "remoteOffline";
-  }
-
-  if (isCurrentRemoteVideo) {
-    return "remoteConnectionRequired";
-  }
-
-  return "playbackFailed";
-}
-
-function getPlayerVideoUnavailableCopy(reason: PlayerVideoUnavailableReason) {
-  switch (reason) {
-    case "remoteOffline":
-      return {
-        badge: "オンライン再生専用",
-        title: "この動画はオンライン再生が必要です",
-        description:
-          "この端末には動画本体を保存していないため、オフラインでは再生できません。インターネット接続を確認してから再度開くか、前後のスライドへ移動してください。",
-      };
-
-    case "remoteConnectionRequired":
-      return {
-        badge: "オンライン動画",
-        title: "動画を再生できませんでした",
-        description:
-          "インターネット接続とGoogle接続を確認してください。この動画はオンライン時にDriveから再生します。",
-      };
-
-    case "playbackFailed":
-      return {
-        title: "この動画を再生できませんでした",
-        description:
-          "前後のスライドへ移動するか、管理画面でoffline syncの状態を確認してください。",
-      };
-
-    default:
-      return assertNeverPlayerVideoUnavailableReason(reason);
-  }
-}
-
-function getRemoteVideoRetryGuidance({
-  isCurrentRemoteVideo,
-  isOnline,
-  googleStatus,
-  retryStatus,
-}: {
-  isCurrentRemoteVideo: boolean;
-  isOnline: boolean | null;
-  googleStatus: string;
-  retryStatus: PlayerRemoteVideoRetryStatus;
-}): string | null {
-  if (!isCurrentRemoteVideo) {
-    return null;
-  }
-
-  if (retryStatus === "retrying") {
-    return "動画の再接続を試みています。";
-  }
-
-  if (isOnline !== true) {
-    return "オンライン接続後に再試行できます。";
-  }
-
-  if (googleStatus !== "connected") {
-    return "設定画面でGoogle接続を確認してください。";
-  }
-
-  return retryStatus === "failed"
-    ? "再接続できませんでした。接続を確認して再試行してください。"
-    : "接続を確認してから再試行してください。";
-}
-
-function assertNeverPlayerVideoUnavailableReason(reason: never): never {
-  throw new Error(`Unexpected player video unavailable reason: ${reason}`);
 }
 
 function ProductionModeOverlay({

@@ -490,6 +490,12 @@ Phase 6Cでまだ実装していないこと:
 - retryでproduction mode、interaction lock、mute状態を変更しない。retry失敗後もボタンを再度利用でき、前後移動を残して自動nextしない。
 - test runnerは導入せず、既存のlint、production build、生成HTMLのvisual state確認を使用する。
 
+2026-07-12 Phase 6U実施範囲:
+
+- remote videoのunavailable reason、retry可否、owner / generation一致、source identity判定をReactやbrowser APIに依存しないpure helperへ分離する。
+- VitestのNode環境でpure helperだけをunit testし、DOM、Service Worker、Google API、IndexedDB、Drive通信はmockしない。
+- visual-checkは引き続きUI状態とアクセシビリティ表示の確認に使い、remote streamingのruntime integrationはproduction / iPad確認対象として残す。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。
