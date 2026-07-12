@@ -674,6 +674,53 @@ type DriveFilesListResponse = {
   nextPageToken?: unknown;
 };
 
+export type DriveReadOnlyFileListPage = {
+  files: DriveFileCandidate[];
+  nextPageToken: string | null;
+};
+
+export async function listDriveFilesReadOnlyPage(input: {
+  accessToken: string;
+  query: string;
+  pageSize: number;
+  pageToken?: string;
+  fields: string;
+  signal: AbortSignal;
+}): Promise<DriveReadOnlyFileListPage> {
+  const params = new URLSearchParams({
+    corpora: "user",
+    spaces: "drive",
+    pageSize: String(input.pageSize),
+    fields: `nextPageToken,files(${input.fields})`,
+    q: input.query,
+  });
+  if (input.pageToken) params.set("pageToken", input.pageToken);
+
+  const response = await fetch(`${DRIVE_API_FILES_URL}?${params.toString()}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${input.accessToken}` },
+    signal: input.signal,
+  });
+  if (!response.ok) throw new DriveApiError(response.status);
+
+  const body = (await response.json()) as DriveFilesListResponse;
+  return {
+    files: Array.isArray(body.files)
+      ? body.files
+          .map(normalizeDriveFile)
+          .filter((file): file is DriveFileCandidate => file !== null)
+      : [],
+    nextPageToken:
+      typeof body.nextPageToken === "string" && body.nextPageToken.length > 0
+        ? body.nextPageToken
+        : null,
+  };
+}
+
+export function escapeDriveReadOnlyQueryValue(value: string) {
+  return escapeDriveQueryValue(value);
+}
+
 type DriveCreateMetadata = {
   name: string;
   mimeType: string;

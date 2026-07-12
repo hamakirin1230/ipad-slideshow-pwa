@@ -172,14 +172,14 @@ checksumは2種類を区別する。`manifestContentHash` はcanonical JSONのFN
 projects/{projectId}/
 ├─ manifest.json                 # mutable current manifest
 ├─ assets/
-└─ history/                     # role: projectHistoryRoot
+└─ history/                     # role: projectHistory
    └─ revisions/
-      └─ {publishedAt}-{suffix}.json
+      └─ {revisionId}.json
 ```
 
 初期実装をさらに小さくする場合、`revisions/` を省略してrevision fileを `history/` 直下へ置いてよい。ただし構造は最初に固定し、後から混在させない。本設計の推奨は将来のorphan / operation記録拡張を妨げない二階層である。
 
-追加するDrive roleは `projectHistoryRoot`、`projectHistoryRevisionsRoot`、`projectPublishRevision` とする。各itemに `app`、`role`、`schemaVersion`、`workspaceId`、`projectId` を付与し、revision fileには検索用 `revisionId`、`operationId` も付ける。revision本文にも同じ値を持たせ、metadataと本文の一致を検証する。
+追加するDrive roleは既存のcamelCase命名に合わせて `projectHistory`、`projectPublishRevisions`、`projectPublishRevision` とする。各itemに `app`、`role`、`schemaVersion`、`workspaceId`、`projectId` を付与し、revision fileには検索・一覧用 `revisionId`、`operation`、`publishedAt` も付ける。revision本文を正本とし、metadataと本文の一致を検証する。
 
 検索は親folder + app + role + workspaceId + projectIdで行う。history必須folderは候補0件なら未導入、1件なら検証、2件以上ならduplicateとして書込みを停止する。revision一覧はparentとroleでpage取得し、初期UIは最新50件だけ表示する。Drive上では削除せず、取得上限と保存保持を混同しない。
 
@@ -451,3 +451,7 @@ read-only Drive loaderとrole検索は、そのpure foundationがtestで固定�
 ### Goal 5-1A 実装結果
 
 Goal 5-1AではschemaVersion 1のpure revision schema、既存manifest validatorを再利用するparser、summary / asset整合性検証、canonical JSON、FNV-1a 64-bit canonical hash、pure revision ID helperを実装した。hashは変更検知用でありsecurity用途ではない。Drive loader / role metadata、current manifest schema変更、Drive read / write、UIはまだ実装していない。
+
+### Goal 5-1B 実装結果
+
+Goal 5-1Bでは既存の履歴構造だけを読むDrive loaderを追加した。`projectHistory` / `projectPublishRevisions` / `projectPublishRevision` roleを厳格検証し、folderやrevision IDの重複時は自動選択しない。一覧は最新50件までのmetadataだけをpage取得し、本文は詳細取得時だけschemaとmetadataの一致を検証する。revision Drive file IDとraw errorはpublic resultへ返さない。folder / file作成、Drive write / delete、`currentRevisionId`、UIはまだ実装していない。
