@@ -2,7 +2,7 @@
 
 iPadで安定して本番再生するためのスライドショーPWAです。
 
-PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、iPad側ではDriveから取得した再生用コピーをIndexedDBに保存して、offline-firstで再生します。最優先は、学校現場・イベント現場で本番中に止まらないことです。
+PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、iPad側ではDriveから取得した再生用コピーをIndexedDBに保存して、offline-firstで再生します。大容量動画は端末へ本体保存せず、online時にDrive streamingで再生します。最優先は、学校現場・イベント現場で本番中に止まらないことです。
 
 ## 現在の到達点
 
@@ -36,6 +36,14 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
 - `/admin/` で選択中projectのunused Drive asset cleanup preview / readiness / preflight / confirm previewを表示
 - cleanup preview / preflight / confirm previewはread-onlyで、Drive file、Player snapshot、IndexedDBを変更しない
+- `/admin/` からローカル動画をDrive assetとして追加し、動画slideをmanifestへ保存
+- offline保存対象assetの上限を50MBとし、上限超過動画は`remoteOnly` metadataとしてconfirmed storeへ保持
+- remoteOnly動画をonlineかつGoogle接続済みの場合にDrive streamingで再生
+- 画像／動画混在再生、offline Blob動画、動画slideごとのduration override
+- remote video再生失敗時の手動retryと、slide / project / snapshot変更時のstale result guard
+- retry可否、owner key、generation、source identityをpure helper化し、Vitest 1 file / 22 testsで検証
+- mainへのpush、pull request、手動実行でtest / lint / production buildを行うGitHub Actions CI
+- GitHub Pagesの手動deployでもtest / lint / build成功後にartifactをdeploy
 
 ## 公開URL
 
@@ -49,8 +57,8 @@ https://ipad-slideshow-pwa.vercel.app/
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、Photos Picker batch素材追加、unused Drive asset cleanup preview / readiness / preflight / confirm preview、画像順変更、複数slide削除、slide複製、テロップ編集、offline sync、confirmed store、storage管理
-- `/player` iPad offline-first再生、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
+- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview
+- `/player` 画像／Blob保存済み動画のoffline-first再生、remoteOnly動画のonline Drive streaming、remote video手動retry、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
 - `/auth-test` OAuth単体確認用の開発ページ
 
 ## 重要な運用方針
@@ -70,11 +78,26 @@ https://ipad-slideshow-pwa.vercel.app/
 - Drive上のslide削除・複製をiPad再生へ反映するにも、対象projectのoffline syncを実行する
 - Drive cleanup preview / readiness / preflight / confirm previewはread-onlyで、Player snapshotやIndexedDBを変更しない
 - Drive fileの物理削除とDrive file delete APIはまだ実装しない
+- offline保存対象assetの上限は50MBとし、これは端末ストレージ全体の上限ではない
+- 上限超過動画は`remoteOnly`としてmetadataのみをconfirmed storeへ保持し、動画本体はIndexedDBへ保存しない
+- remoteOnly動画はofflineでは再生できず、onlineかつGoogle接続済みの場合だけDrive streamingで再生する
+- online復帰やGoogle再接続だけでは自動retryせず、再生失敗時はユーザー操作による手動retryを使う
+- 動画はmuted autoplayを基本とし、自動unmuteしない
+- streamingの内部識別子や取得先をUI、docs、consoleへ出さない
 
 ## ローカル起動
 
+このリポジトリは`pnpm@10.34.4`を使用します。
+
+Corepackを利用する場合の初回install:
+
 ```bash
-npm run dev
+corepack enable
+pnpm install --frozen-lockfile
+```
+
+```bash
+pnpm dev
 ```
 
 ローカル確認URL:
@@ -86,19 +109,40 @@ http://localhost:3000/
 ## ビルド確認
 
 ```bash
-npm run lint
-npm run build
+pnpm test
+pnpm lint
+pnpm build
 ```
 
-`next/font` がGoogle Fontsをビルド時に取得するため、ネットワーク制限下では`npm run build`がFonts取得で失敗することがあります。
+Corepackを使わない環境では、`npx -y pnpm@10 <command>`でも同じpnpm 10系の検証を実行できます。
+
+`next/font`がGoogle Fontsをビルド時に取得するため、ネットワーク制限下では`pnpm build`がFonts取得で失敗することがあります。
+
+## CI
+
+mainへのpush、pull request、手動実行でGitHub ActionsのCIが動きます。
+
+実行内容:
+
+1. `pnpm install --frozen-lockfile`
+2. `pnpm test`
+3. `pnpm lint`
+4. `pnpm build`
+
+workflow名は`CI`、job名は`Test, lint, and build`です。branch protection / Rulesetsでrequired checkにする設定はGitHub側の別作業です。
+
+GitHub Pagesは手動deployの位置づけで、同じtest / lintを通過してからPages用buildとdeployを行います。主productionはVercelです。
 
 ## 次の作業候補
 
 - README以外の古い設計docsを、現行方針と履歴に分けて整理する
-- 動画再生、公開履歴、ロールバックを順番に追加する
+- 公開履歴の現在データ構造を監査し、read-only一覧を設計する
+- 公開履歴からのrollback対象、復元範囲、Drive整合性を設計する
+- iPad実機でremoteOnly動画の再生失敗と手動retryを運用確認する
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-07-12-video-playback-retry-tests-ci-handoff.md`
 - `docs/handoffs/2026-06-22-vercel-existing-production-confirmation-handoff.md`
 - `docs/handoffs/2026-06-13-unused-asset-delete-preflight-handoff.md`
 - `docs/handoffs/2026-06-13-unused-asset-delete-readiness-ui-handoff.md`
