@@ -60,6 +60,8 @@ const unavailableStateMocks: Array<{
   retryLabel?: string;
   retryGuidance?: string;
   retryDisabled?: boolean;
+  showNavigation?: boolean;
+  isNormalState?: boolean;
 }> = [
   {
     state: "remote / offline",
@@ -98,19 +100,52 @@ const unavailableStateMocks: Array<{
     retryGuidance: "再接続できませんでした。接続を確認して再試行してください。",
   },
   {
+    state: "retrying -> offline",
+    badge: "オンライン再生専用",
+    title: "この動画はオンライン再生が必要です",
+    description: "進行中の再接続結果は反映せず、オフライン用の案内へ戻ります。",
+    retryLabel: "再試行",
+    retryGuidance: "オンライン接続後に再試行できます。",
+    retryDisabled: true,
+  },
+  {
+    state: "retrying -> Google disconnected",
+    badge: "オンライン動画",
+    title: "動画を再生できませんでした",
+    description: "進行中の再接続結果は反映せず、Google接続の確認を案内します。",
+    retryLabel: "再試行",
+    retryGuidance: "設定画面でGoogle接続を確認してください。",
+    retryDisabled: true,
+  },
+  {
+    state: "retrying -> another slide",
+    title: "別のスライドへ移動済み",
+    description: "移動前のretry状態と非同期結果は、このスライドへ持ち越しません。",
+    showNavigation: false,
+    isNormalState: true,
+  },
+  {
     state: "offline Blob / error",
     title: "この動画を再生できませんでした",
     description:
       "前後のスライドへ移動するか、管理画面でoffline syncの状態を確認してください。",
   },
   {
-    state: "production mode / remote offline",
-    badge: "オンライン再生専用",
-    title: "この動画はオンライン再生が必要です",
+    state: "production mode / retrying",
+    badge: "オンライン動画",
+    title: "動画を再生できませんでした",
     description:
-      "通常controlsが非表示でも、再生不能から退避するための前後移動だけを表示します。",
-    retryLabel: "再試行",
-    retryGuidance: "接続を確認してから再試行してください。",
+      "通常controlsとlock状態は変更せず、再接続状態と退避操作だけを表示します。",
+    retryLabel: "再接続中…",
+    retryGuidance: "動画の再接続を試みています。",
+    retryDisabled: true,
+  },
+  {
+    state: "retry success / normal playback",
+    title: "通常再生へ復帰",
+    description: "retry、alert、diagnosticsは表示せず、既存のmuted autoplayへ戻ります。",
+    showNavigation: false,
+    isNormalState: true,
   },
 ];
 
@@ -354,12 +389,32 @@ export default function PlayerVideoControlsVisualCheckPage() {
                     {mock.badge}
                   </Badge>
                 ) : null}
-                <p className="mt-3 font-semibold">{mock.title}</p>
-                <p className="mt-2 text-sm leading-6 text-amber-900">
-                  {mock.description}
-                </p>
+                <div
+                  role={mock.isNormalState ? undefined : "alert"}
+                  aria-atomic={mock.isNormalState ? undefined : "true"}
+                >
+                  <p className="mt-3 font-semibold">{mock.title}</p>
+                  <p className="mt-2 text-sm leading-6 text-amber-900">
+                    {mock.description}
+                  </p>
+                </div>
                 {mock.retryGuidance ? (
-                  <p className="mt-2 text-sm font-medium text-amber-900">
+                  <p
+                    className="mt-2 text-sm font-medium text-amber-900"
+                    role={
+                      mock.retryLabel === "再接続中…"
+                        ? "status"
+                        : mock.state === "remote / retry failed"
+                          ? "alert"
+                          : undefined
+                    }
+                    aria-live={
+                      mock.retryLabel === "再接続中…" ? "polite" : undefined
+                    }
+                    aria-atomic={
+                      mock.retryLabel === "再接続中…" ? "true" : undefined
+                    }
+                  >
                     {mock.retryGuidance}
                   </p>
                 ) : null}
@@ -373,16 +428,18 @@ export default function PlayerVideoControlsVisualCheckPage() {
                     {mock.retryLabel}
                   </Button>
                 ) : null}
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button type="button" variant="secondary">
-                    <ChevronLeft className="size-4" />
-                    前のスライド
-                  </Button>
-                  <Button type="button" variant="secondary">
-                    次のスライド
-                    <ChevronRight className="size-4" />
-                  </Button>
-                </div>
+                {mock.showNavigation === false ? null : (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button type="button" variant="secondary">
+                      <ChevronLeft className="size-4" />
+                      前のスライド
+                    </Button>
+                    <Button type="button" variant="secondary">
+                      次のスライド
+                      <ChevronRight className="size-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </CardContent>

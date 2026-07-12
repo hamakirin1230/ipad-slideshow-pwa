@@ -480,6 +480,16 @@ Phase 6Cでまだ実装していないこと:
 - retry失敗時も自動nextしない。一般案内と手動再試行、前後移動を残し、内部識別子やraw errorは表示しない。
 - diagnosticsは通常時非表示のままとし、Service Worker、session TTL、offline sync、50MB上限、remoteOnly形式は変更しない。
 
+2026-07-12 Phase 6T実施範囲:
+
+- retry stateはproject、snapshot同期時刻、slideの組み合わせをowner keyとして現在slideだけに所属させる。owner変更時は表示上ただちにidleとして扱い、進行中refとfallback timeoutを解除する。
+- slide / project / snapshot変更、offline化、Google切断ではremote setup effectのcleanupで進行中結果をcancelし、offlineまたは未接続時の通常案内へ戻す。接続復帰だけで自動retryしない。
+- remote session cleanupは対象をローカル変数へ退避し、現在refと一致する場合だけnull化する。同じsessionの解除済み状態を記録して二重解除を避け、新session refへ影響させない。
+- video eventはslide keyに加えて内部のvideo source identityが現在表示中videoと一致する場合だけ親stateを更新する。古いended、timeupdate、error、timeout、media diagnosticsをretry後へ反映しない。
+- retrying文言はpolite live region、retry失敗文言はalertで通知する。内部ID、取得先、raw error、Range値、diagnostics全文はlive regionへ含めない。
+- retryでproduction mode、interaction lock、mute状態を変更しない。retry失敗後もボタンを再度利用でき、前後移動を残して自動nextしない。
+- test runnerは導入せず、既存のlint、production build、生成HTMLのvisual state確認を使用する。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

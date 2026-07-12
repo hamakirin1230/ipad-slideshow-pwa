@@ -84,6 +84,10 @@ type PlayerVideoUnavailableReason =
   | "remoteConnectionRequired"
   | "playbackFailed";
 type PlayerRemoteVideoRetryStatus = "idle" | "retrying" | "failed";
+type PlayerRemoteVideoRetryState = {
+  ownerKey: string | null;
+  status: PlayerRemoteVideoRetryStatus;
+};
 type PlayerVideoSlideAdvanceIntent = "next" | "fallback";
 type OnlineVideoPlaybackStatus =
   | "idle"
@@ -260,8 +264,8 @@ export default function PlayerPage() {
   const [remoteVideoMediaDiagnostics, setRemoteVideoMediaDiagnostics] =
     useState<RemoteVideoMediaDiagnostics | null>(null);
   const [videoDiagnosticsVisible, setVideoDiagnosticsVisible] = useState(false);
-  const [remoteVideoRetryStatus, setRemoteVideoRetryStatus] =
-    useState<PlayerRemoteVideoRetryStatus>("idle");
+  const [remoteVideoRetryState, setRemoteVideoRetryState] =
+    useState<PlayerRemoteVideoRetryState>({ ownerKey: null, status: "idle" });
   const [remoteVideoRetryGeneration, setRemoteVideoRetryGeneration] =
     useState(0);
   const [slideTransitionDirection, setSlideTransitionDirection] =
@@ -272,6 +276,7 @@ export default function PlayerPage() {
   const displayedSlideVideoRef = useRef<PlayerSlideVideo | null>(null);
   const currentVideoSlideKeyRef = useRef<string | null>(null);
   const remoteVideoSessionIdRef = useRef<string | null>(null);
+  const releasedRemoteVideoSessionIdsRef = useRef(new Set<string>());
   const remoteVideoRetryInFlightRef = useRef(false);
   const remoteVideoRetrySlideKeyRef = useRef<string | null>(null);
   const handledVideoSlideAdvanceRef =
@@ -612,6 +617,14 @@ export default function PlayerPage() {
   const currentSlidePlaybackKey = currentSlide
     ? getPlayerSlidePlaybackKey(currentSlide)
     : null;
+  const currentRemoteVideoRetryOwnerKey =
+    readySnapshot && currentSlidePlaybackKey
+      ? `${readySnapshot.projectId}:${readySnapshot.syncedAt}:${currentSlidePlaybackKey}`
+      : null;
+  const remoteVideoRetryStatus =
+    remoteVideoRetryState.ownerKey === currentRemoteVideoRetryOwnerKey
+      ? remoteVideoRetryState.status
+      : "idle";
   const remoteVideoSlideCount =
     readySnapshot?.slides.filter(
       (slide) => slide.offlineAvailability === "remoteOnly",
@@ -694,26 +707,47 @@ export default function PlayerPage() {
     remoteVideoRetryStatus !== "retrying";
 
   const completeRemoteVideoRetry = useCallback(
-    (slideKey: string, status: "idle" | "failed") => {
+    (ownerKey: string, status: "idle" | "failed") => {
       if (
-        remoteVideoRetrySlideKeyRef.current !== slideKey ||
-        currentVideoSlideKeyRef.current !== slideKey
+        remoteVideoRetrySlideKeyRef.current !== ownerKey
       ) {
         return;
       }
 
       remoteVideoRetryInFlightRef.current = false;
       remoteVideoRetrySlideKeyRef.current = null;
-      setRemoteVideoRetryStatus(status);
+      setRemoteVideoRetryState({ ownerKey, status });
     },
     [],
   );
 
+  const releaseRemoteVideoSession = useCallback(
+    (targetSessionId: string | null = remoteVideoSessionIdRef.current) => {
+      if (!targetSessionId) {
+        return;
+      }
+
+      if (remoteVideoSessionIdRef.current === targetSessionId) {
+        remoteVideoSessionIdRef.current = null;
+      }
+
+      if (releasedRemoteVideoSessionIdsRef.current.has(targetSessionId)) {
+        return;
+      }
+
+      releasedRemoteVideoSessionIdsRef.current.add(targetSessionId);
+      unregisterDriveVideoPlaybackSession(targetSessionId);
+    },
+    [unregisterDriveVideoPlaybackSession],
+  );
+
   const retryRemoteVideoPlayback = useCallback(() => {
     const slideKey = currentSlidePlaybackKey;
+    const ownerKey = currentRemoteVideoRetryOwnerKey;
 
     if (
       !slideKey ||
+      !ownerKey ||
       currentVideoSlideKeyRef.current !== slideKey ||
       !isCurrentRemoteVideo ||
       (videoStatus !== "error" && onlineVideoPlaybackStatus !== "error") ||
@@ -725,14 +759,10 @@ export default function PlayerPage() {
     }
 
     remoteVideoRetryInFlightRef.current = true;
-    remoteVideoRetrySlideKeyRef.current = slideKey;
-    setRemoteVideoRetryStatus("retrying");
+    remoteVideoRetrySlideKeyRef.current = ownerKey;
+    setRemoteVideoRetryState({ ownerKey, status: "retrying" });
 
-    const currentSessionId = remoteVideoSessionIdRef.current;
-    remoteVideoSessionIdRef.current = null;
-    if (currentSessionId) {
-      unregisterDriveVideoPlaybackSession(currentSessionId);
-    }
+    releaseRemoteVideoSession();
 
     revokeSlideVideo(displayedSlideVideoRef.current);
     displayedSlideVideoRef.current = null;
@@ -746,11 +776,12 @@ export default function PlayerPage() {
     setRemoteVideoRetryGeneration((current) => current + 1);
   }, [
     currentSlidePlaybackKey,
+    currentRemoteVideoRetryOwnerKey,
     googleStatus,
     isCurrentRemoteVideo,
     isOnline,
     onlineVideoPlaybackStatus,
-    unregisterDriveVideoPlaybackSession,
+    releaseRemoteVideoSession,
     videoStatus,
   ]);
 
@@ -760,11 +791,14 @@ export default function PlayerPage() {
     clearPlayerTimeout(videoFallbackTimeoutRef);
     queueMicrotask(() => {
       setVideoDiagnosticsVisible(false);
-      setRemoteVideoRetryStatus("idle");
+      setRemoteVideoRetryState({
+        ownerKey: currentRemoteVideoRetryOwnerKey,
+        status: "idle",
+      });
     });
     remoteVideoRetryInFlightRef.current = false;
     remoteVideoRetrySlideKeyRef.current = null;
-  }, [currentSlidePlaybackKey]);
+  }, [currentRemoteVideoRetryOwnerKey, currentSlidePlaybackKey]);
 
   useEffect(() => {
     if (videoStatus === "error" || onlineVideoPlaybackStatus === "error") {
@@ -1035,15 +1069,18 @@ export default function PlayerPage() {
   ]);
 
   useEffect(() => {
+    let cancelled = false;
+
     if (
       !isCurrentRemoteVideo ||
       !currentSlide ||
       !currentSlidePlaybackKey ||
+      !currentRemoteVideoRetryOwnerKey ||
       !currentSlideImageSlideId ||
       !currentSlideImageAssetId
     ) {
       queueMicrotask(() => {
-        if (!isCurrentRemoteVideo) {
+        if (!cancelled && !isCurrentRemoteVideo) {
           setOnlineVideoPlaybackStatus("idle");
           setOnlineVideoPlaybackMessage("online video playback: enabled");
           setRemoteVideoStreamDiagnostics(null);
@@ -1051,51 +1088,70 @@ export default function PlayerPage() {
           setRemoteVideoMediaDiagnostics(null);
         }
       });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (isOnline === false) {
       queueMicrotask(() => {
+        if (cancelled) {
+          return;
+        }
+
         setOnlineVideoPlaybackStatus("skipped");
         setOnlineVideoPlaybackMessage(
           "online video playback skipped: offline",
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
-        completeRemoteVideoRetry(currentSlidePlaybackKey, "failed");
+        completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "idle");
       });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (googleStatus !== "connected") {
       queueMicrotask(() => {
+        if (cancelled) {
+          return;
+        }
+
         setOnlineVideoPlaybackStatus("skipped");
         setOnlineVideoPlaybackMessage(
           "online video playback skipped: access token missing",
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
-        completeRemoteVideoRetry(currentSlidePlaybackKey, "failed");
+        completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "idle");
       });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     const remoteVideoFileSize = currentSlide.sourceSizeBytes;
 
     if (!isValidRemoteVideoFileSize(remoteVideoFileSize)) {
       queueMicrotask(() => {
+        if (cancelled) {
+          return;
+        }
+
         setOnlineVideoPlaybackStatus("skipped");
         setOnlineVideoPlaybackMessage(
           "online video playback skipped: file size missing",
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
-        completeRemoteVideoRetry(currentSlidePlaybackKey, "failed");
+        completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "failed");
       });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
-    let cancelled = false;
     const sessionId = createPlayerVideoSessionId();
     const sourceUrl = buildPlayerVideoStreamSourceUrl(sessionId);
     const probeController = new AbortController();
@@ -1122,7 +1178,7 @@ export default function PlayerPage() {
       expiresAt: Date.now() + PLAYER_REMOTE_VIDEO_SESSION_TTL_MS,
     }).then((result) => {
       if (cancelled) {
-        unregisterDriveVideoPlaybackSession(sessionId);
+        releaseRemoteVideoSession(sessionId);
         return;
       }
 
@@ -1133,7 +1189,7 @@ export default function PlayerPage() {
         );
         markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
         setVideoStatus("error");
-        completeRemoteVideoRetry(currentSlidePlaybackKey, "failed");
+        completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "failed");
         return;
       }
 
@@ -1156,7 +1212,7 @@ export default function PlayerPage() {
       setVideoStatus("ready");
       setOnlineVideoPlaybackStatus("registered");
       setOnlineVideoPlaybackMessage("stream session: registered");
-      completeRemoteVideoRetry(currentSlidePlaybackKey, "idle");
+      completeRemoteVideoRetry(currentRemoteVideoRetryOwnerKey, "idle");
 
       void probeRemoteVideoStream(sourceUrl, probeController.signal).then(
         (diagnostics) => {
@@ -1170,10 +1226,7 @@ export default function PlayerPage() {
     return () => {
       cancelled = true;
       probeController.abort();
-      unregisterDriveVideoPlaybackSession(sessionId);
-      if (remoteVideoSessionIdRef.current === sessionId) {
-        remoteVideoSessionIdRef.current = null;
-      }
+      releaseRemoteVideoSession(sessionId);
 
       if (displayedSlideVideoRef.current?.sessionId === sessionId) {
         displayedSlideVideoRef.current = null;
@@ -1185,6 +1238,7 @@ export default function PlayerPage() {
     currentSlideImageAssetId,
     currentSlideImageSlideId,
     currentSlidePlaybackKey,
+    currentRemoteVideoRetryOwnerKey,
     currentSlideVideoDurationMs,
     currentSlideDurationSeconds,
     completeRemoteVideoRetry,
@@ -1193,11 +1247,13 @@ export default function PlayerPage() {
     isOnline,
     markVideoSlideAdvanceHandled,
     registerDriveVideoPlaybackSession,
+    releaseRemoteVideoSession,
     remoteVideoRetryGeneration,
-    unregisterDriveVideoPlaybackSession,
   ]);
 
   useEffect(() => {
+    const releasedSessionIds = releasedRemoteVideoSessionIdsRef.current;
+
     return () => {
       clearPlayerTimeout(videoFallbackTimeoutRef);
       clearPlayerTimeout(slideTransitionTimeoutRef);
@@ -1205,13 +1261,21 @@ export default function PlayerPage() {
       revokeSlideImage(displayedSlideImageRef.current);
       revokeSlideVideo(displayedSlideVideoRef.current);
       clearDriveVideoPlaybackSessions();
+      releasedSessionIds.clear();
       previousSlideImageRef.current = null;
       displayedSlideImageRef.current = null;
       displayedSlideVideoRef.current = null;
     };
   }, [clearDriveVideoPlaybackSessions]);
 
-  const handleVideoPlaybackEnded = useCallback((slideKey: string) => {
+  const handleVideoPlaybackEnded = useCallback((
+    slideKey: string,
+    sourceUrl: string,
+  ) => {
+    if (displayedSlideVideoRef.current?.sourceUrl !== sourceUrl) {
+      return;
+    }
+
     setOnlineVideoPlaybackStatus((current) =>
       current === "playing" || current === "registered" ? "idle" : current,
     );
@@ -1223,7 +1287,14 @@ export default function PlayerPage() {
     moveToNextSlide();
   }, [markVideoSlideAdvanceHandled, moveToNextSlide]);
 
-  const handleVideoPlaybackFailure = useCallback((slideKey: string) => {
+  const handleVideoPlaybackFailure = useCallback((
+    slideKey: string,
+    sourceUrl: string,
+  ) => {
+    if (displayedSlideVideoRef.current?.sourceUrl !== sourceUrl) {
+      return;
+    }
+
     if (!markVideoSlideAdvanceHandled(slideKey, "fallback")) {
       return;
     }
@@ -1236,7 +1307,19 @@ export default function PlayerPage() {
   }, [markVideoSlideAdvanceHandled]);
 
   const handleVideoPlaybackMessage = useCallback(
-    (message: string, status: OnlineVideoPlaybackStatus = "playing") => {
+    (
+      slideKey: string,
+      sourceUrl: string,
+      message: string,
+      status: OnlineVideoPlaybackStatus = "playing",
+    ) => {
+      if (
+        currentVideoSlideKeyRef.current !== slideKey ||
+        displayedSlideVideoRef.current?.sourceUrl !== sourceUrl
+      ) {
+        return;
+      }
+
       if (!message.startsWith("online video playback")) {
         return;
       }
@@ -1248,7 +1331,18 @@ export default function PlayerPage() {
   );
 
   const handleRemoteVideoMediaDiagnostics = useCallback(
-    (update: RemoteVideoMediaDiagnosticsUpdate) => {
+    (
+      slideKey: string,
+      sourceUrl: string,
+      update: RemoteVideoMediaDiagnosticsUpdate,
+    ) => {
+      if (
+        currentVideoSlideKeyRef.current !== slideKey ||
+        displayedSlideVideoRef.current?.sourceUrl !== sourceUrl
+      ) {
+        return;
+      }
+
       setRemoteVideoMediaDiagnostics((current) => {
         const events = update.eventName
           ? [...(current?.events ?? []), update.eventName].slice(
@@ -2199,13 +2293,17 @@ function PlayerVideoSlide({
   onToggleDiagnostics,
 }: {
   video: PlayerSlideVideo;
-  onEnded: (slideKey: string) => void;
-  onPlaybackFailure: (slideKey: string) => void;
+  onEnded: (slideKey: string, sourceUrl: string) => void;
+  onPlaybackFailure: (slideKey: string, sourceUrl: string) => void;
   onPlaybackMessage: (
+    slideKey: string,
+    sourceUrl: string,
     message: string,
     status?: OnlineVideoPlaybackStatus,
   ) => void;
   onRemoteMediaDiagnostics: (
+    slideKey: string,
+    sourceUrl: string,
     update: RemoteVideoMediaDiagnosticsUpdate,
   ) => void;
   canGoPrevious: boolean;
@@ -2259,8 +2357,8 @@ function PlayerVideoSlide({
     }
 
     didReportFailureRef.current = true;
-    onPlaybackFailure(slideKey);
-  }, [onPlaybackFailure, slideKey]);
+    onPlaybackFailure(slideKey, video.sourceUrl);
+  }, [onPlaybackFailure, slideKey, video.sourceUrl]);
 
   const revealVideoControls = useCallback(() => {
     setVideoControlsVisible(true);
@@ -2493,7 +2591,7 @@ function PlayerVideoSlide({
         return;
       }
 
-      onRemoteMediaDiagnostics({
+      onRemoteMediaDiagnostics(slideKey, video.sourceUrl, {
         eventName,
         canPlayType: normalizeCanPlayType(
           videoElement.canPlayType("video/mp4"),
@@ -2517,6 +2615,8 @@ function PlayerVideoSlide({
       ? setTimeout(() => {
           if (!metadataLoaded) {
             onPlaybackMessage(
+              slideKey,
+              video.sourceUrl,
               "online video playback error: timeout",
               "error",
             );
@@ -2531,7 +2631,12 @@ function PlayerVideoSlide({
         }
 
         if (isRemoteVideo) {
-          onPlaybackMessage("online video playback error: timeout", "error");
+          onPlaybackMessage(
+            slideKey,
+            video.sourceUrl,
+            "online video playback error: timeout",
+            "error",
+          );
         }
         reportPlaybackFailure();
       }
@@ -2565,7 +2670,12 @@ function PlayerVideoSlide({
         }
 
         if (isRemoteVideo) {
-          onPlaybackMessage("online video playback error: timeout", "error");
+          onPlaybackMessage(
+            slideKey,
+            video.sourceUrl,
+            "online video playback error: timeout",
+            "error",
+          );
         }
 
         reportPlaybackFailure();
@@ -2609,7 +2719,7 @@ function PlayerVideoSlide({
         // The parent slide advance guard owns the transition.
       }
 
-      onEnded(slideKey);
+      onEnded(slideKey, video.sourceUrl);
     };
 
     const handleLoadedMetadata = () => {
@@ -2643,7 +2753,12 @@ function PlayerVideoSlide({
       userPausedRef.current = false;
 
       if (isRemoteVideo) {
-        onPlaybackMessage("online video playback: playing", "playing");
+        onPlaybackMessage(
+          slideKey,
+          video.sourceUrl,
+          "online video playback: playing",
+          "playing",
+        );
       }
     };
 
@@ -2660,7 +2775,12 @@ function PlayerVideoSlide({
           return;
         }
 
-        onPlaybackMessage("online video playback error: timeout", "error");
+        onPlaybackMessage(
+          slideKey,
+          video.sourceUrl,
+          "online video playback error: timeout",
+          "error",
+        );
         reportPlaybackFailure();
       }, PLAYER_REMOTE_VIDEO_STALL_TIMEOUT_MS);
     };
@@ -2723,7 +2843,12 @@ function PlayerVideoSlide({
     if (playResult) {
       playResult.catch(() => {
         if (isRemoteVideo) {
-          onPlaybackMessage("online video playback error: media error", "error");
+          onPlaybackMessage(
+            slideKey,
+            video.sourceUrl,
+            "online video playback error: media error",
+            "error",
+          );
         }
         reportPlaybackFailure();
       });
@@ -2782,7 +2907,7 @@ function PlayerVideoSlide({
           userPausedRef.current = false;
           setVideoPaused(true);
           setVideoBuffering(false);
-          onEnded(slideKey);
+          onEnded(slideKey, video.sourceUrl);
         }}
         onError={() => {
           setVideoHasError(true);
@@ -3021,12 +3146,25 @@ function PlayerVideoFallback({
           {badge}
         </Badge>
       ) : null}
-      <p className="text-lg font-semibold">{title}</p>
-      <p className="mt-3 text-sm leading-6 text-amber-100/80">
-        {description}
-      </p>
+      <div role="alert" aria-atomic="true">
+        <p className="text-lg font-semibold">{title}</p>
+        <p className="mt-3 text-sm leading-6 text-amber-100/80">
+          {description}
+        </p>
+      </div>
       {retryGuidance ? (
-        <p className="mt-3 text-sm leading-6 text-amber-100">
+        <p
+          className="mt-3 text-sm leading-6 text-amber-100"
+          role={
+            retryStatus === "retrying"
+              ? "status"
+              : retryStatus === "failed"
+                ? "alert"
+                : undefined
+          }
+          aria-live={retryStatus === "retrying" ? "polite" : undefined}
+          aria-atomic={retryStatus === "retrying" ? "true" : undefined}
+        >
           {retryGuidance}
         </p>
       ) : null}
