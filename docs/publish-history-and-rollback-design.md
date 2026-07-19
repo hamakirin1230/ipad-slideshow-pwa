@@ -477,3 +477,15 @@ write planはexpected manifest `modifiedTime` / canonical hash / `currentRevisio
 revision fileのappPropertiesは `app`、`role=projectPublishRevision`、`schemaVersion`、`workspaceId`、`projectId`、`revisionId`、`operation=publish`、`publishedAt` のstring値だけを計画する。URL、token、raw manifest、asset metadataは含めない。
 
 current manifestへ将来追加する `currentRevisionId`、`publishedAt`、`publicationOperationId` はwrite plan上のpure型だけで表現した。正式manifest schema変更、Drive write、publish UI、confirmation dialog、Provider、offline sync、player、rollbackはまだ未実装であり、次Goalへ分離する。
+
+### Goal 5-3B1 実装結果
+
+Goal 5-3B1では、検証済みwrite planからimmutable revision fileを準備する最初のDrive write基盤を追加した。production adapterは既存の認証付きDrive list / read、query escape、pagination、folder create、multipart JSON createを再利用し、executor中核はmock adapterを注入して実Driveへ接続せず検証できる。
+
+executorはproject folderを厳格検証した後、`projectHistory` と `projectPublishRevisions` role metadataを持つ `history/revisions` folderを冪等に確保する。folder作成後は必ず同じrole metadataで再検索し、別tabとの同時作成で複数候補になった場合は自動選択・削除せず競合として停止する。
+
+revisionはwrite planのcanonical bodyとappPropertiesを一度だけmultipart createする。作成前後にrevision IDで候補を再確認し、同じID・同じmetadata・同じcanonical本文・同じcanonical hashが1件だけ存在する場合はretryを `alreadyPrepared` として収束させる。不一致は競合、複数候補はduplicateとして停止し、既存revisionのupdate、rename、metadata変更、deleteは行わない。作成後のread-back検証に失敗しても自動削除せず、後続診断対象として残す。
+
+成功statusの `created` は今回新規作成して再検証したこと、`alreadyPrepared` は同一revisionを再利用して再検証したことを示す。どちらもrevision preparationの完了だけを意味し、current manifest更新、公開完了、iPad sync、player反映を意味しない。AbortSignalは各Drive stepへ渡し、中止後は次stepへ進まず、作成済みitemのcleanupは行わない。Resultにはrevision IDとoperation IDだけをpublic identifierとして含め、access token、Drive file / folder ID、URL、raw metadata、raw body、raw errorは含めない。
+
+このGoalではcurrent manifest schema / Drive write、`currentRevisionId`、index、UI、Provider、offline sync、Service Worker、playerを変更していない。current manifestをcommit pointとして切り替える処理はGoal 5-3B2へ分離する。

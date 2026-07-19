@@ -1098,6 +1098,61 @@ export async function readDriveTextFile(
   return response.text();
 }
 
+/**
+ * Low-level create helper for app-managed Drive folders.
+ *
+ * Callers must re-list and validate the created folder before relying on it.
+ * Keeping that verification outside this helper makes concurrent creates
+ * visible instead of silently selecting the response item.
+ */
+export async function createDriveFolderWithAppProperties(input: {
+  accessToken: string;
+  name: string;
+  parentId: string;
+  appProperties: Record<string, string>;
+  signal: AbortSignal;
+}): Promise<void> {
+  await createProjectMetadataOnlyFile({
+    accessToken: input.accessToken,
+    metadata: {
+      name: input.name,
+      mimeType: DRIVE_FOLDER_MIME_TYPE,
+      parents: [input.parentId],
+      appProperties: input.appProperties,
+    },
+    expectedAppProperties: input.appProperties,
+    fields: CREATE_FOLDER_FIELDS,
+    signal: input.signal,
+  });
+}
+
+/**
+ * Low-level one-shot JSON create helper for small immutable app-managed files.
+ * This helper never updates or overwrites an existing Drive file.
+ */
+export async function createDriveJsonFileWithAppProperties(input: {
+  accessToken: string;
+  name: string;
+  parentId: string;
+  appProperties: Record<string, string>;
+  canonicalJsonText: string;
+  signal: AbortSignal;
+}): Promise<void> {
+  await createProjectMultipartJsonFile({
+    accessToken: input.accessToken,
+    metadata: {
+      name: input.name,
+      mimeType: JSON_MIME_TYPE,
+      parents: [input.parentId],
+      appProperties: input.appProperties,
+    },
+    expectedAppProperties: input.appProperties,
+    jsonText: input.canonicalJsonText,
+    fields: CREATE_JSON_FIELDS,
+    signal: input.signal,
+  });
+}
+
 export async function previewDriveProjectUnusedAssets(input: {
   accessToken: string;
   workspaceId: string;
