@@ -79,7 +79,7 @@ export function createProjectPublishRevisionDriveAdapter(
     },
 
     async findHistoryFolders(input) {
-      return (await listChildren(accessToken, input)).filter(
+      return (await listProjectPublishDriveChildren(accessToken, input)).filter(
         (file) =>
           file.name === HISTORY_FOLDER_NAME ||
           file.appProperties.role === PROJECT_HISTORY_FOLDER_ROLE,
@@ -101,7 +101,7 @@ export function createProjectPublishRevisionDriveAdapter(
     },
 
     async findRevisionsFolders(input) {
-      return (await listChildren(accessToken, input)).filter(
+      return (await listProjectPublishDriveChildren(accessToken, input)).filter(
         (file) =>
           file.name === REVISIONS_FOLDER_NAME ||
           file.appProperties.role === PROJECT_PUBLISH_REVISIONS_FOLDER_ROLE,
@@ -124,7 +124,7 @@ export function createProjectPublishRevisionDriveAdapter(
 
     async findRevisionFiles(input) {
       const expectedName = `${input.revisionId}.json`;
-      return (await listChildren(accessToken, input)).filter(
+      return (await listProjectPublishDriveChildren(accessToken, input)).filter(
         (file) =>
           file.name === expectedName ||
           file.appProperties.revisionId === input.revisionId ||
@@ -150,7 +150,7 @@ export function createProjectPublishRevisionDriveAdapter(
   };
 }
 
-async function listChildren(
+export async function listProjectPublishDriveChildren(
   accessToken: string,
   input: ChildContext,
 ): Promise<ProjectPublishRevisionDriveItem[]> {

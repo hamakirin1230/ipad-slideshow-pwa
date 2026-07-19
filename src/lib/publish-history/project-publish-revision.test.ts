@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { parseProjectManifest, type ProjectManifest } from "../google-drive";
+import { parseProjectManifestPublication } from "./project-manifest-publication";
 import {
   createProjectPublishRevisionId,
   deriveProjectPublishRevisionSummary,
   getProjectManifestCanonicalHash,
+  getProjectManifestContentCanonicalHash,
+  getProjectManifestPublishableContent,
   hashCanonicalJson,
   isValidProjectPublishRevisionId,
   parseProjectPublishRevision,
@@ -21,6 +25,7 @@ const IMAGE_DRIVE_FILE_ID = "drive-file-image-a";
 const VIDEO_DRIVE_FILE_ID = "drive-file-video-a";
 const REVISION_ID = "rev_20260712T123456789Z_ab12cd34";
 const PREVIOUS_REVISION_ID = "rev_20260711T123456789Z_cd34ef56";
+const OPERATION_ID = "pubop_20260712T123300000Z_1234abcd";
 
 function buildManifest() {
   return {
@@ -112,6 +117,136 @@ function parseErrors(value: unknown) {
   expect(result.ok).toBe(false);
   return result.ok ? [] : result.errors;
 }
+
+function buildPublication() {
+  return {
+    schemaVersion: 1 as const,
+    currentRevisionId: REVISION_ID,
+    publishedAt: "2026-07-12T12:34:56.789Z",
+    operation: "publish" as const,
+    operationId: OPERATION_ID,
+    contentCanonicalHash: getProjectManifestContentCanonicalHash(buildManifest()),
+  };
+}
+
+describe("project manifest publication schema", () => {
+  it("keeps publication optional for legacy manifests", () => {
+    const result = parseProjectManifest(buildManifest());
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.publication).toBeUndefined();
+  });
+
+  it("parses valid publish publication metadata", () => {
+    expect(parseProjectManifestPublication(buildPublication())).toEqual({
+      ok: true,
+      value: buildPublication(),
+    });
+  });
+
+  it("preserves valid publication through the formal manifest parser", () => {
+    const result = parseProjectManifest({
+      ...buildManifest(),
+      publication: buildPublication(),
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.publication).toEqual(buildPublication());
+  });
+
+  it("parses rollback publication metadata without imposing publish ID format", () => {
+    expect(
+      parseProjectManifestPublication({
+        ...buildPublication(),
+        operation: "rollback",
+        operationId: "rollback-operation-a",
+      }).ok,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["missing schema", { schemaVersion: undefined }],
+    ["string schema", { schemaVersion: "1" }],
+    ["unsupported schema", { schemaVersion: 2 }],
+    ["revision ID", { currentRevisionId: "bad" }],
+    ["operation", { operation: "other" }],
+    ["publish operation ID", { operationId: "bad" }],
+    ["publishedAt", { publishedAt: "2026-07-12" }],
+    ["content hash", { contentCanonicalHash: "bad" }],
+  ])("rejects invalid publication %s", (_label, override) => {
+    const candidate = { ...buildPublication(), ...override } as Record<string, unknown>;
+    if ("schemaVersion" in override && override.schemaVersion === undefined) {
+      delete candidate.schemaVersion;
+    }
+    expect(parseProjectManifestPublication(candidate).ok).toBe(false);
+  });
+
+  it("rejects unknown publication fields", () => {
+    expect(
+      parseProjectManifestPublication({ ...buildPublication(), extra: true }).ok,
+    ).toBe(false);
+  });
+
+  it("does not echo a raw invalid value in parser errors", () => {
+    const raw = "Bearer raw-sensitive-value";
+    const result = parseProjectManifestPublication({
+      ...buildPublication(),
+      operationId: raw,
+    });
+    expect(JSON.stringify(result)).not.toContain(raw);
+  });
+});
+
+describe("publishable manifest content", () => {
+  it("removes publication without mutating the input", () => {
+    const manifest: ProjectManifest = {
+      ...buildManifest(),
+      publication: buildPublication(),
+    };
+    const before = structuredClone(manifest);
+    const content = getProjectManifestPublishableContent(manifest);
+    expect(content).not.toHaveProperty("publication");
+    expect(manifest).toEqual(before);
+  });
+
+  it("keeps the same content hash when only publication differs", () => {
+    const left: ProjectManifest = { ...buildManifest(), publication: buildPublication() };
+    const right: ProjectManifest = {
+      ...buildManifest(),
+      publication: { ...buildPublication(), operationId: "pubop_20260712T123300000Z_abcdef12" },
+    };
+    expect(getProjectManifestContentCanonicalHash(left)).toBe(
+      getProjectManifestContentCanonicalHash(right),
+    );
+    expect(getProjectManifestCanonicalHash(left)).not.toBe(
+      getProjectManifestCanonicalHash(right),
+    );
+  });
+
+  it.each([
+    ["slide content", (manifest: ProjectManifest) => { manifest.slides[0].assetName = "changed.jpg"; }],
+    ["slide order", (manifest: ProjectManifest) => { manifest.slides.reverse(); }],
+    ["caption", (manifest: ProjectManifest) => { manifest.slides[0].caption = "Changed"; }],
+    ["duration", (manifest: ProjectManifest) => { manifest.slides[0].durationSeconds = 99; }],
+  ])("changes content hash for %s changes", async (_label, mutate) => {
+    const left: ProjectManifest = buildManifest();
+    const right: ProjectManifest = buildManifest();
+    mutate(right);
+    expect(getProjectManifestContentCanonicalHash(left)).not.toBe(
+      getProjectManifestContentCanonicalHash(right),
+    );
+  });
+
+  it("rejects publication metadata inside an immutable revision manifest", () => {
+    const revision = buildRevision() as ProjectPublishRevision & {
+      manifest: ProjectManifest;
+    };
+    revision.manifest.publication = buildPublication();
+    expect(
+      parseErrors(revision).some(
+        (error) => error.path === "manifest.publication",
+      ),
+    ).toBe(true);
+  });
+});
 
 describe("parseProjectPublishRevision", () => {
   it("parses a publish revision with image, remote video, caption, and duration", () => {

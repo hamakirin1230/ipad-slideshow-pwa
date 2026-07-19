@@ -211,7 +211,7 @@ describe("write plan validation", () => {
     ["appProperties", (plan: ProjectPublishWritePlan) => { plan.revisionFile.appProperties.role = "other"; }],
     ["project ID", (plan: ProjectPublishWritePlan) => { plan.projectId = "33333333-3333-4333-8333-333333333333"; }],
     ["workspace ID", (plan: ProjectPublishWritePlan) => { plan.workspaceId = "33333333-3333-4333-8333-333333333333"; }],
-    ["publication operation", (plan: ProjectPublishWritePlan) => { plan.currentManifestUpdate.publication.publicationOperationId = "bad"; }],
+    ["publication operation", (plan: ProjectPublishWritePlan) => { plan.currentManifestUpdate.publication.operationId = "bad"; }],
     ["step order", (plan: ProjectPublishWritePlan) => { [plan.steps[0], plan.steps[1]] = [plan.steps[1], plan.steps[0]]; }],
   ])("rejects invalid %s before adapter access", async (_label, mutate) => {
     const plan = buildPlan();

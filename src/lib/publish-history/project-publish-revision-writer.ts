@@ -4,6 +4,7 @@ import {
   type ProjectPublishRevisionWriteAdapter,
 } from "./project-publish-drive-adapter";
 import { isValidProjectPublishOperationId } from "./project-publish-operation-id";
+import { parseProjectManifestPublication } from "./project-manifest-publication";
 import {
   PROJECT_HISTORY_FOLDER_ROLE,
   PROJECT_PUBLISH_REVISION_FILE_ROLE,
@@ -119,7 +120,9 @@ export async function prepareProjectPublishRevisionWithAdapter(
   input: PrepareWithAdapterInput,
   adapter: ProjectPublishRevisionWriteAdapter,
 ): Promise<PrepareProjectPublishRevisionResult> {
-  if (!isValidWritePlan(input.plan)) return failure("invalidWritePlan");
+  if (!isValidProjectPublishWritePlan(input.plan)) {
+    return failure("invalidWritePlan");
+  }
 
   const signal = input.signal ?? new AbortController().signal;
   const context = {
@@ -354,7 +357,7 @@ async function callAdapter<T>(
   }
 }
 
-function isValidWritePlan(plan: ProjectPublishWritePlan) {
+export function isValidProjectPublishWritePlan(plan: ProjectPublishWritePlan) {
   try {
     if (
       !isValidProjectPublishOperationId(plan.operationId) ||
@@ -385,8 +388,10 @@ function isValidWritePlan(plan: ProjectPublishWritePlan) {
         plan.revisionFile.revisionId ||
       plan.currentManifestUpdate.publication.publishedAt !==
         plan.revisionFile.body.publishedAt ||
-      plan.currentManifestUpdate.publication.publicationOperationId !==
-        plan.operationId ||
+      plan.currentManifestUpdate.publication.operationId !== plan.operationId ||
+      plan.currentManifestUpdate.publication.operation !== "publish" ||
+      plan.currentManifestUpdate.publication.contentCanonicalHash !==
+        plan.revisionFile.body.sourceManifestCanonicalHash ||
       plan.currentManifestUpdate.expectedPreviousRevisionId !==
         plan.expectedCurrent.currentRevisionId ||
       plan.steps.length !== EXPECTED_STEP_ORDER.length ||
@@ -398,7 +403,10 @@ function isValidWritePlan(plan: ProjectPublishWritePlan) {
     }
 
     const parsed = parseProjectPublishRevision(plan.revisionFile.body);
-    return parsed.ok;
+    const publication = parseProjectManifestPublication(
+      plan.currentManifestUpdate.publication,
+    );
+    return parsed.ok && publication.ok;
   } catch {
     return false;
   }

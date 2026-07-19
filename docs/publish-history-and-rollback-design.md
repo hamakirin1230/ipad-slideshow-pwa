@@ -489,3 +489,15 @@ revisionはwrite planのcanonical bodyとappPropertiesを一度だけmultipart c
 成功statusの `created` は今回新規作成して再検証したこと、`alreadyPrepared` は同一revisionを再利用して再検証したことを示す。どちらもrevision preparationの完了だけを意味し、current manifest更新、公開完了、iPad sync、player反映を意味しない。AbortSignalは各Drive stepへ渡し、中止後は次stepへ進まず、作成済みitemのcleanupは行わない。Resultにはrevision IDとoperation IDだけをpublic identifierとして含め、access token、Drive file / folder ID、URL、raw metadata、raw body、raw errorは含めない。
 
 このGoalではcurrent manifest schema / Drive write、`currentRevisionId`、index、UI、Provider、offline sync、Service Worker、playerを変更していない。current manifestをcommit pointとして切り替える処理はGoal 5-3B2へ分離する。
+
+### Goal 5-3B2 実装結果
+
+Goal 5-3B2では、current `manifest.json` にoptionalなschemaVersion 1の `publication` metadataを正式導入した。旧manifestはpublicationなしで引き続き正常にparseできる。publicationは `currentRevisionId`、`publishedAt`、`operation`、`operationId`、`contentCanonicalHash`を持ち、publish operation IDは既存の `pubop_...` validatorで検証する。
+
+公開履歴の再生内容とmutableなcurrent pointerを分離するため、content canonical hashはpublicationを除外したmanifestだけから既存FNV-1a 64-bit形式で計算する。revision draftはfresh manifestからpublicationを除いたdeep copyだけを保存し、revision parserも `revision.manifest.publication` の混入を拒否する。publicationだけの変更は再生内容変更と判定せず、slide順、caption、duration、asset参照等の変更はcontent hashへ反映する。既存の汎用 `getProjectManifestCanonicalHash` の意味は変更せず、publish-historyは明示的なcontent-only helperへ移行した。
+
+commit executorはprepared revisionのfolder/file metadata、本文、canonical body/hashを再検証し、project直下のcurrent manifest候補が正規な1件だけであることを確認する。更新直前にmanifest本文を再読込し、preflightで固定した `modifiedTime`、content canonical hash、current revision IDが一致する場合だけ、fresh再生内容を維持したままpublication metadataだけを本文更新する。current manifest本文の更新がcommit pointであり、更新後はmetadata、正式parser、publication全field、content hash、prepared revisionとの一致をread-backで必ず再検証する。
+
+同じplanのretryでpublication全fieldと実際の再生内容hashが一致していれば、再更新せず `alreadyCommitted` として収束する。target revisionとoperation IDの片方だけが一致する状態やexpected currentの変更は競合として自動上書きしない。更新失敗、応答不明、read-back失敗でもrevision削除、自動rollback、自動再更新は行わない。
+
+既存Drive helperにはETagやHTTP preconditionを使う更新契約がないため、更新直前のfresh readと更新後read-backでTOCTOUリスクを縮小するが、readとPATCHの間の競合窓は残る。競合を完全に防止する実装とは扱わない。index、offline sync、confirmed promotion、player、UI、Providerはこのcommit executorへ接続しておらず、Drive commit成功にも含めない。

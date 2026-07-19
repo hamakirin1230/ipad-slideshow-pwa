@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "../drive-video-policy";
 import type { ProjectManifest } from "../google-drive";
 import {
+  getProjectManifestContentCanonicalHash,
   getProjectManifestCanonicalHash,
   parseProjectPublishRevision,
 } from "./project-publish-revision";
@@ -253,16 +254,80 @@ describe("valid publish planning", () => {
     ]);
   });
 
-  it("plans publication metadata without changing the manifest schema", () => {
+  it("plans formal publication metadata without adding it to revision content", () => {
     const result = expectSuccess();
     expect(result.plan.currentManifestUpdate.publication).toEqual({
       currentRevisionId: REVISION_ID,
       publishedAt: PUBLISHED_AT,
-      publicationOperationId: OPERATION_ID,
+      schemaVersion: 1,
+      operation: "publish",
+      operationId: OPERATION_ID,
+      contentCanonicalHash: result.plan.revisionFile.body.sourceManifestCanonicalHash,
     });
     expect(result.plan.revisionFile.body.manifest).not.toHaveProperty(
       "publication",
     );
+  });
+
+  it("uses manifest publication as the expected current revision", () => {
+    const input = buildSubsequentInput();
+    input.manifest.publication = {
+      schemaVersion: 1,
+      currentRevisionId: PREVIOUS_REVISION_ID,
+      publishedAt: "2026-07-12T12:34:56.789Z",
+      operation: "publish",
+      operationId: "pubop_20260712T123300000Z_abcdef12",
+      contentCanonicalHash: getProjectManifestContentCanonicalHash(input.manifest),
+    };
+    const hash = getProjectManifestContentCanonicalHash(input.manifest);
+    input.sourceManifest.canonicalHash = hash;
+    input.sourceManifest.currentRevisionId = PREVIOUS_REVISION_ID;
+    input.expectedCurrent.manifestCanonicalHash = hash;
+    input.expectedCurrent.currentRevisionId = PREVIOUS_REVISION_ID;
+    const result = expectSuccess(input);
+    expect(result.plan.currentManifestUpdate.expectedPreviousRevisionId).toBe(
+      PREVIOUS_REVISION_ID,
+    );
+    expect(result.plan.revisionFile.body.manifest).not.toHaveProperty("publication");
+  });
+
+  it("ignores publication-only differences in the content hash", () => {
+    const input = buildSubsequentInput();
+    input.manifest.publication = {
+      schemaVersion: 1,
+      currentRevisionId: PREVIOUS_REVISION_ID,
+      publishedAt: "2026-07-12T12:34:56.789Z",
+      operation: "publish",
+      operationId: "pubop_20260712T123300000Z_abcdef12",
+      contentCanonicalHash: getProjectManifestContentCanonicalHash(input.manifest),
+    };
+    const hash = getProjectManifestContentCanonicalHash(input.manifest);
+    input.sourceManifest = {
+      modifiedTime: input.expectedCurrent.manifestModifiedTime,
+      canonicalHash: hash,
+      currentRevisionId: PREVIOUS_REVISION_ID,
+    };
+    input.expectedCurrent.manifestCanonicalHash = hash;
+    input.expectedCurrent.currentRevisionId = PREVIOUS_REVISION_ID;
+    expect(expectSuccess(input).plan.revisionFile.body.manifest).not.toHaveProperty(
+      "publication",
+    );
+  });
+
+  it("blocks expected current revision mismatch with manifest publication", () => {
+    const input = buildInput();
+    input.manifest.publication = {
+      schemaVersion: 1,
+      currentRevisionId: PREVIOUS_REVISION_ID,
+      publishedAt: "2026-07-12T12:34:56.789Z",
+      operation: "publish",
+      operationId: "pubop_20260712T123300000Z_abcdef12",
+      contentCanonicalHash: getProjectManifestContentCanonicalHash(input.manifest),
+    };
+    const hash = getProjectManifestContentCanonicalHash(input.manifest);
+    input.sourceManifest.canonicalHash = hash;
+    input.expectedCurrent.manifestCanonicalHash = hash;
+    expectIssue(input, "currentRevisionConflict");
   });
 
   it("does not mutate manifest or asset input", () => {
@@ -387,7 +452,18 @@ describe("identity, manifest, and optimistic concurrency", () => {
 
   it("accepts a matching non-null expected currentRevisionId", () => {
     const input = buildSubsequentInput();
+    input.manifest.publication = {
+      schemaVersion: 1,
+      currentRevisionId: PREVIOUS_REVISION_ID,
+      publishedAt: "2026-07-12T12:34:56.789Z",
+      operation: "publish",
+      operationId: "pubop_20260712T123300000Z_abcdef12",
+      contentCanonicalHash: getProjectManifestContentCanonicalHash(input.manifest),
+    };
+    const hash = getProjectManifestContentCanonicalHash(input.manifest);
+    input.sourceManifest.canonicalHash = hash;
     input.sourceManifest.currentRevisionId = PREVIOUS_REVISION_ID;
+    input.expectedCurrent.manifestCanonicalHash = hash;
     input.expectedCurrent.currentRevisionId = PREVIOUS_REVISION_ID;
     expect(expectSuccess(input).plan.expectedCurrent.currentRevisionId).toBe(
       PREVIOUS_REVISION_ID,

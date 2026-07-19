@@ -2,11 +2,15 @@ import {
   parseProjectManifest,
   type ProjectManifest,
 } from "../google-drive";
+import { isValidProjectPublishRevisionId } from "./project-publish-revision-id";
+
+export {
+  createProjectPublishRevisionId,
+  isValidProjectPublishRevisionId,
+} from "./project-publish-revision-id";
 
 export const PROJECT_PUBLISH_REVISION_SCHEMA_VERSION = 1 as const;
 
-const REVISION_ID_PATTERN = /^rev_\d{8}T\d{9}Z_[0-9a-f]{8}$/;
-const RANDOM_SUFFIX_PATTERN = /^[0-9a-f]{8}$/;
 const CANONICAL_HASH_PATTERN = /^fnv1a64:[0-9a-f]{16}$/;
 const ISO_DATE_TIME_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -29,6 +33,8 @@ export type ProjectPublishRevisionSummary = {
   remoteOnlyAssetCount: number;
 };
 
+export type ProjectManifestContent = Omit<ProjectManifest, "publication">;
+
 export type ProjectPublishRevision = {
   schemaVersion: typeof PROJECT_PUBLISH_REVISION_SCHEMA_VERSION;
   revisionId: string;
@@ -41,7 +47,7 @@ export type ProjectPublishRevision = {
   previousRevisionId: string | null;
   summary: ProjectPublishRevisionSummary;
   assets: ProjectPublishAssetReference[];
-  manifest: ProjectManifest;
+  manifest: ProjectManifestContent;
 };
 
 export type ProjectPublishRevisionValidationError = {
@@ -99,38 +105,6 @@ export function deriveProjectPublishRevisionSummary(
     assetCount: assets.length,
     remoteOnlyAssetCount: assets.filter((asset) => asset.remoteOnly).length,
   };
-}
-
-export function createProjectPublishRevisionId(input: {
-  publishedAt: string;
-  randomSuffix: string;
-}): string {
-  if (!isValidIsoDateTime(input.publishedAt)) {
-    throw new TypeError("publishedAt must be a valid ISO 8601 datetime");
-  }
-
-  if (!RANDOM_SUFFIX_PATTERN.test(input.randomSuffix)) {
-    throw new TypeError("randomSuffix must contain exactly 8 lowercase hex characters");
-  }
-
-  const compactTimestamp = new Date(input.publishedAt)
-    .toISOString()
-    .replace(/[-:.]/g, "")
-    .replace("Z", "Z");
-
-  return `rev_${compactTimestamp}_${input.randomSuffix}`;
-}
-
-export function isValidProjectPublishRevisionId(
-  value: unknown,
-): value is string {
-  if (typeof value !== "string" || !REVISION_ID_PATTERN.test(value)) {
-    return false;
-  }
-
-  const timestamp = value.slice(4, 22);
-  const isoTimestamp = `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}T${timestamp.slice(9, 11)}:${timestamp.slice(11, 13)}:${timestamp.slice(13, 15)}.${timestamp.slice(15, 18)}Z`;
-  return isValidIsoDateTime(isoTimestamp);
 }
 
 export function stringifyCanonicalJson(value: CanonicalJsonValue): string {
@@ -207,6 +181,22 @@ export function getProjectManifestCanonicalHash(
   manifest: ProjectManifest,
 ): string {
   return hashCanonicalJson(manifest as unknown as CanonicalJsonValue);
+}
+
+export function getProjectManifestPublishableContent(
+  manifest: ProjectManifest,
+): ProjectManifestContent {
+  const content = structuredClone(manifest);
+  delete content.publication;
+  return content;
+}
+
+export function getProjectManifestContentCanonicalHash(
+  manifest: ProjectManifest,
+): string {
+  return hashCanonicalJson(
+    getProjectManifestPublishableContent(manifest) as unknown as CanonicalJsonValue,
+  );
 }
 
 export function stringifyProjectPublishRevisionCanonical(
@@ -307,8 +297,17 @@ export function parseProjectPublishRevision(
 
   const summary = parseSummary(input.summary, errors);
   const assets = parseAssets(input.assets, errors);
+  if (isPlainRecord(input.manifest) && hasOwn(input.manifest, "publication")) {
+    addError(
+      errors,
+      "manifest.publication",
+      "revision manifest must not include publication metadata",
+    );
+  }
   const manifestResult = parseProjectManifest(input.manifest);
-  const manifest = manifestResult.ok ? manifestResult.value : null;
+  const manifest = manifestResult.ok
+    ? getProjectManifestPublishableContent(manifestResult.value)
+    : null;
 
   if (!manifestResult.ok) {
     for (const message of manifestResult.errors) {
@@ -323,7 +322,8 @@ export function parseProjectPublishRevision(
   if (
     manifest &&
     sourceManifestCanonicalHash &&
-    sourceManifestCanonicalHash !== getProjectManifestCanonicalHash(manifest)
+    sourceManifestCanonicalHash !==
+      getProjectManifestContentCanonicalHash(manifest)
   ) {
     addError(
       errors,

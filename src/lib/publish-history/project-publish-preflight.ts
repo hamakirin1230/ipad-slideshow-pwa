@@ -11,7 +11,8 @@ import {
 import {
   PROJECT_PUBLISH_REVISION_SCHEMA_VERSION,
   deriveProjectPublishRevisionSummary,
-  getProjectManifestCanonicalHash,
+  getProjectManifestContentCanonicalHash,
+  getProjectManifestPublishableContent,
   isValidProjectPublishRevisionId,
   parseProjectPublishRevision,
   type ProjectPublishAssetReference,
@@ -166,8 +167,8 @@ export function buildProjectPublishRevisionDraft(input: {
     throw new TypeError("manifest must pass project manifest validation");
   }
 
-  const manifest = manifestResult.value;
-  const canonicalHash = getProjectManifestCanonicalHash(manifest);
+  const manifest = getProjectManifestPublishableContent(manifestResult.value);
+  const canonicalHash = getProjectManifestContentCanonicalHash(manifest);
   if (canonicalHash !== input.sourceManifestCanonicalHash) {
     throw new TypeError("source manifest canonical hash must match manifest");
   }
@@ -370,7 +371,7 @@ function validateManifestAndCurrentState(
   }
 
   if (sourceStateValid) {
-    const canonicalHash = getProjectManifestCanonicalHash(manifest);
+    const canonicalHash = getProjectManifestContentCanonicalHash(manifest);
     if (canonicalHash !== input.sourceManifest.canonicalHash) {
       issues.push(
         issue(
@@ -381,6 +382,34 @@ function validateManifestAndCurrentState(
         ),
       );
     }
+  }
+  const manifestCurrentRevisionId =
+    manifest.publication?.currentRevisionId ?? null;
+  if (
+    sourceStateValid &&
+    input.sourceManifest.currentRevisionId !== manifestCurrentRevisionId
+  ) {
+    issues.push(
+      issue(
+        "currentRevisionConflict",
+        "error",
+        "現在の公開版がマニフェストと一致しません。",
+        "sourceManifest.currentRevisionId",
+      ),
+    );
+  }
+  if (
+    expectedStateValid &&
+    input.expectedCurrent.currentRevisionId !== manifestCurrentRevisionId
+  ) {
+    issues.push(
+      issue(
+        "currentRevisionConflict",
+        "error",
+        "現在の公開版が事前確認時から変更されています。",
+        "expectedCurrent.currentRevisionId",
+      ),
+    );
   }
   if (
     sourceStateValid &&

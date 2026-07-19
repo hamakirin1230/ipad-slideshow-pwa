@@ -1,3 +1,8 @@
+import {
+  parseProjectManifestPublication,
+  type ProjectManifestPublication,
+} from "./publish-history/project-manifest-publication";
+
 const DRIVE_API_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_API_UPLOAD_FILES_URL =
   "https://www.googleapis.com/upload/drive/v3/files";
@@ -509,6 +514,7 @@ export type ProjectManifest = {
   slides: DriveSlideSummary[];
   createdAt: string;
   updatedAt: string;
+  publication?: ProjectManifestPublication;
 };
 
 export type ProjectManifestParseResult =
@@ -551,6 +557,16 @@ export function parseProjectManifest(input: unknown): ProjectManifestParseResult
   return result.status === "valid"
     ? { ok: true, value: result.manifest }
     : { ok: false, errors: [...result.diagnostics] };
+}
+
+export function stringifyProjectManifestJson(manifest: ProjectManifest) {
+  const parsed = parseProjectManifest(manifest);
+  if (!parsed.ok) {
+    throw new TypeError("manifest must pass project manifest validation");
+  }
+  const text = `${JSON.stringify(parsed.value, null, 2)}\n`;
+  assertJsonTextSizeWithinLimit(text, "manifest.json");
+  return text;
 }
 
 type DriveProjectManifestBody = ProjectManifest;
@@ -1149,6 +1165,22 @@ export async function createDriveJsonFileWithAppProperties(input: {
     expectedAppProperties: input.appProperties,
     jsonText: input.canonicalJsonText,
     fields: CREATE_JSON_FIELDS,
+    signal: input.signal,
+  });
+}
+
+/** Updates only the media body of one existing JSON file. */
+export async function updateDriveJsonFileContent(input: {
+  accessToken: string;
+  fileId: string;
+  jsonText: string;
+  signal: AbortSignal;
+}): Promise<void> {
+  await updateDriveTextFileContent({
+    accessToken: input.accessToken,
+    fileId: input.fileId,
+    text: input.jsonText,
+    mimeType: JSON_MIME_TYPE,
     signal: input.signal,
   });
 }
@@ -5695,6 +5727,17 @@ function parseDriveProjectManifestJson(input: {
     key: "updatedAt",
     diagnostics,
   });
+  let publication: ProjectManifestPublication | undefined;
+  if (hasOwnKey(parsed.value, "publication")) {
+    const publicationResult = parseProjectManifestPublication(
+      parsed.value.publication,
+    );
+    if (publicationResult.ok) {
+      publication = publicationResult.value;
+    } else {
+      diagnostics.push(...publicationResult.errors);
+    }
+  }
 
   validateProjectManifestSlidesArray(parsed.value, diagnostics);
 
@@ -5762,6 +5805,7 @@ function parseDriveProjectManifestJson(input: {
     slides,
     createdAt,
     updatedAt,
+    ...(publication ? { publication } : {}),
   };
 
   return {
@@ -6009,6 +6053,7 @@ function buildProjectManifestJsonWithAppendedSlides(input: {
     slides: [...input.manifest.slides, ...input.slides],
     createdAt: input.manifest.createdAt,
     updatedAt: input.updatedAt,
+    ...withProjectManifestPublication(input.manifest),
   });
 
   assertJsonTextSizeWithinLimit(text, "manifest.json");
@@ -6039,6 +6084,7 @@ function buildProjectManifestJsonWithUpdatedSlideCaption(input: {
     ),
     createdAt: input.manifest.createdAt,
     updatedAt: input.updatedAt,
+    ...withProjectManifestPublication(input.manifest),
   });
 
   assertJsonTextSizeWithinLimit(text, "manifest.json");
@@ -6069,6 +6115,7 @@ function buildProjectManifestJsonWithUpdatedSlideDuration(input: {
     ),
     createdAt: input.manifest.createdAt,
     updatedAt: input.updatedAt,
+    ...withProjectManifestPublication(input.manifest),
   });
 
   assertJsonTextSizeWithinLimit(text, "manifest.json");
@@ -6102,6 +6149,7 @@ function buildProjectManifestJsonWithReorderedSlides(input: {
     slides: reorderedSlides,
     createdAt: input.manifest.createdAt,
     updatedAt: input.updatedAt,
+    ...withProjectManifestPublication(input.manifest),
   });
 
   assertJsonTextSizeWithinLimit(text, "manifest.json");
@@ -6124,6 +6172,7 @@ function buildProjectManifestJsonWithDeletedSlides(input: {
     slides: input.manifest.slides.filter((slide) => !slideIdSet.has(slide.slideId)),
     createdAt: input.manifest.createdAt,
     updatedAt: input.updatedAt,
+    ...withProjectManifestPublication(input.manifest),
   });
 
   assertJsonTextSizeWithinLimit(text, "manifest.json");
@@ -6157,6 +6206,7 @@ function buildProjectManifestJsonWithDuplicatedSlide(input: {
     slides,
     createdAt: input.manifest.createdAt,
     updatedAt: input.updatedAt,
+    ...withProjectManifestPublication(input.manifest),
   });
 
   assertJsonTextSizeWithinLimit(text, "manifest.json");
@@ -6194,10 +6244,17 @@ function buildProjectManifestJsonWithUpdatedTitle(input: {
     slides: input.manifest.slides,
     createdAt: input.manifest.createdAt,
     updatedAt: input.updatedAt,
+    ...withProjectManifestPublication(input.manifest),
   });
 
   assertJsonTextSizeWithinLimit(text, "manifest.json");
   return text;
+}
+
+function withProjectManifestPublication(manifest: ProjectManifest) {
+  return manifest.publication
+    ? { publication: structuredClone(manifest.publication) }
+    : {};
 }
 
 function buildIndexJsonWithUpdatedProject(input: {

@@ -1,5 +1,9 @@
 import { PROJECT_PUBLISH_REVISION_FILE_ROLE } from "./project-publish-revision-loader";
 import {
+  PROJECT_MANIFEST_PUBLICATION_SCHEMA_VERSION,
+  type ProjectManifestPublication,
+} from "./project-manifest-publication";
+import {
   getProjectPublishRevisionCanonicalHash,
   stringifyProjectPublishRevisionCanonical,
   type ProjectPublishRevision,
@@ -15,11 +19,7 @@ export type ProjectPublishExpectedCurrentState = {
   currentRevisionId: string | null;
 };
 
-export type ProjectManifestPublicationMetadata = {
-  currentRevisionId: string;
-  publishedAt: string;
-  publicationOperationId: string;
-};
+export type ProjectManifestPublicationMetadata = ProjectManifestPublication;
 
 export type ProjectPublishWriteStep =
   | { kind: "ensureHistoryFolder" }
@@ -106,9 +106,12 @@ export function buildProjectPublishWritePlan(input: {
     },
     currentManifestUpdate: {
       publication: {
+        schemaVersion: PROJECT_MANIFEST_PUBLICATION_SCHEMA_VERSION,
         currentRevisionId: input.revision.revisionId,
         publishedAt: input.revision.publishedAt,
-        publicationOperationId: input.operationId,
+        operation: "publish",
+        operationId: input.operationId,
+        contentCanonicalHash: input.revision.sourceManifestCanonicalHash,
       },
       expectedPreviousRevisionId: input.expectedCurrent.currentRevisionId,
     },
