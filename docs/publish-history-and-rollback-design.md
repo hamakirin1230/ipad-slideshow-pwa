@@ -459,3 +459,21 @@ Goal 5-1Bでは既存の履歴構造だけを読むDrive loaderを追加した�
 ### Goal 5-2A 実装結果
 
 Goal 5-2Aでは `/admin/history` にread-only UIを追加した。project選択後の初期取得と明示的な手動再読込ではmetadata一覧だけを読み、revision本文は有効なitemの詳細選択時だけ取得・検証する。current判定、publish / rollback操作、自動retry / polling、Drive writeは行わない。access tokenはAppProviders内のrefに維持し、Drive file ID、assetのDrive内部ID、raw errorを画面へ出さない。
+
+### Goal 5-3A 実装結果
+
+Goal 5-3Aでは、明示的publishのDrive書込み前に実行するpure preflightとwrite planを実装した。入力は検証済みcurrent manifest、fresh asset metadata、履歴状態、expected current state、呼出側が生成した時刻・revision ID・operation IDだけであり、access token、Drive API URL、raw response、Blob、UI stateは受け取らない。preflight自身はfetch、Drive create/update、folder作成、manifest保存を行わない。
+
+preflightは既存 `parseProjectManifest` とrevision parser / canonical helperを再利用し、manifestのproject/workspace、source canonical hash、manifest file `modifiedTime`、expected `currentRevisionId`、履歴metadata、参照assetの完全一致を検査する。assetは `assetId` 昇順でrevisionへ格納し、manifestのslide順、caption、`durationSeconds`、video runtime metadataは変更しない。同じmanifestとasset metadataなら入力asset順に依存しないcanonical revision本文になる。
+
+`remoteOnly` はcurrent manifestの保存fieldではない。fresh metadataのMIME typeとsizeを正本とし、検証済み `video/mp4` かつsizeが50 MiBを超える場合だけ `true` と導出する。image、50 MiB以下のvideo、size不明のassetは `false` を期待し、入力値との不一致をblocking errorにする。size、modifiedTime、checksumが不明の場合はwarningとし、正しく導出されたremoteOnly assetを含む場合もwarningだけでplan生成を許可する。
+
+履歴未構成、またはreadyだが有効revisionが0件ならinitial publishとして `previousRevisionId: null` とする。履歴未構成時のplanはhistory / revisions folderのensureを要求するが、このGoalでは作成しない。有効revisionがある場合はread-only一覧から渡された最新のvalid metadataを `previousRevisionId` とし、日時からrevision IDを推測しない。公開日時が直前より前ならerror、同時刻ならwarningである。公開日時とpreflight確認日時は現時点ではclient clockから呼出側が渡すため、将来Drive server timeへ置換可能なinputとして分離した。
+
+operation IDはrevision IDと独立した `pubop_<UTC compact timestamp>_<8 lowercase hex>` 形式である。helper内でrandom値を生成せず、時刻とsuffixを呼出側から受け取る。同じretryでは同じoperation IDとrevision IDを再利用する前提である。
+
+write planはexpected manifest `modifiedTime` / canonical hash / `currentRevisionId`、folder ensure要否、immutable revision filename / canonical body / hash / appProperties、将来のpublication metadata、固定step順を保持する。step順はhistory folder確保、revisions folder確保、revision file作成、revision再検証、current manifest更新、current manifest再検証である。immutable revisionを先に確保し、`updateCurrentManifest` をcommit pointとする方針を維持する。
+
+revision fileのappPropertiesは `app`、`role=projectPublishRevision`、`schemaVersion`、`workspaceId`、`projectId`、`revisionId`、`operation=publish`、`publishedAt` のstring値だけを計画する。URL、token、raw manifest、asset metadataは含めない。
+
+current manifestへ将来追加する `currentRevisionId`、`publishedAt`、`publicationOperationId` はwrite plan上のpure型だけで表現した。正式manifest schema変更、Drive write、publish UI、confirmation dialog、Provider、offline sync、player、rollbackはまだ未実装であり、次Goalへ分離する。

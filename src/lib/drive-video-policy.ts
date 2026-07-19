@@ -1,0 +1,1 @@
+export const DRIVE_VIDEO_OFFLINE_MAX_BYTES = 50 * 1024 * 1024;

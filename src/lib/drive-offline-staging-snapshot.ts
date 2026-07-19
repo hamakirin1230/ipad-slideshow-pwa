@@ -20,6 +20,9 @@ import {
   type OfflineProjectSlide,
 } from "@/lib/offline-schema";
 import type { OfflineStagingAssetPairInput } from "@/lib/offline-staging-write";
+import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "./drive-video-policy";
+
+export { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "./drive-video-policy";
 
 const DRIVE_API_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 
@@ -28,8 +31,6 @@ const DRIVE_SCHEMA_VERSION = 1;
 const DRIVE_SCHEMA_VERSION_PROPERTY = "1";
 const DRIVE_ASSET_ROLE = "asset";
 const DRIVE_PROJECT_MAX_SLIDE_COUNT = 50;
-export const DRIVE_VIDEO_OFFLINE_MAX_BYTES = 50 * 1024 * 1024;
-
 type JsonRecord = Record<string, unknown>;
 
 type DriveOfflineAssetMetadata = {
