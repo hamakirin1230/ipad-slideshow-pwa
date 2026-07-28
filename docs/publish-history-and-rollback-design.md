@@ -1,9 +1,12 @@
 # 公開履歴と安全なrollback設計
 
 Date: 2026-07-12
-Status: Goal 5 設計確定（実装前）
+Updated: 2026-07-28
+Status: Goal 5 complete
 
-## 1. 現行構造の監査結果
+Sections 1から17は実装前に確定した設計と段階計画の履歴として保持し、Section 18の実装結果と末尾の「Goal 5 完了状態」で現行実装との差分を確定する。
+
+## 1. 実装前構造の監査結果（2026-07-12時点）
 
 ### 1.1 調査した主な実装・文書
 
@@ -72,18 +75,18 @@ offline syncはDrive current manifestをfile IDで読み、manifestのworkspace 
 
 playerはconfirmed storeから読み出したsnapshotを使用する。Drive current manifestの保存、history作成、rollbackだけでは、既存player sessionやconfirmed storeは変化しない。通常のoffline syncとpromotionが完了し、playerが新しいconfirmed snapshotを読み込んだ時点で初めて再生へ反映される。
 
-### 1.5 現在「公開」に相当する操作
+### 1.5 設計時点で「公開」に相当した操作
 
-現行実装には明示的な公開版、公開履歴、`currentRevisionId` はない。運用上もっとも近いものは `/admin` でDrive current manifestを保存する操作だが、これは編集保存であり公開とは定義されていない。offline syncは端末への配布、confirmed promotionは端末内での採用、player読込は再生sessionでの採用であって、Drive上の公開操作ではない。
+2026-07-12の設計監査時点では、明示的な公開版、公開履歴、`currentRevisionId` はなかった。運用上もっとも近いものは `/admin` でDrive current manifestを保存する操作だったが、これは編集保存であり公開とは定義されていなかった。offline syncは端末への配布、confirmed promotionは端末内での採用、player読込は再生sessionでの採用であって、Drive上の公開操作ではなかった。
 
-したがって現行では次だけが区別される。
+したがって設計監査時点では次だけが区別されていた。
 
 - Drive上の最新版: current `manifest.json`
 - iPadへ同期中の候補: IndexedDB staging snapshot
 - iPadで採用済みの版: confirmed snapshot
 - player使用中の版: playerが読み込んだconfirmed snapshot
 
-「編集保存」と「明示的な公開版」は区別されていない。
+「編集保存」と「明示的な公開版」は区別されていなかった。現行の区別と実装結果はSection 18および「Goal 5 完了状態」に記録する。
 
 ## 2. 用語定義
 
@@ -418,6 +421,8 @@ Drive file IDはrevision内部の参照整合性に必要だが、UIでは全文
 - orphan / stale index mirrorの回復導線
 - offline syncは別操作のまま維持
 
+当初Goal 5-5として計画したrollback write scopeは、実装上Goal 5-4Cへ統合して完了した。重複する別runtime実装は行わない。
+
 この5分割は、read path、表示、publish write、rollback read/preflight、rollback writeを分離できるため維持する。
 
 ## 17. 未決事項
@@ -569,3 +574,22 @@ revision作成後、manifest commit前にcurrent / target / assetを再検証す
 manifest commit後はfresh indexから選択projectの`title`と`updatedAt`だけを更新する。他project、workspace情報、project / folder / manifest / assets ID、manifest path、createdAt、その他既存fieldを維持する。plan準備後に対象recordまたはindex本文が変わっていれば上書きしない。desired stateは`alreadyMirrored`として収束し、update後は正式validatorとread-backで対象recordおよび他project保持を確認する。manifest成功後にindexが失敗・stale・応答不明となってもmanifestを戻さず、「rollback本体は成功・index mirrorは要確認」のwarning successを返す。
 
 publishとrollbackはProviderの共通publication write guardで同時実行を防ぐ。project / workspace / Google接続 / target / preview / detail / history lifecycle、新規preview / execution review、cancel、成功、conflict、requiresInspection、unmountでguardとplanを破棄する。write開始後のretryableだけは同一planを保持し、明示retryを許可する。自動retry、polling、orphan削除、asset復元、offline sync自動開始、workspace更新、index全体の過去状態復元は行わない。
+
+### Goal 5 完了状態
+
+Goal 5は次の実装をもって完了した。
+
+- revision schema、canonical content、revision ID / operation ID、Drive role metadataのfoundation
+- duplicateやinvalid metadataを自動選択しないread-only revision loader
+- `/admin/history` のproject別履歴一覧、revision詳細、整合性表示
+- `manifest.publication.currentRevisionId`を正本とするcurrent publication overviewと未公開編集表示
+- Drive current manifestの編集保存と分離した明示的publish
+- target assetをfresh metadataで検査するrollback impact preview
+- fresh execution preflight、新しいrollback revision作成、current manifest commit、index mirrorからなるverified rollback execution
+- rollback pipelineの各production moduleを直接importして検証するunit test
+
+2026-07-28時点でこれらはproductionへ反映済みであり、Goal 5が対象としたDrive上の公開履歴、current publication、publish、rollbackのstate transitionは完了した。全体検証はVitest 24 files / 669 testsであり、rollback pipelineのdirect testsを含む。
+
+Drive上のpublish / rollbackと、iPad側のoffline sync、staging validation、confirmed snapshot promotion、player sessionへの反映は独立した既存操作のままである。publish / rollback成功だけでconfirmed snapshotやplayer sessionは変わらない。
+
+history revisionの削除、archive、compact、retention、orphan自動cleanupは非目標のままである。confirmed snapshotへcurrent published revisionのprovenanceを追加する設計は、IndexedDB schema、offline sync、player表示へ影響するため、将来の新しいGoalとして扱う。

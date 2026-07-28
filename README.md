@@ -42,6 +42,17 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - 画像／動画混在再生、offline Blob動画、動画slideごとのduration override
 - remote video再生失敗時の手動retryと、slide / project / snapshot変更時のstale result guard
 - retry可否、owner key、generation、source identityをpure helper化し、Vitest 1 file / 22 testsで検証
+- `/admin/history` でproject別の公開履歴、current公開状態、revision詳細を確認
+- current published revisionは最新日時ではなく、`manifest.publication.currentRevisionId`を正本として特定
+- current revisionとcurrent manifestの比較による「未公開編集あり」表示
+- Drive current manifestの保存と分離した明示的publish、immutable revision作成
+- publishではrevision作成とread-backを先に完了し、current manifestのpublication更新をcommit pointとして検証
+- rollback impact previewでslide、title、target assetのfresh metadata、offline / remoteOnly影響を確認
+- rollback実行前のfresh execution preflightと、`ready`状態だけを対象にしたverified rollback実行
+- rollbackは過去revisionへpointerを戻さず、過去内容を復元した新しいrollback revisionを作成
+- rollback後はcurrent manifest本文とpublicationを更新し、indexは対象projectのtitle / `updatedAt`だけをmirror
+- publish / rollbackの共通write guard、orphanを自動削除しない部分失敗方針、成功後も別操作とするoffline sync
+- rollback pipelineのproduction moduleを直接検証するunit testを含む、Vitest 24 files / 669 tests
 - mainへのpush、pull request、手動実行でtest / lint / production buildを行うGitHub Actions CI
 - GitHub Pagesの手動deployでもtest / lint / build成功後にartifactをdeploy
 
@@ -58,6 +69,7 @@ https://ipad-slideshow-pwa.vercel.app/
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
 - `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview
+- `/admin/history` project別公開履歴一覧、current公開状態と未公開編集表示、revision詳細、rollback影響確認、fresh preflightを経たverified rollback実行
 - `/player` 画像／Blob保存済み動画のoffline-first再生、remoteOnly動画のonline Drive streaming、remote video手動retry、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
 - `/auth-test` OAuth単体確認用の開発ページ
 
@@ -70,6 +82,14 @@ https://ipad-slideshow-pwa.vercel.app/
 - Client SecretとAPIキーは作らない、使わない
 - Drive上のworkspace / project / manifest / assetsをsource of truthにする
 - slide再生順はDrive `manifest.json.slides[]` の配列順をsource of truthにする
+- Drive current manifestへの編集保存と明示的publishは別操作とし、保存だけでは公開履歴を増やさない
+- `manifest.publication.currentRevisionId`をcurrent published revisionの正本とし、最新日時から推測しない
+- publish / rollbackはimmutable revisionを作成し、rollbackでも過去revisionを書き換えず新しいrevisionを作る
+- rollbackはasset本体を複製、削除、復元せず、検証済み参照とfresh metadataをrevisionへ記録する
+- publish / rollback成功だけではiPad confirmed snapshotやplayer sessionは変わらない
+- iPadへ反映するには対象projectの明示的なoffline syncとconfirmed promotionが必要
+- revision fileや部分失敗で残ったorphanは自動削除せず、履歴確認と明示的な回復判断を優先する
+- Drive file ID、operation ID、canonical hash全文、checksum値をUIへ表示しない
 - Photos Pickerから追加したslideは現在のDrive `manifest.json.slides[]` の末尾へ選択順でappendする
 - IndexedDBはiPad端末内のoffline playback用コピーとして扱う
 - Cache StorageはService Workerのapp shell cacheとして扱う
@@ -135,13 +155,15 @@ GitHub Pagesは手動deployの位置づけで、同じtest / lintを通過して
 
 ## 次の作業候補
 
-- README以外の古い設計docsを、現行方針と履歴に分けて整理する
-- 公開履歴の現在データ構造を監査し、read-only一覧を設計する
-- 公開履歴からのrollback対象、復元範囲、Drive整合性を設計する
-- iPad実機でremoteOnly動画の再生失敗と手動retryを運用確認する
+1. disposable projectを使った実Google Driveのpublish / rollback acceptance test
+2. update応答不明、current競合、index warning経路の実環境確認
+3. offline sync後のconfirmed snapshotとcurrent published revisionの対応を識別する将来設計。今回は実装せず、新しいGoalとして設計を先に確定する
+4. README以外の古い設計docsを、現行方針と履歴に分けて整理する
+5. iPad実機でremoteOnly動画の再生失敗と手動retryを運用確認する
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-07-28-publish-history-rollback-completion-handoff.md`
 - `docs/handoffs/2026-07-12-video-playback-retry-tests-ci-handoff.md`
 - `docs/handoffs/2026-06-22-vercel-existing-production-confirmation-handoff.md`
 - `docs/handoffs/2026-06-13-unused-asset-delete-preflight-handoff.md`
