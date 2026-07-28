@@ -10,6 +10,7 @@ import {
 } from "./project-publish-revision";
 import {
   isValidProjectRollbackWritePlan,
+  type ProjectRollbackMetadataSnapshot,
   type ProjectRollbackWritePlan,
 } from "./project-rollback-write-plan";
 
@@ -70,7 +71,10 @@ export async function prepareProjectRollbackRevisionWithAdapter(
     const projects = await adapter.findProjectFolders(context);
     if (
       projects.length !== 1 ||
-      projects[0].id !== input.plan.locations.projectFolder.id
+      !matchesFolderSnapshot(
+        projects[0],
+        input.plan.locations.projectFolder,
+      )
     ) {
       return failure(
         projects.length > 1 ? "duplicateProjectFolder" : "projectFolderConflict",
@@ -83,7 +87,10 @@ export async function prepareProjectRollbackRevisionWithAdapter(
     });
     if (
       history.length !== 1 ||
-      history[0].id !== input.plan.locations.historyFolder.id
+      !matchesFolderSnapshot(
+        history[0],
+        input.plan.locations.historyFolder,
+      )
     ) {
       return failure(
         history.length > 1 ? "duplicateHistoryFolder" : "historyFolderConflict",
@@ -96,7 +103,10 @@ export async function prepareProjectRollbackRevisionWithAdapter(
     });
     if (
       revisions.length !== 1 ||
-      revisions[0].id !== input.plan.locations.revisionsFolder.id
+      !matchesFolderSnapshot(
+        revisions[0],
+        input.plan.locations.revisionsFolder,
+      )
     ) {
       return failure(
         revisions.length > 1
@@ -215,6 +225,24 @@ function success(
     revisionId: plan.revisionFile.revisionId,
     verified: true,
   };
+}
+
+function matchesFolderSnapshot(
+  file: ProjectPublishRevisionDriveItem,
+  expected: ProjectRollbackMetadataSnapshot,
+) {
+  return (
+    file.id === expected.id &&
+    file.name === expected.name &&
+    file.mimeType === expected.mimeType &&
+    file.trashed === expected.trashed &&
+    JSON.stringify(file.parents ?? []) === JSON.stringify(expected.parents) &&
+    Object.keys(file.appProperties).length ===
+      Object.keys(expected.appProperties).length &&
+    Object.entries(expected.appProperties).every(
+      ([key, value]) => file.appProperties[key] === value,
+    )
+  );
 }
 
 function failure(

@@ -77,7 +77,7 @@ export async function prepareProjectRollbackExecutionReviewInDrive(input: {
   project: DriveProjectSummary;
   targetRevisionId: string;
   requestSequence: number;
-  guard: ProjectRollbackPreviewGuard;
+  guard: ProjectRollbackPreviewGuard | null;
   signal: AbortSignal;
 }): Promise<InternalProjectRollbackExecutionReviewResult> {
   return prepareProjectRollbackExecutionReviewWithAdapter(input, defaultAdapter);
@@ -92,12 +92,13 @@ export async function prepareProjectRollbackExecutionReviewWithAdapter(
     project: DriveProjectSummary;
     targetRevisionId: string;
     requestSequence: number;
-    guard: ProjectRollbackPreviewGuard;
+    guard: ProjectRollbackPreviewGuard | null;
     signal: AbortSignal;
   },
   adapter: ProjectRollbackExecutionPreflightAdapter,
 ): Promise<InternalProjectRollbackExecutionReviewResult> {
   if (
+    !input.guard ||
     input.guard.readiness !== "ready" ||
     input.guard.owner.projectId !== input.project.projectId ||
     input.guard.owner.targetRevisionId !== input.targetRevisionId ||
