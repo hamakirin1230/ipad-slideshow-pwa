@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   createContext,
   useContext,
+  useEffect,
   useRef,
   useState,
   type ReactNode,
@@ -27,6 +28,21 @@ import {
   type ListProjectPublishRevisionsResult,
   type LoadProjectPublishRevisionResult,
 } from "@/lib/publish-history/project-publish-revision-loader";
+import {
+  prepareProjectPublishReviewInDrive,
+} from "@/lib/publish-history/project-publish-review";
+import {
+  buildSanitizedPublishSuccess,
+  createPrepareReviewFailure,
+  mapPublishWorkflowError,
+  pendingProjectPublishOwnerMatches,
+  shouldDiscardPendingPlan,
+  type CommitPreparedProjectPublishResult,
+  type PendingProjectPublishOwner,
+  type PrepareProjectPublishReviewResult,
+} from "@/lib/publish-history/project-publish-ui";
+import { executePreparedProjectPublish } from "@/lib/publish-history/project-publish-workflow";
+import type { ProjectPublishWritePlan } from "@/lib/publish-history/project-publish-write-plan";
 import {
   DRIVE_PROJECT_TITLE_MAX_LENGTH,
   DriveApiError,
@@ -333,6 +349,11 @@ type LocalVideoAssetImportItem = {
   mimeType: DriveAssetMimeType | null;
 };
 
+type PendingProjectPublish = {
+  owner: PendingProjectPublishOwner;
+  plan: ProjectPublishWritePlan;
+};
+
 type DriveWorkspaceCheckResult = {
   status: DriveWorkspaceCheckStatus;
   message: string;
@@ -504,6 +525,15 @@ type AppContextValue = {
     revisionId: string,
     signal: AbortSignal,
   ) => Promise<LoadProjectPublishRevisionResult>;
+  prepareProjectPublishReview: (
+    projectId: string,
+  ) => Promise<PrepareProjectPublishReviewResult>;
+  commitPreparedProjectPublish: (input: {
+    projectId: string;
+    revisionId: string;
+  }) => Promise<CommitPreparedProjectPublishResult>;
+  cancelPreparedProjectPublish: () => void;
+  isProjectPublishInFlight: boolean;
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
   updateProjectSlideCaption: (slideId: string, caption: string) => void;
@@ -660,6 +690,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
   );
   const driveOperationRequestIdRef = useRef(0);
   const driveOperationInFlightRef = useRef(false);
+  const pendingProjectPublishRef = useRef<PendingProjectPublish | null>(null);
+  const projectPublishAbortRef = useRef<AbortController | null>(null);
+  const projectPublishRequestSequenceRef = useRef(0);
+  const projectPublishInFlightRef = useRef(false);
 
   const pendingPhotosTokenRequestRef =
     useRef<PendingPhotosTokenRequest | null>(null);
@@ -719,6 +753,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [projectDetails, setProjectDetails] = useState<ProjectDetails | null>(
     null,
   );
+  const [isProjectPublishInFlight, setIsProjectPublishInFlight] =
+    useState(false);
 
   const [assetImportStatus, setAssetImportStatus] =
     useState<AssetImportStatus>("idle");
@@ -815,6 +851,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [offlineSyncLastResult, setOfflineSyncLastResult] =
     useState<DriveOfflineStagingSyncRuntimeResult | null>(null);
   const [isOfflineSyncInFlight, setIsOfflineSyncInFlight] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      projectPublishRequestSequenceRef.current += 1;
+      pendingProjectPublishRef.current = null;
+      projectPublishAbortRef.current?.abort();
+      projectPublishAbortRef.current = null;
+      projectPublishInFlightRef.current = false;
+    };
+  }, []);
 
   const canImportAssets =
     projectStatus === "ready" && driveProjectReadyContext !== null;
@@ -1463,7 +1509,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setAssetCleanupDeletePreflightResult(null);
   }
 
+  function discardPendingProjectPublish(options?: {
+    abort?: boolean;
+    updateState?: boolean;
+  }) {
+    projectPublishRequestSequenceRef.current += 1;
+    pendingProjectPublishRef.current = null;
+
+    if (options?.abort !== false && projectPublishAbortRef.current) {
+      projectPublishAbortRef.current.abort();
+    }
+    projectPublishAbortRef.current = null;
+    projectPublishInFlightRef.current = false;
+    if (options?.updateState !== false) {
+      setIsProjectPublishInFlight(false);
+    }
+  }
+
   function clearProjectReadyDetails() {
+    discardPendingProjectPublish();
     setDriveProjectReadyContext(null);
     setProjectDetails(null);
     setProjectSummary(null);
@@ -1482,7 +1546,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   function applyProjectReadyState(
     project: DriveProjectSummary,
     details: ProjectDetails = buildEmptyProjectDetails(),
+    options?: { preserveProjectPublish?: boolean },
   ) {
+    if (!options?.preserveProjectPublish) {
+      discardPendingProjectPublish();
+    }
     setSelectedProjectId(project.projectId);
     setDriveProjectReadyContext(project);
     setProjectDetails(details);
@@ -4623,6 +4691,216 @@ export function AppProviders({ children }: { children: ReactNode }) {
     });
   }
 
+  async function prepareProjectPublishReview(
+    projectId: string,
+  ): Promise<PrepareProjectPublishReviewResult> {
+    if (projectPublishInFlightRef.current) {
+      return createPrepareReviewFailure({
+        code: "publishAlreadyRunning",
+        message: "公開処理を実行中です。完了後にもう一度操作してください。",
+      });
+    }
+
+    const accessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+    if (
+      !accessToken ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      !workspace ||
+      !project ||
+      project.projectId !== projectId
+    ) {
+      return createPrepareReviewFailure({
+        code: "publishNotReady",
+        message:
+          "公開前確認の準備ができていません。Google接続と選択中プロジェクトを確認してください。",
+      });
+    }
+
+    discardPendingProjectPublish();
+    const requestSequence = projectPublishRequestSequenceRef.current;
+    const controller = new AbortController();
+    projectPublishAbortRef.current = controller;
+    projectPublishInFlightRef.current = true;
+    setIsProjectPublishInFlight(true);
+
+    try {
+      const result = await prepareProjectPublishReviewInDrive({
+        accessToken,
+        workspaceId: workspace.workspaceId,
+        projectsRootFolderId: workspace.projectsRootFolderId,
+        project,
+        signal: controller.signal,
+      });
+      if (
+        requestSequence !== projectPublishRequestSequenceRef.current ||
+        accessTokenRef.current !== accessToken
+      ) {
+        return createPrepareReviewFailure({ code: "stalePublishRequest" });
+      }
+      if (!result.ok) return result;
+
+      pendingProjectPublishRef.current = {
+        owner: {
+          projectId,
+          revisionId: result.review.revisionId,
+          requestSequence,
+        },
+        plan: result.plan,
+      };
+      return { ok: true, review: result.review };
+    } finally {
+      if (requestSequence === projectPublishRequestSequenceRef.current) {
+        projectPublishAbortRef.current = null;
+        projectPublishInFlightRef.current = false;
+        setIsProjectPublishInFlight(false);
+      }
+    }
+  }
+
+  async function commitPreparedProjectPublish(input: {
+    projectId: string;
+    revisionId: string;
+  }): Promise<CommitPreparedProjectPublishResult> {
+    if (projectPublishInFlightRef.current) {
+      return {
+        ok: false,
+        error: {
+          code: "publishAlreadyRunning",
+          message: "公開処理を実行中です。完了を待ってください。",
+          recoverability: "retryable",
+          canRetry: false,
+        },
+      };
+    }
+
+    const pending = pendingProjectPublishRef.current;
+    if (
+      !pending ||
+      !pendingProjectPublishOwnerMatches(pending.owner, input)
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "preparedReviewNotFound",
+          message:
+            "公開前確認の内容を使用できません。公開前確認をやり直してください。",
+          recoverability: "conflict",
+          canRetry: false,
+        },
+      };
+    }
+
+    const accessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+    if (
+      !accessToken ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      !workspace ||
+      !project ||
+      project.projectId !== input.projectId
+    ) {
+      pendingProjectPublishRef.current = null;
+      return {
+        ok: false,
+        error: {
+          code: "publishNotReady",
+          message:
+            "Google接続または選択中プロジェクトが変わりました。公開前確認をやり直してください。",
+          recoverability: "conflict",
+          canRetry: false,
+        },
+      };
+    }
+
+    const requestSequence = pending.owner.requestSequence;
+    const controller = new AbortController();
+    projectPublishAbortRef.current = controller;
+    projectPublishInFlightRef.current = true;
+    setIsProjectPublishInFlight(true);
+
+    try {
+      const workflowResult = await executePreparedProjectPublish({
+        accessToken,
+        plan: pending.plan,
+        signal: controller.signal,
+      });
+      if (
+        requestSequence !== projectPublishRequestSequenceRef.current ||
+        accessTokenRef.current !== accessToken
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: "stalePublishRequest",
+            message:
+              "公開対象が変更されました。選択中プロジェクトの状態を確認してください。",
+            recoverability: "requiresInspection",
+            canRetry: false,
+          },
+        };
+      }
+
+      if (!workflowResult.ok) {
+        const error = mapPublishWorkflowError(workflowResult);
+        if (
+          shouldDiscardPendingPlan(workflowResult.recoverability) === "discard"
+        ) {
+          pendingProjectPublishRef.current = null;
+        }
+        return { ok: false, error };
+      }
+
+      pendingProjectPublishRef.current = null;
+      let refreshed = false;
+      try {
+        const detailResult = await validateDriveProjectDetails({
+          accessToken,
+          expectedWorkspaceId: workspace.workspaceId,
+          expectedProjectsRootFolderId: workspace.projectsRootFolderId,
+          project,
+          signal: controller.signal,
+        });
+        if (
+          requestSequence === projectPublishRequestSequenceRef.current &&
+          detailResult.status === "ready"
+        ) {
+          applyProjectReadyState(project, toProjectDetails(detailResult.details), {
+            preserveProjectPublish: true,
+          });
+          refreshed = true;
+        }
+      } catch {
+        // The verified manifest commit remains successful if this refresh fails.
+      }
+
+      return {
+        ok: true,
+        result: buildSanitizedPublishSuccess({
+          workflow: workflowResult,
+          publishedAt: pending.plan.revisionFile.body.publishedAt,
+          refreshed,
+        }),
+      };
+    } finally {
+      if (requestSequence === projectPublishRequestSequenceRef.current) {
+        projectPublishAbortRef.current = null;
+        projectPublishInFlightRef.current = false;
+        setIsProjectPublishInFlight(false);
+      }
+    }
+  }
+
+  function cancelPreparedProjectPublish() {
+    discardPendingProjectPublish();
+  }
+
   async function listProjectPublishRevisionsForProject(
     projectId: string,
     signal: AbortSignal,
@@ -4770,6 +5048,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     selectProject,
     listProjectPublishRevisionsForProject,
     loadProjectPublishRevisionForProject,
+    prepareProjectPublishReview,
+    commitPreparedProjectPublish,
+    cancelPreparedProjectPublish,
+    isProjectPublishInFlight,
     createProject,
     updateSelectedProjectTitle,
     updateProjectSlideCaption,

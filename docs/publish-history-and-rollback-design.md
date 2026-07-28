@@ -501,3 +501,17 @@ commit executorはprepared revisionのfolder/file metadata、本文、canonical 
 同じplanのretryでpublication全fieldと実際の再生内容hashが一致していれば、再更新せず `alreadyCommitted` として収束する。target revisionとoperation IDの片方だけが一致する状態やexpected currentの変更は競合として自動上書きしない。更新失敗、応答不明、read-back失敗でもrevision削除、自動rollback、自動再更新は行わない。
 
 既存Drive helperにはETagやHTTP preconditionを使う更新契約がないため、更新直前のfresh readと更新後read-backでTOCTOUリスクを縮小するが、readとPATCHの間の競合窓は残る。競合を完全に防止する実装とは扱わない。index、offline sync、confirmed promotion、player、UI、Providerはこのcommit executorへ接続しておらず、Drive commit成功にも含めない。
+
+### Goal 5-3C 実装結果
+
+Goal 5-3Cでは `/admin` に保存操作と分離した明示的な公開sectionを追加し、Goal 5-3A / B1 / B2のpreflight、immutable revision準備、current manifest commitを接続した。管理者は最初に「公開前確認」を実行し、project表示名、公開日時、初回または更新公開、slide / asset / remoteOnly動画数、previous revision、warningを確認する。iPad反映にはoffline syncが別途必要であることをcheckboxで明示確認するまで、「この内容を公開」は実行できない。
+
+公開前確認は既存componentのproject detailsを公開内容の正本にしない。選択中projectのfolder、current manifest、assets folder metadataをDriveから再取得し、current manifest本文を正式parserへ通す。manifestが参照する一意なassetだけについてMIME type、size、modifiedTime、Drive checksum、parent、role metadata、trashed状態をfresh readし、asset本文は取得しない。history loaderの正式sort結果から最新valid revisionを選ぶ。履歴未構成またはreadyでvalid revision 0件はinitial publishを許可するが、invalid metadata、duplicate revision、folder重複、current pointerと最新履歴の不一致はblocking errorとして停止する。
+
+revision IDとoperation IDの8桁suffixはブラウザWeb Cryptoの `getRandomValues` から別々に生成する。公開時刻と確認時刻はreview開始時の同一UTC ISO時刻に固定する。preflight成功時だけwrite planをAppProviders内の `useRef` に保存し、ContextとUIへはsanitized reviewだけを返す。access tokenは従来どおりProvider内の `accessTokenRef` だけに保持し、Drive file / folder ID、canonical body、hash全文、manifest本文、asset metadata、raw errorを公開UIへ渡さない。
+
+workflow helperはrevision準備、結果確認、current manifest commit、結果確認の順序を固定する。`created / alreadyPrepared` と `committed / alreadyCommitted` の4組合せはいずれも検証済み成功である。revision準備失敗時はcommitを呼ばない。retryable failureとrevision準備開始後のabortでは同一planを保持するが、自動retryは行わない。conflictとrequiresInspectionではplanを破棄し、freshな公開前確認または履歴確認を要求する。project / workspace / Google接続の変更、明示cancel、新規review、成功、Provider unmountでもpending planを破棄する。
+
+UIとProviderの両方にbusy guardとrequest sequence / owner照合を置き、project切替、route unmount、連打、古い非同期結果を別projectへ反映しない。preflight中は明示cancelを提供し、publishing中は画面上のcancelを置かず完了を待つ。Provider unmountまたはproject context変更時はAbortSignalを伝播するが、作成済み履歴の自動cleanup、rollback、delete、再更新は行わない。
+
+公開成功はcommit executorがcurrent manifestのpublication pointerをread-back検証した場合だけ表示する。成功後はcurrent manifestをDriveから再読込し、正式project validatorを通したdetailsでProvider stateを更新する。この再取得だけが失敗した場合も検証済みcommit成功は維持し、画面再読込のwarningを表示する。公開成功はGoogle Drive上の公開版更新だけを意味し、index更新、offline sync、confirmed promotion、player反映を含まない。成功画面から既存 `/admin/history` へ移動できるが、current badge、polling、別tab broadcastは追加していない。
