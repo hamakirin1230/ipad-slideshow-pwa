@@ -17,6 +17,10 @@ import type {
   ProjectPublishHistoryOverview,
 } from "@/lib/publish-history/project-publish-history-overview";
 import {
+  isCurrentProjectRollbackPreviewRequest,
+  type ProjectRollbackPreview,
+} from "@/lib/publish-history/project-rollback-preview";
+import {
   buildRevisionDetailViewModel,
   formatMetadataStatus,
   formatPublicationStatus,
@@ -39,6 +43,15 @@ type HistoryViewState =
   | "error";
 
 type RevisionDetailState = "closed" | "loading" | "ready" | "error";
+type RollbackPreviewState =
+  | "closed"
+  | "loading"
+  | "ready"
+  | "degraded"
+  | "blocked"
+  | "noChange"
+  | "stale"
+  | "error";
 
 const invalidLocationCodes = new Set([
   "duplicateHistoryFolder",
@@ -63,6 +76,7 @@ export function PublishHistoryClient() {
     selectProject,
     loadProjectPublishRevisionForProject,
     loadProjectPublishHistoryOverviewForProject,
+    prepareProjectRollbackPreview,
   } = useAppState();
   const [historyState, setHistoryState] = useState<HistoryViewState>("idle");
   const [items, setItems] = useState<ProjectPublishRevisionListItem[]>([]);
@@ -78,14 +92,25 @@ export function PublishHistoryClient() {
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProjectPublishRevisionDetailViewModel | null>(null);
   const [detailMessage, setDetailMessage] = useState("");
+  const [previewState, setPreviewState] =
+    useState<RollbackPreviewState>("closed");
+  const [preview, setPreview] = useState<ProjectRollbackPreview | null>(null);
+  const [previewMessage, setPreviewMessage] = useState("");
   const listSequenceRef = useRef(0);
   const detailSequenceRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
+  const previewAbortRef = useRef<AbortController | null>(null);
   const loadedProjectIdRef = useRef<string | null>(null);
   const detailOwnerRef = useRef<{ projectId: string; revisionId: string } | null>(
     null,
   );
+  const previewSequenceRef = useRef(0);
+  const previewInFlightRef = useRef(false);
+  const previewOwnerRef = useRef<{
+    projectId: string;
+    targetRevisionId: string;
+  } | null>(null);
 
   const isGoogleReady =
     googleStatus === "connected" && driveFileGranted === true;
@@ -142,8 +167,11 @@ export function PublishHistoryClient() {
     return () => {
       listAbortRef.current?.abort();
       detailAbortRef.current?.abort();
+      previewAbortRef.current?.abort();
       listSequenceRef.current += 1;
       detailSequenceRef.current += 1;
+      previewSequenceRef.current += 1;
+      previewInFlightRef.current = false;
     };
   }, []);
 
@@ -151,25 +179,58 @@ export function PublishHistoryClient() {
     if (isGoogleReady) return;
     listAbortRef.current?.abort();
     detailAbortRef.current?.abort();
+    previewAbortRef.current?.abort();
     listSequenceRef.current += 1;
     detailSequenceRef.current += 1;
+    previewSequenceRef.current += 1;
+    previewInFlightRef.current = false;
     loadedProjectIdRef.current = null;
     detailOwnerRef.current = null;
+    previewOwnerRef.current = null;
     const clearTimer = window.setTimeout(() => {
       setItems([]);
       setOverview(null);
       setDetail(null);
       setDetailState("closed");
       setSelectedRevisionId(null);
+      setPreview(null);
+      setPreviewState("closed");
+      setPreviewMessage("");
       setHistoryState("idle");
       setHistoryMessage("Google Driveに接続してください。");
     }, 0);
     return () => window.clearTimeout(clearTimer);
   }, [isGoogleReady]);
 
+  useEffect(() => {
+    if (driveStatus === "ready" && projectStatus === "ready") return;
+    previewAbortRef.current?.abort();
+    previewSequenceRef.current += 1;
+    previewInFlightRef.current = false;
+    previewOwnerRef.current = null;
+    const clearTimer = window.setTimeout(() => {
+      setPreview(null);
+      setPreviewState("closed");
+      setPreviewMessage("");
+    }, 0);
+    return () => window.clearTimeout(clearTimer);
+  }, [driveStatus, projectStatus]);
+
+  function clearRollbackPreview() {
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    previewSequenceRef.current += 1;
+    previewInFlightRef.current = false;
+    previewOwnerRef.current = null;
+    setPreview(null);
+    setPreviewState("closed");
+    setPreviewMessage("");
+  }
+
   function clearDetail() {
     detailAbortRef.current?.abort();
     detailSequenceRef.current += 1;
+    clearRollbackPreview();
     setDetailState("closed");
     detailOwnerRef.current = null;
     setSelectedRevisionId(null);
@@ -248,6 +309,7 @@ export function PublishHistoryClient() {
 
   async function loadDetail(projectId: string, revisionId: string) {
     detailAbortRef.current?.abort();
+    clearRollbackPreview();
     const controller = new AbortController();
     detailAbortRef.current = controller;
     const sequence = detailSequenceRef.current + 1;
@@ -300,6 +362,69 @@ export function PublishHistoryClient() {
   function handleRetryDetail() {
     if (!selectedProjectId || !selectedRevisionId || detailState === "loading") return;
     void loadDetail(selectedProjectId, selectedRevisionId);
+  }
+
+  async function startRollbackPreview() {
+    if (
+      !selectedProjectId ||
+      !selectedRevisionId ||
+      detailState !== "ready" ||
+      previewInFlightRef.current
+    ) {
+      return;
+    }
+    previewAbortRef.current?.abort();
+    const controller = new AbortController();
+    previewAbortRef.current = controller;
+    const sequence = previewSequenceRef.current + 1;
+    previewSequenceRef.current = sequence;
+    previewInFlightRef.current = true;
+    const owner = {
+      projectId: selectedProjectId,
+      targetRevisionId: selectedRevisionId,
+    };
+    previewOwnerRef.current = owner;
+    setPreview(null);
+    setPreviewState("loading");
+    setPreviewMessage(
+      "Google Driveの最新状態からrollback影響を確認しています。",
+    );
+
+    const result = await prepareProjectRollbackPreview(
+      owner.projectId,
+      owner.targetRevisionId,
+      controller.signal,
+    );
+    if (
+      !isCurrentProjectRollbackPreviewRequest({
+        owner,
+        activeOwner: previewOwnerRef.current,
+        sequence,
+        activeSequence: previewSequenceRef.current,
+        currentProjectId: selectedProjectId,
+        currentTargetRevisionId: selectedRevisionId,
+        aborted: controller.signal.aborted,
+      })
+    ) {
+      return;
+    }
+    previewInFlightRef.current = false;
+    previewAbortRef.current = null;
+    if (!result.ok) {
+      setPreview(null);
+      setPreviewState(
+        result.category === "stale"
+          ? "stale"
+          : result.category === "blocked"
+            ? "blocked"
+            : "error",
+      );
+      setPreviewMessage(result.message);
+      return;
+    }
+    setPreview(result.preview);
+    setPreviewState(result.preview.readiness);
+    setPreviewMessage(result.preview.message);
   }
 
   return (
@@ -386,8 +511,13 @@ export function PublishHistoryClient() {
           detail={detail}
           message={detailMessage}
           publication={overview?.publication ?? null}
+          previewState={previewState}
+          preview={preview}
+          previewMessage={previewMessage}
           onClose={clearDetail}
           onRetry={handleRetryDetail}
+          onStartPreview={() => void startRollbackPreview()}
+          onClosePreview={clearRollbackPreview}
         />
       </div>
     </div>
@@ -630,8 +760,13 @@ function RevisionDetail(props: {
   detail: ProjectPublishRevisionDetailViewModel | null;
   message: string;
   publication: ProjectPublicationOverview | null;
+  previewState: RollbackPreviewState;
+  preview: ProjectRollbackPreview | null;
+  previewMessage: string;
   onClose: () => void;
   onRetry: () => void;
+  onStartPreview: () => void;
+  onClosePreview: () => void;
 }) {
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
@@ -658,6 +793,17 @@ function RevisionDetail(props: {
               props.publication,
               props.detail.revisionId,
             )}
+            previewState={props.previewState}
+            onStartPreview={props.onStartPreview}
+          />
+        ) : null}
+        {props.state === "ready" && props.previewState !== "closed" ? (
+          <RollbackPreviewPanel
+            state={props.previewState}
+            preview={props.preview}
+            message={props.previewMessage}
+            onRecheck={props.onStartPreview}
+            onClose={props.onClosePreview}
           />
         ) : null}
       </CardContent>
@@ -668,9 +814,13 @@ function RevisionDetail(props: {
 function ReadyRevisionDetail({
   detail,
   publicationMarker,
+  previewState,
+  onStartPreview,
 }: {
   detail: ProjectPublishRevisionDetailViewModel;
   publicationMarker: ProjectPublishRevisionPublicationMarker;
+  previewState: RollbackPreviewState;
+  onStartPreview: () => void;
 }) {
   return (
     <div className="space-y-5">
@@ -738,8 +888,280 @@ function ReadyRevisionDetail({
           {detail.assets.length === 0 ? <p className="text-sm text-slate-400">assetはありません。</p> : null}
         </div>
       </section>
+      <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4">
+        <p className="font-semibold text-sky-100">
+          rollbackの読み取り専用preview
+        </p>
+        <p className="mt-2 text-sm text-slate-200">
+          ボタンを押した時点のGoogle Driveをfresh readし、影響だけを確認します。
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          className="mt-4 min-h-11 w-full"
+          onClick={onStartPreview}
+          disabled={previewState === "loading"}
+        >
+          {previewState === "loading"
+            ? "rollback影響を確認中"
+            : previewState === "closed"
+              ? "ロールバック影響を確認"
+              : "previewを再確認"}
+        </Button>
+      </div>
     </div>
   );
+}
+
+function RollbackPreviewPanel(props: {
+  state: Exclude<RollbackPreviewState, "closed">;
+  preview: ProjectRollbackPreview | null;
+  message: string;
+  onRecheck: () => void;
+  onClose: () => void;
+}) {
+  const isFailure =
+    props.state === "blocked" ||
+    props.state === "stale" ||
+    props.state === "error";
+  const statusLabel =
+    props.state === "loading"
+      ? "確認中"
+      : props.state === "ready"
+        ? "ready"
+        : props.state === "degraded"
+          ? "degraded・要確認"
+          : props.state === "noChange"
+            ? "変更なし"
+            : props.state === "stale"
+              ? "stale・再確認が必要"
+              : props.state === "blocked"
+                ? "blocked"
+                : "読込エラー";
+  const impact = props.preview?.manifestImpact;
+
+  return (
+    <section
+      aria-labelledby="rollback-preview-heading"
+      className="mt-6 min-w-0 rounded-2xl border border-white/15 bg-black/25 p-4 sm:p-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 id="rollback-preview-heading" className="text-lg font-semibold">
+            読み取り専用preview
+          </h3>
+          <p className="mt-1 text-sm text-slate-300">
+            この画面ではDriveの内容を変更しません。
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11"
+          onClick={props.onClose}
+        >
+          previewを閉じる
+        </Button>
+      </div>
+
+      <div
+        role={isFailure ? "alert" : "status"}
+        aria-live="polite"
+        className={
+          isFailure
+            ? "mt-4 rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-100"
+            : props.state === "degraded"
+              ? "mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100"
+              : "mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-slate-100"
+        }
+      >
+        <Badge variant="outline">{statusLabel}</Badge>
+        <p className="mt-3 font-semibold">{props.message}</p>
+        {props.state === "loading" ? (
+          <p className="mt-2 text-sm">
+            current manifest、current revision、target revision、全参照asset
+            metadataを確認しています。
+          </p>
+        ) : null}
+      </div>
+
+      {props.state !== "loading" ? (
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11"
+            onClick={props.onRecheck}
+          >
+            previewを再確認
+          </Button>
+        </div>
+      ) : null}
+
+      {props.preview && impact ? (
+        <div className="mt-5 space-y-5">
+          {props.preview.warnings.map((warning) => (
+            <div
+              key={warning}
+              role="status"
+              className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-4 font-semibold text-amber-100"
+            >
+              {warning}
+            </div>
+          ))}
+
+          <dl className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+            <DetailField
+              label="確認日時（東京）"
+              value={formatPublishedAt(props.preview.checkedAt)}
+            />
+            <DetailField
+              label="target revision ID"
+              value={props.preview.targetRevisionId}
+              mono
+            />
+            <DetailField
+              label="target公開日時"
+              value={formatPublishedAt(props.preview.targetPublishedAt)}
+            />
+            <DetailField
+              label="target操作"
+              value={formatPublishOperation(props.preview.targetOperation)}
+            />
+            <DetailField
+              label="rollback元revision"
+              value={props.preview.restoredFromRevisionId ?? "なし"}
+              mono
+            />
+            <DetailField
+              label="公開後の未公開編集"
+              value={impact.hasUnpublishedChanges ? "あり・置換対象" : "なし"}
+            />
+          </dl>
+
+          <section aria-labelledby="rollback-manifest-impact-heading">
+            <h4
+              id="rollback-manifest-impact-heading"
+              className="font-semibold"
+            >
+              manifest / slide impact
+            </h4>
+            <dl className="mt-3 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+              <DetailField
+                label="現在のproject title"
+                value={impact.currentProjectTitle}
+              />
+              <DetailField
+                label="rollback後のproject title"
+                value={impact.rollbackProjectTitle}
+              />
+              <DetailField
+                label="title変更"
+                value={impact.titleChanged ? "あり" : "なし"}
+              />
+              <DetailField
+                label="slide数"
+                value={`${impact.currentSlideCount} → ${impact.rollbackSlideCount}`}
+              />
+              <DetailField
+                label="unique asset数"
+                value={`${impact.currentUniqueAssetCount} → ${impact.rollbackUniqueAssetCount}`}
+              />
+              <DetailField
+                label="slide追加 / 削除 / 内容変更"
+                value={`${impact.addedSlideCount} / ${impact.removedSlideCount} / ${impact.changedSlideCount}`}
+              />
+              <DetailField
+                label="slide順変更"
+                value={impact.slideOrderChanged ? "あり" : "なし"}
+              />
+              <DetailField
+                label="rollback後 offlineEligible / remoteOnly"
+                value={`${impact.rollbackOfflineEligibleAssetCount} / ${impact.rollbackRemoteOnlyAssetCount}`}
+              />
+              <DetailField
+                label="unavailable / contentChanged"
+                value={`${impact.unavailableAssetCount} / ${impact.contentChangedAssetCount}`}
+              />
+              <DetailField
+                label="unverifiable / metadataChanged"
+                value={`${impact.unverifiableAssetCount} / ${impact.metadataChangedAssetCount}`}
+              />
+            </dl>
+          </section>
+
+          <section aria-labelledby="rollback-assets-heading">
+            <h4 id="rollback-assets-heading" className="font-semibold">
+              target asset検査
+            </h4>
+            <div className="mt-3 max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+              {props.preview.assets.map((asset) => (
+                <article
+                  key={asset.assetId}
+                  className="min-w-0 rounded-xl border border-white/10 bg-black/20 p-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">
+                      {formatRollbackAssetImpact(asset.impactStatus)}
+                    </Badge>
+                    <Badge variant="outline">
+                      {formatRollbackOfflineDisposition(
+                        asset.offlineDisposition,
+                      )}
+                    </Badge>
+                    <span className="break-all text-xs text-slate-400">
+                      {asset.mimeType}
+                    </span>
+                  </div>
+                  <p className="mt-2 break-words font-medium">
+                    {asset.displayName}
+                  </p>
+                  {asset.sanitizedReasons.map((reason) => (
+                    <p key={reason} className="mt-1 break-words text-slate-300">
+                      {reason}
+                    </p>
+                  ))}
+                </article>
+              ))}
+              {props.preview.assets.length === 0 ? (
+                <p className="text-sm text-slate-400">参照assetはありません。</p>
+              ) : null}
+            </div>
+          </section>
+
+          <p className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+            このpreviewは確認時点のsnapshotです。実行時には再度fresh
+            preflightが必要です。この結果をwrite planとして再利用しません。
+          </p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function formatRollbackAssetImpact(
+  status: ProjectRollbackPreview["assets"][number]["impactStatus"],
+) {
+  switch (status) {
+    case "unchanged":
+      return "unchanged";
+    case "metadataChanged":
+      return "metadataChanged・要確認";
+    case "contentChanged":
+      return "contentChanged・blocked";
+    case "unverifiable":
+      return "unverifiable・要確認";
+    case "unavailable":
+      return "unavailable・blocked";
+  }
+}
+
+function formatRollbackOfflineDisposition(
+  disposition: ProjectRollbackPreview["assets"][number]["offlineDisposition"],
+) {
+  if (disposition === "offlineEligible") return "offlineEligible";
+  if (disposition === "remoteOnly") return "remoteOnly";
+  return "offline利用不可";
 }
 
 function DetailField({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {

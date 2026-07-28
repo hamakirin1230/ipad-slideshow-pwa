@@ -527,3 +527,23 @@ publicationとrevisionが整合した後、publicationを除いたcurrent manife
 current以外のrevisionは中立的な「履歴revision」と表示する。metadata一覧だけでは過去に正式公開されたrevisionとcurrent切替前に残ったrevisionを安全に区別できないため、「過去の公開版」や「orphan」へ自動分類しない。publicationなしでrevisionが残る状態もread-onlyの要確認状態として表示し、削除やcleanupは行わない。
 
 UIと公開resultにはDrive file / folder ID、operation ID、canonical hash全文、raw manifest、raw revision JSON、raw error、Drive API URL、access tokenを含めない。revision詳細にあったcanonical hash全文表示も削除し、整合性状態へ置き換えた。このGoalではrollback preview / 実行、Drive write、index、offline sync、IndexedDB、Service Worker、playerを変更していない。
+
+### Goal 5-4B 実装結果
+
+Goal 5-4Bでは `/admin/history` の有効なrevision詳細から、管理者が「ロールバック影響を確認」を明示操作した場合だけ開始するread-only previewを追加した。detailや一覧metadataを実行根拠にせず、preview開始時にproject folder、current `manifest.json` metadataと本文、assets folder、publicationが指すcurrent revision、target revisionをGoogle Driveからfresh readする。current / target revisionは既存exact loaderを使い、一意性、Drive metadata、JSON、schema、metadataと本文、project整合性を検証する。
+
+target revisionが参照する一意な全assetはasset単位でmetadataを一度だけfresh readし、存在、trashed、Drive参照、MIME type、parent、`app`、`role=asset`、schemaVersion、workspace、project、asset ID、size、modifiedTime、checksumを検査する。asset Blobやasset本文は取得せず、大容量videoのdownloadやhash計算も行わない。fresh metadataから現行50 MiB policyを再利用して `offlineEligible` / `remoteOnly` / `unavailable` を導出する。50 MiBちょうどの対応videoはofflineEligible、50 MiB超の `video/mp4` はremoteOnlyである。remoteOnly自体は破損やdegradedとして扱わず、onlineかつGoogle接続時だけDrive streamingで再生でき、offlineでは利用できないことを表示する。
+
+pure preview helperは検証済みcurrent manifest / current revision / target revisionとfresh asset metadataだけを入力とし、fetch、token参照、React state、Drive write、operation ID / revision ID生成を行わない。assetは `unchanged`、`metadataChanged`、`contentChanged`、`unverifiable`、`unavailable` に分類する。checksumまたはsizeの明確な不一致はcontentChanged、checksum一致で更新日時・名称・offline区分だけが変わった場合はmetadataChanged、checksum / size / modifiedTimeを完全に確認できない場合はunverifiable、正式なidentity metadataやMIME / parentが不一致の場合はunavailableとする。
+
+preview全体は全asset unchangedならready、metadataChangedまたはunverifiableだけならdegraded、contentChanged / unavailableまたはcurrent publication / Drive構造 / revision不正ならblocked、targetとcurrent manifestのtitle・再生内容が同じで置き換える未公開編集もなければnoChangeとする。current manifestがcurrent revisionと異なる場合は、公開後にDriveへ保存済みだが未公開の編集として高視認性で警告し、将来rollbackではtarget revision内容へ置き換えられることを明記する。同じcurrent revisionをtargetにしても未公開編集があればpreviewを許可する。未公開編集の自動退避、保存、publish、backupは行わない。
+
+manifest impactには現在とrollback後のproject title、title変更、slide数、unique asset数、offlineEligible / remoteOnly数、asset分類別件数、未公開編集有無を含める。slide IDを基準に追加、削除、同一IDの再生内容変更、共通slideの順序変更を導出し、asset参照、asset名、type、MIME type、duration、caption、video runtime metadataを比較する。`createdAt` / `updatedAt` だけの差は再生内容変更に数えない。
+
+preview開始時はmanifest `modifiedTime`、publicationを除いたcontent canonical hash、`currentRevisionId`を固定する。全asset検査後にcurrent manifest metadataと本文、target revisionをexact loaderで再取得し、開始時からcurrentの3値またはtarget revision canonical contentが変わっていればstaleとして結果を拒否する。表示後の自動pollingや自動retryは追加せず、再確認は明示buttonだけで行う。このpreviewは確認時点のsnapshotであり、Goal 5-4Cの実行時には再度fresh preflightが必要で、表示中結果をwrite planとして再利用しない。
+
+UIはproject / target revision owner、AbortController、request sequence、単一in-flight guardを持つ。project切替、Google切断、workspace / project readiness変更、履歴手動再読込、detail対象変更、detail / previewを閉じる操作、次のpreview開始、route / Provider unmountで古いpreviewを破棄する。panelは「読み取り専用preview」「この画面ではDriveの内容を変更しません」と明示し、確認日時は東京時刻で表示する。loadingはlive status、blocking / stale / read errorはalertとし、状態名と文言を併記して色だけに依存しない。操作はpreview開始、再確認、閉じるだけで、rollback実行buttonやconfirmation checkboxは追加していない。
+
+AppProvidersのcallbackは既存 `accessTokenRef.current` からだけtokenを取得し、正式なworkspace / project contextをProvider内部で解決して全Drive readへAbortSignalを渡す。公開resultはasset ID・表示名・MIME type・分類・offline区分・sanitized reason程度に限定し、access token、Authorization / Bearer、Drive file / folder ID、hash全文、checksum値、operation ID、raw manifest / revision / metadata / response / error、Drive API URL、session IDを含めない。pending rollback planやwrite planは保持せず、Goal 5-3Cのpending publish planと既存publish callbackも変更していない。
+
+このGoalではDrive create / update / delete / rename、manifest / revision / publication / index更新、rollback revision作成、operation ID / revision ID生成、history folder作成、自動修復、asset修復、server proxy、OAuth scope、IndexedDB、offline sync、Service Worker、player、video属性、package / lockfileを変更していない。実際のrollback revision作成、current manifest本文更新、publication切替、write直前のfresh preflightと競合制御はGoal 5-4C以降へ分離する。

@@ -36,6 +36,11 @@ import {
   prepareProjectPublishReviewInDrive,
 } from "@/lib/publish-history/project-publish-review";
 import {
+  createPrepareProjectRollbackPreviewFailure,
+  prepareProjectRollbackPreviewInDrive,
+  type PrepareProjectRollbackPreviewResult,
+} from "@/lib/publish-history/project-rollback-review";
+import {
   buildSanitizedPublishSuccess,
   createPrepareReviewFailure,
   mapPublishWorkflowError,
@@ -533,6 +538,11 @@ type AppContextValue = {
     projectId: string,
     signal: AbortSignal,
   ) => Promise<LoadProjectPublishHistoryOverviewResult>;
+  prepareProjectRollbackPreview: (
+    projectId: string,
+    targetRevisionId: string,
+    signal: AbortSignal,
+  ) => Promise<PrepareProjectRollbackPreviewResult>;
   prepareProjectPublishReview: (
     projectId: string,
   ) => Promise<PrepareProjectPublishReviewResult>;
@@ -5006,6 +5016,38 @@ export function AppProviders({ children }: { children: ReactNode }) {
     });
   }
 
+  async function prepareProjectRollbackPreview(
+    projectId: string,
+    targetRevisionId: string,
+    signal: AbortSignal,
+  ): Promise<PrepareProjectRollbackPreviewResult> {
+    const accessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+
+    if (
+      !accessToken ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      !workspace ||
+      !project ||
+      project.projectId !== projectId
+    ) {
+      return createPrepareProjectRollbackPreviewFailure("notReady");
+    }
+
+    return prepareProjectRollbackPreviewInDrive({
+      accessToken,
+      workspaceId: workspace.workspaceId,
+      projectsRootFolderId: workspace.projectsRootFolderId,
+      project,
+      targetRevisionId,
+      signal,
+    });
+  }
+
   const value: AppContextValue = {
     googleStatus,
     googleStatusLabel: googleStatusLabels[googleStatus],
@@ -5088,6 +5130,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     listProjectPublishRevisionsForProject,
     loadProjectPublishRevisionForProject,
     loadProjectPublishHistoryOverviewForProject,
+    prepareProjectRollbackPreview,
     prepareProjectPublishReview,
     commitPreparedProjectPublish,
     cancelPreparedProjectPublish,
