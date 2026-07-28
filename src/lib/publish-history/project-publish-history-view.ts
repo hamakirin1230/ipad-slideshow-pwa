@@ -2,6 +2,7 @@ import type {
   ProjectPublishOperation,
   ProjectPublishRevision,
 } from "./project-publish-revision";
+import type { ProjectPublicationOverview } from "./project-publish-history-overview";
 
 export function formatPublishOperation(
   operation: ProjectPublishOperation | null | undefined,
@@ -13,6 +14,52 @@ export function formatPublishOperation(
 
 export function formatMetadataStatus(status: "ready" | "invalid") {
   return status === "ready" ? "有効" : "要確認";
+}
+
+export type ProjectPublishRevisionPublicationMarker =
+  | "current"
+  | "needsInspection"
+  | "history";
+
+export function getRevisionPublicationMarker(
+  publication: ProjectPublicationOverview | null,
+  revisionId: string,
+): ProjectPublishRevisionPublicationMarker {
+  if (!publication || publication.currentRevisionId !== revisionId) {
+    return "history";
+  }
+  if (publication.currentRevisionMarker === "verified") return "current";
+  if (publication.currentRevisionMarker === "needsInspection") {
+    return "needsInspection";
+  }
+  return "history";
+}
+
+export function formatRevisionPublicationMarker(
+  marker: ProjectPublishRevisionPublicationMarker,
+) {
+  if (marker === "current") return "現在公開中";
+  if (marker === "needsInspection") return "manifest参照先・要確認";
+  return "履歴revision";
+}
+
+export function formatPublicationStatus(
+  status: ProjectPublicationOverview["status"],
+) {
+  switch (status) {
+    case "unpublished":
+      return "未公開";
+    case "current":
+      return "現在公開中";
+    case "currentWithUnpublishedChanges":
+      return "現在公開中・未公開編集あり";
+    case "missingCurrentRevision":
+    case "inconsistent":
+    case "unavailable":
+      return "現在の公開情報を確認できない";
+    case "noPublicationWithHistory":
+      return "publicationなし・履歴revisionあり";
+  }
 }
 
 export function formatPublishedAt(value: string | null | undefined) {
@@ -75,7 +122,6 @@ export type ProjectPublishRevisionDetailViewModel = {
   previousRevisionId: string | null;
   schemaVersion: number;
   sourceManifestModifiedTime: string;
-  sourceManifestCanonicalHash: string;
   summary: {
     slideCount: number;
     assetCount: number;
@@ -115,7 +161,6 @@ export function buildRevisionDetailViewModel(
     sourceManifestModifiedTime: formatPublishedAt(
       revision.sourceManifestModifiedTime,
     ),
-    sourceManifestCanonicalHash: revision.sourceManifestCanonicalHash,
     summary: { ...revision.summary },
     slides: revision.manifest.slides.map((slide, index) => ({
       order: index + 1,

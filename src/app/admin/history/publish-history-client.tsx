@@ -12,13 +12,21 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { ProjectPublishRevisionListItem } from "@/lib/publish-history/project-publish-revision-loader";
+import type {
+  ProjectPublicationOverview,
+  ProjectPublishHistoryOverview,
+} from "@/lib/publish-history/project-publish-history-overview";
 import {
   buildRevisionDetailViewModel,
   formatMetadataStatus,
+  formatPublicationStatus,
   formatPublishedAt,
   formatPublishOperation,
+  formatRevisionPublicationMarker,
+  getRevisionPublicationMarker,
   mapPublishHistoryErrorCode,
   type ProjectPublishRevisionDetailViewModel,
+  type ProjectPublishRevisionPublicationMarker,
 } from "@/lib/publish-history/project-publish-history-view";
 
 type HistoryViewState =
@@ -37,6 +45,8 @@ const invalidLocationCodes = new Set([
   "invalidHistoryFolder",
   "duplicateRevisionsFolder",
   "invalidRevisionsFolder",
+  "invalidManifestMetadata",
+  "invalidManifest",
 ]);
 
 export function PublishHistoryClient() {
@@ -51,8 +61,8 @@ export function PublishHistoryClient() {
     isDriveOperationInFlight,
     checkProject,
     selectProject,
-    listProjectPublishRevisionsForProject,
     loadProjectPublishRevisionForProject,
+    loadProjectPublishHistoryOverviewForProject,
   } = useAppState();
   const [historyState, setHistoryState] = useState<HistoryViewState>("idle");
   const [items, setItems] = useState<ProjectPublishRevisionListItem[]>([]);
@@ -62,6 +72,8 @@ export function PublishHistoryClient() {
   const [invalidMetadataCount, setInvalidMetadataCount] = useState(0);
   const [ignoredFileCount, setIgnoredFileCount] = useState(0);
   const [duplicateRevisionIdCount, setDuplicateRevisionIdCount] = useState(0);
+  const [overview, setOverview] =
+    useState<ProjectPublishHistoryOverview | null>(null);
   const [detailState, setDetailState] = useState<RevisionDetailState>("closed");
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProjectPublishRevisionDetailViewModel | null>(null);
@@ -87,7 +99,7 @@ export function PublishHistoryClient() {
     Boolean(selectedProjectId) &&
     historyState !== "loading";
   const loadHistoryListEffect = useEffectEvent((projectId: string) => {
-    void loadHistoryList(projectId);
+    void loadHistoryOverview(projectId);
   });
 
   useEffect(() => {
@@ -141,9 +153,11 @@ export function PublishHistoryClient() {
     detailAbortRef.current?.abort();
     listSequenceRef.current += 1;
     detailSequenceRef.current += 1;
+    loadedProjectIdRef.current = null;
     detailOwnerRef.current = null;
     const clearTimer = window.setTimeout(() => {
       setItems([]);
+      setOverview(null);
       setDetail(null);
       setDetailState("closed");
       setSelectedRevisionId(null);
@@ -168,6 +182,7 @@ export function PublishHistoryClient() {
     listSequenceRef.current += 1;
     loadedProjectIdRef.current = null;
     setItems([]);
+    setOverview(null);
     setInvalidMetadataCount(0);
     setIgnoredFileCount(0);
     setDuplicateRevisionIdCount(0);
@@ -176,13 +191,14 @@ export function PublishHistoryClient() {
     clearDetail();
   }
 
-  async function loadHistoryList(projectId: string) {
+  async function loadHistoryOverview(projectId: string) {
     listAbortRef.current?.abort();
     const controller = new AbortController();
     listAbortRef.current = controller;
     const sequence = listSequenceRef.current + 1;
     listSequenceRef.current = sequence;
     setItems([]);
+    setOverview(null);
     setInvalidMetadataCount(0);
     setIgnoredFileCount(0);
     setDuplicateRevisionIdCount(0);
@@ -190,7 +206,7 @@ export function PublishHistoryClient() {
     setHistoryMessage("Google Driveから公開履歴を読み込んでいます。");
     clearDetail();
 
-    const result = await listProjectPublishRevisionsForProject(
+    const result = await loadProjectPublishHistoryOverviewForProject(
       projectId,
       controller.signal,
     );
@@ -203,27 +219,31 @@ export function PublishHistoryClient() {
     }
     if (!result.ok) {
       setHistoryState(invalidLocationCodes.has(result.code) ? "invalid" : "error");
-      setHistoryMessage(mapPublishHistoryErrorCode(result.code));
+      setHistoryMessage(result.message);
       return;
     }
-    if (result.status === "notConfigured") {
+    const nextOverview = result.overview;
+    setOverview(nextOverview);
+    setItems(nextOverview.items);
+    setInvalidMetadataCount(nextOverview.invalidMetadataCount);
+    setIgnoredFileCount(nextOverview.ignoredFileCount);
+    setDuplicateRevisionIdCount(nextOverview.duplicateRevisionIdCount);
+    if (nextOverview.historyStatus === "notConfigured") {
       setHistoryState("notConfigured");
       setHistoryMessage(
-        "このプロジェクトには公開履歴がまだありません。公開機能は今後のGoalで追加されます。",
+        "このprojectには公開履歴がありません。初回公開後に履歴が表示されます。",
       );
       return;
     }
-    setItems(result.items);
-    setInvalidMetadataCount(result.invalidMetadataCount);
-    setIgnoredFileCount(result.ignoredFileCount);
-    setDuplicateRevisionIdCount(result.duplicateRevisionIdCount);
-    if (result.items.length === 0) {
+    if (nextOverview.items.length === 0) {
       setHistoryState("empty");
       setHistoryMessage("公開履歴はありません。");
       return;
     }
     setHistoryState("ready");
-    setHistoryMessage(`${result.items.length}件の公開履歴metadataを読み込みました。`);
+    setHistoryMessage(
+      `${nextOverview.items.length}件の公開履歴metadataを読み込みました。`,
+    );
   }
 
   async function loadDetail(projectId: string, revisionId: string) {
@@ -269,7 +289,7 @@ export function PublishHistoryClient() {
   function handleReload() {
     if (!selectedProjectId || !canReload) return;
     loadedProjectIdRef.current = selectedProjectId;
-    void loadHistoryList(selectedProjectId);
+    void loadHistoryOverview(selectedProjectId);
   }
 
   function handleOpenDetail(item: ProjectPublishRevisionListItem) {
@@ -329,6 +349,12 @@ export function PublishHistoryClient() {
         </CardContent>
       </Card>
 
+      <PublicationStatusCard
+        state={historyState}
+        publication={overview?.publication ?? null}
+        message={historyMessage}
+      />
+
       <div
         role={historyState === "invalid" || historyState === "error" ? "alert" : "status"}
         aria-live="polite"
@@ -352,17 +378,173 @@ export function PublishHistoryClient() {
           invalidMetadataCount={invalidMetadataCount}
           ignoredFileCount={ignoredFileCount}
           duplicateRevisionIdCount={duplicateRevisionIdCount}
+          publication={overview?.publication ?? null}
           onOpenDetail={handleOpenDetail}
         />
         <RevisionDetail
           state={detailState}
           detail={detail}
           message={detailMessage}
+          publication={overview?.publication ?? null}
           onClose={clearDetail}
           onRetry={handleRetryDetail}
         />
       </div>
     </div>
+  );
+}
+
+function PublicationStatusCard({
+  state,
+  publication,
+  message,
+}: {
+  state: HistoryViewState;
+  publication: ProjectPublicationOverview | null;
+  message: string;
+}) {
+  const isLoading = state === "loading";
+  const isUnavailable =
+    publication?.status === "missingCurrentRevision" ||
+    publication?.status === "inconsistent" ||
+    publication?.status === "unavailable";
+  const isCurrent =
+    publication?.status === "current" ||
+    publication?.status === "currentWithUnpublishedChanges";
+  const hasHistoryWithoutPublication =
+    publication?.status === "noPublicationWithHistory";
+  const badgeClassName =
+    publication?.status === "currentWithUnpublishedChanges"
+      ? "border-amber-400/50 text-amber-100"
+      : isCurrent
+        ? "border-emerald-400/50 text-emerald-100"
+        : isUnavailable
+          ? "border-rose-400/50 text-rose-100"
+          : hasHistoryWithoutPublication
+            ? "border-amber-400/50 text-amber-100"
+          : "border-slate-500 text-slate-200";
+
+  return (
+    <Card className="border-white/10 bg-white/5 text-slate-50">
+      <CardHeader>
+        <CardTitle>
+          <h2 id="current-publication-heading">現在の公開状態</h2>
+        </CardTitle>
+        <CardDescription className="text-slate-300">
+          現在のmanifest.jsonを再取得し、参照先revisionとの整合性を確認します。
+        </CardDescription>
+      </CardHeader>
+      <CardContent
+        aria-labelledby="current-publication-heading"
+        className="space-y-4"
+      >
+        {isLoading ? (
+          <p role="status" aria-live="polite">
+            現在の公開情報を確認しています。
+          </p>
+        ) : null}
+        {!isLoading &&
+        !publication &&
+        (state === "invalid" || state === "error") ? (
+          <div
+            role="alert"
+            className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-100"
+          >
+            <Badge
+              variant="outline"
+              className="border-rose-400/50 text-rose-100"
+            >
+              現在の公開情報を確認できない
+            </Badge>
+            <p className="mt-3 font-semibold">{message}</p>
+            <p className="mt-2 text-sm">
+              自動修復や自動retryは行いません。状態を確認して手動で再読込してください。
+            </p>
+          </div>
+        ) : null}
+        {!isLoading &&
+        !publication &&
+        state !== "invalid" &&
+        state !== "error" ? (
+          <p className="text-sm text-slate-400">
+            projectを選択して公開情報を読み込んでください。
+          </p>
+        ) : null}
+        {!isLoading && publication ? (
+          <>
+            <div
+              role={isUnavailable ? "alert" : "status"}
+              className={
+                isUnavailable
+                  ? "rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-100"
+                  : publication.status === "currentWithUnpublishedChanges" ||
+                      hasHistoryWithoutPublication
+                    ? "rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100"
+                    : "rounded-xl border border-white/10 bg-black/20 p-4 text-slate-200"
+              }
+            >
+              <Badge variant="outline" className={badgeClassName}>
+                {formatPublicationStatus(publication.status)}
+              </Badge>
+              <p className="mt-3 font-semibold">{publication.message}</p>
+              {publication.diagnostics.map((diagnostic) => (
+                <p key={diagnostic} className="mt-2 text-sm">
+                  {diagnostic}
+                </p>
+              ))}
+            </div>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <DetailField
+                label="current revision ID"
+                value={publication.currentRevisionId ?? "なし"}
+                mono
+              />
+              <DetailField
+                label="公開日時"
+                value={
+                  publication.currentRevisionId === null
+                    ? "なし"
+                    : formatPublishedAt(publication.publishedAt)
+                }
+              />
+              <DetailField
+                label="操作"
+                value={
+                  publication.currentRevisionId === null
+                    ? "なし"
+                    : formatPublishOperation(publication.operation)
+                }
+              />
+              <DetailField
+                label="公開後の未公開編集"
+                value={
+                  publication.hasUnpublishedChanges === null
+                    ? publication.currentRevisionId === null
+                      ? "対象なし"
+                      : "確認不可"
+                    : publication.hasUnpublishedChanges
+                      ? "あり"
+                      : "なし"
+                }
+              />
+              <DetailField
+                label="revision一覧の表示範囲"
+                value={
+                  publication.currentRevisionId === null
+                    ? "対象なし"
+                    : publication.currentRevisionInList
+                      ? "current revisionを含む"
+                      : "current revisionは範囲外"
+                }
+              />
+            </dl>
+            <p className="text-xs leading-relaxed text-slate-400">
+              current以外には過去の公開版と未commitのrevisionが含まれる可能性があります。この画面では自動分類しません。
+            </p>
+          </>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -372,6 +554,7 @@ function RevisionList(props: {
   invalidMetadataCount: number;
   ignoredFileCount: number;
   duplicateRevisionIdCount: number;
+  publication: ProjectPublicationOverview | null;
   onOpenDetail: (item: ProjectPublishRevisionListItem) => void;
 }) {
   return (
@@ -391,9 +574,27 @@ function RevisionList(props: {
         ) : null}
         {props.items.map((item, index) => {
           const selected = props.selectedRevisionId === item.revisionId;
+          const publicationMarker = getRevisionPublicationMarker(
+            props.publication,
+            item.revisionId,
+          );
           return (
             <article key={`${item.revisionId}:${item.publishedAt ?? "unknown"}:${index}`} className={selected ? "rounded-2xl border border-sky-400/50 bg-sky-400/10 p-4" : "rounded-2xl border border-white/10 bg-black/20 p-4"}>
               <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant={
+                    publicationMarker === "current" ? "secondary" : "outline"
+                  }
+                  className={
+                    publicationMarker === "needsInspection"
+                      ? "border-amber-400/50 text-amber-100"
+                      : publicationMarker === "history"
+                        ? "border-slate-500 text-slate-200"
+                        : undefined
+                  }
+                >
+                  {formatRevisionPublicationMarker(publicationMarker)}
+                </Badge>
                 <Badge variant={item.metadataStatus === "ready" ? "secondary" : "outline"}>{formatMetadataStatus(item.metadataStatus)}</Badge>
                 <span className="text-sm font-semibold">{formatPublishOperation(item.operation)}</span>
               </div>
@@ -428,6 +629,7 @@ function RevisionDetail(props: {
   state: RevisionDetailState;
   detail: ProjectPublishRevisionDetailViewModel | null;
   message: string;
+  publication: ProjectPublicationOverview | null;
   onClose: () => void;
   onRetry: () => void;
 }) {
@@ -449,16 +651,50 @@ function RevisionDetail(props: {
             <Button type="button" variant="secondary" className="mt-3 min-h-11" onClick={props.onRetry}>詳細を再読込</Button>
           </div>
         ) : null}
-        {props.state === "ready" && props.detail ? <ReadyRevisionDetail detail={props.detail} /> : null}
+        {props.state === "ready" && props.detail ? (
+          <ReadyRevisionDetail
+            detail={props.detail}
+            publicationMarker={getRevisionPublicationMarker(
+              props.publication,
+              props.detail.revisionId,
+            )}
+          />
+        ) : null}
       </CardContent>
     </Card>
   );
 }
 
-function ReadyRevisionDetail({ detail }: { detail: ProjectPublishRevisionDetailViewModel }) {
+function ReadyRevisionDetail({
+  detail,
+  publicationMarker,
+}: {
+  detail: ProjectPublishRevisionDetailViewModel;
+  publicationMarker: ProjectPublishRevisionPublicationMarker;
+}) {
   return (
     <div className="space-y-5">
-      <div role="status" className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-100">詳細検証済み</div>
+      <div
+        role="status"
+        className={
+          publicationMarker === "current"
+            ? "rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-100"
+            : publicationMarker === "needsInspection"
+              ? "rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100"
+              : "rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-slate-200"
+        }
+      >
+        <p className="font-semibold">
+          {formatRevisionPublicationMarker(publicationMarker)}
+        </p>
+        <p className="mt-1">
+          {publicationMarker === "current"
+            ? "この検証済みrevisionが現在公開中です。"
+            : publicationMarker === "needsInspection"
+              ? "manifestの参照先ですが、現在公開中とは断定できません。"
+              : "現在公開中のrevisionではありません。履歴上の位置づけは自動分類しません。"}
+        </p>
+      </div>
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
         <DetailField label="revision ID" value={detail.revisionId} mono />
         <DetailField label="公開日時" value={detail.publishedAt} />
@@ -467,7 +703,7 @@ function ReadyRevisionDetail({ detail }: { detail: ProjectPublishRevisionDetailV
         <DetailField label="rollback元" value={detail.restoredFromRevisionId ?? "なし"} mono />
         <DetailField label="直前revision" value={detail.previousRevisionId ?? "なし"} mono />
         <DetailField label="source manifest更新" value={detail.sourceManifestModifiedTime} />
-        <DetailField label="source manifest hash" value={detail.sourceManifestCanonicalHash} mono />
+        <DetailField label="revisionとの整合性" value="確認済み" />
       </dl>
       <div className="grid gap-3 sm:grid-cols-3">
         <SummaryBox label="slides" value={detail.summary.slideCount} />

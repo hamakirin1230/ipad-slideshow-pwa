@@ -515,3 +515,15 @@ workflow helperはrevision準備、結果確認、current manifest commit、結�
 UIとProviderの両方にbusy guardとrequest sequence / owner照合を置き、project切替、route unmount、連打、古い非同期結果を別projectへ反映しない。preflight中は明示cancelを提供し、publishing中は画面上のcancelを置かず完了を待つ。Provider unmountまたはproject context変更時はAbortSignalを伝播するが、作成済み履歴の自動cleanup、rollback、delete、再更新は行わない。
 
 公開成功はcommit executorがcurrent manifestのpublication pointerをread-back検証した場合だけ表示する。成功後はcurrent manifestをDriveから再読込し、正式project validatorを通したdetailsでProvider stateを更新する。この再取得だけが失敗した場合も検証済みcommit成功は維持し、画面再読込のwarningを表示する。公開成功はGoogle Drive上の公開版更新だけを意味し、index更新、offline sync、confirmed promotion、player反映を含まない。成功画面から既存 `/admin/history` へ移動できるが、current badge、polling、別tab broadcastは追加していない。
+
+### Goal 5-4A 実装結果
+
+Goal 5-4Aでは `/admin/history` のproject選択時と手動再読込時に、current `manifest.json` のmetadataと本文をGoogle Driveからfresh readし、正式な `parseProjectManifest` とDrive metadata規則で検証するread-only overviewを追加した。現在公開中のrevisionは履歴の先頭や最新日時から推測せず、`manifest.publication.currentRevisionId` だけを正本とする。
+
+publicationが指すrevisionは、最新50件の一覧に含まれるかどうかにかかわらず既存のexact loaderで一意に取得し、revision ID、公開日時、operation、content canonical hash、revision metadataと本文を検証する。一覧範囲外で正常に存在する場合はcurrentとして維持し、一覧範囲外であることを診断する。参照先なし、duplicate、invalid metadata / JSON / revision、metadataと本文の不一致、publication metadataとの不一致、Drive read failureは分類済みの一般文言で表示し、自動選択、自動修復、自動retryは行わない。
+
+publicationとrevisionが整合した後、publicationを除いたcurrent manifestの再生内容hashをpublicationのcontent canonical hashと比較する。一致すれば「現在公開中」、current manifestの再生内容だけが異なれば正常な「現在公開中・未公開編集あり」として区別する。未公開編集があっても、参照revisionのcurrent badgeは維持する。
+
+current以外のrevisionは中立的な「履歴revision」と表示する。metadata一覧だけでは過去に正式公開されたrevisionとcurrent切替前に残ったrevisionを安全に区別できないため、「過去の公開版」や「orphan」へ自動分類しない。publicationなしでrevisionが残る状態もread-onlyの要確認状態として表示し、削除やcleanupは行わない。
+
+UIと公開resultにはDrive file / folder ID、operation ID、canonical hash全文、raw manifest、raw revision JSON、raw error、Drive API URL、access tokenを含めない。revision詳細にあったcanonical hash全文表示も削除し、整合性状態へ置き換えた。このGoalではrollback preview / 実行、Drive write、index、offline sync、IndexedDB、Service Worker、playerを変更していない。

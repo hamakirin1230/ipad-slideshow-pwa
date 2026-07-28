@@ -4,10 +4,14 @@ import {
   buildRevisionDetailViewModel,
   formatAssetSize,
   formatMetadataStatus,
+  formatPublicationStatus,
   formatPublishedAt,
   formatPublishOperation,
+  formatRevisionPublicationMarker,
+  getRevisionPublicationMarker,
   mapPublishHistoryErrorCode,
 } from "./project-publish-history-view";
+import type { ProjectPublicationOverview } from "./project-publish-history-overview";
 
 function buildRevision(): ProjectPublishRevision {
   return {
@@ -124,6 +128,64 @@ describe("history formatters", () => {
   ])("formats size %s", (value, expected) => {
     expect(formatAssetSize(value)).toBe(expected);
   });
+
+  it.each([
+    ["unpublished", "未公開"],
+    ["current", "現在公開中"],
+    ["currentWithUnpublishedChanges", "現在公開中・未公開編集あり"],
+    ["missingCurrentRevision", "現在の公開情報を確認できない"],
+    ["inconsistent", "現在の公開情報を確認できない"],
+    ["noPublicationWithHistory", "publicationなし・履歴revisionあり"],
+    ["unavailable", "現在の公開情報を確認できない"],
+  ] as const)("formats publication status %s", (status, expected) => {
+    expect(formatPublicationStatus(status)).toBe(expected);
+  });
+});
+
+describe("current revision markers", () => {
+  const publication: ProjectPublicationOverview = {
+    status: "current",
+    currentRevisionId: "revision-current",
+    publishedAt: "2026-07-12T12:34:56Z",
+    operation: "publish",
+    hasUnpublishedChanges: false,
+    currentRevisionInList: true,
+    currentRevisionMarker: "verified",
+    message: "current",
+    diagnostics: [],
+  };
+
+  it("marks only the verified manifest reference as current", () => {
+    expect(getRevisionPublicationMarker(publication, "revision-current")).toBe(
+      "current",
+    );
+    expect(getRevisionPublicationMarker(publication, "revision-other")).toBe(
+      "history",
+    );
+  });
+
+  it("marks an unresolved manifest reference for inspection", () => {
+    expect(
+      getRevisionPublicationMarker(
+        { ...publication, currentRevisionMarker: "needsInspection" },
+        "revision-current",
+      ),
+    ).toBe("needsInspection");
+  });
+
+  it("does not infer current without publication", () => {
+    expect(getRevisionPublicationMarker(null, "revision-current")).toBe(
+      "history",
+    );
+  });
+
+  it.each([
+    ["current", "現在公開中"],
+    ["needsInspection", "manifest参照先・要確認"],
+    ["history", "履歴revision"],
+  ] as const)("formats %s marker neutrally", (marker, expected) => {
+    expect(formatRevisionPublicationMarker(marker)).toBe(expected);
+  });
 });
 
 describe("sanitized error mapping", () => {
@@ -150,7 +212,6 @@ describe("revision detail view model", () => {
       operation: "ロールバック",
       restoredFromRevisionId: "rev_20260711T123456789Z_cd34ef56",
       summary: { slideCount: 2, assetCount: 2, remoteOnlyAssetCount: 1 },
-      sourceManifestCanonicalHash: "fnv1a64:0123456789abcdef",
     });
   });
 
@@ -202,9 +263,16 @@ describe("revision detail view model", () => {
       "checksum-sensitive-full-value",
       "access_token",
       '"manifest"',
+      "fnv1a64:0123456789abcdef",
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("does not expose the canonical hash in the detail view model", () => {
+    const model = buildRevisionDetailViewModel(buildRevision());
+    expect(model).not.toHaveProperty("sourceManifestCanonicalHash");
+    expect(JSON.stringify(model)).not.toContain("fnv1a64:");
   });
 
   it("supports empty slide and asset arrays", () => {

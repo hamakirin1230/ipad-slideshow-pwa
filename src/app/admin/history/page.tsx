@@ -25,7 +25,11 @@ export default function PublishHistoryPage() {
             <Button asChild variant="secondary" className="min-h-11">
               <Link href="/admin">管理画面へ戻る</Link>
             </Button>
-            <Button asChild variant="outline" className="min-h-11 border-slate-500">
+            <Button
+              asChild
+              variant="outline"
+              className="min-h-11 border-slate-500 bg-transparent text-slate-100 hover:bg-white/10 hover:text-white"
+            >
               <Link href="/settings">Google接続を確認</Link>
             </Button>
           </div>

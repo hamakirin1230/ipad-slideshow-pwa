@@ -29,6 +29,10 @@ import {
   type LoadProjectPublishRevisionResult,
 } from "@/lib/publish-history/project-publish-revision-loader";
 import {
+  loadProjectPublishHistoryOverviewInDrive,
+  type LoadProjectPublishHistoryOverviewResult,
+} from "@/lib/publish-history/project-publish-history-overview";
+import {
   prepareProjectPublishReviewInDrive,
 } from "@/lib/publish-history/project-publish-review";
 import {
@@ -525,6 +529,10 @@ type AppContextValue = {
     revisionId: string,
     signal: AbortSignal,
   ) => Promise<LoadProjectPublishRevisionResult>;
+  loadProjectPublishHistoryOverviewForProject: (
+    projectId: string,
+    signal: AbortSignal,
+  ) => Promise<LoadProjectPublishHistoryOverviewResult>;
   prepareProjectPublishReview: (
     projectId: string,
   ) => Promise<PrepareProjectPublishReviewResult>;
@@ -4933,6 +4941,37 @@ export function AppProviders({ children }: { children: ReactNode }) {
     });
   }
 
+  async function loadProjectPublishHistoryOverviewForProject(
+    projectId: string,
+    signal: AbortSignal,
+  ): Promise<LoadProjectPublishHistoryOverviewResult> {
+    const accessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+
+    if (
+      !accessToken ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      !workspace ||
+      !project ||
+      project.projectId !== projectId
+    ) {
+      return {
+        ok: false,
+        code: "driveReadFailed",
+        message: "現在の公開情報を読み込む準備ができていません。",
+      };
+    }
+
+    return loadProjectPublishHistoryOverviewInDrive({
+      accessToken,
+      workspaceId: workspace.workspaceId,
+      project,
+      signal,
+    });
+  }
+
   async function loadProjectPublishRevisionForProject(
     projectId: string,
     revisionId: string,
@@ -5048,6 +5087,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     selectProject,
     listProjectPublishRevisionsForProject,
     loadProjectPublishRevisionForProject,
+    loadProjectPublishHistoryOverviewForProject,
     prepareProjectPublishReview,
     commitPreparedProjectPublish,
     cancelPreparedProjectPublish,
