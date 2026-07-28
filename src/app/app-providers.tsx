@@ -37,9 +37,26 @@ import {
 } from "@/lib/publish-history/project-publish-review";
 import {
   createPrepareProjectRollbackPreviewFailure,
-  prepareProjectRollbackPreviewInDrive,
   type PrepareProjectRollbackPreviewResult,
 } from "@/lib/publish-history/project-rollback-review";
+import { prepareProjectRollbackPreviewGuardInDrive } from "@/lib/publish-history/project-rollback-preview-guard";
+import {
+  prepareProjectRollbackExecutionReviewInDrive,
+} from "@/lib/publish-history/project-rollback-execution-preflight";
+import {
+  type PrepareProjectRollbackExecutionReviewResult,
+} from "@/lib/publish-history/project-rollback-execution-review";
+import {
+  buildProjectRollbackCommitFailure,
+  buildSanitizedRollbackSuccess,
+  pendingProjectRollbackOwnerMatches,
+  type CommitPreparedProjectRollbackResult,
+} from "@/lib/publish-history/project-rollback-ui";
+import { executePreparedProjectRollback } from "@/lib/publish-history/project-rollback-workflow";
+import type {
+  ProjectRollbackPreviewGuard,
+  ProjectRollbackWritePlan,
+} from "@/lib/publish-history/project-rollback-write-plan";
 import {
   buildSanitizedPublishSuccess,
   createPrepareReviewFailure,
@@ -363,6 +380,16 @@ type PendingProjectPublish = {
   plan: ProjectPublishWritePlan;
 };
 
+type PendingProjectRollback = {
+  owner: {
+    projectId: string;
+    targetRevisionId: string;
+    revisionId: string;
+    requestSequence: number;
+  };
+  plan: ProjectRollbackWritePlan;
+};
+
 type DriveWorkspaceCheckResult = {
   status: DriveWorkspaceCheckStatus;
   message: string;
@@ -543,6 +570,16 @@ type AppContextValue = {
     targetRevisionId: string,
     signal: AbortSignal,
   ) => Promise<PrepareProjectRollbackPreviewResult>;
+  prepareProjectRollbackExecutionReview: (
+    projectId: string,
+    targetRevisionId: string,
+  ) => Promise<PrepareProjectRollbackExecutionReviewResult>;
+  commitPreparedProjectRollback: (input: {
+    projectId: string;
+    targetRevisionId: string;
+    revisionId: string;
+  }) => Promise<CommitPreparedProjectRollbackResult>;
+  cancelPreparedProjectRollback: () => void;
   prepareProjectPublishReview: (
     projectId: string,
   ) => Promise<PrepareProjectPublishReviewResult>;
@@ -552,6 +589,7 @@ type AppContextValue = {
   }) => Promise<CommitPreparedProjectPublishResult>;
   cancelPreparedProjectPublish: () => void;
   isProjectPublishInFlight: boolean;
+  isProjectRollbackInFlight: boolean;
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
   updateProjectSlideCaption: (slideId: string, caption: string) => void;
@@ -712,6 +750,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const projectPublishAbortRef = useRef<AbortController | null>(null);
   const projectPublishRequestSequenceRef = useRef(0);
   const projectPublishInFlightRef = useRef(false);
+  const projectPublicationWriteInFlightRef = useRef(false);
+  const projectRollbackPreviewGuardRef =
+    useRef<ProjectRollbackPreviewGuard | null>(null);
+  const pendingProjectRollbackRef = useRef<PendingProjectRollback | null>(null);
+  const projectRollbackAbortRef = useRef<AbortController | null>(null);
+  const projectRollbackRequestSequenceRef = useRef(0);
+  const projectRollbackInFlightRef = useRef(false);
 
   const pendingPhotosTokenRequestRef =
     useRef<PendingPhotosTokenRequest | null>(null);
@@ -772,6 +817,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     null,
   );
   const [isProjectPublishInFlight, setIsProjectPublishInFlight] =
+    useState(false);
+  const [isProjectRollbackInFlight, setIsProjectRollbackInFlight] =
     useState(false);
 
   const [assetImportStatus, setAssetImportStatus] =
@@ -877,6 +924,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       projectPublishAbortRef.current?.abort();
       projectPublishAbortRef.current = null;
       projectPublishInFlightRef.current = false;
+      projectPublicationWriteInFlightRef.current = false;
+      projectRollbackRequestSequenceRef.current += 1;
+      projectRollbackPreviewGuardRef.current = null;
+      pendingProjectRollbackRef.current = null;
+      projectRollbackAbortRef.current?.abort();
+      projectRollbackAbortRef.current = null;
+      projectRollbackInFlightRef.current = false;
     };
   }, []);
 
@@ -1531,6 +1585,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     abort?: boolean;
     updateState?: boolean;
   }) {
+    const wasInFlight = projectPublishInFlightRef.current;
     projectPublishRequestSequenceRef.current += 1;
     pendingProjectPublishRef.current = null;
 
@@ -1539,13 +1594,37 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
     projectPublishAbortRef.current = null;
     projectPublishInFlightRef.current = false;
+    if (wasInFlight) projectPublicationWriteInFlightRef.current = false;
     if (options?.updateState !== false) {
       setIsProjectPublishInFlight(false);
     }
   }
 
+  function discardPendingProjectRollback(options?: {
+    abort?: boolean;
+    discardGuard?: boolean;
+    updateState?: boolean;
+  }) {
+    const wasInFlight = projectRollbackInFlightRef.current;
+    projectRollbackRequestSequenceRef.current += 1;
+    pendingProjectRollbackRef.current = null;
+    if (options?.discardGuard !== false) {
+      projectRollbackPreviewGuardRef.current = null;
+    }
+    if (options?.abort !== false) {
+      projectRollbackAbortRef.current?.abort();
+    }
+    projectRollbackAbortRef.current = null;
+    projectRollbackInFlightRef.current = false;
+    if (wasInFlight) projectPublicationWriteInFlightRef.current = false;
+    if (options?.updateState !== false) {
+      setIsProjectRollbackInFlight(false);
+    }
+  }
+
   function clearProjectReadyDetails() {
     discardPendingProjectPublish();
+    discardPendingProjectRollback();
     setDriveProjectReadyContext(null);
     setProjectDetails(null);
     setProjectSummary(null);
@@ -1564,10 +1643,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
   function applyProjectReadyState(
     project: DriveProjectSummary,
     details: ProjectDetails = buildEmptyProjectDetails(),
-    options?: { preserveProjectPublish?: boolean },
+    options?: {
+      preserveProjectPublish?: boolean;
+      preserveProjectRollback?: boolean;
+    },
   ) {
     if (!options?.preserveProjectPublish) {
       discardPendingProjectPublish();
+    }
+    if (!options?.preserveProjectRollback) {
+      discardPendingProjectRollback();
     }
     setSelectedProjectId(project.projectId);
     setDriveProjectReadyContext(project);
@@ -4712,7 +4797,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   async function prepareProjectPublishReview(
     projectId: string,
   ): Promise<PrepareProjectPublishReviewResult> {
-    if (projectPublishInFlightRef.current) {
+    if (
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current
+    ) {
       return createPrepareReviewFailure({
         code: "publishAlreadyRunning",
         message: "公開処理を実行中です。完了後にもう一度操作してください。",
@@ -4784,7 +4873,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
     projectId: string;
     revisionId: string;
   }): Promise<CommitPreparedProjectPublishResult> {
-    if (projectPublishInFlightRef.current) {
+    if (
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current
+    ) {
       return {
         ok: false,
         error: {
@@ -4841,6 +4934,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const controller = new AbortController();
     projectPublishAbortRef.current = controller;
     projectPublishInFlightRef.current = true;
+    projectPublicationWriteInFlightRef.current = true;
     setIsProjectPublishInFlight(true);
 
     try {
@@ -4910,6 +5004,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (requestSequence === projectPublishRequestSequenceRef.current) {
         projectPublishAbortRef.current = null;
         projectPublishInFlightRef.current = false;
+        projectPublicationWriteInFlightRef.current = false;
         setIsProjectPublishInFlight(false);
       }
     }
@@ -5021,6 +5116,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     targetRevisionId: string,
     signal: AbortSignal,
   ): Promise<PrepareProjectRollbackPreviewResult> {
+    if (
+      projectPublicationWriteInFlightRef.current ||
+      projectRollbackInFlightRef.current
+    ) {
+      return createPrepareProjectRollbackPreviewFailure("notReady");
+    }
     const accessToken = accessTokenRef.current;
     const workspace = workspaceReadyContext;
     const project = driveProjectReadyContext;
@@ -5038,14 +5139,255 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return createPrepareProjectRollbackPreviewFailure("notReady");
     }
 
-    return prepareProjectRollbackPreviewInDrive({
+    discardPendingProjectRollback({ abort: false });
+    const requestSequence = projectRollbackRequestSequenceRef.current;
+    const result = await prepareProjectRollbackPreviewGuardInDrive({
       accessToken,
       workspaceId: workspace.workspaceId,
       projectsRootFolderId: workspace.projectsRootFolderId,
+      indexJsonFileId: workspace.indexJsonFileId,
       project,
       targetRevisionId,
+      requestSequence,
       signal,
     });
+    if (
+      requestSequence !== projectRollbackRequestSequenceRef.current ||
+      accessTokenRef.current !== accessToken ||
+      signal.aborted
+    ) {
+      return createPrepareProjectRollbackPreviewFailure("aborted");
+    }
+    if (result.ok) {
+      projectRollbackPreviewGuardRef.current = result.guard;
+      return { ok: true, preview: result.preview };
+    }
+    projectRollbackPreviewGuardRef.current = null;
+    return result;
+  }
+
+  async function prepareProjectRollbackExecutionReview(
+    projectId: string,
+    targetRevisionId: string,
+  ): Promise<PrepareProjectRollbackExecutionReviewResult> {
+    if (
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current
+    ) {
+      return {
+        ok: false,
+        category: "error",
+        code: "rollbackAlreadyRunning",
+        message: "公開またはrollback処理の完了後にもう一度操作してください。",
+      };
+    }
+    const accessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+    const guard = projectRollbackPreviewGuardRef.current;
+    if (
+      !accessToken ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      !workspace ||
+      !project ||
+      project.projectId !== projectId ||
+      !guard ||
+      guard.owner.projectId !== projectId ||
+      guard.owner.targetRevisionId !== targetRevisionId
+    ) {
+      discardPendingProjectRollback();
+      return {
+        ok: false,
+        category: "stale",
+        code: "stalePreview",
+        message:
+          "実行可能なrollback previewがありません。最新状態でpreviewをやり直してください。",
+      };
+    }
+
+    pendingProjectRollbackRef.current = null;
+    const requestSequence = guard.owner.requestSequence;
+    const controller = new AbortController();
+    projectRollbackAbortRef.current = controller;
+    projectRollbackInFlightRef.current = true;
+    setIsProjectRollbackInFlight(true);
+    try {
+      const result = await prepareProjectRollbackExecutionReviewInDrive({
+        accessToken,
+        workspaceId: workspace.workspaceId,
+        projectsRootFolderId: workspace.projectsRootFolderId,
+        indexJsonFileId: workspace.indexJsonFileId,
+        project,
+        targetRevisionId,
+        requestSequence,
+        guard,
+        signal: controller.signal,
+      });
+      if (
+        requestSequence !== projectRollbackRequestSequenceRef.current ||
+        accessTokenRef.current !== accessToken
+      ) {
+        return {
+          ok: false,
+          category: "stale",
+          code: "stalePreview",
+          message:
+            "対象が変更されました。最新状態でpreviewをやり直してください。",
+        };
+      }
+      if (!result.ok) {
+        projectRollbackPreviewGuardRef.current = null;
+        pendingProjectRollbackRef.current = null;
+        return result;
+      }
+      pendingProjectRollbackRef.current = {
+        owner: {
+          projectId,
+          targetRevisionId,
+          revisionId: result.review.revisionId,
+          requestSequence,
+        },
+        plan: result.plan,
+      };
+      projectRollbackPreviewGuardRef.current = null;
+      return { ok: true, review: result.review };
+    } finally {
+      if (requestSequence === projectRollbackRequestSequenceRef.current) {
+        projectRollbackAbortRef.current = null;
+        projectRollbackInFlightRef.current = false;
+        setIsProjectRollbackInFlight(false);
+      }
+    }
+  }
+
+  async function commitPreparedProjectRollback(input: {
+    projectId: string;
+    targetRevisionId: string;
+    revisionId: string;
+  }): Promise<CommitPreparedProjectRollbackResult> {
+    if (
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current
+    ) {
+      return buildProjectRollbackCommitFailure({
+        code: "rollbackAlreadyRunning",
+        message: "公開またはrollback処理の完了を待ってください。",
+        recoverability: "retryable",
+      });
+    }
+    const pending = pendingProjectRollbackRef.current;
+    if (
+      !pending ||
+      !pendingProjectRollbackOwnerMatches(pending.owner, input)
+    ) {
+      return buildProjectRollbackCommitFailure({
+        code: "preparedReviewNotFound",
+        message:
+          "rollback実行前確認の内容を使用できません。previewからやり直してください。",
+        recoverability: "conflict",
+      });
+    }
+    const accessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+    if (
+      !accessToken ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      !workspace ||
+      !project ||
+      project.projectId !== input.projectId
+    ) {
+      pendingProjectRollbackRef.current = null;
+      return buildProjectRollbackCommitFailure({
+        code: "rollbackNotReady",
+        message:
+          "Google接続または選択中projectが変わりました。previewからやり直してください。",
+        recoverability: "conflict",
+      });
+    }
+
+    const requestSequence = pending.owner.requestSequence;
+    const controller = new AbortController();
+    projectRollbackAbortRef.current = controller;
+    projectRollbackInFlightRef.current = true;
+    projectPublicationWriteInFlightRef.current = true;
+    setIsProjectRollbackInFlight(true);
+    try {
+      const workflow = await executePreparedProjectRollback({
+        accessToken,
+        projectsRootFolderId: workspace.projectsRootFolderId,
+        project,
+        plan: pending.plan,
+        signal: controller.signal,
+      });
+      if (
+        requestSequence !== projectRollbackRequestSequenceRef.current ||
+        accessTokenRef.current !== accessToken
+      ) {
+        return buildProjectRollbackCommitFailure({
+          code: "staleRollbackRequest",
+          message:
+            "rollbackの反映状態を安全に確定できません。履歴と現在状態を確認してください。",
+          recoverability: "requiresInspection",
+        });
+      }
+      if (!workflow.ok) {
+        if (workflow.recoverability !== "retryable") {
+          pendingProjectRollbackRef.current = null;
+        }
+        return buildProjectRollbackCommitFailure(workflow);
+      }
+
+      pendingProjectRollbackRef.current = null;
+      projectRollbackPreviewGuardRef.current = null;
+      let refreshed = false;
+      try {
+        const refreshedProject = pending.plan.indexMirror.nextProject;
+        const detailResult = await validateDriveProjectDetails({
+          accessToken,
+          expectedWorkspaceId: workspace.workspaceId,
+          expectedProjectsRootFolderId: workspace.projectsRootFolderId,
+          project: refreshedProject,
+          signal: controller.signal,
+        });
+        if (
+          requestSequence === projectRollbackRequestSequenceRef.current &&
+          detailResult.status === "ready"
+        ) {
+          applyProjectReadyState(
+            refreshedProject,
+            toProjectDetails(detailResult.details),
+            {
+              preserveProjectRollback: true,
+            },
+          );
+          refreshed = true;
+        }
+      } catch {
+        // Verified rollback remains successful when the UI refresh fails.
+      }
+      return {
+        ok: true,
+        result: buildSanitizedRollbackSuccess({ workflow, refreshed }),
+      };
+    } finally {
+      if (requestSequence === projectRollbackRequestSequenceRef.current) {
+        projectRollbackAbortRef.current = null;
+        projectRollbackInFlightRef.current = false;
+        projectPublicationWriteInFlightRef.current = false;
+        setIsProjectRollbackInFlight(false);
+      }
+    }
+  }
+
+  function cancelPreparedProjectRollback() {
+    discardPendingProjectRollback();
   }
 
   const value: AppContextValue = {
@@ -5131,10 +5473,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
     loadProjectPublishRevisionForProject,
     loadProjectPublishHistoryOverviewForProject,
     prepareProjectRollbackPreview,
+    prepareProjectRollbackExecutionReview,
+    commitPreparedProjectRollback,
+    cancelPreparedProjectRollback,
     prepareProjectPublishReview,
     commitPreparedProjectPublish,
     cancelPreparedProjectPublish,
     isProjectPublishInFlight,
+    isProjectRollbackInFlight,
     createProject,
     updateSelectedProjectTitle,
     updateProjectSlideCaption,

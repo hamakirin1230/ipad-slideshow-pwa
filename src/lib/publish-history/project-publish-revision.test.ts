@@ -152,12 +152,12 @@ describe("project manifest publication schema", () => {
     if (result.ok) expect(result.value.publication).toEqual(buildPublication());
   });
 
-  it("parses rollback publication metadata without imposing publish ID format", () => {
+  it("parses rollback publication metadata with the dedicated rollback ID format", () => {
     expect(
       parseProjectManifestPublication({
         ...buildPublication(),
         operation: "rollback",
-        operationId: "rollback-operation-a",
+        operationId: "rbop_20260712T123456789Z_abcdef12",
       }).ok,
     ).toBe(true);
   });

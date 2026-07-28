@@ -1,5 +1,6 @@
 import { isValidProjectPublishOperationId } from "./project-publish-operation-id";
 import { isValidProjectPublishRevisionId } from "./project-publish-revision-id";
+import { isValidProjectRollbackOperationId } from "./project-rollback-operation-id";
 
 export const PROJECT_MANIFEST_PUBLICATION_SCHEMA_VERSION = 1 as const;
 
@@ -82,6 +83,13 @@ export function parseProjectManifestPublication(
     !isValidProjectPublishOperationId(operationId)
   ) {
     errors.push("publication.operationId has an invalid publish format");
+  }
+  if (
+    operation === "rollback" &&
+    operationId &&
+    !isValidProjectRollbackOperationId(operationId)
+  ) {
+    errors.push("publication.operationId has an invalid rollback format");
   }
 
   const contentCanonicalHash = readNonEmptyString(

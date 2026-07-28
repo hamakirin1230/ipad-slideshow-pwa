@@ -26,15 +26,20 @@ describe("/admin/history rollback preview UI contract", () => {
     }
   });
 
-  it("does not add rollback execution or confirmation controls", () => {
-    for (const forbidden of [
-      "ロールバックを実行",
-      "この内容へ戻す",
-      "rollback実行button",
-      "実行確認checkbox",
+  it("keeps fresh preflight and final commit as separate explicit stages", () => {
+    for (const required of [
+      "実行前の最新状態を再確認",
+      "rollback最終確認",
+      "この内容へロールバック",
+      "過去revisionは変更せず、新しいrollback revisionを作成",
+      "offline利用には別途offline syncが必要",
+      "保存済みの未公開編集",
     ]) {
-      expect(source).not.toContain(forbidden);
+      expect(source).toContain(required);
     }
+    expect(source.indexOf("実行前の最新状態を再確認")).toBeLessThan(
+      source.indexOf("この内容へロールバック"),
+    );
   });
 
   it("keeps loading, blocking and race protections explicit", () => {
@@ -50,6 +55,7 @@ describe("/admin/history rollback preview UI contract", () => {
       "previewSequenceRef",
       "previewOwnerRef",
       "previewInFlightRef",
+      "rollbackActionInFlightRef",
       'role={isFailure ? "alert" : "status"}',
       'aria-live="polite"',
       "min-h-11",
@@ -62,5 +68,22 @@ describe("/admin/history rollback preview UI contract", () => {
     expect(source).not.toContain("安全なrollback対象");
     expect(source).not.toContain("過去の正式公開版");
     expect(source).not.toContain("orphan revision");
+  });
+
+  it("does not render internal rollback execution data", () => {
+    for (const forbidden of [
+      "operationId",
+      "contentCanonicalHash",
+      "targetRevisionCanonicalHash",
+      "targetRevisionCanonicalBody",
+      "accessToken",
+      "Authorization",
+      "Bearer",
+      "checksum:",
+      "projectRollbackPreviewGuardRef",
+      "pendingProjectRollbackRef",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
   });
 });

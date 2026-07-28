@@ -547,3 +547,25 @@ UIはproject / target revision owner、AbortController、request sequence、単�
 AppProvidersのcallbackは既存 `accessTokenRef.current` からだけtokenを取得し、正式なworkspace / project contextをProvider内部で解決して全Drive readへAbortSignalを渡す。公開resultはasset ID・表示名・MIME type・分類・offline区分・sanitized reason程度に限定し、access token、Authorization / Bearer、Drive file / folder ID、hash全文、checksum値、operation ID、raw manifest / revision / metadata / response / error、Drive API URL、session IDを含めない。pending rollback planやwrite planは保持せず、Goal 5-3Cのpending publish planと既存publish callbackも変更していない。
 
 このGoalではDrive create / update / delete / rename、manifest / revision / publication / index更新、rollback revision作成、operation ID / revision ID生成、history folder作成、自動修復、asset修復、server proxy、OAuth scope、IndexedDB、offline sync、Service Worker、player、video属性、package / lockfileを変更していない。実際のrollback revision作成、current manifest本文更新、publication切替、write直前のfresh preflightと競合制御はGoal 5-4C以降へ分離する。
+
+### Goal 5-4C 実装結果
+
+Goal 5-4CではGoal 5-4Bのread-only previewを、fresh execution preflight、immutable rollback revision、current manifest commit、index mirrorへ接続した。実行可能なのは`ready` previewだけであり、degraded / blocked / noChange / stale / error、previewなし、owner不一致はwrite planを生成しない。同じcurrent revisionをtargetにしても保存済み未公開編集があれば、置換確認を追加したうえで実行できる。
+
+UIは3段階を維持する。最初に「ロールバック影響を確認」でread-only previewを作り、次に新revision作成、過去revision不変、Drive公開版だけの更新、offline syncが別途必要であることをcheckboxで確認して「実行前の最新状態を再確認」を行う。未公開編集がある場合は置換確認も必須である。fresh preflight成功後にだけ最終reviewとdestructiveな「この内容へロールバック」を表示する。2段階目の再確認と3段階目のDrive writeは同じ操作へ統合しない。
+
+preview成功時の内部guardとfresh preflight成功時のwrite planはAppProvidersの`useRef`だけに保持する。guardはproject / target / request sequence owner、current manifestのmodifiedTime・content hash・current revision、target canonical body/hash、全target asset metadata、index対象record、project / manifest / assets / index location snapshotを持つ。ContextとUIにはsanitized preview / reviewだけを返し、token、Drive内部ID、operation ID、hash、checksum値、raw manifest / revision / metadata / response / error、URL、session ID、guard、planを公開しない。
+
+execution preflightはindex metadata / 本文、project folder、current manifest metadata / 本文、assets folder、current revision、target revision、全target asset metadata、既存history / revisions folderをfresh readする。preview guardとの完全一致、current publicationとexact revision、targetのworkspace / project / createdAt、index対象record、asset identity、再計算したGoal 5-4B impactがreadyであることを確認してから、Web Crypto由来の独立suffixで新revision IDと`rbop_...` operation IDを生成する。preview後のcurrent、target、asset、index、location変更はstaleとしてguard・checkboxを破棄し、自動retryしない。
+
+rollback revisionは`operation=rollback`、`restoredFromRevisionId=target revision`、`previousRevisionId=current publication revision`、`sourceManifestModifiedTime=null`である。manifest本文はtargetのtitle、slide順、caption、durationと全再生fieldを復元する一方、app / schema / workspace / project / createdAtはcurrent identityを維持し、`updatedAt=publishedAt`とする。asset参照はtargetを維持するが、MIME type、size、modifiedTime、checksum、remoteOnlyはfresh metadataから再構築する。asset Blobの取得、コピー、更新、削除は行わない。revision manifestにpublicationを入れず、current manifestだけにrollback publicationを付ける。
+
+rollback operation IDは`rbop_<UTC compact timestamp>_<8 lowercase hex>`であり、publication parserはpublish/pubopとrollback/rbopの組合せを個別検証する。revision IDとoperation IDは別々の`crypto.getRandomValues`から生成し、同じprepared planの明示retryでは同じIDを再利用する。
+
+workflowは`revalidateBeforeRevision`、`prepareRollbackRevision`、`verifyRollbackRevision`、`revalidateBeforeManifestCommit`、`commitCurrentManifest`、`verifyCurrentManifest`、`updateIndexMirror`、`verifyIndexMirror`の論理順を固定する。history / revisions folderは既存の一意で正式なfolderだけを使用し、rollbackから自動作成しない。revision create前に同IDを検索し、完全一致1件は`alreadyPrepared`、不一致・重複は停止する。create応答不明時も同IDを再検索して完全一致だけ成功へ収束し、既存revisionのupdate / rename / deleteを行わない。
+
+revision作成後、manifest commit前にcurrent / target / assetを再検証する。競合時はcurrent manifestを更新せず、作成済みrevisionを保持して`requiresInspection`とする。current manifest更新がrollbackのcommit pointであり、target由来本文とrollback publicationを一度だけ反映する。更新後は正式parser、identity、createdAt / updatedAt、title / slides / publication、content hash、prepared revisionとの一致をread-backする。同じplanのretryで本文とpublicationが完全一致すれば`alreadyCommitted`、部分一致はconflictである。応答不明時もread-back完全一致だけを成功とし、自動上書きや自動rollbackはしない。
+
+manifest commit後はfresh indexから選択projectの`title`と`updatedAt`だけを更新する。他project、workspace情報、project / folder / manifest / assets ID、manifest path、createdAt、その他既存fieldを維持する。plan準備後に対象recordまたはindex本文が変わっていれば上書きしない。desired stateは`alreadyMirrored`として収束し、update後は正式validatorとread-backで対象recordおよび他project保持を確認する。manifest成功後にindexが失敗・stale・応答不明となってもmanifestを戻さず、「rollback本体は成功・index mirrorは要確認」のwarning successを返す。
+
+publishとrollbackはProviderの共通publication write guardで同時実行を防ぐ。project / workspace / Google接続 / target / preview / detail / history lifecycle、新規preview / execution review、cancel、成功、conflict、requiresInspection、unmountでguardとplanを破棄する。write開始後のretryableだけは同一planを保持し、明示retryを許可する。自動retry、polling、orphan削除、asset復元、offline sync自動開始、workspace更新、index全体の過去状態復元は行わない。

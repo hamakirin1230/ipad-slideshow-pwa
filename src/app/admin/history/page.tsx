@@ -12,13 +12,13 @@ export default function PublishHistoryPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary">公開履歴</Badge>
               <Badge variant="outline" className="border-sky-400/50 text-sky-100">
-                読み取り専用
+                検証付きrollback
               </Badge>
             </div>
             <h1 className="mt-3 text-3xl font-bold">公開履歴</h1>
             <p className="mt-2 max-w-3xl text-slate-300">
               Google Driveに保存された公開履歴を閲覧します。
-              この画面から公開やロールバックは実行できません。
+              readyの影響previewをfresh再確認した場合だけ、安全確認を経てロールバックを実行できます。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">

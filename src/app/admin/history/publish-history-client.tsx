@@ -20,6 +20,11 @@ import {
   isCurrentProjectRollbackPreviewRequest,
   type ProjectRollbackPreview,
 } from "@/lib/publish-history/project-rollback-preview";
+import type { ProjectRollbackExecutionReview } from "@/lib/publish-history/project-rollback-execution-review";
+import {
+  areProjectRollbackConfirmationsComplete,
+  type ProjectRollbackConfirmations,
+} from "@/lib/publish-history/project-rollback-ui";
 import {
   buildRevisionDetailViewModel,
   formatMetadataStatus,
@@ -52,6 +57,18 @@ type RollbackPreviewState =
   | "noChange"
   | "stale"
   | "error";
+type RollbackExecutionState =
+  | "idle"
+  | "preparing"
+  | "prepared"
+  | "executing"
+  | "error";
+
+const emptyRollbackConfirmations: ProjectRollbackConfirmations = {
+  createsNewRevision: false,
+  driveOnly: false,
+  replacesUnpublishedChanges: false,
+};
 
 const invalidLocationCodes = new Set([
   "duplicateHistoryFolder",
@@ -77,6 +94,10 @@ export function PublishHistoryClient() {
     loadProjectPublishRevisionForProject,
     loadProjectPublishHistoryOverviewForProject,
     prepareProjectRollbackPreview,
+    prepareProjectRollbackExecutionReview,
+    commitPreparedProjectRollback,
+    cancelPreparedProjectRollback,
+    isProjectRollbackInFlight,
   } = useAppState();
   const [historyState, setHistoryState] = useState<HistoryViewState>("idle");
   const [items, setItems] = useState<ProjectPublishRevisionListItem[]>([]);
@@ -96,6 +117,18 @@ export function PublishHistoryClient() {
     useState<RollbackPreviewState>("closed");
   const [preview, setPreview] = useState<ProjectRollbackPreview | null>(null);
   const [previewMessage, setPreviewMessage] = useState("");
+  const [executionState, setExecutionState] =
+    useState<RollbackExecutionState>("idle");
+  const [executionReview, setExecutionReview] =
+    useState<ProjectRollbackExecutionReview | null>(null);
+  const [executionMessage, setExecutionMessage] = useState("");
+  const [confirmations, setConfirmations] =
+    useState<ProjectRollbackConfirmations>(emptyRollbackConfirmations);
+  const [rollbackOutcome, setRollbackOutcome] = useState<{
+    kind: "success" | "warning";
+    message: string;
+    revisionId: string;
+  } | null>(null);
   const listSequenceRef = useRef(0);
   const detailSequenceRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
@@ -107,6 +140,7 @@ export function PublishHistoryClient() {
   );
   const previewSequenceRef = useRef(0);
   const previewInFlightRef = useRef(false);
+  const rollbackActionInFlightRef = useRef(false);
   const previewOwnerRef = useRef<{
     projectId: string;
     targetRevisionId: string;
@@ -122,7 +156,14 @@ export function PublishHistoryClient() {
     driveStatus === "ready" &&
     projectStatus === "ready" &&
     Boolean(selectedProjectId) &&
-    historyState !== "loading";
+    historyState !== "loading" &&
+    !isProjectRollbackInFlight &&
+    executionState !== "executing" &&
+    executionState !== "preparing";
+  const rollbackBusy =
+    isProjectRollbackInFlight ||
+    executionState === "preparing" ||
+    executionState === "executing";
   const loadHistoryListEffect = useEffectEvent((projectId: string) => {
     void loadHistoryOverview(projectId);
   });
@@ -172,6 +213,7 @@ export function PublishHistoryClient() {
       detailSequenceRef.current += 1;
       previewSequenceRef.current += 1;
       previewInFlightRef.current = false;
+      rollbackActionInFlightRef.current = false;
     };
   }, []);
 
@@ -196,6 +238,11 @@ export function PublishHistoryClient() {
       setPreview(null);
       setPreviewState("closed");
       setPreviewMessage("");
+      setExecutionState("idle");
+      setExecutionReview(null);
+      setExecutionMessage("");
+      setConfirmations(emptyRollbackConfirmations);
+      setRollbackOutcome(null);
       setHistoryState("idle");
       setHistoryMessage("Google Driveに接続してください。");
     }, 0);
@@ -222,9 +269,15 @@ export function PublishHistoryClient() {
     previewSequenceRef.current += 1;
     previewInFlightRef.current = false;
     previewOwnerRef.current = null;
+    rollbackActionInFlightRef.current = false;
+    cancelPreparedProjectRollback();
     setPreview(null);
     setPreviewState("closed");
     setPreviewMessage("");
+    setExecutionState("idle");
+    setExecutionReview(null);
+    setExecutionMessage("");
+    setConfirmations(emptyRollbackConfirmations);
   }
 
   function clearDetail() {
@@ -249,6 +302,7 @@ export function PublishHistoryClient() {
     setDuplicateRevisionIdCount(0);
     setHistoryState("idle");
     setHistoryMessage("選択したプロジェクトを確認しています。");
+    setRollbackOutcome(null);
     clearDetail();
   }
 
@@ -384,6 +438,12 @@ export function PublishHistoryClient() {
       targetRevisionId: selectedRevisionId,
     };
     previewOwnerRef.current = owner;
+    cancelPreparedProjectRollback();
+    setExecutionState("idle");
+    setExecutionReview(null);
+    setExecutionMessage("");
+    setConfirmations(emptyRollbackConfirmations);
+    setRollbackOutcome(null);
     setPreview(null);
     setPreviewState("loading");
     setPreviewMessage(
@@ -427,6 +487,102 @@ export function PublishHistoryClient() {
     setPreviewMessage(result.preview.message);
   }
 
+  async function prepareRollbackExecutionReview() {
+    if (
+      !selectedProjectId ||
+      !selectedRevisionId ||
+      previewState !== "ready" ||
+      !preview ||
+      !areProjectRollbackConfirmationsComplete({
+        confirmations,
+        replacesUnpublishedChanges: preview.replacesUnpublishedChanges,
+      }) ||
+      rollbackActionInFlightRef.current
+    ) {
+      return;
+    }
+    rollbackActionInFlightRef.current = true;
+    setExecutionState("preparing");
+    setExecutionReview(null);
+    setExecutionMessage("実行前の最新状態を再確認しています。");
+    const result = await prepareProjectRollbackExecutionReview(
+      selectedProjectId,
+      selectedRevisionId,
+    );
+    rollbackActionInFlightRef.current = false;
+    if (!result.ok) {
+      setExecutionState("error");
+      setExecutionMessage(result.message);
+      if (result.category === "stale") {
+        setPreviewState("stale");
+        setPreview(null);
+        setConfirmations(emptyRollbackConfirmations);
+      }
+      return;
+    }
+    setExecutionReview(result.review);
+    setExecutionState("prepared");
+    setExecutionMessage(
+      "最新状態の再確認が完了しました。最終内容を確認してrollbackを実行してください。",
+    );
+  }
+
+  async function commitRollback() {
+    if (
+      !selectedProjectId ||
+      !selectedRevisionId ||
+      !executionReview ||
+      executionState !== "prepared" ||
+      !preview ||
+      !areProjectRollbackConfirmationsComplete({
+        confirmations,
+        replacesUnpublishedChanges: preview.replacesUnpublishedChanges,
+      }) ||
+      rollbackActionInFlightRef.current
+    ) {
+      return;
+    }
+    rollbackActionInFlightRef.current = true;
+    setExecutionState("executing");
+    setExecutionMessage("rollbackを実行し、Driveの反映結果を検証しています。");
+    const result = await commitPreparedProjectRollback({
+      projectId: selectedProjectId,
+      targetRevisionId: selectedRevisionId,
+      revisionId: executionReview.revisionId,
+    });
+    rollbackActionInFlightRef.current = false;
+    if (!result.ok) {
+      setExecutionState("error");
+      setExecutionMessage(result.error.message);
+      if (!result.error.canRetry) {
+        setExecutionReview(null);
+        setConfirmations(emptyRollbackConfirmations);
+      } else {
+        setExecutionState("prepared");
+      }
+      return;
+    }
+    const warning = result.result.indexStatus === "warning";
+    setRollbackOutcome({
+      kind: warning ? "warning" : "success",
+      revisionId: result.result.revisionId,
+      message: warning
+        ? result.result.warning ??
+          "rollback本体は成功しました。index mirrorは要確認です。"
+        : "rollbackが完了し、manifestとindex mirrorの再検証に成功しました。",
+    });
+    setExecutionState("idle");
+    setExecutionReview(null);
+    setConfirmations(emptyRollbackConfirmations);
+    setPreview(null);
+    setPreviewState("closed");
+    setPreviewMessage("");
+    if (selectedProjectId) {
+      loadedProjectIdRef.current = selectedProjectId;
+      void loadHistoryOverview(selectedProjectId);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Card className="border-white/10 bg-white/5 text-slate-50">
@@ -450,7 +606,7 @@ export function PublishHistoryClient() {
                 id="history-project"
                 value={selectedProjectId ?? ""}
                 onChange={(event) => handleProjectChange(event.target.value)}
-                disabled={!isGoogleReady || isDriveOperationInFlight || driveProjects.length === 0}
+                disabled={!isGoogleReady || isDriveOperationInFlight || driveProjects.length === 0 || rollbackBusy}
                 className="min-h-11 w-full rounded-xl border border-white/20 bg-slate-900 px-3 text-base text-slate-50 outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
               >
                 <option value="">projectを選択</option>
@@ -496,6 +652,28 @@ export function PublishHistoryClient() {
         ) : null}
       </div>
 
+      {rollbackOutcome ? (
+        <div
+          role={rollbackOutcome.kind === "warning" ? "alert" : "status"}
+          aria-live="polite"
+          className={
+            rollbackOutcome.kind === "warning"
+              ? "rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-amber-100"
+              : "rounded-2xl border border-emerald-400/40 bg-emerald-400/10 p-4 text-emerald-100"
+          }
+        >
+          <p className="font-semibold">
+            {rollbackOutcome.kind === "warning"
+              ? "rollback完了・index mirror要確認"
+              : "rollback完了"}
+          </p>
+          <p className="mt-2">{rollbackOutcome.message}</p>
+          <p className="mt-2 break-all font-mono text-xs">
+            revision: {rollbackOutcome.revisionId}
+          </p>
+        </div>
+      ) : null}
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <RevisionList
           items={items}
@@ -504,6 +682,7 @@ export function PublishHistoryClient() {
           ignoredFileCount={ignoredFileCount}
           duplicateRevisionIdCount={duplicateRevisionIdCount}
           publication={overview?.publication ?? null}
+          disabled={rollbackBusy}
           onOpenDetail={handleOpenDetail}
         />
         <RevisionDetail
@@ -514,10 +693,18 @@ export function PublishHistoryClient() {
           previewState={previewState}
           preview={preview}
           previewMessage={previewMessage}
+          executionState={executionState}
+          executionReview={executionReview}
+          executionMessage={executionMessage}
+          confirmations={confirmations}
+          rollbackBusy={rollbackBusy}
           onClose={clearDetail}
           onRetry={handleRetryDetail}
           onStartPreview={() => void startRollbackPreview()}
           onClosePreview={clearRollbackPreview}
+          onConfirmationsChange={setConfirmations}
+          onPrepareExecution={() => void prepareRollbackExecutionReview()}
+          onCommitRollback={() => void commitRollback()}
         />
       </div>
     </div>
@@ -685,6 +872,7 @@ function RevisionList(props: {
   ignoredFileCount: number;
   duplicateRevisionIdCount: number;
   publication: ProjectPublicationOverview | null;
+  disabled: boolean;
   onOpenDetail: (item: ProjectPublishRevisionListItem) => void;
 }) {
   return (
@@ -741,7 +929,7 @@ function RevisionList(props: {
                 variant={selected ? "secondary" : "outline"}
                 className="mt-4 min-h-11 w-full"
                 onClick={() => props.onOpenDetail(item)}
-                disabled={item.metadataStatus !== "ready" || selected}
+                disabled={item.metadataStatus !== "ready" || selected || props.disabled}
                 aria-pressed={selected}
               >
                 {item.metadataStatus !== "ready" ? "要確認のため詳細取得不可" : selected ? "詳細を表示中" : "詳細を開く"}
@@ -763,17 +951,25 @@ function RevisionDetail(props: {
   previewState: RollbackPreviewState;
   preview: ProjectRollbackPreview | null;
   previewMessage: string;
+  executionState: RollbackExecutionState;
+  executionReview: ProjectRollbackExecutionReview | null;
+  executionMessage: string;
+  confirmations: ProjectRollbackConfirmations;
+  rollbackBusy: boolean;
   onClose: () => void;
   onRetry: () => void;
   onStartPreview: () => void;
   onClosePreview: () => void;
+  onConfirmationsChange: (value: ProjectRollbackConfirmations) => void;
+  onPrepareExecution: () => void;
+  onCommitRollback: () => void;
 }) {
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle>revision詳細</CardTitle>
-          {props.state !== "closed" ? <Button type="button" variant="outline" className="min-h-11" onClick={props.onClose}>閉じる</Button> : null}
+          {props.state !== "closed" ? <Button type="button" variant="outline" className="min-h-11" onClick={props.onClose} disabled={props.rollbackBusy}>閉じる</Button> : null}
         </div>
         <CardDescription className="text-slate-300">Drive内部ID、raw JSON、asset checksum本文は表示しません。</CardDescription>
       </CardHeader>
@@ -794,6 +990,7 @@ function RevisionDetail(props: {
               props.detail.revisionId,
             )}
             previewState={props.previewState}
+            rollbackBusy={props.rollbackBusy}
             onStartPreview={props.onStartPreview}
           />
         ) : null}
@@ -804,6 +1001,14 @@ function RevisionDetail(props: {
             message={props.previewMessage}
             onRecheck={props.onStartPreview}
             onClose={props.onClosePreview}
+            executionState={props.executionState}
+            executionReview={props.executionReview}
+            executionMessage={props.executionMessage}
+            confirmations={props.confirmations}
+            rollbackBusy={props.rollbackBusy}
+            onConfirmationsChange={props.onConfirmationsChange}
+            onPrepareExecution={props.onPrepareExecution}
+            onCommitRollback={props.onCommitRollback}
           />
         ) : null}
       </CardContent>
@@ -815,11 +1020,13 @@ function ReadyRevisionDetail({
   detail,
   publicationMarker,
   previewState,
+  rollbackBusy,
   onStartPreview,
 }: {
   detail: ProjectPublishRevisionDetailViewModel;
   publicationMarker: ProjectPublishRevisionPublicationMarker;
   previewState: RollbackPreviewState;
+  rollbackBusy: boolean;
   onStartPreview: () => void;
 }) {
   return (
@@ -900,7 +1107,7 @@ function ReadyRevisionDetail({
           variant="secondary"
           className="mt-4 min-h-11 w-full"
           onClick={onStartPreview}
-          disabled={previewState === "loading"}
+          disabled={previewState === "loading" || rollbackBusy}
         >
           {previewState === "loading"
             ? "rollback影響を確認中"
@@ -919,6 +1126,14 @@ function RollbackPreviewPanel(props: {
   message: string;
   onRecheck: () => void;
   onClose: () => void;
+  executionState: RollbackExecutionState;
+  executionReview: ProjectRollbackExecutionReview | null;
+  executionMessage: string;
+  confirmations: ProjectRollbackConfirmations;
+  rollbackBusy: boolean;
+  onConfirmationsChange: (value: ProjectRollbackConfirmations) => void;
+  onPrepareExecution: () => void;
+  onCommitRollback: () => void;
 }) {
   const isFailure =
     props.state === "blocked" ||
@@ -939,6 +1154,12 @@ function RollbackPreviewPanel(props: {
                 ? "blocked"
                 : "読込エラー";
   const impact = props.preview?.manifestImpact;
+  const confirmationsComplete =
+    props.preview !== null &&
+    areProjectRollbackConfirmationsComplete({
+      confirmations: props.confirmations,
+      replacesUnpublishedChanges: props.preview.replacesUnpublishedChanges,
+    });
 
   return (
     <section
@@ -959,6 +1180,7 @@ function RollbackPreviewPanel(props: {
           variant="outline"
           className="min-h-11"
           onClick={props.onClose}
+          disabled={props.rollbackBusy}
         >
           previewを閉じる
         </Button>
@@ -992,6 +1214,7 @@ function RollbackPreviewPanel(props: {
             variant="secondary"
             className="min-h-11"
             onClick={props.onRecheck}
+            disabled={props.rollbackBusy}
           >
             previewを再確認
           </Button>
@@ -1133,6 +1356,193 @@ function RollbackPreviewPanel(props: {
             このpreviewは確認時点のsnapshotです。実行時には再度fresh
             preflightが必要です。この結果をwrite planとして再利用しません。
           </p>
+
+          {props.state === "ready" ? (
+            <section
+              aria-labelledby="rollback-confirmations-heading"
+              className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4"
+            >
+              <h4
+                id="rollback-confirmations-heading"
+                className="font-semibold text-amber-100"
+              >
+                rollback実行前の確認
+              </h4>
+              <div className="mt-3 space-y-3 text-sm text-amber-50">
+                <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-amber-300/20 p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-5 shrink-0"
+                    checked={props.confirmations.createsNewRevision}
+                    disabled={props.rollbackBusy}
+                    onChange={(event) =>
+                      props.onConfirmationsChange({
+                        ...props.confirmations,
+                        createsNewRevision: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    過去revisionは変更せず、新しいrollback revisionを作成することを理解しました。
+                  </span>
+                </label>
+                <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-amber-300/20 p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-5 shrink-0"
+                    checked={props.confirmations.driveOnly}
+                    disabled={props.rollbackBusy}
+                    onChange={(event) =>
+                      props.onConfirmationsChange({
+                        ...props.confirmations,
+                        driveOnly: event.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    Driveの公開版だけが更新され、offline利用には別途offline syncが必要です。
+                  </span>
+                </label>
+                {props.preview.replacesUnpublishedChanges ? (
+                  <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-rose-300/30 bg-rose-400/10 p-3 text-rose-50">
+                    <input
+                      type="checkbox"
+                      className="mt-1 size-5 shrink-0"
+                      checked={
+                        props.confirmations.replacesUnpublishedChanges
+                      }
+                      disabled={props.rollbackBusy}
+                      onChange={(event) =>
+                        props.onConfirmationsChange({
+                          ...props.confirmations,
+                          replacesUnpublishedChanges: event.target.checked,
+                        })
+                      }
+                    />
+                    <span>
+                      保存済みの未公開編集がrollback対象revisionの内容で置き換えられることを理解しました。
+                    </span>
+                  </label>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-4 min-h-11 w-full"
+                disabled={
+                  !confirmationsComplete ||
+                  props.rollbackBusy ||
+                  props.executionState === "prepared"
+                }
+                onClick={props.onPrepareExecution}
+              >
+                {props.executionState === "preparing"
+                  ? "最新状態を再確認中"
+                  : "実行前の最新状態を再確認"}
+              </Button>
+            </section>
+          ) : null}
+
+          {props.executionState !== "idle" ? (
+            <div
+              role={props.executionState === "error" ? "alert" : "status"}
+              aria-live="polite"
+              className={
+                props.executionState === "error"
+                  ? "rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-100"
+                  : "rounded-xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100"
+              }
+            >
+              {props.executionMessage}
+            </div>
+          ) : null}
+
+          {props.executionState === "prepared" &&
+          props.executionReview ? (
+            <section
+              aria-labelledby="rollback-final-review-heading"
+              className="rounded-2xl border-2 border-rose-400/60 bg-rose-950/40 p-4"
+            >
+              <h4
+                id="rollback-final-review-heading"
+                className="text-lg font-semibold text-rose-100"
+              >
+                rollback最終確認
+              </h4>
+              <p className="mt-2 text-sm text-rose-50">
+                fresh preflight済みです。この操作は新しいrollback
+                revisionを作成し、current manifestとindex mirrorを更新します。
+              </p>
+              <dl className="mt-4 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+                <DetailField
+                  label="target revision ID"
+                  value={props.executionReview.targetRevisionId}
+                  mono
+                />
+                <DetailField
+                  label="target公開日時"
+                  value={formatPublishedAt(
+                    props.executionReview.targetPublishedAt,
+                  )}
+                />
+                <DetailField
+                  label="target操作"
+                  value={formatPublishOperation(
+                    props.executionReview.targetOperation,
+                  )}
+                />
+                <DetailField
+                  label="targetのrollback元"
+                  value={
+                    props.executionReview.restoredFromRevisionId ?? "なし"
+                  }
+                  mono
+                />
+                <DetailField
+                  label="直前のcurrent revision"
+                  value={props.executionReview.previousRevisionId}
+                  mono
+                />
+                <DetailField
+                  label="新しいrollback revision"
+                  value={props.executionReview.revisionId}
+                  mono
+                />
+                <DetailField
+                  label="rollback後のtitle"
+                  value={props.executionReview.rollbackProjectTitle}
+                />
+                <DetailField
+                  label="slides / assets / remoteOnly"
+                  value={`${props.executionReview.rollbackSlideCount} / ${props.executionReview.rollbackAssetCount} / ${props.executionReview.rollbackRemoteOnlyAssetCount}`}
+                />
+                <DetailField
+                  label="最新確認日時（東京）"
+                  value={formatPublishedAt(
+                    props.executionReview.checkedAt,
+                  )}
+                />
+                <DetailField
+                  label="offline sync"
+                  value="rollback後に別途必要"
+                />
+              </dl>
+              {props.executionReview.replacesUnpublishedChanges ? (
+                <p className="mt-4 rounded-xl border border-rose-300/40 bg-rose-400/10 p-3 font-semibold text-rose-50">
+                  保存済みの未公開編集は置き換えられます。
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                variant="destructive"
+                className="mt-5 min-h-11 w-full"
+                disabled={!confirmationsComplete || props.rollbackBusy}
+                onClick={props.onCommitRollback}
+              >
+                この内容へロールバック
+              </Button>
+            </section>
+          ) : null}
         </div>
       ) : null}
     </section>
