@@ -27,6 +27,31 @@ export type OfflineAssetUnsupportedReason =
   | "unsupportedVideoMimeType"
   | "unsupportedMimeType";
 
+export type OfflinePublicationOperation = "publish" | "rollback";
+
+export type OfflinePublicationProvenanceStatus =
+  | "publishedMatch"
+  | "unpublishedChanges"
+  | "unpublished"
+  | "needsInspection";
+
+export type OfflinePublicationNeedsInspectionReason =
+  | "currentRevisionMissing"
+  | "publicationInconsistent"
+  | "historyStructureInvalid"
+  | "historyUnavailable"
+  | "publicationInvalid";
+
+export type OfflinePublicationProvenance = {
+  status: OfflinePublicationProvenanceStatus;
+  checkedAt: IsoDateTimeString;
+  currentPublishedRevisionId?: string;
+  publishedAt?: IsoDateTimeString;
+  operation?: OfflinePublicationOperation;
+  restoredFromRevisionId?: string;
+  needsInspectionReason?: OfflinePublicationNeedsInspectionReason;
+};
+
 export type OfflineProjectSlide = {
   slideId: string;
   assetId: string;
@@ -48,6 +73,7 @@ export type OfflineProject = {
   sourceManifestFileId: string;
   sourceUpdatedAt?: IsoDateTimeString;
   syncedAt: IsoDateTimeString;
+  publicationProvenance?: OfflinePublicationProvenance;
 };
 
 export type OfflineAsset = {
@@ -114,6 +140,7 @@ export type OfflineSyncState = {
 
   sourceRevisionId?: string;
   sourceETag?: string;
+  publicationProvenance?: OfflinePublicationProvenance;
 };
 
 export type OfflineStagingProject = OfflineProject & {

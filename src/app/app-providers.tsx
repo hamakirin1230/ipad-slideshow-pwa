@@ -5545,6 +5545,7 @@ function getOfflineSyncStatusFromResult(
       return "ready";
 
     case "stale":
+    case "staleManifest":
       return "stale";
 
     case "syncRuntimeCancelled":
@@ -5573,6 +5574,9 @@ function buildOfflineSyncResultMessage(
 
     case "stale":
       return "より新しいsync runが優先されたため、今回の結果はconfirmed storeへ反映していません。";
+
+    case "staleManifest":
+      return "asset取得中にcurrent manifestが変更されたため、staging write前に停止しました。手動で再同期してください。";
 
     case "driveFetchOrStagingWriteFailed":
       return "Drive取得、または staging write に失敗しました。";
@@ -5603,7 +5607,6 @@ function buildOfflineSyncResultDiagnostics(
   switch (result.status) {
     case "ready":
       return [
-        `syncRunId: ${result.syncRunId}`,
         `projectId: ${result.projectId}`,
         `manifest slide count: ${result.manifestSlideCount}`,
         `image sync candidate count: ${result.imageSyncCandidateCount}`,
@@ -5623,6 +5626,7 @@ function buildOfflineSyncResultDiagnostics(
         `promoted asset blobs: ${result.promotion.promotedAssetBlobs}`,
         "大容量videoはBlob未保存ですが、remoteOnly metadataとしてconfirmed storeに残り、オンライン時はstream再生対象になります。",
         "Blob未保存はDrive削除、cleanup対象、sync失敗を意味しません。QuickTime / WebMは未対応です。",
+        result.publicationProvenance.message,
         ...appendOmittedDiagnosticCount(
           result.diagnostics,
           result.omittedDiagnosticCount,
@@ -5631,9 +5635,14 @@ function buildOfflineSyncResultDiagnostics(
 
     case "stale":
       return [
-        `syncRunId: ${result.syncRunId}`,
         "この syncRun は stale-sync-run として無視されました。",
       ];
+
+    case "staleManifest":
+      return appendOmittedDiagnosticCount(
+        result.diagnostics,
+        result.omittedDiagnosticCount,
+      );
 
     case "driveFetchOrStagingWriteFailed":
       return appendOmittedDiagnosticCount(
@@ -5644,7 +5653,6 @@ function buildOfflineSyncResultDiagnostics(
     case "promotionFailed":
       if (result.promotionFailure.reason === "validation-failed") {
         return [
-          `syncRunId: ${result.syncRunId}`,
           "promotion validation failed.",
           `validationReason: ${result.promotionFailure.validationReason}`,
           `validationClassification: ${result.promotionFailure.validationClassification}`,
@@ -5652,7 +5660,6 @@ function buildOfflineSyncResultDiagnostics(
       }
 
       return [
-        `syncRunId: ${result.syncRunId}`,
         "promotion or cleanup failed.",
       ];
 

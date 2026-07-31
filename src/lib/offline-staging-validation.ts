@@ -5,6 +5,7 @@ import {
   type OfflineStagingProject,
 } from "@/lib/offline-schema";
 import type { OfflineStagingRecordsForSyncRun } from "@/lib/offline-staging-read";
+import { parseOfflinePublicationProvenance } from "@/lib/offline-publication-provenance";
 
 export type OfflineStagingValidationFailureReason =
   | "missing-project"
@@ -15,7 +16,9 @@ export type OfflineStagingValidationFailureReason =
   | "missing-asset"
   | "unexpected-asset"
   | "missing-asset-blob"
-  | "unexpected-asset-blob";
+  | "unexpected-asset-blob"
+  | "publication-provenance-invalid"
+  | "publication-provenance-mismatch";
 
 export type OfflineStagingValidationResult =
   | { ok: true }
@@ -75,6 +78,13 @@ export function validateOfflineStagingRecordsForSyncRun(
 
   if (hasSchemaVersionMismatch(project, assets, assetBlobRecords)) {
     return { ok: false, reason: "schema-version-mismatch" };
+  }
+
+  if (
+    project.publicationProvenance !== undefined &&
+    !parseOfflinePublicationProvenance(project.publicationProvenance).ok
+  ) {
+    return { ok: false, reason: "publication-provenance-invalid" };
   }
 
   if (hasDuplicateAssetIds(assets)) {

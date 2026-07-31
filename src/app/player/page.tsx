@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
 import type { OfflinePlaybackSlide } from "@/lib/offline-playback-snapshot";
+import type { OfflinePublicationProvenanceView } from "@/lib/offline-publication-provenance";
 import { useAppState } from "@/app/app-providers";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
 import {
@@ -1808,6 +1809,19 @@ export default function PlayerPage() {
                   <OnlineStatusIcon className="size-3" />
                   {onlineStatusLabel}
                 </Badge>
+                <Badge
+                  variant="outline"
+                  className={
+                    readySnapshot.publicationProvenance.warning
+                      ? "border-amber-300/70 bg-amber-400/15 text-amber-50"
+                      : readySnapshot.publicationProvenance.tone === "success"
+                        ? "border-emerald-300/50 bg-emerald-400/10 text-emerald-50"
+                        : "border-white/20 bg-black/30 text-slate-100"
+                  }
+                  title={readySnapshot.publicationProvenance.message}
+                >
+                  {readySnapshot.publicationProvenance.label}
+                </Badge>
                 <span className="rounded-full border border-white/15 bg-black/30 px-2 py-0.5">
                   {safeCurrentSlideIndex + 1} / {slideCount}
                 </span>
@@ -1847,6 +1861,14 @@ export default function PlayerPage() {
                   </select>
                 </label>
               </div>
+              {readySnapshot.publicationProvenance.warning ? (
+                <p
+                  className="mt-2 max-w-2xl text-xs leading-5 text-amber-100"
+                  role="status"
+                >
+                  {readySnapshot.publicationProvenance.message}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
@@ -2250,6 +2272,7 @@ function ProjectSelectionCard({
     assetBlobCount: number;
     syncedAt?: string;
     sourceUpdatedAt?: string;
+    publicationProvenance: OfflinePublicationProvenanceView;
   }>;
   selectedProjectId: string | null;
   diagnostics: string[];
@@ -2289,6 +2312,28 @@ function ProjectSelectionCard({
                   ? "選択中のprojectを再読み込み"
                   : "このprojectを再生"}
               </Button>
+            </div>
+
+            <div
+              className={
+                project.publicationProvenance.warning
+                  ? "mt-3 rounded-lg border border-amber-400/40 bg-amber-400/10 p-3 text-amber-100"
+                  : project.publicationProvenance.tone === "success"
+                    ? "mt-3 rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-3 text-emerald-100"
+                    : "mt-3 rounded-lg border border-white/15 bg-white/5 p-3 text-slate-200"
+              }
+              role={
+                project.publicationProvenance.warning ? "alert" : "status"
+              }
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">
+                  {project.publicationProvenance.label}
+                </Badge>
+              </div>
+              <p className="mt-2 text-xs leading-5">
+                {project.publicationProvenance.message}
+              </p>
             </div>
 
             <dl className="mt-3 grid gap-1 text-xs text-slate-400 sm:grid-cols-2 lg:grid-cols-4">

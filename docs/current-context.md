@@ -333,6 +333,8 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 読む順:
 
 ```text
+docs/handoffs/2026-07-31-offline-publication-provenance-handoff.md
+docs/offline-publication-provenance-design.md
 docs/handoffs/2026-06-13-player-admin-polish-fixes-handoff.md
 docs/handoffs/2026-06-12-slide-dnd-delete-duplicate-handoff.md
 docs/handoffs/2026-06-12-player-auto-advance-transition-and-slide-reorder-handoff.md
@@ -345,3 +347,26 @@ docs/handoffs/2026-06-10-ipad-pwa-offline-shell-verification-handoff.md
 docs/handoffs/2026-06-10-pwa-offline-shell-local-recovery-handoff.md
 docs/handoffs/2026-06-09-offline-playback-e2e-handoff.md
 ```
+
+## Goal 6 confirmed snapshot publication provenance
+
+2026-07-31時点で、明示的offline syncがDrive current manifestとcurrent
+published revisionの関係をsanitized provenanceとしてstaging、
+confirmed project、ready sync stateへ保存する。
+
+```text
+publishedMatch: current manifestの再生内容がcurrent published revisionと一致
+unpublishedChanges: current publicationは正式だがcurrent manifestに未公開編集あり
+unpublished: publication未設定
+needsInspection: historyまたはpublication対応を正式確認できない
+legacyUnknown: Goal 6以前のfield欠落recordをread/view時にnormalize
+```
+
+offline syncの内容authorityは引き続きDrive current manifestであり、published
+revision本文への切替、自動publish、自動rollback、自動offline syncは行わない。
+asset取得後、staging write前にmanifest metadata、content、publication署名を
+再検証し、変化時は`staleManifest`として手動再同期を案内する。
+
+`OFFLINE_DB_VERSION`と`OFFLINE_SCHEMA_VERSION`は1のまま、object store変更、
+background migration、legacy recordの自動rewriteはない。publish / rollback後も
+offline syncは明示操作であり、実行中player sessionを自動reloadしない。

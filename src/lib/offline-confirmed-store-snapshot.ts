@@ -12,6 +12,11 @@ import {
   type OfflineProject,
   type OfflineSyncState,
 } from "@/lib/offline-schema";
+import {
+  compareOfflinePublicationProvenance,
+  getOfflinePublicationProvenanceView,
+  type OfflinePublicationProvenanceView,
+} from "@/lib/offline-publication-provenance";
 
 type OfflineConfirmedSnapshotStores = {
   [OFFLINE_PROJECTS_STORE]: IDBObjectStore;
@@ -27,6 +32,7 @@ export type OfflineConfirmedProjectSummary = {
   sourceManifestFileId: string;
   sourceUpdatedAt?: string;
   syncedAt: string;
+  publicationProvenance: OfflinePublicationProvenanceView;
 };
 
 export type OfflineConfirmedAssetSummary = {
@@ -55,7 +61,6 @@ export type OfflineConfirmedAssetBlobSummary = {
 export type OfflineConfirmedSyncStateSummary = {
   projectId: string;
   status: string;
-  syncRunId?: string;
   manifestFileId: string;
   slideCount: number;
   assetCount: number;
@@ -63,6 +68,7 @@ export type OfflineConfirmedSyncStateSummary = {
   sourceUpdatedAt?: string;
   lastErrorCode?: string;
   lastFailedAt?: string;
+  publicationProvenance: OfflinePublicationProvenanceView;
 };
 
 export type OfflineConfirmedStoreSnapshot = {
@@ -99,10 +105,20 @@ export async function readOfflineConfirmedStoreSnapshot(): Promise<OfflineConfir
         getAllRecords<OfflineSyncState>(typedStores[OFFLINE_SYNC_STATE_STORE]),
       ]);
 
-      const projectSummaries = projects.map(toProjectSummary);
+      const projectSummaries = projects.map(toOfflineConfirmedProjectSummary);
       const assetSummaries = assets.map(toAssetSummary);
       const assetBlobSummaries = assetBlobs.map(toAssetBlobSummary);
       const syncStateSummaries = syncStates.map(toSyncStateSummary);
+
+      const diagnostics = [
+        ...buildConfirmedStoreDiagnostics({
+          projects: projectSummaries,
+          assets: assetSummaries,
+          assetBlobs: assetBlobSummaries,
+          syncStates: syncStateSummaries,
+        }),
+        ...buildConfirmedProvenanceDiagnostics(projects, syncStates),
+      ];
 
       return {
         checkedAt: new Date().toISOString(),
@@ -114,12 +130,10 @@ export async function readOfflineConfirmedStoreSnapshot(): Promise<OfflineConfir
         assets: assetSummaries,
         assetBlobs: assetBlobSummaries,
         syncStates: syncStateSummaries,
-        diagnostics: buildConfirmedStoreDiagnostics({
-          projects: projectSummaries,
-          assets: assetSummaries,
-          assetBlobs: assetBlobSummaries,
-          syncStates: syncStateSummaries,
-        }),
+        diagnostics:
+          diagnostics.length > 0
+            ? diagnostics
+            : ["confirmed offline store の件数整合を確認しました。"],
       };
     },
   );
@@ -129,7 +143,7 @@ async function getAllRecords<T>(store: IDBObjectStore): Promise<T[]> {
   return requestToPromise<T[]>(store.getAll());
 }
 
-function toProjectSummary(
+export function toOfflineConfirmedProjectSummary(
   project: OfflineProject,
 ): OfflineConfirmedProjectSummary {
   return {
@@ -139,6 +153,9 @@ function toProjectSummary(
     sourceManifestFileId: project.sourceManifestFileId,
     sourceUpdatedAt: project.sourceUpdatedAt,
     syncedAt: project.syncedAt,
+    publicationProvenance: getOfflinePublicationProvenanceView(
+      project.publicationProvenance,
+    ),
   };
 }
 
@@ -177,7 +194,6 @@ function toSyncStateSummary(
   return {
     projectId: syncState.projectId,
     status: syncState.status,
-    syncRunId: syncState.syncRunId,
     manifestFileId: syncState.manifestFileId,
     slideCount: syncState.slideCount,
     assetCount: syncState.assetCount,
@@ -185,6 +201,9 @@ function toSyncStateSummary(
     sourceUpdatedAt: syncState.sourceUpdatedAt,
     lastErrorCode: syncState.lastErrorCode,
     lastFailedAt: syncState.lastFailedAt,
+    publicationProvenance: getOfflinePublicationProvenanceView(
+      syncState.publicationProvenance,
+    ),
   };
 }
 
@@ -255,11 +274,35 @@ function buildConfirmedStoreDiagnostics(input: {
         `project ${project.projectId}: asset count と sync state assetCount が一致しません。`,
       );
     }
+
   }
 
-  if (diagnostics.length === 0) {
-    diagnostics.push("confirmed offline store の件数整合を確認しました。");
-  }
+  return diagnostics;
+}
 
+export function buildConfirmedProvenanceDiagnostics(
+  projects: OfflineProject[],
+  syncStates: OfflineSyncState[],
+): string[] {
+  const diagnostics: string[] = [];
+  for (const project of projects) {
+    const syncState = syncStates.find(
+      (candidate) =>
+        candidate.projectId === project.projectId &&
+        candidate.status === "ready",
+    );
+    if (!syncState) {
+      continue;
+    }
+    const status = compareOfflinePublicationProvenance(
+      project.publicationProvenance,
+      syncState.publicationProvenance,
+    );
+    if (status === "mismatch" || status === "invalid") {
+      diagnostics.push(
+        `project ${project.projectId}: confirmed projectとready sync stateのpublication provenanceが一致しません。`,
+      );
+    }
+  }
   return diagnostics;
 }

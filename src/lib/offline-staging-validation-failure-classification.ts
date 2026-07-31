@@ -21,6 +21,8 @@ export function classifyOfflineStagingValidationFailure(
     case "unexpected-asset":
     case "missing-asset-blob":
     case "unexpected-asset-blob":
+    case "publication-provenance-invalid":
+    case "publication-provenance-mismatch":
       return "corrupt";
   }
 }

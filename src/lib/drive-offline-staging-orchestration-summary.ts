@@ -1,6 +1,10 @@
 // src/lib/drive-offline-staging-orchestration-summary.ts
 
 import type { DriveOfflineStagingPromotionOrchestrationResult } from "@/lib/drive-offline-staging-orchestration";
+import {
+  getOfflinePublicationProvenanceView,
+  type OfflinePublicationProvenanceView,
+} from "@/lib/offline-publication-provenance";
 
 const DEFAULT_DIAGNOSTIC_LIMIT = 8;
 const DEFAULT_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -31,7 +35,6 @@ export type DriveOfflineStagingOrchestrationSummary =
   | {
       ok: true;
       status: "ready";
-      syncRunId: string;
       projectId: string;
       slideCount: number;
       assetCount: number;
@@ -43,6 +46,7 @@ export type DriveOfflineStagingOrchestrationSummary =
       videoTooLargeSkippedCount: number;
       unsupportedAssetCount: number;
       offlineStagingSlideCount: number;
+      publicationProvenance: OfflinePublicationProvenanceView;
       diagnostics: string[];
       omittedDiagnosticCount: number;
       stagingWrite: {
@@ -71,12 +75,17 @@ export type DriveOfflineStagingOrchestrationSummary =
   | {
       ok: false;
       status: "stale";
-      syncRunId: string;
+    }
+  | {
+      ok: false;
+      status: "staleManifest";
+      diagnostics: string[];
+      omittedDiagnosticCount: number;
+      syncStateUpdated: true;
     }
   | {
       ok: false;
       status: "driveFetchOrStagingWriteFailed";
-      syncRunId: string;
       diagnostics: string[];
       omittedDiagnosticCount: number;
       syncStateUpdated: true;
@@ -84,7 +93,6 @@ export type DriveOfflineStagingOrchestrationSummary =
   | {
       ok: false;
       status: "promotionFailed";
-      syncRunId: string;
       promotionFailure: DriveOfflineStagingPromotionFailureSummary;
     };
 
@@ -97,7 +105,6 @@ export function summarizeDriveOfflineStagingPromotionOrchestrationResult(
     return {
       ok: true,
       status: "ready",
-      syncRunId: result.syncRunId,
       projectId: result.snapshot.project.projectId,
       slideCount: result.snapshot.details.slideCount,
       assetCount: result.snapshot.details.assetCount,
@@ -117,6 +124,9 @@ export function summarizeDriveOfflineStagingPromotionOrchestrationResult(
       offlineStagingSlideCount:
         result.snapshot.details.offlineStagingSlideCount ??
         result.snapshot.details.slideCount,
+      publicationProvenance: getOfflinePublicationProvenanceView(
+        result.snapshot.project.publicationProvenance,
+      ),
       diagnostics: diagnostics.items,
       omittedDiagnosticCount: diagnostics.omittedCount,
       stagingWrite: {
@@ -151,7 +161,6 @@ export function summarizeDriveOfflineStagingPromotionOrchestrationResult(
       return {
         ok: false,
         status: "stale",
-        syncRunId: result.syncRunId,
       };
 
     case "drive-fetch-or-staging-write-failed": {
@@ -160,18 +169,28 @@ export function summarizeDriveOfflineStagingPromotionOrchestrationResult(
       return {
         ok: false,
         status: "driveFetchOrStagingWriteFailed",
-        syncRunId: result.syncRunId,
         diagnostics: diagnostics.items,
         omittedDiagnosticCount: diagnostics.omittedCount,
         syncStateUpdated: true,
       };
     }
 
+    case "stale-manifest":
+      return {
+        ok: false,
+        status: "staleManifest",
+        diagnostics: [
+          "asset取得中にcurrent manifestが変更されました。",
+          "confirmed storeは変更していません。手動でoffline syncを再実行してください。",
+        ],
+        omittedDiagnosticCount: 0,
+        syncStateUpdated: true,
+      };
+
     case "promotion-failed":
       return {
         ok: false,
         status: "promotionFailed",
-        syncRunId: result.syncRunId,
         promotionFailure: summarizePromotionFailure(result.promotion),
       };
 

@@ -15,6 +15,11 @@ import {
   type OfflineProjectSlide,
   type OfflineSyncState,
 } from "@/lib/offline-schema";
+import {
+  compareOfflinePublicationProvenance,
+  getOfflinePublicationProvenanceView,
+  type OfflinePublicationProvenanceView,
+} from "@/lib/offline-publication-provenance";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
 const MIN_SLIDE_DURATION_SECONDS = 1;
@@ -68,7 +73,7 @@ export type OfflinePlaybackProjectOption = {
   assetBlobCount: number;
   syncedAt?: string;
   sourceUpdatedAt?: string;
-  syncRunId?: string;
+  publicationProvenance: OfflinePublicationProvenanceView;
 };
 
 export type OfflinePlaybackSnapshot =
@@ -101,6 +106,7 @@ export type OfflinePlaybackSnapshot =
       assetCount: number;
       slides: OfflinePlaybackSlide[];
       availableProjects: OfflinePlaybackProjectOption[];
+      publicationProvenance: OfflinePublicationProvenanceView;
       diagnostics: string[];
     };
 
@@ -147,7 +153,7 @@ async function getAllRecords<T>(store: IDBObjectStore): Promise<T[]> {
   return requestToPromise<T[]>(store.getAll());
 }
 
-function buildOfflinePlaybackSnapshot(input: {
+export function buildOfflinePlaybackSnapshot(input: {
   checkedAt: string;
   selectedProjectId: string | null;
   projects: OfflineProject[];
@@ -292,6 +298,9 @@ function buildOfflinePlaybackSnapshot(input: {
     assetCount: projectAssets.length,
     slides,
     availableProjects,
+    publicationProvenance: getOfflinePublicationProvenanceView(
+      project.publicationProvenance,
+    ),
     diagnostics: [
       "offline playback snapshot を confirmed store から構築しました。",
       `slides: ${slides.length}`,
@@ -330,7 +339,9 @@ function buildPlaybackProjectOptions(input: {
       ).length,
       syncedAt: syncState.syncedAt ?? project.syncedAt,
       sourceUpdatedAt: syncState.sourceUpdatedAt ?? project.sourceUpdatedAt,
-      syncRunId: syncState.syncRunId,
+      publicationProvenance: getOfflinePublicationProvenanceView(
+        project.publicationProvenance,
+      ),
     });
   }
 
@@ -365,6 +376,19 @@ function validatePlaybackRecords(input: {
 
   if (input.syncState.status !== "ready") {
     diagnostics.push(`sync state が ready ではありません: ${input.syncState.status}`);
+  }
+
+  const provenancePairStatus = compareOfflinePublicationProvenance(
+    input.project.publicationProvenance,
+    input.syncState.publicationProvenance,
+  );
+  if (
+    provenancePairStatus === "mismatch" ||
+    provenancePairStatus === "invalid"
+  ) {
+    diagnostics.push(
+      "confirmed projectとready sync stateのpublication provenanceが一致しません。",
+    );
   }
 
   if (input.project.slides.length !== input.syncState.slideCount) {

@@ -1,0 +1,220 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  getProjectManifestContentCanonicalHash,
+} from "./publish-history/project-publish-revision";
+
+const mocks = vi.hoisted(() => ({
+  readDriveTextFile: vi.fn(),
+  resolveProvenance: vi.fn(async (input: { manifest: { publication?: unknown }; checkedAt: string }) => ({
+    provenance: input.manifest.publication
+      ? {
+          status: "needsInspection" as const,
+          checkedAt: input.checkedAt,
+          needsInspectionReason: "historyUnavailable" as const,
+        }
+      : { status: "unpublished" as const, checkedAt: input.checkedAt },
+  })),
+}));
+
+vi.mock("./google-drive", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./google-drive")>();
+  return { ...original, readDriveTextFile: mocks.readDriveTextFile };
+});
+
+vi.mock("./drive-offline-publication-provenance", () => ({
+  resolveDriveOfflinePublicationProvenance: mocks.resolveProvenance,
+}));
+
+import {
+  fetchDriveOfflineStagingSnapshot,
+} from "./drive-offline-staging-snapshot";
+
+const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
+const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
+const REVISION_ID = "rev_20260731T010203000Z_ab12cd34";
+const MODIFIED_TIME = "2026-07-31T01:00:00.000Z";
+
+const project = {
+  projectId: PROJECT_ID,
+  title: "Fixture",
+  projectFolderId: "dummy-project-folder",
+  manifestFileId: "dummy-manifest-file",
+  assetsFolderId: "dummy-assets-folder",
+  manifestPath: "manifest.json",
+  createdAt: "2026-07-30T00:00:00.000Z",
+  updatedAt: "2026-07-31T00:59:00.000Z",
+};
+
+const readyContext = {
+  workspaceId: WORKSPACE_ID,
+  workspaceRootFolderId: "dummy-workspace-root",
+  workspaceJsonFileId: "dummy-workspace-json",
+  indexJsonFileId: "dummy-index-json",
+  projectsRootFolderId: "dummy-projects-root",
+  indexJsonText: "{}",
+};
+
+function manifest(title = "Fixture") {
+  return {
+    app: "ipad-slideshow-pwa" as const,
+    role: "projectManifest" as const,
+    schemaVersion: 1 as const,
+    workspaceId: WORKSPACE_ID,
+    projectId: PROJECT_ID,
+    title,
+    slides: [],
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+  };
+}
+
+function withPublication(
+  value: ReturnType<typeof manifest>,
+  override: Partial<{
+    currentRevisionId: string;
+    publishedAt: string;
+    operation: "publish" | "rollback";
+    contentCanonicalHash: string;
+  }> = {},
+) {
+  return {
+    ...value,
+    publication: {
+      schemaVersion: 1 as const,
+      currentRevisionId: override.currentRevisionId ?? REVISION_ID,
+      publishedAt: override.publishedAt ?? "2026-07-31T00:58:00.000Z",
+      operation: override.operation ?? ("publish" as const),
+      operationId:
+        override.operation === "rollback"
+          ? "rbop_20260731T005800000Z_ab12cd34"
+          : "pubop_20260731T005800000Z_ab12cd34",
+      contentCanonicalHash:
+        override.contentCanonicalHash ??
+        getProjectManifestContentCanonicalHash(value),
+    },
+  };
+}
+
+function metadata(modifiedTime = MODIFIED_TIME) {
+  return {
+    id: project.manifestFileId,
+    name: "manifest.json",
+    mimeType: "application/json",
+    modifiedTime,
+    parents: [project.projectFolderId],
+    appProperties: {
+      app: "ipad-slideshow-pwa",
+      role: "projectManifest",
+      schemaVersion: "1",
+      workspaceId: WORKSPACE_ID,
+      projectId: PROJECT_ID,
+    },
+  };
+}
+
+function installManifestPhases(input: {
+  initial: unknown;
+  final?: unknown;
+  initialModifiedTime?: string;
+  finalModifiedTime?: string;
+}) {
+  mocks.readDriveTextFile
+    .mockResolvedValueOnce(JSON.stringify(input.initial))
+    .mockResolvedValueOnce(JSON.stringify(input.final ?? input.initial));
+  const responses = [
+    metadata(input.initialModifiedTime),
+    metadata(input.initialModifiedTime),
+    metadata(input.finalModifiedTime ?? input.initialModifiedTime),
+    metadata(input.finalModifiedTime ?? input.initialModifiedTime),
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(responses.shift()))),
+  );
+}
+
+async function fetchSnapshot() {
+  return fetchDriveOfflineStagingSnapshot({
+    accessToken: "dummy-token",
+    readyContext,
+    project,
+    syncedAt: "2026-07-31T01:02:03.000Z",
+    signal: new AbortController().signal,
+  });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
+
+describe("Drive offline staging manifest guard", () => {
+  it("continues to staging snapshot when the manifest is unchanged", async () => {
+    installManifestPhases({ initial: manifest() });
+    const snapshot = await fetchSnapshot();
+    expect(snapshot.project.publicationProvenance).toEqual({
+      status: "unpublished",
+      checkedAt: "2026-07-31T01:02:03.000Z",
+    });
+    expect(snapshot.assetPairs).toEqual([]);
+  });
+
+  it("stops on modifiedTime-only changes", async () => {
+    installManifestPhases({
+      initial: manifest(),
+      initialModifiedTime: MODIFIED_TIME,
+      finalModifiedTime: "2026-07-31T01:00:01.000Z",
+    });
+    await expect(fetchSnapshot()).rejects.toMatchObject({
+      code: "staleManifest",
+    });
+  });
+
+  it("stops on current manifest content changes", async () => {
+    installManifestPhases({
+      initial: manifest(),
+      final: manifest("Changed"),
+    });
+    await expect(fetchSnapshot()).rejects.toMatchObject({
+      code: "staleManifest",
+    });
+  });
+
+  it.each([
+    ["publication added", manifest(), withPublication(manifest())],
+    [
+      "currentRevisionId changed",
+      withPublication(manifest()),
+      withPublication(manifest(), {
+        currentRevisionId: "rev_20260731T010204000Z_cd34ef56",
+      }),
+    ],
+    [
+      "publishedAt changed",
+      withPublication(manifest()),
+      withPublication(manifest(), {
+        publishedAt: "2026-07-31T00:58:01.000Z",
+      }),
+    ],
+    [
+      "operation changed",
+      withPublication(manifest()),
+      withPublication(manifest(), { operation: "rollback" }),
+    ],
+    [
+      "publication content hash changed",
+      withPublication(manifest()),
+      withPublication(manifest(), {
+        contentCanonicalHash: "fnv1a64:0000000000000000",
+      }),
+    ],
+  ])("stops when %s", async (_label, initial, final) => {
+    installManifestPhases({ initial, final });
+    await expect(fetchSnapshot()).rejects.toMatchObject({
+      code: "staleManifest",
+      diagnostics: expect.not.arrayContaining([
+        expect.stringMatching(/fnv1a64|dummy-manifest-file/),
+      ]),
+    });
+  });
+});

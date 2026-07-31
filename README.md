@@ -88,6 +88,9 @@ https://ipad-slideshow-pwa.vercel.app/
 - rollbackはasset本体を複製、削除、復元せず、検証済み参照とfresh metadataをrevisionへ記録する
 - publish / rollback成功だけではiPad confirmed snapshotやplayer sessionは変わらない
 - iPadへ反映するには対象projectの明示的なoffline syncとconfirmed promotionが必要
+- confirmed snapshotはoffline sync時点のpublication provenanceを保持し、公開版一致、未公開編集あり、未公開、要確認、旧形式を区別する
+- publication provenanceの確認失敗だけではcurrent manifestの同期や再生を止めず、sanitized warningとして扱う
+- Goal 6以前のlegacy snapshotは再生可能なまま旧形式と表示し、次回の明示的offline sync成功時にprovenance付きrecordへ自然に置換する
 - revision fileや部分失敗で残ったorphanは自動削除せず、履歴確認と明示的な回復判断を優先する
 - Drive file ID、operation ID、canonical hash全文、checksum値をUIへ表示しない
 - Photos Pickerから追加したslideは現在のDrive `manifest.json.slides[]` の末尾へ選択順でappendする
@@ -157,12 +160,13 @@ GitHub Pagesは手動deployの位置づけで、同じtest / lintを通過して
 
 1. disposable projectを使った実Google Driveのpublish / rollback acceptance test
 2. update応答不明、current競合、index warning経路の実環境確認
-3. offline sync後のconfirmed snapshotとcurrent published revisionの対応を識別する将来設計。今回は実装せず、新しいGoalとして設計を先に確定する
+3. disposable projectとiPad実機でconfirmed snapshot publication provenanceのacceptance testを行う
 4. README以外の古い設計docsを、現行方針と履歴に分けて整理する
 5. iPad実機でremoteOnly動画の再生失敗と手動retryを運用確認する
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-07-31-offline-publication-provenance-handoff.md`
 - `docs/handoffs/2026-07-28-publish-history-rollback-completion-handoff.md`
 - `docs/handoffs/2026-07-12-video-playback-retry-tests-ci-handoff.md`
 - `docs/handoffs/2026-06-22-vercel-existing-production-confirmation-handoff.md`

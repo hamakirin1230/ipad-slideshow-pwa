@@ -8,6 +8,7 @@ import {
     OFFLINE_SCHEMA_VERSION,
     OFFLINE_SYNC_STATE_STORE,
     type IsoDateTimeString,
+    type OfflinePublicationProvenance,
     type OfflineSyncState,
   } from "@/lib/offline-schema";
 
@@ -21,6 +22,7 @@ import {
     sourceUpdatedAt?: IsoDateTimeString;
     sourceRevisionId?: string;
     sourceETag?: string;
+    publicationProvenance?: OfflinePublicationProvenance;
   };
 
   export type OfflineSyncStateUpdateResult =
@@ -80,6 +82,7 @@ import {
       lastFailedAt: args.lastFailedAt,
       sourceRevisionId: args.context.sourceRevisionId,
       sourceETag: args.context.sourceETag,
+      publicationProvenance: args.context.publicationProvenance,
     };
   }
 

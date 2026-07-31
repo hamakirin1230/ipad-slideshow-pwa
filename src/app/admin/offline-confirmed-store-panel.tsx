@@ -20,6 +20,7 @@ import {
   type OfflineConfirmedProjectSummary,
   type OfflineConfirmedStoreSnapshot,
 } from "@/lib/offline-confirmed-store-snapshot";
+import type { OfflinePublicationProvenanceView } from "@/lib/offline-publication-provenance";
 import {
   clearAppShellCache,
   readOfflineStorageManagementSnapshot,
@@ -750,6 +751,9 @@ function ConfirmedStoreSnapshotView({
                       </Button>
                     </div>
                   </div>
+                  <ConfirmedPublicationProvenance
+                    provenance={project.publicationProvenance}
+                  />
                   <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
                     <SummaryRow
                       label="projectId"
@@ -806,10 +810,6 @@ function ConfirmedStoreSnapshotView({
                   </Badge>
                 </div>
                 <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
-                  <SummaryRow
-                    label="syncRunId"
-                    value={formatIdPart(syncState.syncRunId)}
-                  />
                   <SummaryRow label="slides" value={syncState.slideCount} />
                   <SummaryRow label="assets" value={syncState.assetCount} />
                   <SummaryRow label="syncedAt" value={syncState.syncedAt ?? "未取得"} />
@@ -1031,6 +1031,53 @@ function getErrorMessage(error: unknown) {
   }
 
   return "confirmed offline store の操作中に不明なエラーが発生しました。";
+}
+
+function ConfirmedPublicationProvenance({
+  provenance,
+}: {
+  provenance: OfflinePublicationProvenanceView;
+}) {
+  const warning = provenance.warning;
+  return (
+    <div
+      className={
+        warning
+          ? "mt-3 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-amber-100"
+          : provenance.tone === "success"
+            ? "mt-3 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-emerald-100"
+            : "mt-3 rounded-xl border border-white/15 bg-white/5 p-3 text-slate-200"
+      }
+      role={warning ? "alert" : "status"}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">{provenance.label}</Badge>
+        {provenance.operation ? (
+          <span className="text-xs">operation: {provenance.operation}</span>
+        ) : null}
+      </div>
+      <p className="mt-2 text-sm leading-6">{provenance.message}</p>
+      {provenance.currentPublishedRevisionId ? (
+        <p className="mt-2 text-xs">
+          current published revision:{" "}
+          {formatIdPart(provenance.currentPublishedRevisionId)}
+        </p>
+      ) : null}
+      {provenance.publishedAt ? (
+        <p className="text-xs">publishedAt: {provenance.publishedAt}</p>
+      ) : null}
+      {provenance.restoredFromRevisionId ? (
+        <p className="text-xs">
+          restored from: {formatIdPart(provenance.restoredFromRevisionId)}
+        </p>
+      ) : null}
+      {provenance.needsInspectionReason ? (
+        <p className="text-xs">
+          reason: {provenance.needsInspectionReason}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function formatIdPart(id: string | undefined) {

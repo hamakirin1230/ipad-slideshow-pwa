@@ -135,6 +135,34 @@ export function OfflineSyncPanel() {
           </div>
         ) : null}
 
+        {offlineSyncLastResult?.ok &&
+        offlineSyncLastResult.status === "ready" ? (
+          <div
+            className={
+              offlineSyncLastResult.publicationProvenance.warning
+                ? "rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-amber-100"
+                : offlineSyncLastResult.publicationProvenance.tone === "success"
+                  ? "rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100"
+                  : "rounded-2xl border border-white/15 bg-white/5 p-4 text-slate-200"
+            }
+            role={
+              offlineSyncLastResult.publicationProvenance.warning
+                ? "alert"
+                : "status"
+            }
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-semibold">publication provenance</p>
+              <Badge variant="outline">
+                {offlineSyncLastResult.publicationProvenance.label}
+              </Badge>
+            </div>
+            <p className="mt-2 leading-6">
+              {offlineSyncLastResult.publicationProvenance.message}
+            </p>
+          </div>
+        ) : null}
+
         {offlineSyncStatus === "failed" ? (
           <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-red-100">
             <p className="font-semibold">offline syncに失敗しました</p>

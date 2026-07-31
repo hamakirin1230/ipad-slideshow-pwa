@@ -33,6 +33,7 @@ import {
 } from "@/lib/offline-staging-validation-failure-classification";
 import { validateOfflineStagingForSyncRunInTransaction } from "@/lib/offline-staging-validation-integration";
 import type { OfflineStagingValidationFailureReason } from "@/lib/offline-staging-validation";
+import { compareOfflinePublicationProvenance } from "@/lib/offline-publication-provenance";
 
 export type PromoteOfflineStagingForSyncRunArgs = {
   projectId: string;
@@ -201,6 +202,39 @@ export async function promoteOfflineStagingForSyncRun(
           validatedProjectId: validatedStaging.project.projectId,
           requestedProjectId: args.projectId,
         });
+
+        const provenancePairStatus = compareOfflinePublicationProvenance(
+          validatedStaging.project.publicationProvenance,
+          args.context.publicationProvenance,
+        );
+        if (
+          provenancePairStatus === "mismatch" ||
+          provenancePairStatus === "invalid"
+        ) {
+          const validationReason =
+            "publication-provenance-mismatch" as const;
+          const validationClassification =
+            classifyOfflineStagingValidationFailure(validationReason);
+          const syncStateUpdate =
+            await markValidationFailureSyncStateInTransaction({
+              stores,
+              projectId: args.projectId,
+              syncRunId: args.syncRunId,
+              failedAt: args.failedAt,
+              context: args.context,
+              classification: validationClassification,
+            });
+          if (!syncStateUpdate.updated) {
+            return { ok: false, reason: "stale-sync-run" };
+          }
+          return {
+            ok: false,
+            reason: "validation-failed",
+            validationReason,
+            validationClassification,
+            syncStateUpdate,
+          };
+        }
 
         const syncStateUpdate = await markOfflineSyncReadyInTransaction(stores, {
           projectId: args.projectId,

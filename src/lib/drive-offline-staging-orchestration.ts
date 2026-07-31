@@ -63,6 +63,12 @@ export type DriveOfflineStagingPromotionOrchestrationResult =
   | {
       ok: false;
       syncRunId: string;
+      reason: "stale-manifest";
+      syncStateUpdate: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
+    }
+  | {
+      ok: false;
+      syncRunId: string;
       reason: "drive-fetch-or-staging-write-failed";
       diagnostics: string[];
       syncStateUpdate: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
@@ -179,6 +185,18 @@ export async function runDriveOfflineStagingPromotionOrchestration(
       };
     }
 
+    if (
+      error instanceof DriveOfflineStagingSnapshotError &&
+      error.code === "staleManifest"
+    ) {
+      return {
+        ok: false,
+        syncRunId,
+        reason: "stale-manifest",
+        syncStateUpdate,
+      };
+    }
+
     return {
       ok: false,
       syncRunId,
@@ -280,6 +298,8 @@ function buildReadyOfflineSyncStateContext(input: {
     slideCount: input.snapshot.details.slideCount,
     assetCount: input.snapshot.details.assetCount,
     sourceUpdatedAt: input.snapshot.project.sourceUpdatedAt,
+    publicationProvenance:
+      input.snapshot.project.publicationProvenance,
   };
 }
 

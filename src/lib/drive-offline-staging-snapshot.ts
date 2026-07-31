@@ -2,6 +2,7 @@
 
 import {
   fetchDriveProjectAssetBlob,
+  parseProjectManifest,
   readDriveTextFile,
   type DriveAssetSource,
   type DriveAssetType,
@@ -10,7 +11,9 @@ import {
   type DriveProjectSummary,
   type DriveSlideSummary,
   type DriveWorkspaceReadyContext,
+  type ProjectManifest,
 } from "@/lib/google-drive";
+import { resolveDriveOfflinePublicationProvenance } from "@/lib/drive-offline-publication-provenance";
 import {
   OFFLINE_SCHEMA_VERSION,
   type IsoDateTimeString,
@@ -20,6 +23,7 @@ import {
   type OfflineProjectSlide,
 } from "@/lib/offline-schema";
 import type { OfflineStagingAssetPairInput } from "@/lib/offline-staging-write";
+import { getProjectManifestContentCanonicalHash } from "@/lib/publish-history/project-publish-revision";
 import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "./drive-video-policy";
 
 export { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "./drive-video-policy";
@@ -50,6 +54,22 @@ type DriveOfflineProjectManifest = {
   slides: DriveSlideSummary[];
   createdAt: string;
   updatedAt: string;
+  publication?: ProjectManifest["publication"];
+};
+
+type DriveOfflineManifestMetadata = {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime: string;
+  parents: string[];
+  appProperties: Record<string, string>;
+};
+
+type DriveOfflineManifestGuard = {
+  modifiedTime: string;
+  contentCanonicalHash: string;
+  publicationSignature: string | null;
 };
 
 export type FetchDriveOfflineStagingSnapshotInput = {
@@ -70,11 +90,16 @@ export type DriveOfflineStagingSnapshot = {
 
 export class DriveOfflineStagingSnapshotError extends Error {
   readonly diagnostics: string[];
+  readonly code?: "staleManifest";
 
-  constructor(diagnostics: string[]) {
+  constructor(
+    diagnostics: string[],
+    options?: { code?: "staleManifest" },
+  ) {
     super("Drive offline staging snapshot fetch failed.");
     this.name = "DriveOfflineStagingSnapshotError";
     this.diagnostics = [...diagnostics];
+    this.code = options?.code;
   }
 }
 
@@ -83,14 +108,15 @@ export async function fetchDriveOfflineStagingSnapshot(
 ): Promise<DriveOfflineStagingSnapshot> {
   assertFetchDriveOfflineSnapshotInput(input);
 
-  const manifestJsonText = await readDriveTextFile(
-    input.accessToken,
-    input.project.manifestFileId,
-    input.signal,
-  );
+  const initialManifestSnapshot = await readConsistentDriveManifestSnapshot({
+    accessToken: input.accessToken,
+    readyContext: input.readyContext,
+    project: input.project,
+    signal: input.signal,
+  });
 
   const manifest = parseDriveOfflineProjectManifest({
-    manifestJsonText,
+    manifestJsonText: initialManifestSnapshot.manifestJsonText,
     expectedWorkspaceId: input.readyContext.workspaceId,
     expectedProject: input.project,
   });
@@ -107,6 +133,20 @@ export async function fetchDriveOfflineStagingSnapshot(
   const diagnostics: string[] = [
     "Drive manifest.json をoffline staging snapshot用に読み取りました。",
   ];
+
+  const provenanceResolution =
+    await resolveDriveOfflinePublicationProvenance({
+      accessToken: input.accessToken,
+      workspaceId: input.readyContext.workspaceId,
+      projectId: input.project.projectId,
+      projectFolderId: input.project.projectFolderId,
+      manifest: initialManifestSnapshot.manifest,
+      checkedAt: input.syncedAt,
+      signal: input.signal,
+    });
+  if (provenanceResolution.warning) {
+    diagnostics.push(provenanceResolution.warning);
+  }
 
   for (const [order, slide] of manifest.slides.entries()) {
     const assetMetadata = await fetchDriveOfflineAssetMetadata({
@@ -267,11 +307,23 @@ export async function fetchDriveOfflineStagingSnapshot(
     );
   }
 
+  const finalManifestSnapshot = await readConsistentDriveManifestSnapshot({
+    accessToken: input.accessToken,
+    readyContext: input.readyContext,
+    project: input.project,
+    signal: input.signal,
+  });
+  assertDriveManifestGuardUnchanged(
+    initialManifestSnapshot.guard,
+    finalManifestSnapshot.guard,
+  );
+
   const offlineProject = buildOfflineProject({
     project: input.project,
     manifest,
     slides: offlineSlides,
     syncedAt: input.syncedAt,
+    publicationProvenance: provenanceResolution.provenance,
   });
 
   return {
@@ -437,6 +489,165 @@ function assertFetchDriveOfflineSnapshotInput(
   if (diagnostics.length > 0) {
     throw new DriveOfflineStagingSnapshotError(diagnostics);
   }
+}
+
+async function readConsistentDriveManifestSnapshot(input: {
+  accessToken: string;
+  readyContext: DriveWorkspaceReadyContext;
+  project: DriveProjectSummary;
+  signal: AbortSignal;
+}): Promise<{
+  manifestJsonText: string;
+  manifest: ProjectManifest;
+  guard: DriveOfflineManifestGuard;
+}> {
+  const before = await fetchDriveOfflineManifestMetadata(input);
+  const manifestJsonText = await readDriveTextFile(
+    input.accessToken,
+    input.project.manifestFileId,
+    input.signal,
+  );
+  const after = await fetchDriveOfflineManifestMetadata(input);
+
+  if (before.modifiedTime !== after.modifiedTime) {
+    throwStaleManifest();
+  }
+
+  let rawManifest: unknown;
+  try {
+    rawManifest = JSON.parse(manifestJsonText) as unknown;
+  } catch {
+    throw new DriveOfflineStagingSnapshotError([
+      "manifest.json のJSON parseに失敗しました。",
+    ]);
+  }
+  const parsed = parseProjectManifest(rawManifest);
+  if (!parsed.ok) {
+    throw new DriveOfflineStagingSnapshotError([
+      "manifest.json の正式検証に失敗しました。",
+    ]);
+  }
+  if (
+    parsed.value.workspaceId !== input.readyContext.workspaceId ||
+    parsed.value.projectId !== input.project.projectId
+  ) {
+    throw new DriveOfflineStagingSnapshotError([
+      "manifest.json のidentityがoffline sync対象と一致していません。",
+    ]);
+  }
+
+  return {
+    manifestJsonText,
+    manifest: parsed.value,
+    guard: {
+      modifiedTime: after.modifiedTime,
+      contentCanonicalHash:
+        getProjectManifestContentCanonicalHash(parsed.value),
+      publicationSignature: parsed.value.publication
+        ? JSON.stringify({
+            currentRevisionId:
+              parsed.value.publication.currentRevisionId,
+            publishedAt: parsed.value.publication.publishedAt,
+            operation: parsed.value.publication.operation,
+            contentCanonicalHash:
+              parsed.value.publication.contentCanonicalHash,
+          })
+        : null,
+    },
+  };
+}
+
+async function fetchDriveOfflineManifestMetadata(input: {
+  accessToken: string;
+  readyContext: DriveWorkspaceReadyContext;
+  project: DriveProjectSummary;
+  signal: AbortSignal;
+}): Promise<DriveOfflineManifestMetadata> {
+  const params = new URLSearchParams({
+    fields: "id,name,mimeType,modifiedTime,appProperties,parents",
+  });
+  const response = await fetch(
+    `${DRIVE_API_FILES_URL}/${encodeURIComponent(input.project.manifestFileId)}?${params.toString()}`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${input.accessToken}` },
+      cache: "no-store",
+      credentials: "omit",
+      signal: input.signal,
+    },
+  );
+  if (!response.ok) {
+    throw new DriveOfflineStagingSnapshotError([
+      "Drive manifest metadata の取得に失敗しました。",
+    ]);
+  }
+
+  const value = await response.json();
+  if (!isRecord(value)) {
+    throw new DriveOfflineStagingSnapshotError([
+      "Drive manifest metadata response が不正です。",
+    ]);
+  }
+  const appProperties = normalizeStringRecord(
+    value.appProperties,
+    "Drive manifest metadata.appProperties",
+    [],
+  );
+  const parents = Array.isArray(value.parents)
+    ? value.parents.filter((parent): parent is string => typeof parent === "string")
+    : [];
+  const metadata: DriveOfflineManifestMetadata = {
+    id: typeof value.id === "string" ? value.id : "",
+    name: typeof value.name === "string" ? value.name : "",
+    mimeType: typeof value.mimeType === "string" ? value.mimeType : "",
+    modifiedTime:
+      typeof value.modifiedTime === "string" &&
+      isIsoDateTimeString(value.modifiedTime)
+        ? value.modifiedTime
+        : "",
+    parents,
+    appProperties,
+  };
+  if (
+    metadata.id !== input.project.manifestFileId ||
+    metadata.name !== "manifest.json" ||
+    metadata.mimeType !== "application/json" ||
+    !metadata.modifiedTime ||
+    !metadata.parents.includes(input.project.projectFolderId) ||
+    metadata.appProperties.app !== DRIVE_WORKSPACE_APP_ID ||
+    metadata.appProperties.role !== "projectManifest" ||
+    metadata.appProperties.schemaVersion !== DRIVE_SCHEMA_VERSION_PROPERTY ||
+    metadata.appProperties.workspaceId !== input.readyContext.workspaceId ||
+    metadata.appProperties.projectId !== input.project.projectId
+  ) {
+    throw new DriveOfflineStagingSnapshotError([
+      "Drive manifest metadata の正式検証に失敗しました。",
+    ]);
+  }
+  return metadata;
+}
+
+function assertDriveManifestGuardUnchanged(
+  before: DriveOfflineManifestGuard,
+  after: DriveOfflineManifestGuard,
+): void {
+  if (
+    before.modifiedTime !== after.modifiedTime ||
+    before.contentCanonicalHash !== after.contentCanonicalHash ||
+    before.publicationSignature !== after.publicationSignature
+  ) {
+    throwStaleManifest();
+  }
+}
+
+function throwStaleManifest(): never {
+  throw new DriveOfflineStagingSnapshotError(
+    [
+      "asset取得中にcurrent manifestが変更されました。",
+      "staging writeは開始していません。手動でoffline syncを再実行してください。",
+    ],
+    { code: "staleManifest" },
+  );
 }
 
 async function fetchDriveOfflineAssetMetadata(input: {
@@ -708,6 +919,11 @@ function parseDriveOfflineProjectManifest(input: {
 
   validateNoDuplicateSlideValues(slides, diagnostics);
 
+  const formalManifest = parseProjectManifest(parsed);
+  if (!formalManifest.ok) {
+    diagnostics.push("manifest.json の正式検証に失敗しました。");
+  }
+
   if (
     diagnostics.length > 0 ||
     !workspaceId ||
@@ -726,6 +942,9 @@ function parseDriveOfflineProjectManifest(input: {
     slides,
     createdAt,
     updatedAt,
+    ...(formalManifest.ok && formalManifest.value.publication
+      ? { publication: formalManifest.value.publication }
+      : {}),
   };
 }
 
@@ -979,6 +1198,7 @@ function buildOfflineProject(input: {
   manifest: DriveOfflineProjectManifest;
   slides: DriveSlideSummary[];
   syncedAt: IsoDateTimeString;
+  publicationProvenance: OfflineProject["publicationProvenance"];
 }): OfflineProject {
   return {
     schemaVersion: OFFLINE_SCHEMA_VERSION,
@@ -988,6 +1208,7 @@ function buildOfflineProject(input: {
     sourceManifestFileId: input.project.manifestFileId,
     sourceUpdatedAt: input.manifest.updatedAt,
     syncedAt: input.syncedAt,
+    publicationProvenance: input.publicationProvenance,
   };
 }
 
