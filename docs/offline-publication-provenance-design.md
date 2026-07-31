@@ -101,9 +101,18 @@ between the two metadata reads makes the phase stale instead of accepting a
 mixed snapshot.
 
 Any change in the guarded fields, including a `modifiedTime`-only change, fails
-with the sanitized `staleManifest` classification. The orchestration performs
-no staging write, no confirmed-store mutation, and no automatic retry. The UI
-asks the operator to start a new explicit sync without exposing compared values.
+with the sanitized `staleManifest` classification. Before changing the sync
+state to `syncing`, orchestration retains the complete previous sync-state
+record internally. A stale run does not mark the state `failed`: while the
+current state is still owned by that run's `syncRunId`, it restores the exact
+previous record, or deletes the temporary `syncing` record when no previous
+state existed. A superseding run is never overwritten. Restore failure is not
+reported as stale success.
+
+The orchestration performs no staging write, no confirmed-store mutation, and
+no automatic retry. Therefore a previous ready confirmed snapshot remains
+selectable and playable. The UI asks the operator to start a new explicit sync
+without exposing the previous record, run identity, or compared values.
 
 ## Staging and atomic promotion
 

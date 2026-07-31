@@ -84,11 +84,20 @@ describe("Drive offline staging orchestration summary provenance", () => {
       ok: false,
       syncRunId: "dummy-run",
       reason: "stale-manifest",
-      syncStateUpdate: { updated: true },
+      syncStateRestore: { updated: true },
     });
-    expect(summary).toMatchObject({ status: "staleManifest" });
+    expect(summary).toEqual({
+      ok: false,
+      status: "staleManifest",
+      diagnostics: [
+        "asset取得中にcurrent manifestが変更されました。",
+        "confirmed storeは変更していません。手動でoffline syncを再実行してください。",
+      ],
+      omittedDiagnosticCount: 0,
+      syncStateUpdated: true,
+    });
     expect(JSON.stringify(summary)).not.toMatch(
-      /fnv1a64|dummy-manifest|modifiedTime.*2026/i,
+      /dummy-run|fnv1a64|dummy-manifest|modifiedTime.*2026/i,
     );
   });
 });

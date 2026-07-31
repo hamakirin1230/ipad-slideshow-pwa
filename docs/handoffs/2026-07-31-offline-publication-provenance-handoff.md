@@ -170,3 +170,39 @@ provenance fixtureを投入していないため、status別表示はunit test�
   empty-stateで確認した既存Buttonの可視heightは32pxであり、44px touch targetは
   Goal 6固有の新規操作を追加しなかったため変更していない。実機acceptanceで要確認。
 - 実Google Driveのhistory permission/read failure分類はmock unit testのみ確認済み。
+
+## 14. Blocking review fix: stale sync state restoration
+
+Goal 6 reviewで、`staleManifest`時にsync stateが
+`ready -> syncing -> failed`となり、confirmed project / assets / Blobが残っていても
+playerのready候補から外れる問題を修正した。
+
+orchestrationは`markOfflineSyncing`より前に対象projectの完全なprevious sync stateを
+内部取得する。`staleManifest`では`markOfflineSyncFailed`を呼ばず、今回の
+`syncRunId`がcurrent stateを所有している場合だけ、previous recordをそのまま復元する。
+previous stateがなかった場合は今回作成したtemporary `syncing` recordを削除する。
+別runへ所有権が移っていれば何も書かず`stale-sync-run`とし、restore失敗も成功扱いしない。
+
+この分岐はstaging write、promotion、confirmed project / assets / Blob変更、auto retryを
+行わない。したがってprevious ready snapshotはproject selection候補、previous
+publication provenance、remoteOnly slide、offline Blob slideを維持したまま再生できる。
+public summaryはsanitized `staleManifest`案内だけを返し、previous record、run identity、
+Drive ID、hash、`modifiedTime`比較値を公開しない。
+
+manifest metadataのparent検証も、`projectFolderId`を含むことだけではなく、parentsが
+正確に1件で`parents[0] === projectFolderId`であることへ強化した。欠落、空配列、
+別folder、追加parent、duplicate parentは正式検証失敗とする。asset metadataの
+既存parent policyは変更していない。
+
+### Review-fix local verification
+
+- focused target: 6 files / 62 tests passed
+- full Vitest: 36 files / 742 tests passed
+- ESLint: passed
+- Next.js production build: passed
+- static generation: 12/12 pages（route tableは10 routes）
+- `git diff --check`: passed
+
+最初のsandbox buildはGoogle Fonts取得制限だけで失敗し、ネットワーク許可付きの
+同一pnpm 10 buildを再実行して成功した。実Google Drive read/write、GitHub Actions、
+Vercel、production、iPad実機acceptanceはこのreview fixでも実施していない。

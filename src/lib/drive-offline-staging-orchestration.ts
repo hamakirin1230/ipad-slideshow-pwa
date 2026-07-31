@@ -15,6 +15,8 @@ import {
 import {
   markOfflineSyncFailed,
   markOfflineSyncing,
+  readOfflineSyncState,
+  restoreOfflineSyncStateAfterStaleManifest,
   type OfflineSyncStateContext,
   type OfflineSyncStateUpdateResult,
 } from "@/lib/offline-sync-state";
@@ -64,7 +66,7 @@ export type DriveOfflineStagingPromotionOrchestrationResult =
       ok: false;
       syncRunId: string;
       reason: "stale-manifest";
-      syncStateUpdate: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
+      syncStateRestore: Extract<OfflineSyncStateUpdateResult, { updated: true }>;
     }
   | {
       ok: false;
@@ -105,6 +107,10 @@ export async function runDriveOfflineStagingPromotionOrchestration(
     readyContext: args.readyContext,
     project: args.project,
   });
+
+  const previousSyncState = await readOfflineSyncState(
+    args.project.projectId,
+  );
 
   await markOfflineSyncing({
     projectId: args.project.projectId,
@@ -170,6 +176,33 @@ export async function runDriveOfflineStagingPromotionOrchestration(
       promotion,
     };
   } catch (error) {
+    if (
+      error instanceof DriveOfflineStagingSnapshotError &&
+      error.code === "staleManifest"
+    ) {
+      const syncStateRestore =
+        await restoreOfflineSyncStateAfterStaleManifest({
+          projectId: args.project.projectId,
+          syncRunId,
+          previousState: previousSyncState,
+        });
+
+      if (!syncStateRestore.updated) {
+        return {
+          ok: false,
+          syncRunId,
+          reason: "stale-sync-run",
+        };
+      }
+
+      return {
+        ok: false,
+        syncRunId,
+        reason: "stale-manifest",
+        syncStateRestore,
+      };
+    }
+
     const syncStateUpdate = await markOfflineSyncFailed({
       projectId: args.project.projectId,
       syncRunId,
@@ -182,18 +215,6 @@ export async function runDriveOfflineStagingPromotionOrchestration(
         ok: false,
         syncRunId,
         reason: "stale-sync-run",
-      };
-    }
-
-    if (
-      error instanceof DriveOfflineStagingSnapshotError &&
-      error.code === "staleManifest"
-    ) {
-      return {
-        ok: false,
-        syncRunId,
-        reason: "stale-manifest",
-        syncStateUpdate,
       };
     }
 

@@ -613,7 +613,8 @@ async function fetchDriveOfflineManifestMetadata(input: {
     metadata.name !== "manifest.json" ||
     metadata.mimeType !== "application/json" ||
     !metadata.modifiedTime ||
-    !metadata.parents.includes(input.project.projectFolderId) ||
+    metadata.parents.length !== 1 ||
+    metadata.parents[0] !== input.project.projectFolderId ||
     metadata.appProperties.app !== DRIVE_WORKSPACE_APP_ID ||
     metadata.appProperties.role !== "projectManifest" ||
     metadata.appProperties.schemaVersion !== DRIVE_SCHEMA_VERSION_PROPERTY ||

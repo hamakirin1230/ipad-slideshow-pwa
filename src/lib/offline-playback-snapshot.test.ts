@@ -115,7 +115,7 @@ describe("offline playback publication provenance", () => {
     );
   });
 
-  it("preserves remoteOnly and offline Blob slide construction", () => {
+  it("keeps the restored previous snapshot selectable and playable after staleManifest", () => {
     const remoteProject = project();
     remoteProject.slides = [
       {
@@ -178,6 +178,12 @@ describe("offline playback publication provenance", () => {
     });
     expect(snapshot.status).toBe("ready");
     if (snapshot.status !== "ready") return;
+    expect(snapshot.availableProjects).toHaveLength(1);
+    expect(snapshot.availableProjects[0]).toMatchObject({
+      projectId: PROJECT_ID,
+      publicationProvenance: { status: "publishedMatch" },
+    });
+    expect(snapshot.publicationProvenance.status).toBe("publishedMatch");
     expect(snapshot.slides.map((slide) => slide.offlineAvailability)).toEqual([
       "remoteOnly",
       "offline",

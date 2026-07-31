@@ -112,6 +112,13 @@ function metadata(modifiedTime = MODIFIED_TIME) {
   };
 }
 
+function installInitialMetadata(value: unknown) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify(value))),
+  );
+}
+
 function installManifestPhases(input: {
   initial: unknown;
   final?: unknown;
@@ -157,6 +164,31 @@ describe("Drive offline staging manifest guard", () => {
       checkedAt: "2026-07-31T01:02:03.000Z",
     });
     expect(snapshot.assetPairs).toEqual([]);
+  });
+
+  it.each([
+    ["parents is missing", { parents: undefined }],
+    ["parents is empty", { parents: [] }],
+    ["parent is different", { parents: ["different-project-folder"] }],
+    [
+      "an additional parent exists",
+      { parents: [project.projectFolderId, "additional-folder"] },
+    ],
+    [
+      "the project parent is duplicated",
+      { parents: [project.projectFolderId, project.projectFolderId] },
+    ],
+  ])("rejects manifest metadata when %s", async (_label, override) => {
+    const value: Record<string, unknown> = { ...metadata(), ...override };
+    if (override.parents === undefined) {
+      delete value.parents;
+    }
+    installInitialMetadata(value);
+
+    await expect(fetchSnapshot()).rejects.toMatchObject({
+      diagnostics: ["Drive manifest metadata の正式検証に失敗しました。"],
+    });
+    expect(mocks.readDriveTextFile).not.toHaveBeenCalled();
   });
 
   it("stops on modifiedTime-only changes", async () => {

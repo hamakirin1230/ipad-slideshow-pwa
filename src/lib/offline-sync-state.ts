@@ -29,7 +29,91 @@ import {
     | { updated: true }
     | { updated: false; reason: "stale-sync-run" };
 
+  export type RestoreOfflineSyncStateAfterStaleManifestArgs = {
+    projectId: string;
+    syncRunId: string;
+    previousState?: OfflineSyncState;
+  };
+
   export type OfflineSyncStateStores = Record<string, IDBObjectStore>;
+
+  function assertNonBlankInternalId(name: string, value: string): void {
+    if (value.length === 0) {
+      throw new Error(`${name} is required.`);
+    }
+
+    if (value !== value.trim()) {
+      throw new Error(
+        `${name} must not include leading or trailing whitespace.`,
+      );
+    }
+  }
+
+  function assertRestoreOfflineSyncStateArgs(
+    args: RestoreOfflineSyncStateAfterStaleManifestArgs,
+  ): void {
+    assertNonBlankInternalId("projectId", args.projectId);
+    assertNonBlankInternalId("syncRunId", args.syncRunId);
+
+    if (
+      args.previousState !== undefined &&
+      args.previousState.projectId !== args.projectId
+    ) {
+      throw new Error("previousState.projectId must match projectId.");
+    }
+  }
+
+  export function readOfflineSyncState(
+    projectId: string,
+  ): Promise<OfflineSyncState | undefined> {
+    assertNonBlankInternalId("projectId", projectId);
+
+    return runOfflineTransaction(
+      [OFFLINE_SYNC_STATE_STORE],
+      "readonly",
+      async ({ stores }) =>
+        requestToPromise<OfflineSyncState | undefined>(
+          stores[OFFLINE_SYNC_STATE_STORE].get(projectId),
+        ),
+    );
+  }
+
+  export async function restoreOfflineSyncStateAfterStaleManifestInTransaction(
+    stores: OfflineSyncStateStores,
+    args: RestoreOfflineSyncStateAfterStaleManifestArgs,
+  ): Promise<OfflineSyncStateUpdateResult> {
+    assertRestoreOfflineSyncStateArgs(args);
+
+    const store = stores[OFFLINE_SYNC_STATE_STORE];
+    const current = await requestToPromise<OfflineSyncState | undefined>(
+      store.get(args.projectId),
+    );
+
+    if (!current || current.syncRunId !== args.syncRunId) {
+      return { updated: false, reason: "stale-sync-run" };
+    }
+
+    if (args.previousState) {
+      await requestToPromise(store.put(args.previousState));
+    } else {
+      await requestToPromise(store.delete(args.projectId));
+    }
+
+    return { updated: true };
+  }
+
+  export function restoreOfflineSyncStateAfterStaleManifest(
+    args: RestoreOfflineSyncStateAfterStaleManifestArgs,
+  ): Promise<OfflineSyncStateUpdateResult> {
+    assertRestoreOfflineSyncStateArgs(args);
+
+    return runOfflineTransaction(
+      [OFFLINE_SYNC_STATE_STORE],
+      "readwrite",
+      async ({ stores }) =>
+        restoreOfflineSyncStateAfterStaleManifestInTransaction(stores, args),
+    );
+  }
 
   type MarkOfflineSyncingArgs = {
     projectId: string;
