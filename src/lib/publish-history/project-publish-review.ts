@@ -469,7 +469,6 @@ async function loadReferencedAssetMetadata(input: {
       });
       if (
         metadata.id !== slide.assetFileId ||
-        metadata.name !== slide.assetName ||
         metadata.mimeType !== slide.mimeType ||
         metadata.parents?.length !== 1 ||
         metadata.parents[0] !== input.input.project.assetsFolderId ||

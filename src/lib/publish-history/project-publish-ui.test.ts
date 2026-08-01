@@ -250,6 +250,23 @@ function reviewFixture(
 }
 
 describe("fresh publish review preparation", () => {
+  it("allows a manifest display name to differ from the Drive storage name", async () => {
+    const manifest = buildManifest();
+    manifest.slides[0].assetName = "IMG_1234.JPG";
+    const metadata = buildMetadata();
+    metadata.get("image-file")!.name =
+      "33333333-3333-4333-8333-333333333333.jpg";
+
+    const result = await prepare({ manifest, metadata });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("continues to allow matching manifest and Drive asset names", async () => {
+    const result = await prepare();
+    expect(result.ok).toBe(true);
+  });
+
   it("allows notConfigured as initial publish", async () => {
     const result = await prepare();
     expect(result.ok && result.review.initialPublish).toBe(true);
@@ -439,6 +456,40 @@ describe("fresh publish review preparation", () => {
     const result = await prepare({ metadata });
     expect(result).toMatchObject({ ok: false, code: "invalidAssetMetadata" });
   });
+
+  it("blocks a mismatched asset file ID", async () => {
+    const metadata = buildMetadata();
+    metadata.get("image-file")!.id = "different-file";
+    const result = await prepare({ metadata });
+    expect(result).toMatchObject({ ok: false, code: "invalidAssetMetadata" });
+  });
+
+  it("blocks a mismatched asset MIME type", async () => {
+    const metadata = buildMetadata();
+    metadata.get("image-file")!.mimeType = "image/png";
+    const result = await prepare({ metadata });
+    expect(result).toMatchObject({ ok: false, code: "invalidAssetMetadata" });
+  });
+
+  it("blocks a mismatched asset appProperties.assetId", async () => {
+    const metadata = buildMetadata();
+    metadata.get("image-file")!.appProperties.assetId = "different-asset";
+    const result = await prepare({ metadata });
+    expect(result).toMatchObject({ ok: false, code: "invalidAssetMetadata" });
+  });
+
+  it.each(["workspaceId", "projectId"] as const)(
+    "blocks a mismatched asset appProperties.%s",
+    async (property) => {
+      const metadata = buildMetadata();
+      metadata.get("image-file")!.appProperties[property] = "different-id";
+      const result = await prepare({ metadata });
+      expect(result).toMatchObject({
+        ok: false,
+        code: "invalidAssetMetadata",
+      });
+    },
+  );
 
   it("blocks a trashed asset in preflight", async () => {
     const metadata = buildMetadata();
