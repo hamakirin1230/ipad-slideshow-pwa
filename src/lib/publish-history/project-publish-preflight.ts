@@ -103,6 +103,13 @@ export type ProjectPublishPreflightIssueCode =
   | "duplicateDriveFileReference"
   | "trashedAsset"
   | "invalidAssetMetadata"
+  | "assetRoleMismatch"
+  | "assetWorkspaceMismatch"
+  | "assetProjectMismatch"
+  | "assetFileReferenceMismatch"
+  | "assetMimeTypeMismatch"
+  | "assetSizeMismatch"
+  | "assetMediaTypeMismatch"
   | "remoteOnlyMismatch"
   | "historyStateInvalid"
   | "latestRevisionInvalid"
@@ -658,22 +665,76 @@ function validateAssets(
         ),
       );
     }
+    if (asset.role !== "asset") {
+      issues.push(
+        issue(
+          "assetRoleMismatch",
+          "error",
+          "公開対象のアセットroleが一致しません。",
+          path,
+        ),
+      );
+    }
+    if (asset.workspaceId !== input.workspaceId) {
+      issues.push(
+        issue(
+          "assetWorkspaceMismatch",
+          "error",
+          "公開対象のアセットworkspaceが一致しません。",
+          path,
+        ),
+      );
+    }
+    if (asset.projectId !== input.projectId) {
+      issues.push(
+        issue(
+          "assetProjectMismatch",
+          "error",
+          "公開対象のアセットprojectが一致しません。",
+          path,
+        ),
+      );
+    }
+    if (asset.driveFileId !== expectation.driveFileId) {
+      issues.push(
+        issue(
+          "assetFileReferenceMismatch",
+          "error",
+          "公開対象のアセットfile参照が一致しません。",
+          path,
+        ),
+      );
+    }
+    if (asset.mimeType !== expectation.mimeType) {
+      issues.push(
+        issue(
+          "assetMimeTypeMismatch",
+          "error",
+          "公開対象のアセットMIME typeが一致しません。",
+          path,
+        ),
+      );
+    }
     if (
-      asset.role !== "asset" ||
-      asset.workspaceId !== input.workspaceId ||
-      asset.projectId !== input.projectId ||
-      asset.driveFileId !== expectation.driveFileId ||
-      asset.mimeType !== expectation.mimeType ||
-      (expectation.fileSize !== null &&
-        asset.sizeBytes !== null &&
-        asset.sizeBytes !== expectation.fileSize) ||
-      !mimeMatchesAssetType(asset.mimeType, expectation.assetType)
+      expectation.fileSize !== null &&
+      asset.sizeBytes !== null &&
+      asset.sizeBytes !== expectation.fileSize
     ) {
       issues.push(
         issue(
-          "invalidAssetMetadata",
+          "assetSizeMismatch",
           "error",
-          "公開対象のアセット情報がマニフェストと一致しません。",
+          "公開対象のアセットsizeが一致しません。",
+          path,
+        ),
+      );
+    }
+    if (!mimeMatchesAssetType(asset.mimeType, expectation.assetType)) {
+      issues.push(
+        issue(
+          "assetMediaTypeMismatch",
+          "error",
+          "公開対象のアセットimage/video分類が一致しません。",
           path,
         ),
       );

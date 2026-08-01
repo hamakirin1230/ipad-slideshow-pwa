@@ -532,23 +532,43 @@ describe("asset metadata", () => {
   });
 
   it.each([
-    ["MIME value", "mimeType", "image/png"],
-    ["image/video MIME family", "mimeType", "video/mp4"],
-    ["Drive file reference", "driveFileId", "different-drive-file"],
-    ["workspace", "workspaceId", "88888888-8888-4888-8888-888888888888"],
-    ["project", "projectId", "77777777-7777-4777-8777-777777777777"],
-    ["role", "role", "other"],
-    ["known size", "sizeBytes", 1201],
-  ] as const)("blocks mismatched %s", (_label, key, value) => {
+    ["MIME value", "mimeType", "image/png", "assetMimeTypeMismatch"],
+    [
+      "image/video MIME family",
+      "mimeType",
+      "video/mp4",
+      "assetMediaTypeMismatch",
+    ],
+    [
+      "Drive file reference",
+      "driveFileId",
+      "different-drive-file",
+      "assetFileReferenceMismatch",
+    ],
+    [
+      "workspace",
+      "workspaceId",
+      "88888888-8888-4888-8888-888888888888",
+      "assetWorkspaceMismatch",
+    ],
+    [
+      "project",
+      "projectId",
+      "77777777-7777-4777-8777-777777777777",
+      "assetProjectMismatch",
+    ],
+    ["role", "role", "other", "assetRoleMismatch"],
+    ["known size", "sizeBytes", 1201, "assetSizeMismatch"],
+  ] as const)("blocks mismatched %s", (_label, key, value, code) => {
     const input = buildInput();
     Object.assign(input.assets[0], { [key]: value });
-    expectIssue(input, "invalidAssetMetadata");
+    expectIssue(input, code);
   });
 
   it("blocks a video slide with image MIME metadata", () => {
     const input = buildInput();
     input.assets[1].mimeType = "image/jpeg";
-    expectIssue(input, "invalidAssetMetadata");
+    expectIssue(input, "assetMediaTypeMismatch");
   });
 
   it.each([
@@ -721,7 +741,9 @@ describe("revision and security guarantees", () => {
     const input = buildInput();
     const rawValue = "https://www.googleapis.com/drive/v3/files/sensitive";
     input.assets[0].driveFileId = rawValue;
-    const issueText = JSON.stringify(expectIssue(input, "invalidAssetMetadata"));
+    const issueText = JSON.stringify(
+      expectIssue(input, "assetFileReferenceMismatch"),
+    );
     expect(issueText).not.toContain(rawValue);
     expect(issueText).not.toContain("https://");
   });

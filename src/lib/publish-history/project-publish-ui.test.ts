@@ -14,6 +14,7 @@ import {
   buildSanitizedPublishSuccess,
   createPrepareReviewFailure,
   createRandomHexSuffix,
+  getProjectPublishAssetDiagnosticLabel,
   getManifestCommitLabel,
   getProjectPublishModeLabel,
   getRevisionPreparationLabel,
@@ -21,10 +22,12 @@ import {
   mapPublishPreflightIssue,
   mapPublishWorkflowError,
   pendingProjectPublishOwnerMatches,
+  PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES,
   PROJECT_PUBLISH_DRIVE_SUCCESS_MESSAGE,
   PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE,
   shouldDiscardPendingPlan,
   type PendingProjectPublishOwner,
+  type ProjectPublishAssetDiagnosticCode,
   type ProjectPublishReview,
 } from "./project-publish-ui";
 import { getProjectManifestContentCanonicalHash } from "./project-publish-revision";
@@ -265,6 +268,7 @@ describe("fresh publish review preparation", () => {
   it("continues to allow matching manifest and Drive asset names", async () => {
     const result = await prepare();
     expect(result.ok).toBe(true);
+    expect(result).not.toHaveProperty("diagnosticCode");
   });
 
   it("allows notConfigured as initial publish", async () => {
@@ -419,6 +423,17 @@ describe("fresh publish review preparation", () => {
     expect(result.ok && result.review.remoteOnlyAssetCount).toBe(0);
   });
 
+  it("reports a sanitized preflight asset size diagnostic", async () => {
+    const manifest = buildManifest();
+    manifest.slides[0].fileSize = 1201;
+    const result = await prepare({ manifest });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "assetSizeMismatch",
+      diagnosticCode: "assetSizeMismatch",
+    });
+  });
+
   it("does not use component project detail state", async () => {
     const result = await prepare();
     expect(result.ok && result.review.slideCount).toBe(2);
@@ -450,46 +465,108 @@ describe("fresh publish review preparation", () => {
     expect(serialized).not.toContain("image-file");
   });
 
-  it("blocks a mismatched asset parent", async () => {
+  it("diagnoses a mismatched asset parent count", async () => {
+    const metadata = buildMetadata();
+    metadata.get("image-file")!.parents = [
+      project.assetsFolderId,
+      "additional-folder",
+    ];
+    const result = await prepare({ metadata });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "invalidAssetMetadata",
+      diagnosticCode: "assetParentCountMismatch",
+    });
+  });
+
+  it("diagnoses a mismatched asset parent", async () => {
     const metadata = buildMetadata();
     metadata.get("image-file")!.parents = ["wrong-folder"];
     const result = await prepare({ metadata });
-    expect(result).toMatchObject({ ok: false, code: "invalidAssetMetadata" });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "invalidAssetMetadata",
+      diagnosticCode: "assetParentMismatch",
+    });
   });
 
-  it("blocks a mismatched asset file ID", async () => {
+  it("diagnoses a mismatched asset file ID", async () => {
     const metadata = buildMetadata();
     metadata.get("image-file")!.id = "different-file";
     const result = await prepare({ metadata });
-    expect(result).toMatchObject({ ok: false, code: "invalidAssetMetadata" });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "invalidAssetMetadata",
+      diagnosticCode: "assetFileIdMismatch",
+    });
   });
 
-  it("blocks a mismatched asset MIME type", async () => {
+  it("diagnoses a mismatched asset MIME type", async () => {
     const metadata = buildMetadata();
     metadata.get("image-file")!.mimeType = "image/png";
     const result = await prepare({ metadata });
-    expect(result).toMatchObject({ ok: false, code: "invalidAssetMetadata" });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "invalidAssetMetadata",
+      diagnosticCode: "assetMimeTypeMismatch",
+    });
   });
 
-  it("blocks a mismatched asset appProperties.assetId", async () => {
-    const metadata = buildMetadata();
-    metadata.get("image-file")!.appProperties.assetId = "different-asset";
-    const result = await prepare({ metadata });
-    expect(result).toMatchObject({ ok: false, code: "invalidAssetMetadata" });
-  });
-
-  it.each(["workspaceId", "projectId"] as const)(
-    "blocks a mismatched asset appProperties.%s",
-    async (property) => {
+  it.each([
+    ["app", "different-app", "assetAppMismatch"],
+    ["role", "different-role", "assetRoleMismatch"],
+    ["schemaVersion", "2", "assetSchemaVersionMismatch"],
+    ["workspaceId", "different-id", "assetWorkspaceMismatch"],
+    ["projectId", "different-id", "assetProjectMismatch"],
+    ["assetId", "different-asset", "assetIdMismatch"],
+  ] as const)(
+    "diagnoses a mismatched asset appProperties.%s",
+    async (property, value, diagnosticCode) => {
       const metadata = buildMetadata();
-      metadata.get("image-file")!.appProperties[property] = "different-id";
+      metadata.get("image-file")!.appProperties[property] = value;
       const result = await prepare({ metadata });
       expect(result).toMatchObject({
         ok: false,
         code: "invalidAssetMetadata",
+        diagnosticCode,
       });
     },
   );
+
+  it("returns no sensitive metadata with an asset diagnostic", async () => {
+    const metadata = buildMetadata();
+    const asset = metadata.get("image-file")!;
+    asset.name = "https://drive.example.invalid/private-file";
+    asset.checksum = "sensitive-checksum";
+    asset.appProperties.app = "raw-sensitive-app";
+    const result = await prepare({ metadata });
+    const serialized = JSON.stringify(result);
+    expect(result).toEqual({
+      ok: false,
+      code: "invalidAssetMetadata",
+      message: "公開対象のアセット情報が一致しません。",
+      diagnosticCode: "assetAppMismatch",
+    });
+    for (const forbidden of [
+      "token-never-returned",
+      "image-file",
+      "video-file",
+      "manifest-file",
+      "assets-folder",
+      "project-folder",
+      IMAGE_ASSET_ID,
+      WORKSPACE_ID,
+      PROJECT_ID,
+      "raw-sensitive-app",
+      "appProperties",
+      "sensitive-checksum",
+      "https://",
+      "fnv1a64",
+      "slides",
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
 
   it("blocks a trashed asset in preflight", async () => {
     const metadata = buildMetadata();
@@ -500,6 +577,23 @@ describe("fresh publish review preparation", () => {
 });
 
 describe("review and warning mapping", () => {
+  it("provides a fixed label for every allowed asset diagnostic", () => {
+    for (const code of PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES) {
+      expect(getProjectPublishAssetDiagnosticLabel(code)).not.toBe("");
+    }
+  });
+
+  it.each([
+    ["assetFileIdMismatch", "ファイル参照ID不一致"],
+    ["assetSizeMismatch", "ファイルサイズ不一致"],
+    ["assetMediaTypeMismatch", "image/video分類不一致"],
+  ] as const)("maps sanitized diagnostic %s", (code, label) => {
+    expect(
+      getProjectPublishAssetDiagnosticLabel(
+        code as ProjectPublishAssetDiagnosticCode,
+      ),
+    ).toBe(label);
+  });
   it("builds an initial review", () => {
     expect(getProjectPublishModeLabel(reviewFixture())).toBe("初回公開");
   });

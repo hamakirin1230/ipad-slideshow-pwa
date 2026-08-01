@@ -9,6 +9,25 @@ export type ProjectPublishWarning = {
   message: string;
 };
 
+export const PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES = [
+  "assetFileIdMismatch",
+  "assetMimeTypeMismatch",
+  "assetParentCountMismatch",
+  "assetParentMismatch",
+  "assetAppMismatch",
+  "assetRoleMismatch",
+  "assetSchemaVersionMismatch",
+  "assetWorkspaceMismatch",
+  "assetProjectMismatch",
+  "assetIdMismatch",
+  "assetFileReferenceMismatch",
+  "assetSizeMismatch",
+  "assetMediaTypeMismatch",
+] as const;
+
+export type ProjectPublishAssetDiagnosticCode =
+  (typeof PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES)[number];
+
 export type ProjectPublishReview = {
   projectId: string;
   projectTitle: string;
@@ -28,6 +47,7 @@ export type PrepareProjectPublishReviewResult =
       ok: false;
       code: string;
       message: string;
+      diagnosticCode?: ProjectPublishAssetDiagnosticCode;
     };
 
 export type SanitizedPublishSuccess = {
@@ -98,6 +118,7 @@ export function mapPublishPreflightIssue(
 export function createPrepareReviewFailure(input?: {
   code?: string;
   message?: string;
+  diagnosticCode?: ProjectPublishAssetDiagnosticCode;
 }): Extract<PrepareProjectPublishReviewResult, { ok: false }> {
   return {
     ok: false,
@@ -105,7 +126,39 @@ export function createPrepareReviewFailure(input?: {
     message:
       input?.message ??
       "公開前確認を完了できませんでした。現在のデータを再読込してから、もう一度確認してください。",
+    ...(input?.diagnosticCode
+      ? { diagnosticCode: input.diagnosticCode }
+      : {}),
   };
+}
+
+export function getProjectPublishAssetDiagnosticCode(
+  value: string,
+): ProjectPublishAssetDiagnosticCode | undefined {
+  return PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES.find(
+    (code) => code === value,
+  );
+}
+
+export function getProjectPublishAssetDiagnosticLabel(
+  code: ProjectPublishAssetDiagnosticCode,
+): string {
+  const labels: Record<ProjectPublishAssetDiagnosticCode, string> = {
+    assetFileIdMismatch: "ファイル参照ID不一致",
+    assetMimeTypeMismatch: "MIME type不一致",
+    assetParentCountMismatch: "親folder件数不一致",
+    assetParentMismatch: "親folder不一致",
+    assetAppMismatch: "app識別情報不一致",
+    assetRoleMismatch: "role不一致",
+    assetSchemaVersionMismatch: "schema version不一致",
+    assetWorkspaceMismatch: "workspace識別情報不一致",
+    assetProjectMismatch: "project識別情報不一致",
+    assetIdMismatch: "asset識別情報不一致",
+    assetFileReferenceMismatch: "manifest file参照不一致",
+    assetSizeMismatch: "ファイルサイズ不一致",
+    assetMediaTypeMismatch: "image/video分類不一致",
+  };
+  return labels[code];
 }
 
 export function mapPublishWorkflowError(

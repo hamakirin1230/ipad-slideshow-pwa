@@ -20,11 +20,13 @@ import {
 } from "@/components/ui/card";
 import {
   getManifestCommitLabel,
+  getProjectPublishAssetDiagnosticLabel,
   getProjectPublishModeLabel,
   getRevisionPreparationLabel,
   PROJECT_PUBLISH_DRIVE_SUCCESS_MESSAGE,
   PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE,
   type ProjectPublishReview,
+  type ProjectPublishAssetDiagnosticCode,
   type SanitizedPublishError,
   type SanitizedPublishSuccess,
 } from "@/lib/publish-history/project-publish-ui";
@@ -40,6 +42,7 @@ type PublishUiState =
       phase: "preflight" | "publish";
       error: {
         message: string;
+        diagnosticCode?: ProjectPublishAssetDiagnosticCode;
         recoverability?: SanitizedPublishError["recoverability"];
         canRetry: boolean;
       };
@@ -113,7 +116,13 @@ function ProjectPublishPanelSession() {
         : {
             status: "error",
             phase: "preflight",
-            error: { message: result.message, canRetry: false },
+            error: {
+              message: result.message,
+              ...(result.diagnosticCode
+                ? { diagnosticCode: result.diagnosticCode }
+                : {}),
+              canRetry: false,
+            },
           },
     );
   }
@@ -488,6 +497,14 @@ function PublishError({
             : "公開処理を完了できませんでした。"}
         </h3>
         <p className="mt-2">{state.error.message}</p>
+        {state.error.diagnosticCode ? (
+          <p className="mt-2">
+            診断: {getProjectPublishAssetDiagnosticLabel(
+              state.error.diagnosticCode,
+            )}
+            （{state.error.diagnosticCode}）
+          </p>
+        ) : null}
       </div>
       <div className="flex flex-col gap-3 sm:flex-row">
         {state.error.canRetry && onRetry ? (

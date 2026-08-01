@@ -21,6 +21,7 @@ import {
   buildProjectPublishReview,
   createPrepareReviewFailure,
   createRandomHexSuffix,
+  getProjectPublishAssetDiagnosticCode,
   type PrepareProjectPublishReviewResult,
   type ProjectPublishReview,
 } from "./project-publish-ui";
@@ -196,9 +197,13 @@ export async function prepareProjectPublishReviewWithAdapter(
 
     if (!preflight.ok) {
       const issue = preflight.issues[0];
+      const diagnosticCode = issue
+        ? getProjectPublishAssetDiagnosticCode(issue.code)
+        : undefined;
       return createPrepareReviewFailure({
         code: issue?.code ?? "preflightFailed",
         message: issue?.message,
+        ...(diagnosticCode ? { diagnosticCode } : {}),
       });
     }
 
@@ -460,58 +465,113 @@ async function loadReferencedAssetMetadata(input: {
     references.set(slide.assetId, slide);
   }
 
-  const assets = await Promise.all(
-    [...references.values()].map(async (slide) => {
-      const metadata = await input.adapter.readMetadata({
+  const loaded = await Promise.all(
+    [...references.values()].map(async (slide) => ({
+      slide,
+      metadata: await input.adapter.readMetadata({
         accessToken: input.input.accessToken,
         fileId: slide.assetFileId,
         signal: input.input.signal,
-      });
-      if (
-        metadata.id !== slide.assetFileId ||
-        metadata.mimeType !== slide.mimeType ||
-        metadata.parents?.length !== 1 ||
-        metadata.parents[0] !== input.input.project.assetsFolderId ||
-        metadata.appProperties.app !== APP_ID ||
-        metadata.appProperties.role !== "asset" ||
-        metadata.appProperties.schemaVersion !== SCHEMA_VERSION ||
-        metadata.appProperties.workspaceId !== input.input.workspaceId ||
-        metadata.appProperties.projectId !== input.input.project.projectId ||
-        metadata.appProperties.assetId !== slide.assetId
-      ) {
-        throw new InvalidAssetMetadataError();
-      }
-
-      const sizeBytes = metadata.sizeBytes ?? null;
-      return {
-        assetId: slide.assetId,
-        driveFileId: metadata.id,
-        mimeType: metadata.mimeType,
-        sizeBytes,
-        modifiedTime: metadata.modifiedTime ?? null,
-        checksum: metadata.checksum ?? null,
-        remoteOnly:
-          slide.type === "video" &&
-          metadata.mimeType === "video/mp4" &&
-          sizeBytes !== null &&
-          sizeBytes > DRIVE_VIDEO_OFFLINE_MAX_BYTES,
-        trashed: metadata.trashed ?? false,
-        role: "asset" as const,
+      }),
+    })),
+  );
+  const assets: ProjectPublishAssetMetadataInput[] = [];
+  for (const { slide, metadata } of loaded) {
+    const diagnosticCode = classifyReferencedAssetMetadataMismatch({
+      metadata,
+      expected: {
+        fileId: slide.assetFileId,
+        mimeType: slide.mimeType,
+        parentId: input.input.project.assetsFolderId,
         workspaceId: input.input.workspaceId,
         projectId: input.input.project.projectId,
-      };
-    }),
-  ).catch((error: unknown) => {
-    if (error instanceof InvalidAssetMetadataError) return null;
-    throw error;
-  });
-
-  return assets
-    ? { ok: true, assets }
-    : createPrepareReviewFailure({
+        assetId: slide.assetId,
+      },
+    });
+    if (diagnosticCode) {
+      return createPrepareReviewFailure({
         code: "invalidAssetMetadata",
-        message: "公開対象のアセット情報がマニフェストと一致しません。",
+        message: "公開対象のアセット情報が一致しません。",
+        diagnosticCode,
       });
+    }
+
+    const sizeBytes = metadata.sizeBytes ?? null;
+    assets.push({
+      assetId: slide.assetId,
+      driveFileId: metadata.id,
+      mimeType: metadata.mimeType,
+      sizeBytes,
+      modifiedTime: metadata.modifiedTime ?? null,
+      checksum: metadata.checksum ?? null,
+      remoteOnly:
+        slide.type === "video" &&
+        metadata.mimeType === "video/mp4" &&
+        sizeBytes !== null &&
+        sizeBytes > DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+      trashed: metadata.trashed ?? false,
+      role: "asset",
+      workspaceId: input.input.workspaceId,
+      projectId: input.input.project.projectId,
+    });
+  }
+  return { ok: true, assets };
 }
 
-class InvalidAssetMetadataError extends Error {}
+type ReferencedAssetMetadataMismatchCode =
+  | "assetFileIdMismatch"
+  | "assetMimeTypeMismatch"
+  | "assetParentCountMismatch"
+  | "assetParentMismatch"
+  | "assetAppMismatch"
+  | "assetRoleMismatch"
+  | "assetSchemaVersionMismatch"
+  | "assetWorkspaceMismatch"
+  | "assetProjectMismatch"
+  | "assetIdMismatch";
+
+function classifyReferencedAssetMetadataMismatch(input: {
+  metadata: DriveFileCandidate;
+  expected: {
+    fileId: string;
+    mimeType: string;
+    parentId: string;
+    workspaceId: string;
+    projectId: string;
+    assetId: string;
+  };
+}): ReferencedAssetMetadataMismatchCode | null {
+  if (input.metadata.id !== input.expected.fileId) {
+    return "assetFileIdMismatch";
+  }
+  if (input.metadata.mimeType !== input.expected.mimeType) {
+    return "assetMimeTypeMismatch";
+  }
+  if (input.metadata.parents?.length !== 1) {
+    return "assetParentCountMismatch";
+  }
+  if (input.metadata.parents[0] !== input.expected.parentId) {
+    return "assetParentMismatch";
+  }
+  if (input.metadata.appProperties.app !== APP_ID) {
+    return "assetAppMismatch";
+  }
+  if (input.metadata.appProperties.role !== "asset") {
+    return "assetRoleMismatch";
+  }
+  if (input.metadata.appProperties.schemaVersion !== SCHEMA_VERSION) {
+    return "assetSchemaVersionMismatch";
+  }
+  if (
+    input.metadata.appProperties.workspaceId !== input.expected.workspaceId
+  ) {
+    return "assetWorkspaceMismatch";
+  }
+  if (input.metadata.appProperties.projectId !== input.expected.projectId) {
+    return "assetProjectMismatch";
+  }
+  if (input.metadata.appProperties.assetId !== input.expected.assetId) {
+    return "assetIdMismatch";
+  }
+  return null;
+}
