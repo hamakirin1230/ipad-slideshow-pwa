@@ -12,6 +12,7 @@ import {
 import { useAppState, type OfflineSyncStatus } from "@/app/app-providers";
 import type { DriveOfflineStagingSyncRuntimeResult } from "@/lib/drive-offline-staging-sync-runtime";
 import { buildOfflineSyncProgressView } from "@/lib/offline-sync-progress";
+import { buildOfflineSyncStaleView } from "@/app/admin/offline-sync-stale-view";
 
 export function OfflineSyncPanel() {
   const {
@@ -42,6 +43,9 @@ export function OfflineSyncPanel() {
     offlineSyncStatus,
   });
   const progressView = buildOfflineSyncProgressView(offlineSyncProgress);
+  const staleView = buildOfflineSyncStaleView(
+    offlineSyncLastResult?.status,
+  );
 
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
@@ -206,14 +210,9 @@ export function OfflineSyncPanel() {
 
         {offlineSyncStatus === "stale" ? (
           <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-            <p className="font-semibold">今回の同期結果が古くなっています</p>
-            <p className="mt-2 leading-6">{offlineSyncMessage}</p>
-            <p className="mt-2 leading-6">
-              このsync runより新しい処理が優先されたため、今回の結果はconfirmed storeへ
-              反映していません。現在の保存データは削除せず維持しています。
-              上部のDrive状態とプロジェクト状態を確認し、最新内容を反映する場合は
-              offline syncを手動で再実行してください。
-            </p>
+            <p className="font-semibold">{staleView.title}</p>
+            <p className="mt-2 leading-6">{staleView.message}</p>
+            <p className="mt-2 leading-6">{staleView.retentionMessage}</p>
           </div>
         ) : null}
 

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { buildOfflineSyncStaleView } from "./offline-sync-stale-view";
 
 const source = readFileSync(
   new URL("./offline-sync-panel.tsx", import.meta.url),
@@ -18,4 +19,66 @@ describe("offline sync panel progress accessibility", () => {
     );
     expect(source).toContain("<progress");
   });
+
+  it("selects the stale explanation from the last result status", () => {
+    expect(source).toContain(
+      "buildOfflineSyncStaleView(\n    offlineSyncLastResult?.status,",
+    );
+  });
+});
+
+describe("offline sync stale view", () => {
+  it("explains staleManifest as a Drive manifest change", () => {
+    const view = buildOfflineSyncStaleView("staleManifest");
+    const serialized = JSON.stringify(view);
+
+    expect(view.message).toBe(
+      "Drive上の内容が同期中に変更されました。再度同期してください",
+    );
+    expect(view.retentionMessage).toContain(
+      "今回の結果はconfirmed storeへ反映していません",
+    );
+    expect(view.retentionMessage).toContain(
+      "以前のconfirmed storeと以前のsync stateを維持しています",
+    );
+    expect(view.retentionMessage).toContain("自動retryは行いません");
+    expect(view.retentionMessage).toContain("手動で再実行してください");
+    expect(serialized).not.toContain("新しい処理が優先された");
+    expect(serialized).not.toContain("より新しいsync run");
+  });
+
+  it("explains stale sync runs as superseded by a newer run", () => {
+    const view = buildOfflineSyncStaleView("stale");
+
+    expect(view.message).toContain("より新しいsync runが優先された");
+    expect(view.message).toContain(
+      "今回の結果はconfirmed storeへ反映していません",
+    );
+    expect(view.retentionMessage).toContain(
+      "以前のconfirmed storeを維持しています",
+    );
+  });
+
+  it.each(["staleManifest", "stale"] as const)(
+    "does not expose identifiers or connection details for %s",
+    (status) => {
+      const serialized = JSON.stringify(buildOfflineSyncStaleView(status));
+      const forbiddenValues = [
+        "ya29.access-token-fixture",
+        "drive-file-id-fixture",
+        "workspace-id-fixture",
+        "project-id-fixture",
+        "sync-run-id-fixture",
+        "https://drive.example.invalid/file",
+        "sha256-fixture",
+        "checksum-fixture",
+      ];
+
+      for (const value of forbiddenValues) {
+        expect(serialized).not.toContain(value);
+      }
+      expect(serialized).not.toContain("appProperties");
+      expect(serialized).not.toContain("raw metadata");
+    },
+  );
 });
