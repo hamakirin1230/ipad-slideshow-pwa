@@ -23,6 +23,10 @@ import {
   type OfflineProjectSlide,
 } from "@/lib/offline-schema";
 import type { OfflineStagingAssetPairInput } from "@/lib/offline-staging-write";
+import {
+  createOfflineSyncProgress,
+  type OfflineSyncProgressListener,
+} from "@/lib/offline-sync-progress";
 import { getProjectManifestContentCanonicalHash } from "@/lib/publish-history/project-publish-revision";
 import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "./drive-video-policy";
 
@@ -78,6 +82,7 @@ export type FetchDriveOfflineStagingSnapshotInput = {
   project: DriveProjectSummary;
   syncedAt: IsoDateTimeString;
   signal: AbortSignal;
+  onProgress?: OfflineSyncProgressListener;
 };
 
 export type DriveOfflineStagingSnapshot = {
@@ -120,6 +125,30 @@ export async function fetchDriveOfflineStagingSnapshot(
     expectedWorkspaceId: input.readyContext.workspaceId,
     expectedProject: input.project,
   });
+  const totalAssetCount = manifest.slides.length;
+  let processedAssetCount = 0;
+  const emitProgress = (
+    phase: Parameters<typeof createOfflineSyncProgress>[0]["phase"],
+  ) => {
+    if (!input.onProgress) return;
+    try {
+      input.onProgress(
+        createOfflineSyncProgress({
+          phase,
+          processedAssetCount,
+          totalAssetCount,
+        }),
+      );
+    } catch {
+      // Progress reporting must not change snapshot semantics.
+    }
+  };
+  const markAssetTerminal = () => {
+    processedAssetCount += 1;
+    emitProgress("assetSaving");
+  };
+
+  emitProgress("manifest");
 
   const assetPairs: OfflineStagingAssetPairInput[] = [];
   const assetsWithoutBlobs: OfflineAsset[] = [];
@@ -134,6 +163,7 @@ export async function fetchDriveOfflineStagingSnapshot(
     "Drive manifest.json をoffline staging snapshot用に読み取りました。",
   ];
 
+  emitProgress("publication");
   const provenanceResolution =
     await resolveDriveOfflinePublicationProvenance({
       accessToken: input.accessToken,
@@ -146,6 +176,11 @@ export async function fetchDriveOfflineStagingSnapshot(
     });
   if (provenanceResolution.warning) {
     diagnostics.push(provenanceResolution.warning);
+  }
+
+  emitProgress("assetMetadata");
+  if (totalAssetCount === 0) {
+    emitProgress("assetSaving");
   }
 
   for (const [order, slide] of manifest.slides.entries()) {
@@ -171,6 +206,7 @@ export async function fetchDriveOfflineStagingSnapshot(
       diagnostics.push(
         `manifest.json.slides[${order}] はoffline sync対象外としてskipしました。mimeType: ${slide.mimeType}`,
       );
+      markAssetTerminal();
       continue;
     }
 
@@ -188,6 +224,7 @@ export async function fetchDriveOfflineStagingSnapshot(
       );
       offlineSlides.push(slide);
       diagnostics.push(buildVideoSkipDiagnostic(order, slide));
+      markAssetTerminal();
       continue;
     }
 
@@ -207,6 +244,7 @@ export async function fetchDriveOfflineStagingSnapshot(
         diagnostics.push(
           `manifest.json.slides[${order}] のvideo/mp4 asset はDrive metadata sizeがないためoffline保存をskipしました。`,
         );
+        markAssetTerminal();
         continue;
       }
 
@@ -225,6 +263,7 @@ export async function fetchDriveOfflineStagingSnapshot(
         diagnostics.push(
           `manifest.json.slides[${order}] のvideo/mp4 asset はoffline保存上限を超えるためBlob未保存です。remoteOnly metadataはconfirmed storeに残り、オンライン時はGoogle接続中にstream再生対象になります。`,
         );
+        markAssetTerminal();
         continue;
       }
 
@@ -241,6 +280,7 @@ export async function fetchDriveOfflineStagingSnapshot(
 
       if (!blob) {
         videoSkippedCount += 1;
+        markAssetTerminal();
         continue;
       }
 
@@ -259,6 +299,7 @@ export async function fetchDriveOfflineStagingSnapshot(
       diagnostics.push(
         `manifest.json.slides[${order}] のvideo/mp4 asset metadata/blobをoffline保存対象として取得しました。`,
       );
+      markAssetTerminal();
       continue;
     }
 
@@ -305,6 +346,7 @@ export async function fetchDriveOfflineStagingSnapshot(
     diagnostics.push(
       `manifest.json.slides[${order}] のasset metadata/blobを取得しました。`,
     );
+    markAssetTerminal();
   }
 
   const finalManifestSnapshot = await readConsistentDriveManifestSnapshot({

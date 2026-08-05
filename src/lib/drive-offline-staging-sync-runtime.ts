@@ -5,6 +5,10 @@ import {
   type DriveOfflineStagingSyncResult,
   type RunDriveOfflineStagingSyncArgs,
 } from "@/lib/drive-offline-staging-sync";
+import {
+  advanceOfflineSyncProgress,
+  type OfflineSyncProgress,
+} from "@/lib/offline-sync-progress";
 
 export const DRIVE_OFFLINE_STAGING_SYNC_DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -120,7 +124,24 @@ export function createDriveOfflineStagingSyncRuntime(): DriveOfflineStagingSyncR
     currentController = controller;
     currentCancelReason = null;
 
-    const timeoutMs = args.timeoutMs ?? DRIVE_OFFLINE_STAGING_SYNC_DEFAULT_TIMEOUT_MS;
+    const { timeoutMs: requestedTimeoutMs, onProgress, ...syncArgs } = args;
+    let latestProgress: OfflineSyncProgress | null = null;
+    const forwardProgress = (candidate: OfflineSyncProgress) => {
+      if (
+        runId !== currentRunId ||
+        controller.signal.aborted ||
+        !inFlight
+      ) {
+        return;
+      }
+      const next = advanceOfflineSyncProgress(latestProgress, candidate);
+      if (!next || next === latestProgress) return;
+      latestProgress = next;
+      onProgress?.(next);
+    };
+
+    const timeoutMs =
+      requestedTimeoutMs ?? DRIVE_OFFLINE_STAGING_SYNC_DEFAULT_TIMEOUT_MS;
 
     if (timeoutMs !== null) {
       if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
@@ -148,8 +169,9 @@ export function createDriveOfflineStagingSyncRuntime(): DriveOfflineStagingSyncR
 
     try {
       const result = await runDriveOfflineStagingSync({
-        ...args,
+        ...syncArgs,
         signal: controller.signal,
+        onProgress: forwardProgress,
       });
 
       if (runId !== currentRunId) {

@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { useAppState, type OfflineSyncStatus } from "@/app/app-providers";
 import type { DriveOfflineStagingSyncRuntimeResult } from "@/lib/drive-offline-staging-sync-runtime";
+import { buildOfflineSyncProgressView } from "@/lib/offline-sync-progress";
 
 export function OfflineSyncPanel() {
   const {
@@ -19,6 +20,7 @@ export function OfflineSyncPanel() {
     offlineSyncStatus,
     offlineSyncStatusLabel,
     offlineSyncMessage,
+    offlineSyncProgress,
     offlineSyncDiagnostics,
     offlineSyncLastResult,
     isOfflineSyncInFlight,
@@ -39,6 +41,7 @@ export function OfflineSyncPanel() {
     isOfflineSyncInFlight,
     offlineSyncStatus,
   });
+  const progressView = buildOfflineSyncProgressView(offlineSyncProgress);
 
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
@@ -116,18 +119,34 @@ export function OfflineSyncPanel() {
         ) : null}
 
         {offlineSyncStatus === "syncing" ? (
-          <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100">
+          <div
+            className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100"
+            role="status"
+            aria-live="polite"
+          >
             <p className="font-semibold">同期中</p>
-            <p className="mt-2">
-              Drive manifest / asset metadata / asset blob を取得し、
-              staging write と promotion を順に実行しています。
-            </p>
+            <p className="mt-2">{progressView?.message ?? offlineSyncMessage}</p>
+            {progressView?.countLabel &&
+            offlineSyncProgress?.phase !== "assetSaving" ? (
+              <p className="mt-2">{progressView.countLabel}</p>
+            ) : null}
+            {progressView?.percent !== undefined ? (
+              <div className="mt-3">
+                <progress
+                  className="h-2 w-full accent-sky-400"
+                  max={100}
+                  value={progressView.percent}
+                  aria-label="offline sync 進捗"
+                />
+                <p className="mt-1 text-xs">{progressView.percent}%</p>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
         {offlineSyncStatus === "ready" ? (
           <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
-            <p className="font-semibold">offline sync 完了</p>
+            <p className="font-semibold">同期完了</p>
             <p className="mt-2">
               Drive snapshot 取得、staging write、confirmed store promotion
               が完了しました。
@@ -176,7 +195,7 @@ export function OfflineSyncPanel() {
 
         {offlineSyncStatus === "cancelled" ? (
           <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-            <p className="font-semibold">offline syncを中止しました</p>
+            <p className="font-semibold">同期を中止しました</p>
             <p className="mt-2 leading-6">
               中止前のconfirmed storeは維持されます。中止した処理を理由に
               confirmed storeやDrive assetを自動削除しません。
@@ -188,6 +207,7 @@ export function OfflineSyncPanel() {
         {offlineSyncStatus === "stale" ? (
           <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
             <p className="font-semibold">今回の同期結果が古くなっています</p>
+            <p className="mt-2 leading-6">{offlineSyncMessage}</p>
             <p className="mt-2 leading-6">
               このsync runより新しい処理が優先されたため、今回の結果はconfirmed storeへ
               反映していません。現在の保存データは削除せず維持しています。

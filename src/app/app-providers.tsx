@@ -143,6 +143,12 @@ import {
   type DriveOfflineStagingSyncRuntime,
   type DriveOfflineStagingSyncRuntimeResult,
 } from "@/lib/drive-offline-staging-sync-runtime";
+import {
+  OFFLINE_SYNC_CANCELLED_MESSAGE,
+  OFFLINE_SYNC_COMPLETED_MESSAGE,
+  OFFLINE_SYNC_STALE_MANIFEST_MESSAGE,
+  type OfflineSyncProgress,
+} from "@/lib/offline-sync-progress";
 
 const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 const GOOGLE_DRIVE_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
@@ -539,6 +545,7 @@ type AppContextValue = {
   offlineSyncStatus: OfflineSyncStatus;
   offlineSyncStatusLabel: string;
   offlineSyncMessage: string;
+  offlineSyncProgress: OfflineSyncProgress | null;
   offlineSyncDiagnostics: string[];
   offlineSyncLastResult: DriveOfflineStagingSyncRuntimeResult | null;
   isOfflineSyncInFlight: boolean;
@@ -910,6 +917,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [offlineSyncMessage, setOfflineSyncMessage] = useState(
     initialOfflineSyncMessage,
   );
+  const [offlineSyncProgress, setOfflineSyncProgress] =
+    useState<OfflineSyncProgress | null>(null);
   const [offlineSyncDiagnostics, setOfflineSyncDiagnostics] = useState<string[]>(
     [],
   );
@@ -1522,6 +1531,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setOfflineSyncInFlightState(false);
     setOfflineSyncStatus("idle");
     setOfflineSyncMessage(initialOfflineSyncMessage);
+    setOfflineSyncProgress(null);
     setSafeOfflineSyncDiagnostics([]);
     setOfflineSyncLastResult(null);
   }
@@ -2935,7 +2945,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     setOfflineSyncInFlightState(true);
     setOfflineSyncStatus("syncing");
-    setOfflineSyncMessage("Driveからoffline staging snapshotを取得しています。");
+    setOfflineSyncMessage("同期前確認中");
+    setOfflineSyncProgress(null);
     setSafeOfflineSyncDiagnostics([]);
     setOfflineSyncLastResult(null);
 
@@ -2944,6 +2955,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
         accessToken,
         readyContext,
         project: readyProject,
+        onProgress: (progress) => {
+          if (
+            requestId !== offlineSyncRequestIdRef.current ||
+            !offlineSyncInFlightRef.current
+          ) {
+            return;
+          }
+          setOfflineSyncProgress(progress);
+          setOfflineSyncMessage(progress.message);
+        },
       });
 
       if (requestId !== offlineSyncRequestIdRef.current) {
@@ -2953,6 +2974,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setOfflineSyncLastResult(result);
       setOfflineSyncStatus(getOfflineSyncStatusFromResult(result));
       setOfflineSyncMessage(buildOfflineSyncResultMessage(result));
+      if (!result.ok) {
+        setOfflineSyncProgress(null);
+      }
       setSafeOfflineSyncDiagnostics(buildOfflineSyncResultDiagnostics(result));
     } finally {
       if (requestId === offlineSyncRequestIdRef.current) {
@@ -2977,7 +3001,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     setOfflineSyncInFlightState(false);
     setOfflineSyncStatus("cancelled");
-    setOfflineSyncMessage("offline sync を中止しました。");
+    setOfflineSyncMessage(OFFLINE_SYNC_CANCELLED_MESSAGE);
+    setOfflineSyncProgress(null);
     setSafeOfflineSyncDiagnostics([
       "ユーザー操作により offline sync を中止しました。",
       "Drive fetch / staging write / promotion のどこまで進んだかは、この状態だけでは判断しません。",
@@ -5457,6 +5482,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     offlineSyncStatus,
     offlineSyncStatusLabel: offlineSyncStatusLabels[offlineSyncStatus],
     offlineSyncMessage,
+    offlineSyncProgress,
     offlineSyncDiagnostics,
     offlineSyncLastResult,
     isOfflineSyncInFlight,
@@ -5570,13 +5596,13 @@ function buildOfflineSyncResultMessage(
 ): string {
   switch (result.status) {
     case "ready":
-      return "Drive取得、staging write、confirmed promotion が完了しました。";
+      return OFFLINE_SYNC_COMPLETED_MESSAGE;
 
     case "stale":
       return "より新しいsync runが優先されたため、今回の結果はconfirmed storeへ反映していません。";
 
     case "staleManifest":
-      return "asset取得中にcurrent manifestが変更されたため、staging write前に停止しました。手動で再同期してください。";
+      return OFFLINE_SYNC_STALE_MANIFEST_MESSAGE;
 
     case "driveFetchOrStagingWriteFailed":
       return "Drive取得、または staging write に失敗しました。";
@@ -5594,7 +5620,7 @@ function buildOfflineSyncResultMessage(
       return "offline sync はすでに実行中です。";
 
     case "syncRuntimeCancelled":
-      return "offline sync は中止されました。";
+      return OFFLINE_SYNC_CANCELLED_MESSAGE;
 
     default:
       return assertNeverOfflineSyncResultStatus(result);

@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OfflineSyncState } from "./offline-schema";
+import { createOfflineSyncProgress } from "./offline-sync-progress";
 
 const mocks = vi.hoisted(() => ({
   fetchSnapshot: vi.fn(),
@@ -105,12 +106,67 @@ function rejectSnapshotAsStaleManifest() {
   );
 }
 
-afterEach(() => {
+function successfulSnapshot() {
+  return {
+    project: {
+      schemaVersion: 1,
+      projectId: PROJECT_ID,
+      projectTitle: "Fixture",
+      slides: [],
+      sourceManifestFileId: "dummy-manifest",
+      syncedAt: "2026-07-31T01:00:00.000Z",
+      publicationProvenance: {
+        status: "unpublished",
+        checkedAt: "2026-07-31T01:00:00.000Z",
+      },
+    },
+    assetPairs: [],
+    assetsWithoutBlobs: [],
+    details: {
+      project: orchestrationArgs().project,
+      slides: [],
+      slideCount: 0,
+      assetCount: 0,
+      manifestSlideCount: 2,
+    },
+    diagnostics: [],
+  };
+}
+
+beforeEach(() => {
   vi.clearAllMocks();
   mocks.readState.mockResolvedValue(undefined);
   mocks.restoreState.mockResolvedValue({ updated: true });
   mocks.markSyncing.mockResolvedValue({ updated: true });
   mocks.markFailed.mockResolvedValue({ updated: true });
+  mocks.writeStaging.mockResolvedValue({
+    projectId: PROJECT_ID,
+    syncRunId: "dummy-run",
+    cleanup: {
+      deletedProjects: 0,
+      deletedAssets: 0,
+      deletedAssetBlobs: 0,
+    },
+    writtenProjects: 1,
+    writtenAssets: 0,
+    writtenAssetBlobs: 0,
+  });
+  mocks.promote.mockResolvedValue({
+    ok: true,
+    promotion: {
+      promotedProjects: 1,
+      promotedAssets: 0,
+      promotedAssetBlobs: 0,
+      deletedObsoleteAssets: 0,
+      deletedObsoleteAssetBlobs: 0,
+    },
+    cleanup: {
+      deletedProjects: 1,
+      deletedAssets: 0,
+      deletedAssetBlobs: 0,
+    },
+    syncStateUpdate: { updated: true },
+  });
 });
 
 describe("Drive offline staging orchestration stale manifest", () => {
@@ -138,6 +194,75 @@ describe("Drive offline staging orchestration stale manifest", () => {
     expect(mocks.writeStaging).not.toHaveBeenCalled();
     expect(mocks.promote).not.toHaveBeenCalled();
     expect(mocks.markFailed).not.toHaveBeenCalled();
+  });
+
+  it("does not emit completed for staleManifest", async () => {
+    const onProgress = vi.fn();
+    rejectSnapshotAsStaleManifest();
+
+    await runDriveOfflineStagingPromotionOrchestration({
+      ...orchestrationArgs(),
+      onProgress,
+    });
+
+    expect(onProgress.mock.calls.map(([progress]) => progress.phase)).toEqual([
+      "preflight",
+      "manifest",
+    ]);
+    expect(onProgress).not.toHaveBeenCalledWith(
+      expect.objectContaining({ phase: "completed" }),
+    );
+  });
+
+  it("emits staging, promotion, and completed only on successful promotion", async () => {
+    const onProgress = vi.fn();
+    mocks.fetchSnapshot.mockImplementation(async ({ onProgress: emit }) => {
+      emit(createOfflineSyncProgress({
+        phase: "manifest",
+        processedAssetCount: 0,
+        totalAssetCount: 2,
+      }));
+      emit(createOfflineSyncProgress({
+        phase: "publication",
+        processedAssetCount: 0,
+        totalAssetCount: 2,
+      }));
+      emit(createOfflineSyncProgress({
+        phase: "assetMetadata",
+        processedAssetCount: 0,
+        totalAssetCount: 2,
+      }));
+      emit(createOfflineSyncProgress({
+        phase: "assetSaving",
+        processedAssetCount: 2,
+        totalAssetCount: 2,
+      }));
+      return successfulSnapshot();
+    });
+
+    const result = await runDriveOfflineStagingPromotionOrchestration({
+      ...orchestrationArgs(),
+      onProgress,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(onProgress.mock.calls.map(([progress]) => progress.phase)).toEqual([
+      "preflight",
+      "manifest",
+      "manifest",
+      "publication",
+      "assetMetadata",
+      "assetSaving",
+      "stagingValidation",
+      "promotion",
+      "completed",
+    ]);
+    expect(onProgress.mock.calls.at(-1)?.[0]).toMatchObject({
+      message: "同期完了",
+      processedAssetCount: 2,
+      totalAssetCount: 2,
+      percent: 100,
+    });
   });
 
   it("removes the temporary syncing state when no previous state existed", async () => {

@@ -13,6 +13,10 @@ import {
   type IsoDateTimeString,
 } from "@/lib/offline-schema";
 import {
+  createOfflineSyncProgress,
+  type OfflineSyncProgressListener,
+} from "@/lib/offline-sync-progress";
+import {
   markOfflineSyncFailed,
   markOfflineSyncing,
   readOfflineSyncState,
@@ -35,6 +39,7 @@ export type DriveOfflineStagingPromotionOrchestrationArgs = {
   readyContext: DriveWorkspaceReadyContext;
   project: DriveProjectSummary;
   signal: AbortSignal;
+  onProgress?: OfflineSyncProgressListener;
 
   /**
    * 通常は省略し、helper 内で crypto.randomUUID() を使う。
@@ -97,6 +102,8 @@ export async function runDriveOfflineStagingPromotionOrchestration(
 ): Promise<DriveOfflineStagingPromotionOrchestrationResult> {
   assertValidOrchestrationArgs(args);
 
+  emitOfflineSyncProgress(args.onProgress, { phase: "preflight" });
+
   const syncRunId = args.syncRunId ?? crypto.randomUUID();
   const syncedAt = args.syncedAt ?? getCurrentIsoDateTimeString();
 
@@ -119,12 +126,14 @@ export async function runDriveOfflineStagingPromotionOrchestration(
   });
 
   try {
+    emitOfflineSyncProgress(args.onProgress, { phase: "manifest" });
     const snapshot = await fetchDriveOfflineStagingSnapshot({
       accessToken: args.accessToken,
       readyContext: args.readyContext,
       project: args.project,
       syncedAt,
       signal: args.signal,
+      onProgress: args.onProgress,
     });
 
     const context = buildReadyOfflineSyncStateContext({
@@ -135,12 +144,25 @@ export async function runDriveOfflineStagingPromotionOrchestration(
 
     failureContext = context;
 
+    const totalAssetCount = snapshot.details.manifestSlideCount ?? 0;
+    emitOfflineSyncProgress(args.onProgress, {
+      phase: "stagingValidation",
+      processedAssetCount: totalAssetCount,
+      totalAssetCount,
+    });
+
     const stagingWrite = await writeCompleteOfflineStagingSnapshot({
       syncRunId,
       project: snapshot.project,
       assetPairs: snapshot.assetPairs,
       assetsWithoutBlobs: snapshot.assetsWithoutBlobs,
       clearExistingProjectStaging: true,
+    });
+
+    emitOfflineSyncProgress(args.onProgress, {
+      phase: "promotion",
+      processedAssetCount: totalAssetCount,
+      totalAssetCount,
     });
 
     const promotion = await promoteOfflineStagingForSyncRun({
@@ -167,6 +189,12 @@ export async function runDriveOfflineStagingPromotionOrchestration(
         promotion,
       };
     }
+
+    emitOfflineSyncProgress(args.onProgress, {
+      phase: "completed",
+      processedAssetCount: totalAssetCount,
+      totalAssetCount,
+    });
 
     return {
       ok: true,
@@ -225,6 +253,18 @@ export async function runDriveOfflineStagingPromotionOrchestration(
       diagnostics: buildDriveOfflineStagingFailureDiagnostics(error),
       syncStateUpdate,
     };
+  }
+}
+
+function emitOfflineSyncProgress(
+  listener: OfflineSyncProgressListener | undefined,
+  input: Parameters<typeof createOfflineSyncProgress>[0],
+): void {
+  if (!listener) return;
+  try {
+    listener(createOfflineSyncProgress(input));
+  } catch {
+    // Progress reporting must not change offline sync semantics.
   }
 }
 
