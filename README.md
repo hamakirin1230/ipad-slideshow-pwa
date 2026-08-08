@@ -36,6 +36,7 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
 - `/admin/` で選択中projectのunused Drive asset cleanup preview / readiness / preflight / confirm previewを表示
 - cleanup preview / preflight / confirm previewはread-onlyで、Drive file、Player snapshot、IndexedDBを変更しない
+- fresh preflight、明示confirm、順次DELETE、partial failure停止を経た未参照app-managed JPEG / PNG / WebPの物理削除と、実Google Driveでの動作確認
 - `/admin/` からローカル動画をDrive assetとして追加し、動画slideをmanifestへ保存
 - ローカルMP4/MOVを1ファイル5GB以下までresumable uploadで追加
 - MP4/MOVのoffline Blob保存上限を50MBとし、50MB超〜5GB以下は`remoteOnly` metadataとしてconfirmed storeへ保持
@@ -54,6 +55,9 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - rollbackは過去revisionへpointerを戻さず、過去内容を復元した新しいrollback revisionを作成
 - rollback後はcurrent manifest本文とpublicationを更新し、indexは対象projectのtitle / `updatedAt`だけをmirror
 - publish / rollbackの共通write guard、orphanを自動削除しない部分失敗方針、成功後も別操作とするoffline sync
+- disposable projectの実Google Driveでpublish、未公開編集、republish、rollbackまで確認
+- confirmed snapshot publication provenanceの`publishedMatch` / `unpublishedChanges` / `unpublished` / `needsInspection` / `legacyUnknown`と、stale sync時にprevious confirmed snapshotを保持するreview fix
+- 実Google Driveでpublish / unpublished edit / republish / rollback後の各offline syncとpublication provenanceを確認し、Goal 6完了
 - rollback pipelineのproduction moduleを直接検証するunit testを含む、Vitest 24 files / 669 tests
 - mainへのpush、pull request、手動実行でtest / lint / production buildを行うGitHub Actions CI
 - GitHub Pagesの手動deployでもtest / lint / build成功後にartifactをdeploy
@@ -70,7 +74,7 @@ https://ipad-slideshow-pwa.vercel.app/
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview
+- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete
 - `/admin/history` project別公開履歴一覧、current公開状態と未公開編集表示、revision詳細、rollback影響確認、fresh preflightを経たverified rollback実行
 - `/player` 画像／Blob保存済み動画のoffline-first再生、remoteOnly動画のonline Drive streaming、remote video手動retry、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
 - `/auth-test` OAuth単体確認用の開発ページ
@@ -163,11 +167,9 @@ GitHub Pagesは手動deployの位置づけで、同じtest / lintを通過して
 
 ## 次の作業候補
 
-1. disposable projectを使った実Google Driveのpublish / rollback acceptance test
-2. update応答不明、current競合、index warning経路の実環境確認
-3. disposable projectとiPad実機でconfirmed snapshot publication provenanceのacceptance testを行う
-4. README以外の古い設計docsを、現行方針と履歴に分けて整理する
-5. exactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後の手動retryを実機確認する
+1. 古い`docs/decisions`や`docs/architecture`を「履歴」と「現行方針」に分けて整理する
+2. publication writeのupdate応答不明、current競合、index warningを実環境確認する。通常acceptanceでは故意に通信遮断や競合を作らず、専用disposable test workspace、復旧手順、観測項目、停止条件を先に設計する
+3. MOVのexactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後のmanual retry実機経路を確認する
 
 ## 最新ハンドオフ
 

@@ -81,9 +81,17 @@ confirmed store promotion
 /admin drag handle compact display
 /admin unused Drive asset cleanup preview
 /admin unused Drive asset explicit physical delete
+unused Drive asset physical deleteの実Google Drive動作確認（未参照app-managed JPEG / PNG / WebPのみ。MP4/MOVは対象外）
+明示的publish / immutable revision / rollback impact preview / fresh preflight / verified rollback
+manifest.publication.currentRevisionId authorityと、新しいrollback revision作成
+実Google Driveでpublish / unpublished change / republish / rollback acceptance
+Goal 6 publication provenance（publishedMatch / unpublishedChanges / unpublished / needsInspection / legacyUnknown）
+stale sync時にprevious confirmed snapshotを保持するreview fix
+実Google Driveでpublish / unpublished edit / republish / rollback後の各offline syncとprovenance acceptance（Goal 6完了）
 local MP4/MOV resumable upload（1ファイル5GB以下）
 MP4/MOV offline Blob保存（50MB以下）
 MP4/MOV remoteOnly Drive streaming（50MB超〜5GB以下）
+Vercel production / 実iPadで約3GB MOVのremoteOnly Drive streaming再生
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
 ```
@@ -338,15 +346,13 @@ slide削除・複製・並び替え後、iPad再生に反映するには対象pr
 
 ## 直近の検証済み
 
-ローカルで確認済み:
+2026-08-08のMOV / 5GB対応でローカル確認済み:
 
 ```text
-npm run lint
-npm run build
+npx -y pnpm@10 exec vitest run（46 files / 889 tests）
+npx -y pnpm@10 lint
+npx -y pnpm@10 build
 git diff --check
-Browserで /player/ を開く
-Browserで offline data不足時のblocking messageを確認
-Browser console errorなし
 ```
 
 注意:
@@ -363,9 +369,11 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. 動画再生の設計・実装
-2. 公開履歴・ロールバックの設計・実装
-3. 古いdocs/decisionsやdocs/architectureを「履歴」と「現行方針」に分けて整理
+1. 古いdocs / decisions / architectureを「履歴」と「現行方針」に分けて整理
+2. publication write異常系acceptanceの安全な試験計画
+   update応答不明、current競合、index warningは、専用disposable test workspace、
+   復旧手順、観測項目、停止条件を先に設計し、通常acceptanceでは故意に発生させない
+3. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
 ```
 
 ## 最新ハンドオフ
@@ -373,7 +381,10 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 読む順:
 
 ```text
+docs/handoffs/2026-08-08-mov-video-5gb-handoff.md
+docs/handoffs/2026-08-05-unused-asset-delete-execution-handoff.md
 docs/handoffs/2026-07-31-offline-publication-provenance-handoff.md
+docs/handoffs/2026-07-28-publish-history-rollback-completion-handoff.md
 docs/offline-publication-provenance-design.md
 docs/handoffs/2026-06-13-player-admin-polish-fixes-handoff.md
 docs/handoffs/2026-06-12-slide-dnd-delete-duplicate-handoff.md
@@ -390,7 +401,7 @@ docs/handoffs/2026-06-09-offline-playback-e2e-handoff.md
 
 ## Goal 6 confirmed snapshot publication provenance
 
-2026-07-31時点で、明示的offline syncがDrive current manifestとcurrent
+2026-08-08時点で、明示的offline syncがDrive current manifestとcurrent
 published revisionの関係をsanitized provenanceとしてstaging、
 confirmed project、ready sync stateへ保存する。
 
@@ -410,3 +421,8 @@ asset取得後、staging write前にmanifest metadata、content、publication署
 `OFFLINE_DB_VERSION`と`OFFLINE_SCHEMA_VERSION`は1のまま、object store変更、
 background migration、legacy recordの自動rewriteはない。publish / rollback後も
 offline syncは明示操作であり、実行中player sessionを自動reloadしない。
+
+stale syncでは今回のtemporary stateを失敗状態として残さず、previous confirmed
+snapshotとready sync stateを保持するreview fixまで実装済み。実Google Driveでは、
+publish -> offline sync、unpublished edit -> offline sync、republish -> offline sync、
+rollback -> offline syncの順に各provenanceを確認済みで、Goal 6は完了扱いとする。
