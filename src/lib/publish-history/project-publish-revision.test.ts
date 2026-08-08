@@ -152,6 +152,37 @@ describe("project manifest publication schema", () => {
     if (result.ok) expect(result.value.publication).toEqual(buildPublication());
   });
 
+  it("preserves the legacy QuickTime unsupported marker and canonical hash", () => {
+    const baseManifest = buildManifest();
+    const legacyManifest: ProjectManifest = {
+      ...baseManifest,
+      slides: baseManifest.slides.map((slide, index) =>
+        index === 1
+          ? {
+              ...slide,
+              type: "video" as const,
+              mimeType: "video/quicktime",
+              sourceMimeType: "video/quicktime",
+              unsupportedReason: "unsupportedVideoMimeType" as const,
+            }
+          : slide,
+      ),
+    };
+    const originalCanonicalHash =
+      getProjectManifestCanonicalHash(legacyManifest);
+
+    const result = parseProjectManifest(legacyManifest);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.slides[1]?.unsupportedReason).toBe(
+      "unsupportedVideoMimeType",
+    );
+    expect(getProjectManifestCanonicalHash(result.value)).toBe(
+      originalCanonicalHash,
+    );
+  });
+
   it("parses rollback publication metadata with the dedicated rollback ID format", () => {
     expect(
       parseProjectManifestPublication({

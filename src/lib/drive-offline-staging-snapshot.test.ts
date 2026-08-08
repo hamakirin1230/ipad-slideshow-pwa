@@ -434,6 +434,85 @@ describe("Drive offline staging asset progress", () => {
 });
 
 describe("Drive offline staging MP4/MOV policy", () => {
+  it("projects a legacy QuickTime marker into an offline video without retaining it", async () => {
+    const video = slide({
+      assetId: "33333333-3333-4333-8333-333333333333",
+      assetFileId: "legacy-mov-file",
+      mimeType: "video/quicktime",
+      type: "video",
+      unsupportedReason: "unsupportedVideoMimeType",
+    });
+    installAssetManifestPhases({
+      slides: [video],
+      assetMetadata: [assetMetadata(video, 5)],
+    });
+    mocks.fetchAssetBlob.mockResolvedValueOnce(
+      new Blob(["movie"], { type: "video/quicktime" }),
+    );
+
+    const snapshot = await fetchSnapshot();
+
+    expect(mocks.fetchAssetBlob).toHaveBeenCalledOnce();
+    expect(snapshot.assetPairs).toHaveLength(1);
+    expect(snapshot.assetPairs[0]?.asset).toMatchObject({
+      type: "video",
+      blobMimeType: "video/quicktime",
+      blobStatus: "ready",
+    });
+    expect(snapshot.assetPairs[0]?.asset.unsupportedReason).toBeUndefined();
+    expect(snapshot.project.slides[0]?.unsupportedReason).toBeUndefined();
+  });
+
+  it("projects a legacy QuickTime marker into remoteOnly without retaining it", async () => {
+    const video = slide({
+      assetId: "33333333-3333-4333-8333-333333333333",
+      assetFileId: "legacy-remote-mov-file",
+      mimeType: "video/quicktime",
+      type: "video",
+      unsupportedReason: "unsupportedVideoMimeType",
+    });
+    installAssetManifestPhases({
+      slides: [video],
+      assetMetadata: [assetMetadata(video, DRIVE_VIDEO_OFFLINE_MAX_BYTES + 1)],
+    });
+
+    const snapshot = await fetchSnapshot();
+
+    expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
+    expect(snapshot.assetPairs).toEqual([]);
+    expect(snapshot.assetsWithoutBlobs[0]).toMatchObject({
+      type: "video",
+      blobMimeType: "video/quicktime",
+      blobStatus: "missing",
+    });
+    expect(snapshot.assetsWithoutBlobs[0]?.unsupportedReason).toBeUndefined();
+    expect(snapshot.project.slides[0]?.unsupportedReason).toBeUndefined();
+  });
+
+  it("keeps a genuinely unsupported WebM marker in the confirmed projection", async () => {
+    const video = slide({
+      assetId: "33333333-3333-4333-8333-333333333333",
+      assetFileId: "unsupported-webm-file",
+      mimeType: "video/webm",
+      type: "video",
+      unsupportedReason: "unsupportedVideoMimeType",
+    });
+    installAssetManifestPhases({
+      slides: [video],
+      assetMetadata: [assetMetadata(video, 5)],
+    });
+
+    const snapshot = await fetchSnapshot();
+
+    expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
+    expect(snapshot.assetsWithoutBlobs[0]?.unsupportedReason).toBe(
+      "unsupportedVideoMimeType",
+    );
+    expect(snapshot.project.slides[0]?.unsupportedReason).toBe(
+      "unsupportedVideoMimeType",
+    );
+  });
+
   it.each(["video/mp4", "video/quicktime"] as const)(
     "stores a %s Blob at or below the offline cap using its actual MIME",
     async (mimeType) => {

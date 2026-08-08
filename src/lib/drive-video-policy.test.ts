@@ -5,6 +5,7 @@ import {
   DRIVE_VIDEO_MAX_BYTES,
   DRIVE_VIDEO_OFFLINE_MAX_BYTES,
   DRIVE_VIDEO_UPLOAD_TYPE,
+  getEffectiveDriveVideoUnsupportedReason,
   getDriveVideoStorageDisposition,
   getLocalDriveVideoFileValidationCodes,
   isDriveVideoFileSizeWithinLimit,
@@ -29,6 +30,33 @@ describe("Drive video policy", () => {
   it("keeps other video MIME types unsupported", () => {
     expect(isSupportedDriveVideoMimeType("video/webm")).toBe(false);
   });
+
+  it("ignores only the obsolete QuickTime unsupportedVideoMimeType marker", () => {
+    expect(
+      getEffectiveDriveVideoUnsupportedReason({
+        mimeType: "video/quicktime",
+        unsupportedReason: "unsupportedVideoMimeType",
+      }),
+    ).toBeUndefined();
+    expect(
+      getEffectiveDriveVideoUnsupportedReason({
+        mimeType: "video/webm",
+        unsupportedReason: "unsupportedVideoMimeType",
+      }),
+    ).toBe("unsupportedVideoMimeType");
+  });
+
+  it.each(["unsupportedMimeType", "videoPlaybackNotImplemented"] as const)(
+    "keeps QuickTime %s markers effective",
+    (unsupportedReason) => {
+      expect(
+        getEffectiveDriveVideoUnsupportedReason({
+          mimeType: "video/quicktime",
+          unsupportedReason,
+        }),
+      ).toBe(unsupportedReason);
+    },
+  );
 
   it.each([
     ["movie.mp4", "video/mp4", "video/mp4"],

@@ -29,6 +29,22 @@ export function isSupportedDriveVideoMimeType(
   );
 }
 
+export function getEffectiveDriveVideoUnsupportedReason<
+  TUnsupportedReason extends string,
+>(input: {
+  mimeType: string;
+  unsupportedReason: TUnsupportedReason | undefined;
+}): TUnsupportedReason | undefined {
+  if (
+    input.mimeType === "video/quicktime" &&
+    input.unsupportedReason === "unsupportedVideoMimeType"
+  ) {
+    return undefined;
+  }
+
+  return input.unsupportedReason;
+}
+
 export function resolveLocalDriveVideoMimeType(input: {
   name: string;
   type: string;

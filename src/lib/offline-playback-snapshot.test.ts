@@ -209,7 +209,7 @@ describe("offline playback MP4/MOV availability", () => {
   }
 
   function videoAsset(
-    mimeType: "video/mp4" | "video/quicktime",
+    mimeType: string,
     override: Partial<OfflineAsset> = {},
   ): OfflineAsset {
     return {
@@ -279,6 +279,110 @@ describe("offline playback MP4/MOV availability", () => {
       blobMimeType: "video/quicktime",
     });
   });
+
+  it("plays a legacy metadata-only MOV confirmed snapshot as remoteOnly", () => {
+    const legacyProject = videoProject();
+    legacyProject.slides[0]!.unsupportedReason = "unsupportedVideoMimeType";
+    const snapshot = build({
+      project: legacyProject,
+      state: { ...state(), slideCount: 1, assetCount: 1 },
+      assets: [
+        videoAsset("video/quicktime", {
+          unsupportedReason: "unsupportedVideoMimeType",
+        }),
+      ],
+    });
+
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status !== "ready") return;
+    expect(snapshot.slides[0]).toMatchObject({
+      type: "video",
+      mimeType: "video/quicktime",
+      offlineAvailability: "remoteOnly",
+    });
+    expect(snapshot.slides[0]?.unsupportedReason).toBeUndefined();
+  });
+
+  it("plays a legacy offline MOV confirmed snapshot without the obsolete marker", () => {
+    const legacyProject = videoProject();
+    legacyProject.slides[0]!.unsupportedReason = "unsupportedVideoMimeType";
+    const blob = new Blob(["movie"], { type: "video/quicktime" });
+    const asset = videoAsset("video/quicktime", {
+      sourceSizeBytes: blob.size,
+      blobSizeBytes: blob.size,
+      blobStatus: "ready",
+      unsupportedReason: "unsupportedVideoMimeType",
+    });
+    const snapshot = build({
+      project: legacyProject,
+      state: { ...state(), slideCount: 1, assetCount: 1 },
+      assets: [asset],
+      blobs: [
+        {
+          schemaVersion: 1,
+          assetId: asset.assetId,
+          projectId: PROJECT_ID,
+          blob,
+          blobMimeType: "video/quicktime",
+          blobSizeBytes: blob.size,
+          blobVariant: "original",
+          syncedAt: checkedAt,
+        },
+      ],
+    });
+
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status !== "ready") return;
+    expect(snapshot.slides[0]).toMatchObject({
+      type: "video",
+      mimeType: "video/quicktime",
+      offlineAvailability: "offline",
+    });
+    expect(snapshot.slides[0]?.unsupportedReason).toBeUndefined();
+  });
+
+  it("keeps an unsupported WebM confirmed snapshot unavailable", () => {
+    const unsupportedProject = videoProject();
+    unsupportedProject.slides[0]!.unsupportedReason =
+      "unsupportedVideoMimeType";
+    const snapshot = build({
+      project: unsupportedProject,
+      state: { ...state(), slideCount: 1, assetCount: 1 },
+      assets: [
+        videoAsset("video/webm", {
+          unsupportedReason: "unsupportedVideoMimeType",
+        }),
+      ],
+    });
+
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status !== "ready") return;
+    expect(snapshot.slides[0]).toMatchObject({
+      mimeType: "video/webm",
+      offlineAvailability: "unsupported",
+      unsupportedReason: "unsupportedVideoMimeType",
+    });
+  });
+
+  it.each(["unsupportedMimeType", "videoPlaybackNotImplemented"] as const)(
+    "keeps a QuickTime %s marker effective in old confirmed snapshots",
+    (unsupportedReason) => {
+      const legacyProject = videoProject();
+      legacyProject.slides[0]!.unsupportedReason = unsupportedReason;
+      const snapshot = build({
+        project: legacyProject,
+        state: { ...state(), slideCount: 1, assetCount: 1 },
+        assets: [videoAsset("video/quicktime", { unsupportedReason })],
+      });
+
+      expect(snapshot.status).toBe("ready");
+      if (snapshot.status !== "ready") return;
+      expect(snapshot.slides[0]).toMatchObject({
+        offlineAvailability: "unsupported",
+        unsupportedReason,
+      });
+    },
+  );
 
   it.each(["video/mp4", "video/quicktime"] as const)(
     "keeps over-limit %s unavailable rather than remoteOnly",

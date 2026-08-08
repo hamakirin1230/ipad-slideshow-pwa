@@ -21,6 +21,7 @@ import {
   type OfflinePublicationProvenanceView,
 } from "@/lib/offline-publication-provenance";
 import {
+  getEffectiveDriveVideoUnsupportedReason,
   isSupportedDriveVideoMimeType,
   type SupportedDriveVideoMimeType,
 } from "@/lib/drive-video-policy";
@@ -540,6 +541,15 @@ function toOfflinePlaybackSlide(input: {
   asset: OfflineAsset;
   assetBlob?: OfflineAssetBlobRecord;
 }): OfflinePlaybackSlide {
+  const unsupportedReason =
+    getEffectiveDriveVideoUnsupportedReason({
+      mimeType: input.asset.blobMimeType,
+      unsupportedReason: input.slide.unsupportedReason,
+    }) ??
+    getEffectiveDriveVideoUnsupportedReason({
+      mimeType: input.asset.blobMimeType,
+      unsupportedReason: input.asset.unsupportedReason,
+    });
   const baseSlide: OfflinePlaybackSlideBase = {
     slideId: input.slide.slideId,
     assetId: input.slide.assetId,
@@ -555,12 +565,7 @@ function toOfflinePlaybackSlide(input: {
       : typeof input.asset.durationMs === "number"
         ? { durationMs: input.asset.durationMs }
         : {}),
-    ...(input.slide.unsupportedReason ?? input.asset.unsupportedReason
-      ? {
-          unsupportedReason:
-            input.slide.unsupportedReason ?? input.asset.unsupportedReason,
-        }
-      : {}),
+    ...(unsupportedReason ? { unsupportedReason } : {}),
     assetName: input.asset.sourceName,
     sourceDriveFileId: input.asset.sourceDriveFileId,
     sourceSizeBytes: input.asset.sourceSizeBytes,

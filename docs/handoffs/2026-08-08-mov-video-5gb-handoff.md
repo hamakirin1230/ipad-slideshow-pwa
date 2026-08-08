@@ -18,6 +18,7 @@ Base: `4a159746dd1c690e44a7796334d0d2c33347c4d2`
 - playerはMP4/MOVのactual MIMEをoffline Blob、remote session、`canPlayType`まで保持する
 - codec/containerはtranscodeせず、WebKitのnative playbackへ渡す
 - media errorではcodec名を推測せず、安全な一般案内と手動retry / previous / nextを維持する
+- 旧QuickTime slideの`unsupportedVideoMimeType`はplayback/offline projectionでのみobsolete markerとして扱い、Drive manifestやpublication canonical contentは自動rewriteしない
 
 ## 共通policy
 

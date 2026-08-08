@@ -30,6 +30,7 @@ import {
 import { getProjectManifestContentCanonicalHash } from "@/lib/publish-history/project-publish-revision";
 import {
   DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+  getEffectiveDriveVideoUnsupportedReason,
   getDriveVideoStorageDisposition,
   isSupportedDriveVideoMimeType,
   type SupportedDriveVideoMimeType,
@@ -457,7 +458,9 @@ function getDriveOfflineStagingAssetKind(
   }
 
   if (slide.type === "video" && isSupportedDriveVideoMimeType(slide.mimeType)) {
-    return slide.unsupportedReason ? "video-unsupported" : "video";
+    return getEffectiveDriveSlideUnsupportedReason(slide)
+      ? "video-unsupported"
+      : "video";
   }
 
   if (slide.type === "video" || slide.mimeType.toLowerCase().startsWith("video/")) {
@@ -465,6 +468,13 @@ function getDriveOfflineStagingAssetKind(
   }
 
   return "unsupported";
+}
+
+function getEffectiveDriveSlideUnsupportedReason(slide: DriveSlideSummary) {
+  return getEffectiveDriveVideoUnsupportedReason({
+    mimeType: slide.mimeType,
+    unsupportedReason: slide.unsupportedReason,
+  });
 }
 
 function buildVideoSkipDiagnostic(order: number, slide: DriveSlideSummary) {
@@ -1305,6 +1315,8 @@ function toOfflineProjectSlide(
   slide: DriveSlideSummary,
   order: number,
 ): OfflineProjectSlide {
+  const unsupportedReason = getEffectiveDriveSlideUnsupportedReason(slide);
+
   return {
     slideId: slide.slideId,
     assetId: slide.assetId,
@@ -1312,9 +1324,7 @@ function toOfflineProjectSlide(
     caption: slide.caption,
     durationSeconds: slide.durationSeconds,
     ...(typeof slide.durationMs === "number" ? { durationMs: slide.durationMs } : {}),
-    ...(slide.unsupportedReason
-      ? { unsupportedReason: slide.unsupportedReason }
-      : {}),
+    ...(unsupportedReason ? { unsupportedReason } : {}),
     order,
     createdAt: slide.createdAt,
     updatedAt: slide.updatedAt,
@@ -1328,6 +1338,9 @@ function buildOfflineStagingAssetPair(input: {
   blob: Blob;
   syncedAt: IsoDateTimeString;
 }): OfflineStagingAssetPairInput {
+  const unsupportedReason = getEffectiveDriveSlideUnsupportedReason(
+    input.slide,
+  );
   const asset: OfflineAsset = {
     schemaVersion: OFFLINE_SCHEMA_VERSION,
     assetId: input.slide.assetId,
@@ -1341,9 +1354,7 @@ function buildOfflineStagingAssetPair(input: {
     ...(typeof input.slide.durationMs === "number"
       ? { durationMs: input.slide.durationMs }
       : {}),
-    ...(input.slide.unsupportedReason
-      ? { unsupportedReason: input.slide.unsupportedReason }
-      : {}),
+    ...(unsupportedReason ? { unsupportedReason } : {}),
     blobMimeType: input.slide.mimeType,
     blobSizeBytes: input.blob.size,
     blobVariant: "original",
@@ -1375,6 +1386,11 @@ function buildOfflineStagingAssetWithoutBlob(input: {
   syncedAt: IsoDateTimeString;
   unsupportedReason?: OfflineAsset["unsupportedReason"];
 }): OfflineAsset {
+  const unsupportedReason = getEffectiveDriveVideoUnsupportedReason({
+    mimeType: input.slide.mimeType,
+    unsupportedReason: input.unsupportedReason ?? input.slide.unsupportedReason,
+  });
+
   return {
     schemaVersion: OFFLINE_SCHEMA_VERSION,
     assetId: input.slide.assetId,
@@ -1388,11 +1404,7 @@ function buildOfflineStagingAssetWithoutBlob(input: {
     ...(typeof input.slide.durationMs === "number"
       ? { durationMs: input.slide.durationMs }
       : {}),
-    ...(input.unsupportedReason
-      ? { unsupportedReason: input.unsupportedReason }
-      : input.slide.unsupportedReason
-        ? { unsupportedReason: input.slide.unsupportedReason }
-        : {}),
+    ...(unsupportedReason ? { unsupportedReason } : {}),
     blobMimeType: input.slide.mimeType,
     blobSizeBytes: 0,
     blobVariant: "original",
