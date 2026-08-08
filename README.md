@@ -40,6 +40,7 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - ローカルMP4/MOVを1ファイル5GB以下までresumable uploadで追加
 - MP4/MOVのoffline Blob保存上限を50MBとし、50MB超〜5GB以下は`remoteOnly` metadataとしてconfirmed storeへ保持
 - remoteOnly MP4/MOVをonlineかつGoogle接続済みの場合にDrive streamingで再生
+- Vercel production / 実iPadで、当初再生できなかった同じ約3GB MOVの`remoteOnly` Drive streaming再生に成功し、旧2GB上限を超える実データ経路を確認
 - 画像／動画混在再生、offline Blob動画、動画slideごとのduration override
 - remote video再生失敗時の手動retryと、slide / project / snapshot変更時のstale result guard
 - retry可否、owner key、generation、source identityをpure helper化し、Vitest 1 file / 22 testsで検証
@@ -166,7 +167,7 @@ GitHub Pagesは手動deployの位置づけで、同じtest / lintを通過して
 2. update応答不明、current競合、index warning経路の実環境確認
 3. disposable projectとiPad実機でconfirmed snapshot publication provenanceのacceptance testを行う
 4. README以外の古い設計docsを、現行方針と履歴に分けて整理する
-5. iPad実機でMOV native playback、3GB級remoteOnly streaming、再生失敗時の手動retryを運用確認する
+5. exactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後の手動retryを実機確認する
 
 ## 最新ハンドオフ
 

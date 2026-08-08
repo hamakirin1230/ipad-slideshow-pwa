@@ -207,7 +207,15 @@ Google Photos Picker video cap: 50 MB（変更なし）
 - codec非対応またはmedia errorでは安全な一般案内を表示し、手動retry / previous / nextを維持する
 - MP4/MOVはunused asset physical deleteの対象外で、画像だけの削除policyを維持する
 - schema、IndexedDB version、publication provenance、publish / rollback authorityは変更しない
-- 実iPadでのMOV再生と3GB級remoteOnly streaming acceptanceは未実施
+- 2026-08-08、Vercel productionと実iPadで、当初再生できなかった同じ約3GB MOVの`remoteOnly` Drive streaming再生に成功した
+- MOV containerの実機playback、3GB級remoteOnly streaming、旧2GB上限を超える実データ再生はacceptance済み
+- すべてのMOV codecを保証するものではなく、codec互換性は引き続きiPad/WebKit native playbackに依存する。client-side transcodeは行わない
+
+remaining acceptance:
+
+- exactly 5GBの実ファイル
+- 5GB + 1 byteの実ファイル
+- 意図的な再生失敗後のmanual retry実機経路
 
 ## 複数project再生の現在地
 

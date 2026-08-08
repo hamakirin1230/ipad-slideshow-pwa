@@ -100,10 +100,22 @@ git diff --check
 success
 ```
 
+## 実機 / production acceptance
+
+2026-08-08、次を確認した。
+
+- commit `e25cd5d547f4425c9bc05ba78850420f2d1caff0`のVercel production deploymentが`READY`
+- production `/admin`でMOV追加と「1ファイル5GB以下」のUIを配信
+- production `/sw.js`で最大`5 * 1024 * 1024 * 1024` bytes、`video/mp4`、`video/quicktime`のpolicyを配信
+- 当初再生できなかった同じ約3GB MOVを、実iPadの新production実装で再生成功
+- MOV containerの実機playback、3GB級`remoteOnly` Drive streaming、旧2GB上限を超える実データ再生のacceptance passed
+
+今回確認した事実は同じ約3GB MOVの再生成功であり、3GB MOVのresumable uploadを改めて実施したものではない。
+
 ## 未実施acceptance
 
-- 実iPad / iPad WebKitでのMOV codec互換性確認は未実施
-- 実Google Drive上の3GB級MOV resumable upload / remoteOnly streaming確認は未実施
-- 実Google Drive上のちょうど5GBファイル確認は未実施
+- exactly 5GBの実ファイル
+- 5GB + 1 byteの実ファイル
+- 意図的な再生失敗後のmanual retry実機経路
 
 MOV container対応はnative playbackへ渡すところまでであり、全codecの再生成功を保証しない。実機でcodec非対応の場合は、安全なfallback表示を基に別形式へ変換して再登録する。
