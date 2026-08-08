@@ -1,8 +1,8 @@
 # iPad用スライドショーPWA 現在の引き継ぎ
 
-Date: 2026-08-05
+Date: 2026-08-08
 
-このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-06-13時点の実装状態を正とします。
+このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-08時点の実装状態を正とします。
 
 2026-06-22時点で、Vercel productionの既存運用を再確認済み。新規Vercel project作成、import、`vercel link` は不要。
 
@@ -81,6 +81,9 @@ confirmed store promotion
 /admin drag handle compact display
 /admin unused Drive asset cleanup preview
 /admin unused Drive asset explicit physical delete
+local MP4/MOV resumable upload（1ファイル5GB以下）
+MP4/MOV offline Blob保存（50MB以下）
+MP4/MOV remoteOnly Drive streaming（50MB超〜5GB以下）
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
 ```
@@ -180,6 +183,31 @@ ipad-slideshow-pwa-app-shell-v1
 - Player反映は従来どおりoffline sync経由で、cleanup preview自体はPlayer snapshotやIndexedDBを変更しない
 - project単位ローカル削除ではDrive上のデータを削除しない
 - app shell cache削除ではIndexedDBのproject / asset / Blobを削除しない
+
+## MP4/MOVと動画容量の現在地
+
+2026-08-08時点:
+
+```text
+対応playback MIME: video/mp4, video/quicktime
+local file import max: 5 * 1024 * 1024 * 1024 bytes
+resumable upload chunk: 8 MiB
+offline Blob cap: 50 * 1024 * 1024 bytes
+remote stream chunk cap: 32 MiB
+Google Photos Picker video cap: 50 MB（変更なし）
+```
+
+- MIMEが空または`application/octet-stream`でも、`.mp4` / `.mov`から安全にMIMEを補完する
+- 既知MIMEと`.mp4` / `.mov`が矛盾する場合はupload前にrejectし、変換や推測補正を行わない
+- 50MB以下のMP4/MOVはactual MIMEでBlob取得・検証し、offline confirmed storeへ保存する
+- 50MB超〜5GB以下はBlobを取得せず、metadataだけを`remoteOnly`としてconfirmed storeへ保持する
+- 5GB超とsize不明は再生対象外とし、Drive fileの自動削除・rename・修復を行わない
+- remoteOnly sessionはactual MIMEをService Workerへ渡し、Range / Content-Rangeはsafe Numberで扱う
+- MOVはiPad/WebKitのnative playbackへ渡し、codec/containerをclient-side transcodeしない
+- codec非対応またはmedia errorでは安全な一般案内を表示し、手動retry / previous / nextを維持する
+- MP4/MOVはunused asset physical deleteの対象外で、画像だけの削除policyを維持する
+- schema、IndexedDB version、publication provenance、publish / rollback authorityは変更しない
+- 実iPadでのMOV再生と3GB級remoteOnly streaming acceptanceは未実施
 
 ## 複数project再生の現在地
 

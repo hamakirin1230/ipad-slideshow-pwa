@@ -272,7 +272,7 @@ export function OfflineSyncPanel() {
                 value={skipVisibility.imageSyncCandidateCount}
               />
               <SyncCount
-                label="mp4 video"
+                label="MP4/MOV video"
                 value={skipVisibility.videoSyncCandidateCount}
               />
               <SyncCount
@@ -300,7 +300,7 @@ export function OfflineSyncPanel() {
               Blob未保存のvideoは、オフラインでは本体を再生できません。
               オンライン時はGoogle接続とDrive streaming sessionが有効な場合に
               再生対象になります。画像とBlob保存済みの小容量videoは
-              offline-first再生対象です。QuickTime / WebMは未対応のままです。
+              offline-first再生対象です。MP4/MOV以外の動画形式は未対応です。
             </p>
           </div>
         ) : null}
@@ -319,8 +319,7 @@ export function OfflineSyncPanel() {
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
           <p className="font-semibold">今後の対象</p>
           <p className="mt-2">
-            retry policy、自動修復、MOV / QuickTimeのオンライン再生対応、
-            詳細なエラー案内。
+            retry policy、自動修復、追加codecの変換、詳細なエラー案内。
           </p>
         </div>
       </CardContent>

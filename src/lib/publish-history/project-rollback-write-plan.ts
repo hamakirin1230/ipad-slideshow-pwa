@@ -1,4 +1,4 @@
-import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "../drive-video-policy";
+import { getDriveVideoStorageDisposition } from "../drive-video-policy";
 import {
   parseProjectManifest,
   type DriveFileCandidate,
@@ -488,9 +488,12 @@ function sameProjectIdentity(
 }
 
 function deriveRemoteOnly(mimeType: string, sizeBytes: number | null) {
+  if (sizeBytes === null) {
+    return mimeType.startsWith("video/");
+  }
+
   return (
-    mimeType.startsWith("video/") &&
-    (sizeBytes === null || sizeBytes > DRIVE_VIDEO_OFFLINE_MAX_BYTES)
+    getDriveVideoStorageDisposition({ mimeType, sizeBytes }) === "remoteOnly"
   );
 }
 

@@ -32,17 +32,29 @@ import { Button } from "@/components/ui/button";
 import { DriveStatusSummary } from "@/components/drive-status-summary";
 import type { OfflinePlaybackSlide } from "@/lib/offline-playback-snapshot";
 import type { OfflinePublicationProvenanceView } from "@/lib/offline-publication-provenance";
+import {
+  isSupportedDriveVideoMimeType,
+  type SupportedDriveVideoMimeType,
+} from "@/lib/drive-video-policy";
 import { useAppState } from "@/app/app-providers";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
 import {
   canApplyRemoteVideoResult,
   canRetryRemoteVideoPlayback,
+  buildPlayerDriveVideoSessionRegistration,
   createRemoteVideoRetryOwnerKey,
+  getPlayerSlideMediaKind,
   getPlayerVideoUnavailableCopy,
   getPlayerVideoUnavailableReason,
+  getRemoteVideoCanPlayTypeLabel,
   getRemoteVideoRetryGuidance,
   isCurrentVideoSourceIdentity,
+  isValidRemoteVideoFileSize,
+  normalizeRemoteVideoContentTypeLabel,
+  normalizeRemoteVideoResponseContentType,
   type PlayerRemoteVideoRetryStatus,
+  type RemoteVideoCanPlayTypeLabel,
+  type RemoteVideoContentTypeLabel,
 } from "./player-video-playback-state";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
@@ -54,7 +66,6 @@ const PLAYER_REMOTE_VIDEO_SESSION_TTL_MS = 45 * 60 * 1000;
 const PLAYER_REMOTE_VIDEO_METADATA_TIMEOUT_MS = 15_000;
 const PLAYER_REMOTE_VIDEO_START_TIMEOUT_MS = 20_000;
 const PLAYER_REMOTE_VIDEO_STALL_TIMEOUT_MS = 30_000;
-const PLAYER_REMOTE_VIDEO_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 const PLAYER_VIDEO_CONTROLS_HIDE_DELAY_MS = 5_000;
 const PLAYER_VIDEO_FALLBACK_DISPLAY_MS = 1_500;
 const PLAYER_VIDEO_MAX_FALLBACK_MS = 60_000;
@@ -82,12 +93,12 @@ type PlayerSlideVideo = {
   objectUrl?: string;
   sourceUrl: string;
   sourceKind: "offline" | "remote";
+  mimeType: SupportedDriveVideoMimeType;
   sessionId?: string;
   durationMs?: number;
   durationSeconds?: number;
 };
 
-type PlayerSlideMediaKind = "image" | "video" | "unsupported";
 type PlayerSlideImageStatus = "idle" | "ready" | "error";
 type PlayerSlideVideoStatus = "idle" | "ready" | "error";
 type PlayerRemoteVideoRetryState = {
@@ -103,7 +114,6 @@ type OnlineVideoPlaybackStatus =
   | "playing"
   | "skipped"
   | "error";
-type RemoteVideoContentTypeLabel = "video/mp4" | "missing" | "other";
 type RemoteVideoRangeRequestLabel = "present" | "absent";
 type RemoteVideoHeaderSourceLabel = "present" | "synthesized" | "absent";
 type RemoteVideoRangeWindowLabel = "capped" | "full" | "none";
@@ -121,7 +131,6 @@ type RemoteVideoUpstreamRangeStatusLabel =
   | "ignored"
   | "not-requested"
   | "unknown";
-type RemoteVideoCanPlayTypeLabel = "probably" | "maybe" | "empty";
 type RemoteVideoBufferedAheadLabel =
   | "none"
   | "0-2s"
@@ -649,6 +658,12 @@ export default function PlayerPage() {
     slideCount > 0 &&
     currentSlide !== null;
   const currentSlideMediaKind = getPlayerSlideMediaKind(currentSlide);
+  const currentSlideVideoMimeType =
+    currentSlideMediaKind === "video" &&
+    currentSlide &&
+    isSupportedDriveVideoMimeType(currentSlide.mimeType)
+      ? currentSlide.mimeType
+      : null;
   const isCurrentRemoteVideo =
     currentSlideMediaKind === "video" &&
     currentSlide?.offlineAvailability === "remoteOnly";
@@ -703,6 +718,8 @@ export default function PlayerPage() {
   const videoUnavailableReason = getPlayerVideoUnavailableReason({
     isCurrentRemoteVideo,
     isOnline,
+    hasMediaPlaybackFailure:
+      videoStatus === "error" && displayedSlideVideo !== null,
   });
   const videoUnavailableCopy = getPlayerVideoUnavailableCopy(
     videoUnavailableReason,
@@ -986,6 +1003,7 @@ export default function PlayerPage() {
   useEffect(() => {
     if (
       currentSlideMediaKind !== "video" ||
+      !currentSlideVideoMimeType ||
       isCurrentRemoteVideo ||
       !currentSlideBlob ||
       !currentSlideImageSlideId ||
@@ -1025,6 +1043,7 @@ export default function PlayerPage() {
       objectUrl: nextObjectUrl,
       sourceUrl: nextObjectUrl,
       sourceKind: "offline",
+      mimeType: currentSlideVideoMimeType,
       slideId: currentSlideImageSlideId,
       assetId: currentSlideImageAssetId,
       assetName: currentSlideImageAssetName ?? "現在のスライド動画",
@@ -1083,6 +1102,7 @@ export default function PlayerPage() {
     currentSlideImageAssetName,
     currentSlideImageSlideId,
     currentSlideMediaKind,
+    currentSlideVideoMimeType,
     currentSlideVideoDurationMs,
     currentSlideDurationSeconds,
     currentSlidePlaybackKey,
@@ -1097,6 +1117,7 @@ export default function PlayerPage() {
     if (
       !isCurrentRemoteVideo ||
       !currentSlide ||
+      !currentSlideVideoMimeType ||
       !currentSlidePlaybackKey ||
       !currentRemoteVideoRetryOwnerKey ||
       !currentSlideImageSlideId ||
@@ -1191,6 +1212,20 @@ export default function PlayerPage() {
     }
 
     const sessionId = createPlayerVideoSessionId();
+    const sessionRegistration = buildPlayerDriveVideoSessionRegistration({
+      sessionId,
+      assetFileId: currentSlide.sourceDriveFileId,
+      mimeType: currentSlideVideoMimeType,
+      fileSize: remoteVideoFileSize,
+      expiresAt: Date.now() + PLAYER_REMOTE_VIDEO_SESSION_TTL_MS,
+    });
+
+    if (!sessionRegistration) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const sourceUrl = buildPlayerVideoStreamSourceUrl(sessionId);
     const probeController = new AbortController();
     remoteVideoSessionIdRef.current = sessionId;
@@ -1208,68 +1243,65 @@ export default function PlayerPage() {
       setRemoteVideoMediaDiagnostics(null);
     });
 
-    void registerDriveVideoPlaybackSession({
-      sessionId,
-      assetFileId: currentSlide.sourceDriveFileId,
-      mimeType: "video/mp4",
-      fileSize: remoteVideoFileSize,
-      expiresAt: Date.now() + PLAYER_REMOTE_VIDEO_SESSION_TTL_MS,
-    }).then((result) => {
-      if (cancelled) {
-        releaseRemoteVideoSession(sessionId);
-        return;
-      }
+    void registerDriveVideoPlaybackSession(sessionRegistration).then(
+      (result) => {
+        if (cancelled) {
+          releaseRemoteVideoSession(sessionId);
+          return;
+        }
 
-      if (!result.ok) {
-        setOnlineVideoPlaybackStatus("skipped");
-        setOnlineVideoPlaybackMessage(
-          getOnlineVideoRegistrationFailureMessage(result.reason),
-        );
-        markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
-        setVideoStatus("error");
+        if (!result.ok) {
+          setOnlineVideoPlaybackStatus("skipped");
+          setOnlineVideoPlaybackMessage(
+            getOnlineVideoRegistrationFailureMessage(result.reason),
+          );
+          markVideoSlideAdvanceHandled(currentSlidePlaybackKey, "fallback");
+          setVideoStatus("error");
+          completeRemoteVideoRetry(
+            currentRemoteVideoRetryOwnerKey,
+            setupGeneration,
+            "failed",
+            cancelled,
+          );
+          return;
+        }
+
+        const nextVideo: PlayerSlideVideo = {
+          sourceUrl,
+          sourceKind: "remote",
+          mimeType: currentSlideVideoMimeType,
+          sessionId,
+          slideId: currentSlideImageSlideId,
+          assetId: currentSlideImageAssetId,
+          assetName: currentSlide.assetName ?? "オンライン動画",
+          ...(typeof currentSlideVideoDurationMs === "number"
+            ? { durationMs: currentSlideVideoDurationMs }
+            : {}),
+          durationSeconds: currentSlideDurationSeconds,
+        };
+
+        revokeSlideVideo(displayedSlideVideoRef.current);
+        displayedSlideVideoRef.current = nextVideo;
+        setDisplayedSlideVideo(nextVideo);
+        setVideoStatus("ready");
+        setOnlineVideoPlaybackStatus("registered");
+        setOnlineVideoPlaybackMessage("stream session: registered");
         completeRemoteVideoRetry(
           currentRemoteVideoRetryOwnerKey,
           setupGeneration,
-          "failed",
+          "idle",
           cancelled,
         );
-        return;
-      }
 
-      const nextVideo: PlayerSlideVideo = {
-        sourceUrl,
-        sourceKind: "remote",
-        sessionId,
-        slideId: currentSlideImageSlideId,
-        assetId: currentSlideImageAssetId,
-        assetName: currentSlide.assetName ?? "オンライン動画",
-        ...(typeof currentSlideVideoDurationMs === "number"
-          ? { durationMs: currentSlideVideoDurationMs }
-          : {}),
-        durationSeconds: currentSlideDurationSeconds,
-      };
-
-      revokeSlideVideo(displayedSlideVideoRef.current);
-      displayedSlideVideoRef.current = nextVideo;
-      setDisplayedSlideVideo(nextVideo);
-      setVideoStatus("ready");
-      setOnlineVideoPlaybackStatus("registered");
-      setOnlineVideoPlaybackMessage("stream session: registered");
-      completeRemoteVideoRetry(
-        currentRemoteVideoRetryOwnerKey,
-        setupGeneration,
-        "idle",
-        cancelled,
-      );
-
-      void probeRemoteVideoStream(sourceUrl, probeController.signal).then(
-        (diagnostics) => {
-          if (!cancelled) {
-            setRemoteVideoProbeDiagnostics(diagnostics);
-          }
-        },
-      );
-    });
+        void probeRemoteVideoStream(sourceUrl, probeController.signal).then(
+          (diagnostics) => {
+            if (!cancelled) {
+              setRemoteVideoProbeDiagnostics(diagnostics);
+            }
+          },
+        );
+      },
+    );
 
     return () => {
       cancelled = true;
@@ -1286,6 +1318,7 @@ export default function PlayerPage() {
     currentSlideImageAssetId,
     currentSlideImageSlideId,
     currentSlidePlaybackKey,
+    currentSlideVideoMimeType,
     currentRemoteVideoRetryOwnerKey,
     currentSlideVideoDurationMs,
     currentSlideDurationSeconds,
@@ -2697,9 +2730,10 @@ function PlayerVideoSlide({
 
       onRemoteMediaDiagnostics(slideKey, video.sourceUrl, {
         eventName,
-        canPlayType: normalizeCanPlayType(
-          videoElement.canPlayType("video/mp4"),
-        ),
+        canPlayType: getRemoteVideoCanPlayTypeLabel({
+          mimeType: video.mimeType,
+          canPlayType: (mimeType) => videoElement.canPlayType(mimeType),
+        }),
         errorCode: videoElement.error?.code ?? null,
         readyState: videoElement.readyState,
         networkState: videoElement.networkState,
@@ -2992,6 +3026,7 @@ function PlayerVideoSlide({
     slideKey,
     video.durationMs,
     video.durationSeconds,
+    video.mimeType,
     video.sourceKind,
     video.sourceUrl,
   ]);
@@ -3567,7 +3602,7 @@ function buildOnlineVideoDiagnostics(input: {
 
   if (input.mediaDiagnostics) {
     diagnostics.push(
-      `media canPlayType video/mp4: ${input.mediaDiagnostics.canPlayType}`,
+      `media canPlayType ${input.currentSlide?.mimeType ?? "video"}: ${input.mediaDiagnostics.canPlayType}`,
       `media error: ${input.mediaDiagnostics.errorLabel ?? "none"}`,
       `media readyState: ${input.mediaDiagnostics.readyState}`,
       `media networkState: ${input.mediaDiagnostics.networkState}`,
@@ -3702,12 +3737,6 @@ function normalizeRemoteVideoUpstreamRangeStatusLabel(
   return "unknown";
 }
 
-function normalizeRemoteVideoContentTypeLabel(
-  value: unknown,
-): RemoteVideoContentTypeLabel {
-  return value === "video/mp4" || value === "other" ? value : "missing";
-}
-
 async function probeRemoteVideoStream(
   sourceUrl: string,
   signal: AbortSignal,
@@ -3748,7 +3777,9 @@ async function probeRemoteVideoStream(
   return {
     status: response.status,
     rangeRequest: "present",
-    contentType: normalizeProbeContentType(response.headers.get("Content-Type")),
+    contentType: normalizeRemoteVideoResponseContentType(
+      response.headers.get("Content-Type"),
+    ),
     contentRange: normalizeRemoteVideoHeaderSourceLabel(
       response.headers.get("X-Drive-Video-Content-Range-Source"),
       response.headers.has("Content-Range"),
@@ -3771,25 +3802,6 @@ async function probeRemoteVideoStream(
     ),
     hasContentLength: response.headers.has("Content-Length"),
   };
-}
-
-function normalizeProbeContentType(
-  value: string | null,
-): RemoteVideoContentTypeLabel {
-  if (!value) {
-    return "missing";
-  }
-
-  const normalizedValue = value.split(";")[0]?.trim().toLowerCase() ?? "";
-  return normalizedValue === "video/mp4" ? "video/mp4" : "other";
-}
-
-function normalizeCanPlayType(value: string): RemoteVideoCanPlayTypeLabel {
-  if (value === "probably" || value === "maybe") {
-    return value;
-  }
-
-  return "empty";
 }
 
 function getMediaErrorLabel(errorCode: number | null): string | null {
@@ -3957,17 +3969,6 @@ function getVideoDurationOverrideSeconds(input: {
   return configured;
 }
 
-function isValidRemoteVideoFileSize(
-  value: number | undefined,
-): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value > 0 &&
-    value <= PLAYER_REMOTE_VIDEO_MAX_FILE_SIZE_BYTES
-  );
-}
-
 function createPlayerVideoSessionId() {
   if (typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -3992,26 +3993,6 @@ function getOnlineVideoRegistrationFailureMessage(reason: string) {
     default:
       return "online video playback error: stream session registration failed";
   }
-}
-
-function getPlayerSlideMediaKind(
-  slide: OfflinePlaybackSlide | null,
-): PlayerSlideMediaKind {
-  if (!slide) {
-    return "image";
-  }
-
-  const slideType = slide.type ?? "image";
-
-  if (slide.unsupportedReason) {
-    return "unsupported";
-  }
-
-  if (slideType !== "video") {
-    return "image";
-  }
-
-  return slide.mimeType === "video/mp4" ? "video" : "unsupported";
 }
 
 function getPlayerSlidePlaybackKey(slide: { slideId: string; assetId: string }) {

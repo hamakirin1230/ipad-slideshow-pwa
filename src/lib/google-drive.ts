@@ -2,6 +2,10 @@ import {
   parseProjectManifestPublication,
   type ProjectManifestPublication,
 } from "./publish-history/project-manifest-publication";
+import {
+  isSupportedDriveVideoMimeType,
+  type SupportedDriveVideoMimeType,
+} from "./drive-video-policy";
 
 const DRIVE_API_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_API_UPLOAD_FILES_URL =
@@ -32,7 +36,7 @@ export const DRIVE_PROJECT_DEFAULT_SLIDE_DURATION_SECONDS = 10;
 const DRIVE_PROJECT_ASSET_PREVIEW_SIZE_LIMIT_BYTES = 10 * 1024 * 1024;
 const DRIVE_PROJECT_UNUSED_ASSET_SCAN_LIMIT = 500;
 const DRIVE_PROJECT_UNUSED_ASSET_DELETE_PREFLIGHT_LIMIT = 50;
-const DRIVE_RESUMABLE_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+export const DRIVE_RESUMABLE_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 
 const CREATE_FOLDER_FIELDS =
   "id,name,mimeType,createdTime,modifiedTime,appProperties";
@@ -128,8 +132,7 @@ export type DriveAssetMimeType =
   | "image/jpeg"
   | "image/png"
   | "image/webp"
-  | "video/mp4"
-  | "video/quicktime";
+  | SupportedDriveVideoMimeType;
 export type DriveAssetDownloadMimeType = DriveAssetMimeType;
 export type DriveAssetSource = "googlePhotosPicker" | "localFile";
 export type DriveAssetUploadType = "multipart" | "resumable";
@@ -7173,8 +7176,7 @@ function isDriveAssetMimeType(value: string): value is DriveAssetMimeType {
     value === "image/jpeg" ||
     value === "image/png" ||
     value === "image/webp" ||
-    value === "video/mp4" ||
-    value === "video/quicktime"
+    isSupportedDriveVideoMimeType(value)
   );
 }
 
@@ -7217,7 +7219,7 @@ function validateDriveManifestAssetMimeType(input: {
     return undefined;
   }
 
-  if (input.mimeType === "video/mp4") {
+  if (isSupportedDriveVideoMimeType(input.mimeType)) {
     return undefined;
   }
 
@@ -7527,16 +7529,17 @@ async function createDriveProjectAssetFileResumable(input: {
   while (offset < totalBytes) {
     input.signal.throwIfAborted();
 
-    const endExclusive = Math.min(
-      offset + DRIVE_RESUMABLE_UPLOAD_CHUNK_BYTES,
+    const chunkWindow = getDriveResumableUploadChunkWindow({
+      offset,
       totalBytes,
-    );
+    });
+    const { endExclusive } = chunkWindow;
     const chunk = input.blob.slice(offset, endExclusive, input.metadata.mimeType);
     const response = await fetch(sessionUrl, {
       method: "PUT",
       headers: {
         "Content-Type": input.metadata.mimeType,
-        "Content-Range": `bytes ${offset}-${endExclusive - 1}/${totalBytes}`,
+        "Content-Range": chunkWindow.contentRange,
       },
       body: chunk,
       signal: input.signal,
@@ -7564,6 +7567,32 @@ async function createDriveProjectAssetFileResumable(input: {
   }
 
   throw new Error("Drive resumable upload completed without a final response.");
+}
+
+export function getDriveResumableUploadChunkWindow(input: {
+  offset: number;
+  totalBytes: number;
+}) {
+  if (
+    !Number.isSafeInteger(input.offset) ||
+    !Number.isSafeInteger(input.totalBytes) ||
+    input.offset < 0 ||
+    input.totalBytes <= 0 ||
+    input.offset >= input.totalBytes
+  ) {
+    throw new Error("Drive resumable upload chunk range is invalid.");
+  }
+
+  const endExclusive = Math.min(
+    input.offset + DRIVE_RESUMABLE_UPLOAD_CHUNK_BYTES,
+    input.totalBytes,
+  );
+
+  return {
+    start: input.offset,
+    endExclusive,
+    contentRange: `bytes ${input.offset}-${endExclusive - 1}/${input.totalBytes}`,
+  };
 }
 
 async function createDriveResumableUploadSession(input: {

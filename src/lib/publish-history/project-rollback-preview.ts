@@ -1,4 +1,7 @@
-import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "../drive-video-policy";
+import {
+  getDriveVideoStorageDisposition,
+  isSupportedDriveVideoMimeType,
+} from "../drive-video-policy";
 import type {
   DriveFileCandidate,
   DriveSlideSummary,
@@ -404,10 +407,11 @@ function deriveOfflineDisposition(
   ) {
     return "offlineEligible";
   }
-  if (mimeType !== "video/mp4" || sizeBytes === null) return "unavailable";
-  return sizeBytes <= DRIVE_VIDEO_OFFLINE_MAX_BYTES
-    ? "offlineEligible"
-    : "remoteOnly";
+  const disposition = getDriveVideoStorageDisposition({
+    mimeType,
+    sizeBytes,
+  });
+  return disposition === "unsupported" ? "unavailable" : disposition;
 }
 
 function isSupportedRollbackMime(mimeType: string) {
@@ -415,7 +419,7 @@ function isSupportedRollbackMime(mimeType: string) {
     mimeType === "image/jpeg" ||
     mimeType === "image/png" ||
     mimeType === "image/webp" ||
-    mimeType === "video/mp4"
+    isSupportedDriveVideoMimeType(mimeType)
   );
 }
 

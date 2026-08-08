@@ -99,8 +99,8 @@ export function AssetImportPanel() {
       ) : null}
 
       <p className="mt-3 text-slate-500">
-        Google Photos Pickerは写真追加が主目的です。video/mp4は、Google Photos
-        Pickerではなく「動画ファイルから追加」を推奨します。
+        Google Photos Pickerは写真追加が主目的です。video/mp4またはMOVは、Google
+        Photos Pickerではなく「動画ファイルから追加」を推奨します。
       </p>
 
       <div className="mt-4 border-t border-slate-200 pt-4">
@@ -108,7 +108,7 @@ export function AssetImportPanel() {
         <p className="mt-2 text-slate-500">
           端末上のvideo/mp4またはMOVファイルをDrive assets/
           へ保存してmanifest.jsonへ反映します。大容量動画はDrive保存とmanifest登録のみ行い、offline保存対象外としてskipされます。1回の上限は
-          {assetImportMaxBatchCount}件、1ファイル2GB以下です。
+          {assetImportMaxBatchCount}件、1ファイル5GB以下です。
         </p>
       </div>
 

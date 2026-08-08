@@ -1,4 +1,4 @@
-import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "../drive-video-policy";
+import { getDriveVideoStorageDisposition } from "../drive-video-policy";
 import {
   readDriveFileMetadata,
   readDriveTextFile,
@@ -506,9 +506,10 @@ async function loadReferencedAssetMetadata(input: {
       checksum: metadata.checksum ?? null,
       remoteOnly:
         slide.type === "video" &&
-        metadata.mimeType === "video/mp4" &&
-        sizeBytes !== null &&
-        sizeBytes > DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+        getDriveVideoStorageDisposition({
+          mimeType: metadata.mimeType,
+          sizeBytes,
+        }) === "remoteOnly",
       trashed: metadata.trashed ?? false,
       role: "asset",
       workspaceId: input.input.workspaceId,

@@ -4,6 +4,7 @@ import type {
   DriveSlideSummary,
   ProjectManifest,
 } from "../google-drive";
+import { DRIVE_VIDEO_MAX_BYTES } from "../drive-video-policy";
 import {
   deriveProjectPublishRevisionSummary,
   getProjectManifestContentCanonicalHash,
@@ -278,6 +279,96 @@ describe("buildProjectRollbackPreview", () => {
     expect(large.readiness).toBe("ready");
     expect(large.assets[0].offlineDisposition).toBe("remoteOnly");
     expect(large.warnings.join(" ")).toContain("offlineでは利用できません");
+  });
+
+  it("classifies MOV as supported and preserves its MIME through rollback preview", () => {
+    const videoSlide = slide({
+      assetId: VIDEO_ASSET_ID,
+      assetFileId: VIDEO_FILE_ID,
+      assetName: "video.mov",
+      type: "video",
+      mimeType: "video/quicktime",
+      sourceMimeType: "video/quicktime",
+      durationMs: 30_000,
+    });
+    const savedVideo = {
+      assetId: VIDEO_ASSET_ID,
+      driveFileId: VIDEO_FILE_ID,
+      mimeType: "video/quicktime",
+      sizeBytes: DRIVE_VIDEO_MAX_BYTES,
+      modifiedTime: "2026-07-20T00:00:00.000Z",
+      checksum: "video-checksum",
+      remoteOnly: true,
+    };
+    const freshVideo = metadata({
+      id: VIDEO_FILE_ID,
+      name: "stored-video.mov",
+      mimeType: "video/quicktime",
+      sizeBytes: DRIVE_VIDEO_MAX_BYTES,
+      checksum: "video-checksum",
+      appProperties: {
+        ...metadata().appProperties,
+        assetId: VIDEO_ASSET_ID,
+      },
+    });
+
+    const result = previewFixture({
+      targetManifest: manifest("Current title", [videoSlide]),
+      targetAssets: [savedVideo],
+      freshAssets: [{ assetId: VIDEO_ASSET_ID, metadata: freshVideo }],
+    });
+
+    expect(result.assets[0]).toMatchObject({
+      mimeType: "video/quicktime",
+      offlineDisposition: "remoteOnly",
+    });
+    expect(result.assets[0]?.sanitizedReasons.join(" ")).not.toContain(
+      "対応していないMIME",
+    );
+  });
+
+  it("marks a MOV above 5 GiB unavailable during rollback preview", () => {
+    const videoSlide = slide({
+      assetId: VIDEO_ASSET_ID,
+      assetFileId: VIDEO_FILE_ID,
+      assetName: "video.mov",
+      type: "video",
+      mimeType: "video/quicktime",
+      sourceMimeType: "video/quicktime",
+    });
+    const sizeBytes = DRIVE_VIDEO_MAX_BYTES + 1;
+    const result = previewFixture({
+      targetManifest: manifest("Current title", [videoSlide]),
+      targetAssets: [
+        {
+          assetId: VIDEO_ASSET_ID,
+          driveFileId: VIDEO_FILE_ID,
+          mimeType: "video/quicktime",
+          sizeBytes,
+          modifiedTime: "2026-07-20T00:00:00.000Z",
+          checksum: "video-checksum",
+          remoteOnly: false,
+        },
+      ],
+      freshAssets: [
+        {
+          assetId: VIDEO_ASSET_ID,
+          metadata: metadata({
+            id: VIDEO_FILE_ID,
+            name: "stored-video.mov",
+            mimeType: "video/quicktime",
+            sizeBytes,
+            checksum: "video-checksum",
+            appProperties: {
+              ...metadata().appProperties,
+              assetId: VIDEO_ASSET_ID,
+            },
+          }),
+        },
+      ],
+    });
+
+    expect(result.assets[0]?.offlineDisposition).toBe("unavailable");
   });
 
   it("treats a video with missing fresh size as unverifiable, not content loss", () => {

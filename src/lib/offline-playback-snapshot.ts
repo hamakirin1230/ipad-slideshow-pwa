@@ -20,6 +20,10 @@ import {
   getOfflinePublicationProvenanceView,
   type OfflinePublicationProvenanceView,
 } from "@/lib/offline-publication-provenance";
+import {
+  isSupportedDriveVideoMimeType,
+  type SupportedDriveVideoMimeType,
+} from "@/lib/drive-video-policy";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
 const MIN_SLIDE_DURATION_SECONDS = 1;
@@ -56,7 +60,7 @@ export type OfflinePlaybackSlide =
     })
   | (OfflinePlaybackSlideBase & {
       type: "video";
-      mimeType: "video/mp4";
+      mimeType: SupportedDriveVideoMimeType;
       offlineAvailability: "remoteOnly";
       unsupportedReason?: undefined;
     })
@@ -565,7 +569,7 @@ function toOfflinePlaybackSlide(input: {
   if (input.asset.blobStatus === "missing") {
     if (
       baseSlide.type === "video" &&
-      baseSlide.mimeType === "video/mp4" &&
+      isSupportedDriveVideoMimeType(baseSlide.mimeType) &&
       !baseSlide.unsupportedReason
     ) {
       return {
@@ -579,7 +583,7 @@ function toOfflinePlaybackSlide(input: {
         sourceDriveFileId: baseSlide.sourceDriveFileId,
         sourceSizeBytes: baseSlide.sourceSizeBytes,
         type: "video",
-        mimeType: "video/mp4",
+        mimeType: baseSlide.mimeType,
         offlineAvailability: "remoteOnly",
       };
     }

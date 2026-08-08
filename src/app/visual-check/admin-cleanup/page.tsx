@@ -120,14 +120,13 @@ const mockAssets: MockCleanupAsset[] = [
     mimeType: "video/quicktime",
     size: "42.9 MB",
     durationMs: "305000 ms / 305秒",
-    unsupportedReason:
-      "unsupportedVideoMimeType: quicktime is recognized for admin review but playback download offline storage are not implemented",
+    unsupportedReason: "なし",
     createdTime: "2026-06-27T10:00:00.000+09:00 mock-created",
     modifiedTime: "2026-06-27T10:05:00.000+09:00 mock-modified",
     references: "0",
     status: "blocked",
     blockedReason:
-      "unsupportedVideoMimeType, video playback not implemented yet, visual check only",
+      "video/quicktime offline staging candidate; cleanup delete remains image-only",
   },
   {
     assetName:
@@ -189,20 +188,20 @@ const screenshotNotes = [
 const offlineSyncSkipSummary = [
   { label: "manifest slides", value: "7" },
   { label: "image Blob保存対象", value: "2" },
-  { label: "mp4 video", value: "1" },
-  { label: "video Blob保存済み", value: "1" },
-  { label: "video Blob未保存", value: "4" },
+  { label: "MP4/MOV video", value: "2" },
+  { label: "video Blob保存済み", value: "2" },
+  { label: "video Blob未保存", value: "3" },
   { label: "remoteOnly video", value: "1" },
-  { label: "未対応素材", value: "3" },
-  { label: "staging slides", value: "3" },
+  { label: "未対応素材", value: "2" },
+  { label: "staging slides", value: "4" },
 ];
 
 const offlineSyncSkipDiagnostics = [
   "image synced: mock image/jpeg row",
   "image synced: mock image/webp row",
   "video/mp4 synced: mock small mp4 within 50 MB offline limit",
+  "video/quicktime synced: mock small MOV within 50 MB offline limit",
   "video/mp4 skipped: mock too large file exceeds offline limit",
-  "video/quicktime skipped unsupported: unsupportedVideoMimeType",
   "video/webm skipped unsupported: unsupportedVideoMimeType",
   "video/mp4 skipped: mock missing size metadata",
   "unknown mimeType unsupported: unsupportedMimeType",
@@ -318,7 +317,7 @@ export default function AdminCleanupVisualCheckPage() {
               <div>
                 <CardTitle>offline sync video staging mock</CardTitle>
                 <CardDescription className="text-sky-900">
-                  video/mp4 が容量上限内だけoffline保存対象になり、
+                  MP4/MOV が容量上限内だけoffline保存対象になり、
                   too large / unsupported / missing size がskipされる状態を確認します。
                 </CardDescription>
               </div>
@@ -340,8 +339,8 @@ export default function AdminCleanupVisualCheckPage() {
               <p className="font-semibold text-sky-950">Phase 6A status</p>
               <p className="mt-2 text-sm leading-6 text-sky-900">
                 画像assetは従来どおりstaging / confirmed storeへ進みます。
-                video/mp4 は50MB以下の場合だけoffline保存対象です。
-                QuickTime / WebM / 上限超過 / size不明videoのskipは削除対象でもsync失敗でもありません。
+                MP4/MOV は50MB以下の場合だけoffline保存対象です。
+                WebM / 上限超過 / size不明videoのskipは削除対象でもsync失敗でもありません。
               </p>
             </div>
             <div className="max-w-full overflow-x-auto rounded-lg border border-sky-200 bg-white">

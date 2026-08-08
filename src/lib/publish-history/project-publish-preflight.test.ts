@@ -602,6 +602,30 @@ describe("asset metadata", () => {
     expect(result.warnings.some((warning) => warning.code === "remoteOnlyAsset")).toBe(true);
   });
 
+  it("allows a correctly derived remoteOnly MOV without losing source MIME", () => {
+    const input = buildInput();
+    const videoSlide = input.manifest.slides[1];
+    if (!videoSlide) throw new Error("video fixture missing");
+    videoSlide.assetName = "video-a.mov";
+    videoSlide.mimeType = "video/quicktime";
+    videoSlide.sourceMimeType = "video/quicktime";
+    input.assets[1].mimeType = "video/quicktime";
+    const hash = getProjectManifestCanonicalHash(input.manifest);
+    input.sourceManifest.canonicalHash = hash;
+    input.expectedCurrent.manifestCanonicalHash = hash;
+
+    const result = expectSuccess(input);
+
+    expect(result.plan.revisionFile.body.manifest.slides[1]).toMatchObject({
+      mimeType: "video/quicktime",
+      sourceMimeType: "video/quicktime",
+    });
+    expect(result.plan.revisionFile.body.assets[1]).toMatchObject({
+      mimeType: "video/quicktime",
+      remoteOnly: true,
+    });
+  });
+
   it("allows duplicate slide references to the same consistent asset", () => {
     const input = buildInput();
     input.manifest.slides.push({

@@ -1,7 +1,7 @@
 const APP_CACHE_NAME = "ipad-slideshow-pwa-app-shell-v1";
 const DRIVE_VIDEO_STREAM_PATH_PREFIX = "/__drive-video-stream/";
 const DRIVE_VIDEO_SESSION_MAX_TTL_MS = 45 * 60 * 1000;
-const DRIVE_VIDEO_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
+const DRIVE_VIDEO_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024 * 1024;
 const DRIVE_VIDEO_STREAM_CHUNK_SIZE_BYTES = 32 * 1024 * 1024;
 const DRIVE_API_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_VIDEO_CONTENT_RANGE_SOURCE_HEADER =
@@ -60,8 +60,7 @@ function normalizeFutureExpiry(value) {
 
 function normalizeDriveVideoFileSize(value) {
   if (
-    !Number.isFinite(value) ||
-    !Number.isInteger(value) ||
+    !Number.isSafeInteger(value) ||
     value <= 0 ||
     value > DRIVE_VIDEO_MAX_FILE_SIZE_BYTES
   ) {
@@ -69,6 +68,10 @@ function normalizeDriveVideoFileSize(value) {
   }
 
   return value;
+}
+
+function isSupportedDriveVideoMimeType(value) {
+  return value === "video/mp4" || value === "video/quicktime";
 }
 
 function registerDriveVideoSession(payload) {
@@ -94,7 +97,7 @@ function registerDriveVideoSession(payload) {
     assetFileId.length === 0 ||
     typeof accessToken !== "string" ||
     accessToken.length === 0 ||
-    mimeType !== "video/mp4" ||
+    !isSupportedDriveVideoMimeType(mimeType) ||
     normalizedFileSize === null ||
     normalizedExpiresAt === null ||
     normalizedExpiresAt <= nowMs()
@@ -408,7 +411,9 @@ function safeContentTypeLabel(contentType) {
   const normalizedContentType =
     contentType.split(";")[0]?.trim().toLowerCase() ?? "";
 
-  return normalizedContentType === "video/mp4" ? "video/mp4" : "other";
+  return isSupportedDriveVideoMimeType(normalizedContentType)
+    ? normalizedContentType
+    : "other";
 }
 
 function buildDriveVideoStreamStatusPayload(input) {

@@ -271,6 +271,38 @@ describe("parseProjectPublishRevision", () => {
     expect(parseProjectPublishRevision(revision).ok).toBe(true);
   });
 
+  it("preserves MOV MIME and source information through publish revision parsing", () => {
+    const revision = buildRevision();
+    const videoSlide = revision.manifest.slides[1];
+    const videoAsset = revision.assets[1];
+    if (!videoSlide || !videoAsset) throw new Error("video fixture missing");
+    videoSlide.assetName = "video-a.mov";
+    videoSlide.mimeType = "video/quicktime";
+    videoSlide.sourceMimeType = "video/quicktime";
+    videoAsset.mimeType = "video/quicktime";
+    revision.sourceManifestCanonicalHash =
+      getProjectManifestCanonicalHash(revision.manifest);
+    revision.summary = deriveProjectPublishRevisionSummary(
+      revision.manifest,
+      revision.assets,
+    );
+
+    const result = parseProjectPublishRevision(revision);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.manifest.slides[1]).toMatchObject({
+      type: "video",
+      assetName: "video-a.mov",
+      mimeType: "video/quicktime",
+      sourceMimeType: "video/quicktime",
+    });
+    expect(result.value.manifest.slides[1]).not.toHaveProperty(
+      "unsupportedReason",
+    );
+    expect(result.value.assets[1]?.mimeType).toBe("video/quicktime");
+  });
+
   it.each([
     ["missing", undefined],
     ["string", "1"],

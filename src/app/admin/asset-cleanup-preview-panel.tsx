@@ -919,7 +919,7 @@ function getUnsupportedReasonLabel(mimeType: string | null) {
     return "なし";
   }
 
-  if (mimeType === "video/mp4") {
+  if (mimeType === "video/mp4" || mimeType === "video/quicktime") {
     return "なし";
   }
 

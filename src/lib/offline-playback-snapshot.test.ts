@@ -190,3 +190,115 @@ describe("offline playback publication provenance", () => {
     ]);
   });
 });
+
+describe("offline playback MP4/MOV availability", () => {
+  function videoProject(): OfflineProject {
+    return {
+      ...project(),
+      slides: [
+        {
+          slideId: "video-slide",
+          assetId: "video-asset",
+          type: "video",
+          caption: "",
+          durationSeconds: 10,
+          order: 0,
+        },
+      ],
+    };
+  }
+
+  function videoAsset(
+    mimeType: "video/mp4" | "video/quicktime",
+    override: Partial<OfflineAsset> = {},
+  ): OfflineAsset {
+    return {
+      schemaVersion: 1,
+      assetId: "video-asset",
+      projectId: PROJECT_ID,
+      sourceDriveFileId: "dummy-video-file",
+      sourceSizeBytes: 80 * 1024 * 1024,
+      type: "video",
+      blobMimeType: mimeType,
+      blobSizeBytes: 0,
+      blobVariant: "original",
+      blobStatus: "missing",
+      syncedAt: checkedAt,
+      ...override,
+    };
+  }
+
+  it.each(["video/mp4", "video/quicktime"] as const)(
+    "keeps metadata-only %s playable online as remoteOnly",
+    (mimeType) => {
+      const snapshot = build({
+        project: videoProject(),
+        state: { ...state(), slideCount: 1, assetCount: 1 },
+        assets: [videoAsset(mimeType)],
+      });
+
+      expect(snapshot.status).toBe("ready");
+      if (snapshot.status !== "ready") return;
+      expect(snapshot.slides[0]).toMatchObject({
+        type: "video",
+        mimeType,
+        offlineAvailability: "remoteOnly",
+      });
+    },
+  );
+
+  it("keeps an offline MOV Blob and its actual MIME", () => {
+    const blob = new Blob(["movie"], { type: "video/quicktime" });
+    const asset = videoAsset("video/quicktime", {
+      sourceSizeBytes: blob.size,
+      blobSizeBytes: blob.size,
+      blobStatus: "ready",
+    });
+    const blobRecord: OfflineAssetBlobRecord = {
+      schemaVersion: 1,
+      assetId: asset.assetId,
+      projectId: PROJECT_ID,
+      blob,
+      blobMimeType: "video/quicktime",
+      blobSizeBytes: blob.size,
+      blobVariant: "original",
+      syncedAt: checkedAt,
+    };
+    const snapshot = build({
+      project: videoProject(),
+      state: { ...state(), slideCount: 1, assetCount: 1 },
+      assets: [asset],
+      blobs: [blobRecord],
+    });
+
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status !== "ready") return;
+    expect(snapshot.slides[0]).toMatchObject({
+      mimeType: "video/quicktime",
+      offlineAvailability: "offline",
+      blobMimeType: "video/quicktime",
+    });
+  });
+
+  it.each(["video/mp4", "video/quicktime"] as const)(
+    "keeps over-limit %s unavailable rather than remoteOnly",
+    (mimeType) => {
+      const snapshot = build({
+        project: videoProject(),
+        state: { ...state(), slideCount: 1, assetCount: 1 },
+        assets: [
+          videoAsset(mimeType, {
+            unsupportedReason: "videoOfflineTooLarge",
+          }),
+        ],
+      });
+
+      expect(snapshot.status).toBe("ready");
+      if (snapshot.status !== "ready") return;
+      expect(snapshot.slides[0]).toMatchObject({
+        offlineAvailability: "unsupported",
+        unsupportedReason: "videoOfflineTooLarge",
+      });
+    },
+  );
+});

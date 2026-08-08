@@ -415,13 +415,16 @@ describe("unused asset delete preflight MIME and ownership boundary", () => {
     },
   );
 
-  it("keeps video/mp4 blocked", async () => {
-    mockPreflightFetch({ mimeType: "video/mp4" });
-    const result = await runRealPreflight();
-    expect(result.blockedAssets[0].blockedReasons).toContain(
-      "unsupportedMimeType",
-    );
-  });
+  it.each(["video/mp4", "video/quicktime"])(
+    "keeps %s blocked from physical deletion",
+    async (mimeType) => {
+      mockPreflightFetch({ mimeType });
+      const result = await runRealPreflight();
+      expect(result.blockedAssets[0].blockedReasons).toContain(
+        "unsupportedMimeType",
+      );
+    },
+  );
 
   it.each([
     [

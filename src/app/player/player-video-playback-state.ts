@@ -1,3 +1,9 @@
+import {
+  isDriveVideoFileSizeWithinLimit,
+  isSupportedDriveVideoMimeType,
+  type SupportedDriveVideoMimeType,
+} from "@/lib/drive-video-policy";
+
 export type PlayerVideoUnavailableReason =
   | "remoteOffline"
   | "remoteConnectionRequired"
@@ -5,15 +11,30 @@ export type PlayerVideoUnavailableReason =
 
 export type PlayerRemoteVideoRetryStatus = "idle" | "retrying" | "failed";
 
+export type PlayerSlideMediaKind = "image" | "video" | "unsupported";
+
+export type RemoteVideoContentTypeLabel =
+  | SupportedDriveVideoMimeType
+  | "missing"
+  | "other";
+
+export type RemoteVideoCanPlayTypeLabel = "probably" | "maybe" | "empty";
+
 export function getPlayerVideoUnavailableReason({
   isCurrentRemoteVideo,
   isOnline,
+  hasMediaPlaybackFailure = false,
 }: {
   isCurrentRemoteVideo: boolean;
   isOnline: boolean | null;
+  hasMediaPlaybackFailure?: boolean;
 }): PlayerVideoUnavailableReason {
   if (isCurrentRemoteVideo && isOnline === false) {
     return "remoteOffline";
+  }
+
+  if (hasMediaPlaybackFailure) {
+    return "playbackFailed";
   }
 
   if (isCurrentRemoteVideo) {
@@ -47,9 +68,91 @@ export function getPlayerVideoUnavailableCopy(
       return {
         title: "この動画を再生できませんでした",
         description:
-          "前後のスライドへ移動するか、管理画面でoffline syncの状態を確認してください。",
+          "この端末で対応していない動画codecの可能性があります。前後のスライドへ移動するか、別形式の動画を使用してください。",
       };
   }
+}
+
+export function getPlayerSlideMediaKind(slide: {
+  type?: "image" | "video";
+  mimeType: string;
+  unsupportedReason?: string;
+} | null): PlayerSlideMediaKind {
+  if (!slide) {
+    return "image";
+  }
+
+  if (slide.unsupportedReason) {
+    return "unsupported";
+  }
+
+  if ((slide.type ?? "image") !== "video") {
+    return "image";
+  }
+
+  return isSupportedDriveVideoMimeType(slide.mimeType)
+    ? "video"
+    : "unsupported";
+}
+
+export function isValidRemoteVideoFileSize(
+  value: number | undefined,
+): value is number {
+  return isDriveVideoFileSizeWithinLimit(value);
+}
+
+export function buildPlayerDriveVideoSessionRegistration(input: {
+  sessionId: string;
+  assetFileId: string;
+  mimeType: string;
+  fileSize: number;
+  expiresAt: number;
+}): {
+  sessionId: string;
+  assetFileId: string;
+  mimeType: SupportedDriveVideoMimeType;
+  fileSize: number;
+  expiresAt: number;
+} | null {
+  if (
+    !isSupportedDriveVideoMimeType(input.mimeType) ||
+    !isValidRemoteVideoFileSize(input.fileSize)
+  ) {
+    return null;
+  }
+
+  return { ...input, mimeType: input.mimeType };
+}
+
+export function normalizeRemoteVideoContentTypeLabel(
+  value: unknown,
+): RemoteVideoContentTypeLabel {
+  if (isSupportedDriveVideoMimeType(typeof value === "string" ? value : "")) {
+    return value as SupportedDriveVideoMimeType;
+  }
+
+  return value === "other" ? "other" : "missing";
+}
+
+export function normalizeRemoteVideoResponseContentType(
+  value: string | null,
+): RemoteVideoContentTypeLabel {
+  if (!value) {
+    return "missing";
+  }
+
+  const normalizedValue = value.split(";")[0]?.trim().toLowerCase() ?? "";
+  return isSupportedDriveVideoMimeType(normalizedValue)
+    ? normalizedValue
+    : "other";
+}
+
+export function getRemoteVideoCanPlayTypeLabel(input: {
+  mimeType: SupportedDriveVideoMimeType;
+  canPlayType: (mimeType: string) => string;
+}): RemoteVideoCanPlayTypeLabel {
+  const value = input.canPlayType(input.mimeType);
+  return value === "probably" || value === "maybe" ? value : "empty";
 }
 
 export function getRemoteVideoRetryGuidance({

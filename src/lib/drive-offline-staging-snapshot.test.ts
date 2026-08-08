@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DriveSlideSummary } from "./google-drive";
-import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "./drive-video-policy";
+import {
+  DRIVE_VIDEO_MAX_BYTES,
+  DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+} from "./drive-video-policy";
 import type { OfflineSyncProgress } from "./offline-sync-progress";
 import {
   getProjectManifestContentCanonicalHash,
@@ -185,13 +188,13 @@ function slide(input: {
   };
 }
 
-function assetMetadata(value: DriveSlideSummary, sizeBytes: number) {
+function assetMetadata(value: DriveSlideSummary, sizeBytes?: number) {
   return {
     id: value.assetFileId,
     name: "stored-name",
     mimeType: value.mimeType,
     modifiedTime: MODIFIED_TIME,
-    size: String(sizeBytes),
+    ...(typeof sizeBytes === "number" ? { size: String(sizeBytes) } : {}),
     parents: [project.assetsFolderId],
     appProperties: {
       app: "ipad-slideshow-pwa",
@@ -239,6 +242,7 @@ async function fetchSnapshotWithProgress(onProgress: (progress: OfflineSyncProgr
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  mocks.readDriveTextFile.mockReset();
   mocks.fetchAssetBlob.mockReset();
 });
 
@@ -349,7 +353,7 @@ describe("Drive offline staging asset progress", () => {
     const unsupported = slide({
       assetId: "44444444-4444-4444-8444-444444444444",
       assetFileId: "unsupported-video-file",
-      mimeType: "video/quicktime",
+      mimeType: "video/webm",
       type: "video",
       unsupportedReason: "unsupportedVideoMimeType",
     });
@@ -426,5 +430,137 @@ describe("Drive offline staging asset progress", () => {
     expect(
       progress.filter((value) => value.phase === "assetSaving"),
     ).toEqual([]);
+  });
+});
+
+describe("Drive offline staging MP4/MOV policy", () => {
+  it.each(["video/mp4", "video/quicktime"] as const)(
+    "stores a %s Blob at or below the offline cap using its actual MIME",
+    async (mimeType) => {
+      const video = slide({
+        assetId: "33333333-3333-4333-8333-333333333333",
+        assetFileId: "video-file",
+        mimeType,
+        type: "video",
+      });
+      installAssetManifestPhases({
+        slides: [video],
+        assetMetadata: [assetMetadata(video, 5)],
+      });
+      mocks.fetchAssetBlob.mockResolvedValueOnce(
+        new Blob(["video"], { type: mimeType }),
+      );
+
+      const snapshot = await fetchSnapshot();
+
+      expect(mocks.fetchAssetBlob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedMimeType: mimeType,
+          maxBytes: DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+        }),
+      );
+      expect(snapshot.assetPairs).toHaveLength(1);
+      expect(snapshot.assetPairs[0]?.asset.blobMimeType).toBe(mimeType);
+      expect(snapshot.assetsWithoutBlobs).toEqual([]);
+    },
+  );
+
+  it("skips a MOV Blob whose actual MIME does not match", async () => {
+    const video = slide({
+      assetId: "33333333-3333-4333-8333-333333333333",
+      assetFileId: "video-file",
+      mimeType: "video/quicktime",
+      type: "video",
+    });
+    installAssetManifestPhases({
+      slides: [video],
+      assetMetadata: [assetMetadata(video, 5)],
+    });
+    mocks.fetchAssetBlob.mockResolvedValueOnce(
+      new Blob(["video"], { type: "video/mp4" }),
+    );
+
+    const snapshot = await fetchSnapshot();
+
+    expect(snapshot.assetPairs).toEqual([]);
+    expect(snapshot.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Blob MIME typeが一致しない"),
+      ]),
+    );
+  });
+
+  it.each(["video/mp4", "video/quicktime"] as const)(
+    "keeps %s above 50 MiB through 5 GiB as metadata-only remoteOnly",
+    async (mimeType) => {
+      const video = slide({
+        assetId: "33333333-3333-4333-8333-333333333333",
+        assetFileId: "video-file",
+        mimeType,
+        type: "video",
+      });
+      installAssetManifestPhases({
+        slides: [video],
+        assetMetadata: [assetMetadata(video, DRIVE_VIDEO_MAX_BYTES)],
+      });
+
+      const snapshot = await fetchSnapshot();
+
+      expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
+      expect(snapshot.assetPairs).toEqual([]);
+      expect(snapshot.assetsWithoutBlobs).toHaveLength(1);
+      expect(snapshot.assetsWithoutBlobs[0]).toMatchObject({
+        blobStatus: "missing",
+        blobMimeType: mimeType,
+      });
+      expect(snapshot.assetsWithoutBlobs[0]?.unsupportedReason).toBeUndefined();
+      expect(snapshot.details.videoTooLargeSkippedCount).toBe(1);
+    },
+  );
+
+  it.each(["video/mp4", "video/quicktime"] as const)(
+    "marks %s above 5 GiB as unsupported without fetching a body",
+    async (mimeType) => {
+      const video = slide({
+        assetId: "33333333-3333-4333-8333-333333333333",
+        assetFileId: "video-file",
+        mimeType,
+        type: "video",
+      });
+      installAssetManifestPhases({
+        slides: [video],
+        assetMetadata: [assetMetadata(video, DRIVE_VIDEO_MAX_BYTES + 1)],
+      });
+
+      const snapshot = await fetchSnapshot();
+
+      expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
+      expect(snapshot.assetPairs).toEqual([]);
+      expect(snapshot.assetsWithoutBlobs[0]).toMatchObject({
+        blobStatus: "missing",
+        unsupportedReason: "videoOfflineTooLarge",
+      });
+      expect(snapshot.details.videoTooLargeSkippedCount).toBe(0);
+    },
+  );
+
+  it("keeps missing video size on the safe unsupported path", async () => {
+    const video = slide({
+      assetId: "33333333-3333-4333-8333-333333333333",
+      assetFileId: "video-file",
+      mimeType: "video/quicktime",
+      type: "video",
+    });
+    installAssetManifestPhases({
+      slides: [video],
+      assetMetadata: [assetMetadata(video)],
+    });
+
+    const snapshot = await fetchSnapshot();
+
+    expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
+    expect(snapshot.assetsWithoutBlobs[0]?.unsupportedReason).toBe(
+      "videoOfflineTooLarge",
+    );
   });
 });

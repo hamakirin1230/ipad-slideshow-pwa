@@ -1,4 +1,4 @@
-import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "../drive-video-policy";
+import { getDriveVideoStorageDisposition } from "../drive-video-policy";
 import {
   parseProjectManifest,
   type ProjectManifest,
@@ -742,9 +742,10 @@ function validateAssets(
 
     const expectedRemoteOnly =
       expectation.assetType === "video" &&
-      asset.mimeType === "video/mp4" &&
-      asset.sizeBytes !== null &&
-      asset.sizeBytes > DRIVE_VIDEO_OFFLINE_MAX_BYTES;
+      getDriveVideoStorageDisposition({
+        mimeType: asset.mimeType,
+        sizeBytes: asset.sizeBytes,
+      }) === "remoteOnly";
     if (asset.remoteOnly !== expectedRemoteOnly) {
       issues.push(
         issue(

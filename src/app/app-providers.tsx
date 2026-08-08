@@ -148,7 +148,15 @@ import {
   type PhotosPickerResolvedPollingTiming,
   type PhotosPickerSessionSnapshot,
 } from "@/lib/google-photos-picker";
-import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "@/lib/drive-offline-staging-snapshot";
+import {
+  DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+  DRIVE_VIDEO_UPLOAD_TYPE,
+  getLocalDriveVideoFileValidationCodes,
+  isDriveVideoFileSizeWithinLimit,
+  isSupportedDriveVideoMimeType,
+  resolveLocalDriveVideoMimeType,
+  type SupportedDriveVideoMimeType,
+} from "@/lib/drive-video-policy";
 import {
   createDriveOfflineStagingSyncRuntime,
   type DriveOfflineStagingSyncRuntime,
@@ -165,7 +173,6 @@ const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 const GOOGLE_DRIVE_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 const ASSET_IMPORT_MAX_BATCH_COUNT = 10;
-const LOCAL_VIDEO_IMPORT_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -399,7 +406,7 @@ type LocalVideoAssetImportItem = {
   sourceMediaItemId: string;
   filename: string;
   file: File;
-  mimeType: DriveAssetMimeType | null;
+  mimeType: SupportedDriveVideoMimeType | null;
 };
 
 type PendingProjectPublish = {
@@ -663,7 +670,7 @@ type AppContextValue = {
 export type DriveVideoPlaybackSessionRegistrationInput = {
   sessionId: string;
   assetFileId: string;
-  mimeType: "video/mp4";
+  mimeType: SupportedDriveVideoMimeType;
   fileSize: number;
   expiresAt: number;
 };
@@ -1826,7 +1833,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetAssetImportState();
     resetAssetCleanupPreviewState();
     setAssetImportMessage(
-      "写真はGoogle Photos Pickerから、video/mp4は端末上のファイルから追加できます。",
+      "写真はGoogle Photos Pickerから、video/mp4またはMOVは端末上のファイルから追加できます。",
     );
   }
 
@@ -2729,7 +2736,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           `size: ${localItem.file.size} bytes`,
         ];
 
-        if (validationDiagnostics.length > 0) {
+        if (validationDiagnostics.length > 0 || !localItem.mimeType) {
           updateAssetImportBatchItem(localItem.clientItemId, {
             status: "failed",
             errorMessage: validationDiagnostics[0],
@@ -2765,10 +2772,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
             workspaceId: readyWorkspace.workspaceId,
             project: readyProject,
             blob: localItem.file,
-            mimeType: localItem.mimeType ?? "video/mp4",
+            mimeType: localItem.mimeType,
             sizeBytes: localItem.file.size,
             source: "localFile",
-            uploadType: "resumable",
+            uploadType: DRIVE_VIDEO_UPLOAD_TYPE,
             signal: abortSignal,
           });
 
@@ -2788,7 +2795,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
               source: "localFile",
               filename: localItem.filename,
               mediaType: "VIDEO",
-              sourceMimeType: localItem.mimeType ?? "video/mp4",
+              sourceMimeType: localItem.mimeType,
               sourceMediaItemId: localItem.sourceMediaItemId,
               sourceCreateTime: null,
             },
@@ -2876,7 +2883,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "manifest反映: 完了",
         "index.json updatedAt同期: 完了",
         "更新後再検証: 完了",
-        "offline保存対象のvideo/mp4を iPad 再生に反映するには、この project を offline sync してください。",
+        "offline保存対象のMP4/MOVを iPad 再生に反映するには、この project を offline sync してください。",
       ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
@@ -5155,6 +5162,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
   async function registerDriveVideoPlaybackSession(
     input: DriveVideoPlaybackSessionRegistrationInput,
   ): Promise<DriveVideoPlaybackSessionRegistrationResult> {
+    if (
+      !isSupportedDriveVideoMimeType(input.mimeType) ||
+      !isDriveVideoFileSizeWithinLimit(input.fileSize)
+    ) {
+      return { ok: false, reason: "messageFailed" };
+    }
+
     const accessToken = accessTokenRef.current;
 
     if (!accessToken) {
@@ -6085,7 +6099,7 @@ function buildOfflineSyncResultDiagnostics(
         `promoted assets: ${result.promotion.promotedAssets}`,
         `promoted asset blobs: ${result.promotion.promotedAssetBlobs}`,
         "大容量videoはBlob未保存ですが、remoteOnly metadataとしてconfirmed storeに残り、オンライン時はstream再生対象になります。",
-        "Blob未保存はDrive削除、cleanup対象、sync失敗を意味しません。QuickTime / WebMは未対応です。",
+        "Blob未保存はDrive削除、cleanup対象、sync失敗を意味しません。MP4/MOV以外の動画形式は未対応です。",
         result.publicationProvenance.message,
         ...appendOmittedDiagnosticCount(
           result.diagnostics,
@@ -6500,51 +6514,41 @@ function buildAssetImportBatchItem(
   };
 }
 
-function resolveLocalVideoFileMimeType(file: File): DriveAssetMimeType | null {
-  if (file.type === "video/mp4" || file.type === "video/quicktime") {
-    return file.type;
-  }
-
-  return null;
+function resolveLocalVideoFileMimeType(
+  file: File,
+): SupportedDriveVideoMimeType | null {
+  return resolveLocalDriveVideoMimeType({
+    name: file.name,
+    type: file.type,
+  });
 }
 
 function validateLocalVideoFile(item: LocalVideoAssetImportItem) {
-  const diagnostics: string[] = [];
-
-  if (!item.mimeType) {
-    if (!item.file.type) {
-      diagnostics.push(
-        "MIME不明の動画ファイルは追加できません。Files appまたは変換済みファイルから選び直してください。",
-      );
-    } else {
-      diagnostics.push("video/mp4またはMOVファイルのみ追加できます。");
+  return getLocalDriveVideoFileValidationCodes({
+    size: item.file.size,
+    mimeType: item.mimeType,
+  }).map((code) => {
+    switch (code) {
+      case "unsupportedMimeType":
+        return "video/mp4またはMOVファイルのみ追加できます。";
+      case "emptyFile":
+        return "0 byteの動画ファイルは追加できません。";
+      case "fileTooLarge":
+        return "動画ファイルは5GB以下にしてください。";
     }
-  }
-
-  if (item.file.size === 0) {
-    diagnostics.push("0 byteの動画ファイルは追加できません。");
-  } else if (item.file.size > LOCAL_VIDEO_IMPORT_MAX_BYTES) {
-    diagnostics.push("動画ファイルは2GB以下にしてください。");
-  }
-
-  return diagnostics;
+  });
 }
 
 function buildLocalVideoOfflineScopeDiagnostics(item: LocalVideoAssetImportItem) {
   const diagnostics: string[] = [];
 
-  if (item.mimeType === "video/quicktime") {
+  if (item.file.size > DRIVE_VIDEO_OFFLINE_MAX_BYTES) {
     diagnostics.push(
       "offline保存: 対象外",
-      "理由: video/quicktime は現Phaseではoffline再生対象外です。",
-    );
-  } else if (item.file.size > DRIVE_VIDEO_OFFLINE_MAX_BYTES) {
-    diagnostics.push(
-      "offline保存: 対象外",
-      "理由: video/mp4 はoffline保存上限を超えるためskipされます。",
+      "理由: MP4/MOVはoffline保存上限を超えるとremoteOnlyとして保持されます。",
     );
   } else {
-    diagnostics.push("offline保存: video/mp4 は上限以下の場合のみoffline sync対象です。");
+    diagnostics.push("offline保存: MP4/MOVは上限以下の場合にoffline sync対象です。");
   }
 
   return diagnostics;
@@ -6670,7 +6674,7 @@ type DriveVideoPlaybackSessionMessage =
         sessionId: string;
         assetFileId: string;
         accessToken: string;
-        mimeType: "video/mp4";
+        mimeType: SupportedDriveVideoMimeType;
         fileSize: number;
         expiresAt: number;
       };

@@ -28,9 +28,17 @@ import {
   type OfflineSyncProgressListener,
 } from "@/lib/offline-sync-progress";
 import { getProjectManifestContentCanonicalHash } from "@/lib/publish-history/project-publish-revision";
-import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "./drive-video-policy";
+import {
+  DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+  getDriveVideoStorageDisposition,
+  isSupportedDriveVideoMimeType,
+  type SupportedDriveVideoMimeType,
+} from "./drive-video-policy";
 
-export { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "./drive-video-policy";
+export {
+  DRIVE_VIDEO_MAX_BYTES,
+  DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+} from "./drive-video-policy";
 
 const DRIVE_API_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 
@@ -228,7 +236,15 @@ export async function fetchDriveOfflineStagingSnapshot(
       continue;
     }
 
-    if (slideAssetKind === "video-mp4") {
+    if (slideAssetKind === "video") {
+      const videoMimeType = slide.mimeType;
+
+      if (!isSupportedDriveVideoMimeType(videoMimeType)) {
+        throw new DriveOfflineStagingSnapshotError([
+          `manifest.json.slides[${order}] のvideo MIME typeがoffline保存対象外です。`,
+        ]);
+      }
+
       if (typeof assetMetadata.sizeBytes !== "number") {
         videoSkippedCount += 1;
         assetsWithoutBlobs.push(
@@ -242,13 +258,38 @@ export async function fetchDriveOfflineStagingSnapshot(
         );
         offlineSlides.push(slide);
         diagnostics.push(
-          `manifest.json.slides[${order}] のvideo/mp4 asset はDrive metadata sizeがないためoffline保存をskipしました。`,
+          `manifest.json.slides[${order}] のvideo asset はDrive metadata sizeがないためoffline保存をskipしました。`,
         );
         markAssetTerminal();
         continue;
       }
 
-      if (assetMetadata.sizeBytes > DRIVE_VIDEO_OFFLINE_MAX_BYTES) {
+      const storageDisposition = getDriveVideoStorageDisposition({
+        mimeType: videoMimeType,
+        sizeBytes: assetMetadata.sizeBytes,
+      });
+
+      if (storageDisposition === "unsupported") {
+        videoSkippedCount += 1;
+        unsupportedAssetCount += 1;
+        assetsWithoutBlobs.push(
+          buildOfflineStagingAssetWithoutBlob({
+            projectId: input.project.projectId,
+            slide,
+            assetMetadata,
+            syncedAt: input.syncedAt,
+            unsupportedReason: "videoOfflineTooLarge",
+          }),
+        );
+        offlineSlides.push(slide);
+        diagnostics.push(
+          `manifest.json.slides[${order}] のvideo asset は再生上限を超えるためBlob未保存・再生対象外です。`,
+        );
+        markAssetTerminal();
+        continue;
+      }
+
+      if (storageDisposition === "remoteOnly") {
         videoSkippedCount += 1;
         videoTooLargeSkippedCount += 1;
         assetsWithoutBlobs.push(
@@ -261,7 +302,7 @@ export async function fetchDriveOfflineStagingSnapshot(
         );
         offlineSlides.push(slide);
         diagnostics.push(
-          `manifest.json.slides[${order}] のvideo/mp4 asset はoffline保存上限を超えるためBlob未保存です。remoteOnly metadataはconfirmed storeに残り、オンライン時はGoogle接続中にstream再生対象になります。`,
+          `manifest.json.slides[${order}] のMP4/MOV asset はoffline保存上限を超えるためBlob未保存です。remoteOnly metadataはconfirmed storeに残り、オンライン時はGoogle接続中にstream再生対象になります。`,
         );
         markAssetTerminal();
         continue;
@@ -272,6 +313,7 @@ export async function fetchDriveOfflineStagingSnapshot(
       const blob = await fetchDriveVideoAssetBlobForOfflineStaging({
         accessToken: input.accessToken,
         assetFileId: slide.assetFileId,
+        expectedMimeType: videoMimeType,
         expectedSizeBytes: assetMetadata.sizeBytes,
         signal: input.signal,
         slideIndex: order,
@@ -297,7 +339,7 @@ export async function fetchDriveOfflineStagingSnapshot(
       videoSyncedCount += 1;
 
       diagnostics.push(
-        `manifest.json.slides[${order}] のvideo/mp4 asset metadata/blobをoffline保存対象として取得しました。`,
+        `manifest.json.slides[${order}] のMP4/MOV asset metadata/blobをoffline保存対象として取得しました。`,
       );
       markAssetTerminal();
       continue;
@@ -403,7 +445,7 @@ export async function fetchDriveOfflineStagingSnapshot(
 
 type DriveOfflineStagingAssetKind =
   | "image"
-  | "video-mp4"
+  | "video"
   | "video-unsupported"
   | "unsupported";
 
@@ -414,8 +456,8 @@ function getDriveOfflineStagingAssetKind(
     return "image";
   }
 
-  if (slide.type === "video" && slide.mimeType === "video/mp4") {
-    return slide.unsupportedReason ? "video-unsupported" : "video-mp4";
+  if (slide.type === "video" && isSupportedDriveVideoMimeType(slide.mimeType)) {
+    return slide.unsupportedReason ? "video-unsupported" : "video";
   }
 
   if (slide.type === "video" || slide.mimeType.toLowerCase().startsWith("video/")) {
@@ -436,6 +478,7 @@ function buildVideoSkipDiagnostic(order: number, slide: DriveSlideSummary) {
 async function fetchDriveVideoAssetBlobForOfflineStaging(input: {
   accessToken: string;
   assetFileId: string;
+  expectedMimeType: SupportedDriveVideoMimeType;
   expectedSizeBytes: number;
   signal: AbortSignal;
   slideIndex: number;
@@ -447,7 +490,7 @@ async function fetchDriveVideoAssetBlobForOfflineStaging(input: {
     blob = await fetchDriveProjectAssetBlob({
       accessToken: input.accessToken,
       assetFileId: input.assetFileId,
-      expectedMimeType: "video/mp4",
+      expectedMimeType: input.expectedMimeType,
       maxBytes: DRIVE_VIDEO_OFFLINE_MAX_BYTES,
       signal: input.signal,
     });
@@ -457,28 +500,31 @@ async function fetchDriveVideoAssetBlobForOfflineStaging(input: {
     }
 
     input.diagnostics.push(
-      `manifest.json.slides[${input.slideIndex}] のvideo/mp4 asset のoffline保存に失敗したため、このvideoだけskipしました。`,
+      `manifest.json.slides[${input.slideIndex}] のvideo asset のoffline保存に失敗したため、このvideoだけskipしました。`,
     );
     return null;
   }
 
-  if (blob.type && normalizeBlobMimeType(blob.type) !== "video/mp4") {
+  if (
+    blob.type &&
+    normalizeBlobMimeType(blob.type) !== input.expectedMimeType
+  ) {
     input.diagnostics.push(
-      `manifest.json.slides[${input.slideIndex}] のvideo/mp4 asset Blob MIME typeが一致しないため、このvideoだけskipしました。`,
+      `manifest.json.slides[${input.slideIndex}] のvideo asset Blob MIME typeが一致しないため、このvideoだけskipしました。`,
     );
     return null;
   }
 
   if (blob.size !== input.expectedSizeBytes) {
     input.diagnostics.push(
-      `manifest.json.slides[${input.slideIndex}] のvideo/mp4 asset Blob sizeがmetadata sizeと一致しないため、このvideoだけskipしました。`,
+      `manifest.json.slides[${input.slideIndex}] のvideo asset Blob sizeがmetadata sizeと一致しないため、このvideoだけskipしました。`,
     );
     return null;
   }
 
   if (blob.size > DRIVE_VIDEO_OFFLINE_MAX_BYTES) {
     input.diagnostics.push(
-      `manifest.json.slides[${input.slideIndex}] のvideo/mp4 asset Blob sizeがoffline保存上限を超えるため、このvideoだけskipしました。`,
+      `manifest.json.slides[${input.slideIndex}] のvideo asset Blob sizeがoffline保存上限を超えるため、このvideoだけskipしました。`,
     );
     return null;
   }
@@ -1577,7 +1623,7 @@ function validateDriveManifestAssetMimeType(input: {
     return undefined;
   }
 
-  if (input.mimeType === "video/mp4") {
+  if (isSupportedDriveVideoMimeType(input.mimeType)) {
     return undefined;
   }
 

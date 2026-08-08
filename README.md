@@ -37,8 +37,9 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/admin/` で選択中projectのunused Drive asset cleanup preview / readiness / preflight / confirm previewを表示
 - cleanup preview / preflight / confirm previewはread-onlyで、Drive file、Player snapshot、IndexedDBを変更しない
 - `/admin/` からローカル動画をDrive assetとして追加し、動画slideをmanifestへ保存
-- offline保存対象assetの上限を50MBとし、上限超過動画は`remoteOnly` metadataとしてconfirmed storeへ保持
-- remoteOnly動画をonlineかつGoogle接続済みの場合にDrive streamingで再生
+- ローカルMP4/MOVを1ファイル5GB以下までresumable uploadで追加
+- MP4/MOVのoffline Blob保存上限を50MBとし、50MB超〜5GB以下は`remoteOnly` metadataとしてconfirmed storeへ保持
+- remoteOnly MP4/MOVをonlineかつGoogle接続済みの場合にDrive streamingで再生
 - 画像／動画混在再生、offline Blob動画、動画slideごとのduration override
 - remote video再生失敗時の手動retryと、slide / project / snapshot変更時のstale result guard
 - retry可否、owner key、generation、source identityをpure helper化し、Vitest 1 file / 22 testsで検証
@@ -100,10 +101,13 @@ https://ipad-slideshow-pwa.vercel.app/
 - Drive上の画像順・caption変更をiPad再生へ反映するには、対象projectのoffline syncを実行する
 - Drive上のslide削除・複製をiPad再生へ反映するにも、対象projectのoffline syncを実行する
 - Drive cleanup preview / readiness / preflight / confirm previewはread-onlyで、Player snapshotやIndexedDBを変更しない
-- Drive fileの物理削除とDrive file delete APIはまだ実装しない
+- unused Drive assetの物理削除は、fresh preflightと明示confirmを通った未参照JPEG / PNG / WebPだけを対象とし、MP4/MOVは対象外にする
 - offline保存対象assetの上限は50MBとし、これは端末ストレージ全体の上限ではない
-- 上限超過動画は`remoteOnly`としてmetadataのみをconfirmed storeへ保持し、動画本体はIndexedDBへ保存しない
-- remoteOnly動画はofflineでは再生できず、onlineかつGoogle接続済みの場合だけDrive streamingで再生する
+- 50MB超〜5GB以下のMP4/MOVは`remoteOnly`としてmetadataのみをconfirmed storeへ保持し、動画本体はIndexedDBへ保存しない
+- 5GB超またはsize不明の動画は安全側で再生対象外にし、自動削除・自動修復しない
+- remoteOnly MP4/MOVはofflineでは再生できず、onlineかつGoogle接続済みの場合だけDrive streamingで再生する
+- MOVはWebKitのnative playbackへ渡し、codec/containerのclient-side transcodeは行わない
+- Google Photos Picker経由の動画上限は50MBのままとし、5GB対応はローカルファイル追加だけに適用する
 - online復帰やGoogle再接続だけでは自動retryせず、再生失敗時はユーザー操作による手動retryを使う
 - 動画はmuted autoplayを基本とし、自動unmuteしない
 - streamingの内部識別子や取得先をUI、docs、consoleへ出さない
@@ -162,10 +166,12 @@ GitHub Pagesは手動deployの位置づけで、同じtest / lintを通過して
 2. update応答不明、current競合、index warning経路の実環境確認
 3. disposable projectとiPad実機でconfirmed snapshot publication provenanceのacceptance testを行う
 4. README以外の古い設計docsを、現行方針と履歴に分けて整理する
-5. iPad実機でremoteOnly動画の再生失敗と手動retryを運用確認する
+5. iPad実機でMOV native playback、3GB級remoteOnly streaming、再生失敗時の手動retryを運用確認する
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-08-08-mov-video-5gb-handoff.md`
+- `docs/handoffs/2026-08-05-unused-asset-delete-execution-handoff.md`
 - `docs/handoffs/2026-07-31-offline-publication-provenance-handoff.md`
 - `docs/handoffs/2026-07-28-publish-history-rollback-completion-handoff.md`
 - `docs/handoffs/2026-07-12-video-playback-retry-tests-ci-handoff.md`

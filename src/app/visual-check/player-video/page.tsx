@@ -35,8 +35,8 @@ const mockSlides = [
     label: "video/quicktime",
     type: "video",
     mimeType: "video/quicktime",
-    status: "unsupported fallback",
-    tone: "amber",
+    status: "native MOV playback候補",
+    tone: "sky",
   },
   {
     label: "video/webm",
@@ -55,9 +55,9 @@ const mockSlides = [
 ];
 
 const fallbackStates = [
-  "autoplay failure: 短いfallback表示後に次へ進む",
-  "media error: Player全体は止めず次へ進む",
-  "timeout: 再生開始または終了しない場合は次へ進む",
+  "autoplay failure: 安全な案内と手動操作を表示",
+  "media error: 安全な案内と手動retry / previous / nextを表示",
+  "timeout: 再生開始しない場合は安全な案内へ移行",
   "empty state: confirmed storeにslideがない状態を維持",
 ];
 
