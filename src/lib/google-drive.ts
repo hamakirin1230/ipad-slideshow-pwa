@@ -6976,11 +6976,20 @@ function toDriveProjectUnusedAssetDeletePreflightAsset(input: {
     blockedReasons.push("wrongProject");
   }
 
-  if (!file.parents?.includes(input.project.assetsFolderId)) {
+  if (
+    file.parents?.length !== 1 ||
+    file.parents[0] !== input.project.assetsFolderId
+  ) {
     blockedReasons.push("wrongParent");
   }
 
-  if (!isDriveAssetMimeType(file.mimeType)) {
+  if (
+    appProperties.schemaVersion !== DRIVE_WORKSPACE_SCHEMA_VERSION_PROPERTY
+  ) {
+    blockedReasons.push("missingRequiredMetadata");
+  }
+
+  if (!isDriveProjectUnusedAssetDeleteMimeType(file.mimeType)) {
     blockedReasons.push("unsupportedMimeType");
   }
 
@@ -7166,6 +7175,16 @@ function isDriveAssetMimeType(value: string): value is DriveAssetMimeType {
     value === "image/webp" ||
     value === "video/mp4" ||
     value === "video/quicktime"
+  );
+}
+
+function isDriveProjectUnusedAssetDeleteMimeType(
+  value: string,
+): value is "image/jpeg" | "image/png" | "image/webp" {
+  return (
+    value === "image/jpeg" ||
+    value === "image/png" ||
+    value === "image/webp"
   );
 }
 

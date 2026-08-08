@@ -119,6 +119,17 @@ import {
   type DriveWorkspaceRootCandidate,
 } from "@/lib/google-drive";
 import {
+  buildDriveProjectUnusedAssetDeleteOwner,
+  deleteDriveProjectAssetFile,
+  driveProjectUnusedAssetDeleteOwnerMatches,
+  executeDriveProjectUnusedAssetDeletion,
+  prepareDriveProjectUnusedAssetDeletion,
+  type DriveProjectUnusedAssetDeleteOwner,
+  type DriveProjectUnusedAssetDeletePlan,
+  type DriveProjectUnusedAssetDeleteResult,
+  type DriveProjectUnusedAssetDeleteReview,
+} from "@/lib/drive-project-unused-asset-delete";
+import {
   PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
   PICKED_VIDEO_SIZE_LIMIT_BYTES,
   assertPickedMediaItemDownloadReady,
@@ -257,6 +268,16 @@ export type AssetCleanupDeletePreflightStatus =
   | "ready"
   | "blocked"
   | "invalid"
+  | "error";
+
+export type AssetCleanupDeleteStatus =
+  | "idle"
+  | "confirming"
+  | "deleting"
+  | "completed"
+  | "partialFailure"
+  | "blocked"
+  | "cancelled"
   | "error";
 
 export type DriveCandidateSummary = {
@@ -541,6 +562,14 @@ type AppContextValue = {
     | null;
   isAssetCleanupDeletePreflightInFlight: boolean;
   assetCleanupDeletePreflightBlockedReason: string | null;
+  assetCleanupDeleteStatus: AssetCleanupDeleteStatus;
+  assetCleanupDeleteMessage: string | null;
+  assetCleanupDeleteDiagnostics: string[];
+  assetCleanupDeleteReview: DriveProjectUnusedAssetDeleteReview | null;
+  assetCleanupDeleteResult: DriveProjectUnusedAssetDeleteResult | null;
+  assetCleanupDeleteProgress: { current: number; total: number } | null;
+  isAssetCleanupDeleteInFlight: boolean;
+  assetCleanupDeleteBlockedReason: string | null;
 
   offlineSyncStatus: OfflineSyncStatus;
   offlineSyncStatusLabel: string;
@@ -611,6 +640,9 @@ type AppContextValue = {
   previewUnusedProjectAssets: () => void;
   preflightUnusedAssetDeletion: (assetFileIds: string[]) => Promise<void>;
   clearAssetCleanupDeletePreflight: () => void;
+  prepareUnusedAssetDeletion: (assetFileIds: string[]) => void;
+  confirmUnusedAssetDeletion: () => Promise<void>;
+  cancelUnusedAssetDeletion: () => void;
   startAssetImport: () => void;
   startLocalVideoFileImport: (files: FileList | File[]) => void;
   cancelAssetImport: () => void;
@@ -780,6 +812,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const offlineSyncInFlightRef = useRef(false);
   const assetCleanupPreviewInFlightRef = useRef(false);
   const assetCleanupDeletePreflightInFlightRef = useRef(false);
+  const assetCleanupDeletePreflightOwnerRef =
+    useRef<DriveProjectUnusedAssetDeleteOwner | null>(null);
+  const pendingAssetCleanupDeletePlanRef =
+    useRef<DriveProjectUnusedAssetDeletePlan | null>(null);
+  const assetCleanupDeleteRequestIdRef = useRef(0);
+  const assetCleanupDeleteInFlightRef = useRef(false);
 
   if (offlineSyncRuntimeRef.current === null) {
     offlineSyncRuntimeRef.current = createDriveOfflineStagingSyncRuntime();
@@ -911,6 +949,23 @@ export function AppProviders({ children }: { children: ReactNode }) {
     isAssetCleanupDeletePreflightInFlight,
     setIsAssetCleanupDeletePreflightInFlight,
   ] = useState(false);
+  const [assetCleanupDeleteStatus, setAssetCleanupDeleteStatus] =
+    useState<AssetCleanupDeleteStatus>("idle");
+  const [assetCleanupDeleteMessage, setAssetCleanupDeleteMessage] = useState<
+    string | null
+  >(null);
+  const [assetCleanupDeleteDiagnostics, setAssetCleanupDeleteDiagnostics] =
+    useState<string[]>([]);
+  const [assetCleanupDeleteReview, setAssetCleanupDeleteReview] =
+    useState<DriveProjectUnusedAssetDeleteReview | null>(null);
+  const [assetCleanupDeleteResult, setAssetCleanupDeleteResult] =
+    useState<DriveProjectUnusedAssetDeleteResult | null>(null);
+  const [assetCleanupDeleteProgress, setAssetCleanupDeleteProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
+  const [isAssetCleanupDeleteInFlight, setIsAssetCleanupDeleteInFlight] =
+    useState(false);
 
   const [offlineSyncStatus, setOfflineSyncStatus] =
     useState<OfflineSyncStatus>("idle");
@@ -940,6 +995,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       projectRollbackAbortRef.current?.abort();
       projectRollbackAbortRef.current = null;
       projectRollbackInFlightRef.current = false;
+      assetCleanupDeleteRequestIdRef.current += 1;
+      pendingAssetCleanupDeletePlanRef.current = null;
+      assetCleanupDeletePreflightOwnerRef.current = null;
+      assetCleanupDeleteInFlightRef.current = false;
     };
   }, []);
 
@@ -967,6 +1026,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     getAssetCleanupPreviewBlockedReason();
   const assetCleanupDeletePreflightBlockedReason =
     getAssetCleanupDeletePreflightBlockedReason();
+  const assetCleanupDeleteBlockedReason =
+    getAssetCleanupDeleteBlockedReason();
 
   function setDriveOperationInFlight(value: boolean) {
     driveOperationInFlightRef.current = value;
@@ -1033,6 +1094,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   function setAssetCleanupDeletePreflightInFlightState(value: boolean) {
     assetCleanupDeletePreflightInFlightRef.current = value;
     setIsAssetCleanupDeletePreflightInFlight(value);
+  }
+
+  function setAssetCleanupDeleteInFlightState(value: boolean) {
+    assetCleanupDeleteInFlightRef.current = value;
+    setIsAssetCleanupDeleteInFlight(value);
   }
 
   function clearPendingPhotosTokenRequest(reason?: PhotosTokenRequestError) {
@@ -1449,6 +1515,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function getAssetCleanupPreviewBlockedReason() {
     if (
+      assetCleanupDeleteInFlightRef.current ||
+      isAssetCleanupDeleteInFlight
+    ) {
+      return "未使用assetを削除中です。";
+    }
+
+    if (
       assetCleanupPreviewInFlightRef.current ||
       isAssetCleanupPreviewInFlight
     ) {
@@ -1509,6 +1582,54 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return getAssetCleanupPreviewBlockedReason();
   }
 
+  function getAssetCleanupDeleteBlockedReason() {
+    if (
+      assetCleanupDeleteInFlightRef.current ||
+      isAssetCleanupDeleteInFlight
+    ) {
+      return "未使用assetを削除中です。";
+    }
+
+    if (
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current
+    ) {
+      return "公開またはrollback処理中のため、未使用assetを削除できません。";
+    }
+
+    if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
+      return "Drive操作中のため、未使用assetを削除できません。";
+    }
+
+    if (assetCleanupDeletePreflightResult) {
+      const preflightOwner = assetCleanupDeletePreflightOwnerRef.current;
+      if (
+        !preflightOwner ||
+        !workspaceReadyContext ||
+        !driveProjectReadyContext ||
+        !driveProjectUnusedAssetDeleteOwnerMatches(
+          preflightOwner,
+          buildDriveProjectUnusedAssetDeleteOwner({
+            workspaceId: workspaceReadyContext.workspaceId,
+            project: driveProjectReadyContext,
+          }),
+        )
+      ) {
+        return "workspaceまたはprojectが削除前preflight時から変わりました。";
+      }
+    }
+
+    if (
+      assetCleanupDeletePreflightInFlightRef.current ||
+      isAssetCleanupDeletePreflightInFlight
+    ) {
+      return "未使用asset削除前preflightを実行中です。";
+    }
+
+    return getAssetCleanupPreviewBlockedReason();
+  }
+
   function setSafeOfflineSyncDiagnostics(diagnostics: string[]) {
     setOfflineSyncDiagnostics(sanitizeOfflineSyncDiagnostics(diagnostics));
   }
@@ -1521,6 +1642,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function setSafeAssetCleanupDeletePreflightDiagnostics(diagnostics: string[]) {
     setAssetCleanupDeletePreflightDiagnostics(
+      sanitizeAssetCleanupPreviewDiagnostics(diagnostics),
+    );
+  }
+
+  function setSafeAssetCleanupDeleteDiagnostics(diagnostics: string[]) {
+    setAssetCleanupDeleteDiagnostics(
       sanitizeAssetCleanupPreviewDiagnostics(diagnostics),
     );
   }
@@ -1581,7 +1708,20 @@ export function AppProviders({ children }: { children: ReactNode }) {
     clearAssetCleanupDeletePreflight();
   }
 
+  function resetAssetCleanupDeleteState() {
+    assetCleanupDeleteRequestIdRef.current += 1;
+    pendingAssetCleanupDeletePlanRef.current = null;
+    setAssetCleanupDeleteInFlightState(false);
+    setAssetCleanupDeleteStatus("idle");
+    setAssetCleanupDeleteMessage(null);
+    setSafeAssetCleanupDeleteDiagnostics([]);
+    setAssetCleanupDeleteReview(null);
+    setAssetCleanupDeleteResult(null);
+    setAssetCleanupDeleteProgress(null);
+  }
+
   function clearAssetCleanupDeletePreflight() {
+    assetCleanupDeletePreflightOwnerRef.current = null;
     setAssetCleanupDeletePreflightInFlightState(false);
     setAssetCleanupDeletePreflightStatus("idle");
     setAssetCleanupDeletePreflightMessage(
@@ -1589,6 +1729,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     );
     setSafeAssetCleanupDeletePreflightDiagnostics([]);
     setAssetCleanupDeletePreflightResult(null);
+    resetAssetCleanupDeleteState();
   }
 
   function discardPendingProjectPublish(options?: {
@@ -4326,7 +4467,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const readyProject = driveProjectReadyContext;
 
     setSafeAssetCleanupPreviewDiagnostics([]);
-    clearAssetCleanupDeletePreflight();
 
     if (blockedReason) {
       setAssetCleanupPreviewStatus("blocked");
@@ -4348,6 +4488,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setAssetCleanupPreviewResult(null);
       return;
     }
+
+    clearAssetCleanupDeletePreflight();
 
     setDriveOperationInFlight(true);
     setAssetCleanupPreviewInFlightState(true);
@@ -4467,6 +4609,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
 
+    resetAssetCleanupDeleteState();
+    assetCleanupDeletePreflightOwnerRef.current = null;
+
     setDriveOperationInFlight(true);
     setAssetCleanupDeletePreflightInFlightState(true);
     setAssetCleanupDeletePreflightStatus("checking");
@@ -4496,6 +4641,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "削除前preflightが完了しました。この段階ではまだDrive fileは削除しません。",
       );
       setAssetCleanupDeletePreflightResult(result);
+      assetCleanupDeletePreflightOwnerRef.current =
+        buildDriveProjectUnusedAssetDeleteOwner({
+          workspaceId: readyWorkspace.workspaceId,
+          project: readyProject,
+        });
       setSafeAssetCleanupDeletePreflightDiagnostics(result.diagnostics);
     } catch (error) {
       if (requestId !== driveOperationRequestIdRef.current) {
@@ -4536,6 +4686,274 @@ export function AppProviders({ children }: { children: ReactNode }) {
         driveOperationAbortRef.current = null;
         setDriveOperationInFlight(false);
         setAssetCleanupDeletePreflightInFlightState(false);
+      }
+    }
+  }
+
+  function prepareUnusedAssetDeletion(assetFileIds: string[]) {
+    if (assetCleanupDeleteInFlightRef.current) {
+      return;
+    }
+
+    const blockedReason = getAssetCleanupDeleteBlockedReason();
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    resetAssetCleanupDeleteState();
+
+    if (blockedReason || !readyWorkspace || !readyProject) {
+      setAssetCleanupDeleteStatus("blocked");
+      setAssetCleanupDeleteMessage("未使用assetの削除確認を開始できませんでした。");
+      setSafeAssetCleanupDeleteDiagnostics([
+        blockedReason ?? "Drive workspaceとprojectのready情報を確認してください。",
+      ]);
+      return;
+    }
+
+    const prepared = prepareDriveProjectUnusedAssetDeletion({
+      selectedAssetFileIds: assetFileIds,
+      preflightResult: assetCleanupDeletePreflightResult,
+      preflightOwner: assetCleanupDeletePreflightOwnerRef.current,
+      currentOwner: buildDriveProjectUnusedAssetDeleteOwner({
+        workspaceId: readyWorkspace.workspaceId,
+        project: readyProject,
+      }),
+    });
+
+    if (!prepared.ok) {
+      setAssetCleanupDeleteStatus("blocked");
+      setAssetCleanupDeleteMessage("削除前preflightの内容を使用できません。");
+      setSafeAssetCleanupDeleteDiagnostics([
+        getAssetCleanupDeletePreparationFailureMessage(prepared.reason),
+      ]);
+      return;
+    }
+
+    pendingAssetCleanupDeletePlanRef.current = prepared.plan;
+    setAssetCleanupDeleteReview(prepared.review);
+    setAssetCleanupDeleteStatus("confirming");
+    setAssetCleanupDeleteMessage(
+      "Google Driveから完全削除する対象を確認してください。",
+    );
+    setSafeAssetCleanupDeleteDiagnostics([]);
+  }
+
+  function cancelUnusedAssetDeletion() {
+    if (assetCleanupDeleteStatus !== "confirming") {
+      return;
+    }
+
+    assetCleanupDeleteRequestIdRef.current += 1;
+    pendingAssetCleanupDeletePlanRef.current = null;
+    setAssetCleanupDeleteReview(null);
+    setAssetCleanupDeleteResult(null);
+    setAssetCleanupDeleteProgress(null);
+    setAssetCleanupDeleteStatus("cancelled");
+    setAssetCleanupDeleteMessage("削除をキャンセルしました");
+    setSafeAssetCleanupDeleteDiagnostics([
+      "Google DriveへのDELETEは送信していません。",
+    ]);
+  }
+
+  async function confirmUnusedAssetDeletion() {
+    if (assetCleanupDeleteInFlightRef.current) {
+      return;
+    }
+
+    const plan = pendingAssetCleanupDeletePlanRef.current;
+    const blockedReason = getAssetCleanupDeleteBlockedReason();
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    if (
+      !plan ||
+      blockedReason ||
+      !accessToken ||
+      !readyWorkspace ||
+      !readyProject
+    ) {
+      pendingAssetCleanupDeletePlanRef.current = null;
+      setAssetCleanupDeleteReview(null);
+      setAssetCleanupDeleteStatus("blocked");
+      setAssetCleanupDeleteMessage("削除直前の再検証で停止しました");
+      setSafeAssetCleanupDeleteDiagnostics([
+        blockedReason ?? "削除confirmの対象またはownerが変わりました。",
+      ]);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    setAssetCleanupDeleteInFlightState(true);
+    setAssetCleanupDeleteStatus("deleting");
+    setAssetCleanupDeleteMessage("未使用assetを削除しています。");
+    setAssetCleanupDeleteResult(null);
+    setAssetCleanupDeleteProgress({ current: 0, total: plan.assets.length });
+    setSafeAssetCleanupDeleteDiagnostics([]);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+    const deleteRequestId = assetCleanupDeleteRequestIdRef.current + 1;
+    assetCleanupDeleteRequestIdRef.current = deleteRequestId;
+
+    try {
+      const result = await executeDriveProjectUnusedAssetDeletion({
+        plan,
+        currentOwner: buildDriveProjectUnusedAssetDeleteOwner({
+          workspaceId: readyWorkspace.workspaceId,
+          project: readyProject,
+        }),
+        runFreshPreflight: (assetFileIds) =>
+          preflightDriveProjectUnusedAssetDeletion({
+            accessToken,
+            workspaceId: readyWorkspace.workspaceId,
+            project: readyProject,
+            assetFileIds,
+            runStep: (_label, operation) =>
+              runDriveOperationStep(requestId, operation),
+          }),
+        deleteAssetFile: (assetFileId) =>
+          runDriveOperationStep(requestId, (signal) =>
+            deleteDriveProjectAssetFile({
+              accessToken,
+              assetFileId,
+              signal,
+            }),
+          ),
+        onProgress: (progress) => {
+          if (
+            requestId === driveOperationRequestIdRef.current &&
+            deleteRequestId === assetCleanupDeleteRequestIdRef.current &&
+            accessTokenRef.current === accessToken
+          ) {
+            setAssetCleanupDeleteProgress(progress);
+          }
+        },
+      });
+
+      if (
+        requestId !== driveOperationRequestIdRef.current ||
+        deleteRequestId !== assetCleanupDeleteRequestIdRef.current ||
+        accessTokenRef.current !== accessToken
+      ) {
+        return;
+      }
+
+      pendingAssetCleanupDeletePlanRef.current = null;
+      setAssetCleanupDeleteReview(null);
+      setAssetCleanupDeleteResult(result);
+      setAssetCleanupDeleteStatus(
+        result.status === "failed" ? "error" : result.status,
+      );
+      setAssetCleanupDeleteMessage(
+        getAssetCleanupDeleteResultMessage(result.status),
+      );
+      setSafeAssetCleanupDeleteDiagnostics(
+        buildAssetCleanupDeleteResultDiagnostics(result),
+      );
+
+      if (
+        result.status === "completed" ||
+        result.status === "partialFailure"
+      ) {
+        assetCleanupDeletePreflightOwnerRef.current = null;
+        setAssetCleanupDeletePreflightStatus("idle");
+        setAssetCleanupDeletePreflightMessage(
+          initialAssetCleanupDeletePreflightMessage,
+        );
+        setSafeAssetCleanupDeletePreflightDiagnostics([]);
+        setAssetCleanupDeletePreflightResult(null);
+        await refreshAssetCleanupPreviewAfterDelete({
+          accessToken,
+          readyWorkspace,
+          readyProject,
+          requestId,
+          deleteRequestId,
+        });
+      }
+    } catch {
+      if (
+        requestId !== driveOperationRequestIdRef.current ||
+        deleteRequestId !== assetCleanupDeleteRequestIdRef.current
+      ) {
+        return;
+      }
+      pendingAssetCleanupDeletePlanRef.current = null;
+      setAssetCleanupDeleteReview(null);
+      setAssetCleanupDeleteStatus("error");
+      setAssetCleanupDeleteMessage("未使用 asset の削除に失敗しました");
+      setSafeAssetCleanupDeleteDiagnostics([
+        "削除処理中に予期しない失敗が発生しました。自動retryは行いません。",
+      ]);
+    } finally {
+      if (
+        requestId === driveOperationRequestIdRef.current &&
+        deleteRequestId === assetCleanupDeleteRequestIdRef.current
+      ) {
+        pendingAssetCleanupDeletePlanRef.current = null;
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+        setAssetCleanupDeleteInFlightState(false);
+        setAssetCleanupDeleteProgress(null);
+      }
+    }
+  }
+
+  async function refreshAssetCleanupPreviewAfterDelete(input: {
+    accessToken: string;
+    readyWorkspace: DriveWorkspaceReadyContext;
+    readyProject: DriveProjectSummary;
+    requestId: number;
+    deleteRequestId: number;
+  }) {
+    setAssetCleanupPreviewInFlightState(true);
+    setAssetCleanupPreviewStatus("checking");
+    setAssetCleanupPreviewMessage(
+      "削除結果を反映するためcleanup previewを再読込しています。",
+    );
+
+    try {
+      const preview = await previewDriveProjectUnusedAssets({
+        accessToken: input.accessToken,
+        workspaceId: input.readyWorkspace.workspaceId,
+        project: input.readyProject,
+        runStep: (operation) =>
+          runDriveOperationStep(input.requestId, operation),
+      });
+      if (
+        input.requestId !== driveOperationRequestIdRef.current ||
+        input.deleteRequestId !== assetCleanupDeleteRequestIdRef.current ||
+        accessTokenRef.current !== input.accessToken
+      ) {
+        return;
+      }
+      setAssetCleanupPreviewStatus("ready");
+      setAssetCleanupPreviewMessage(
+        "削除後のcleanup previewを再読込しました。",
+      );
+      setAssetCleanupPreviewResult(preview);
+      setSafeAssetCleanupPreviewDiagnostics(preview.diagnostics);
+    } catch {
+      if (
+        input.requestId !== driveOperationRequestIdRef.current ||
+        input.deleteRequestId !== assetCleanupDeleteRequestIdRef.current
+      ) {
+        return;
+      }
+      setAssetCleanupPreviewStatus("error");
+      setAssetCleanupPreviewMessage(
+        "削除結果は確定していますが、cleanup previewの再読込に失敗しました",
+      );
+      setAssetCleanupPreviewResult(null);
+      setSafeAssetCleanupPreviewDiagnostics([
+        "削除結果は保持しています。cleanup previewを手動で再実行してください。",
+      ]);
+    } finally {
+      if (
+        input.requestId === driveOperationRequestIdRef.current &&
+        input.deleteRequestId === assetCleanupDeleteRequestIdRef.current
+      ) {
+        setAssetCleanupPreviewInFlightState(false);
       }
     }
   }
@@ -4823,6 +5241,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     projectId: string,
   ): Promise<PrepareProjectPublishReviewResult> {
     if (
+      driveOperationInFlightRef.current ||
       projectPublishInFlightRef.current ||
       projectRollbackInFlightRef.current ||
       projectPublicationWriteInFlightRef.current
@@ -4899,6 +5318,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     revisionId: string;
   }): Promise<CommitPreparedProjectPublishResult> {
     if (
+      driveOperationInFlightRef.current ||
       projectPublishInFlightRef.current ||
       projectRollbackInFlightRef.current ||
       projectPublicationWriteInFlightRef.current
@@ -5142,6 +5562,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     signal: AbortSignal,
   ): Promise<PrepareProjectRollbackPreviewResult> {
     if (
+      driveOperationInFlightRef.current ||
       projectPublicationWriteInFlightRef.current ||
       projectRollbackInFlightRef.current
     ) {
@@ -5196,6 +5617,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     targetRevisionId: string,
   ): Promise<PrepareProjectRollbackExecutionReviewResult> {
     if (
+      driveOperationInFlightRef.current ||
       projectPublishInFlightRef.current ||
       projectRollbackInFlightRef.current ||
       projectPublicationWriteInFlightRef.current
@@ -5295,6 +5717,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     revisionId: string;
   }): Promise<CommitPreparedProjectRollbackResult> {
     if (
+      driveOperationInFlightRef.current ||
       projectPublishInFlightRef.current ||
       projectRollbackInFlightRef.current ||
       projectPublicationWriteInFlightRef.current
@@ -5479,6 +5902,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
     assetCleanupDeletePreflightResult,
     isAssetCleanupDeletePreflightInFlight,
     assetCleanupDeletePreflightBlockedReason,
+    assetCleanupDeleteStatus,
+    assetCleanupDeleteMessage,
+    assetCleanupDeleteDiagnostics,
+    assetCleanupDeleteReview,
+    assetCleanupDeleteResult,
+    assetCleanupDeleteProgress,
+    isAssetCleanupDeleteInFlight,
+    assetCleanupDeleteBlockedReason,
     offlineSyncStatus,
     offlineSyncStatusLabel: offlineSyncStatusLabels[offlineSyncStatus],
     offlineSyncMessage,
@@ -5518,6 +5949,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     previewUnusedProjectAssets,
     preflightUnusedAssetDeletion,
     clearAssetCleanupDeletePreflight,
+    prepareUnusedAssetDeletion,
+    confirmUnusedAssetDeletion,
+    cancelUnusedAssetDeletion,
     startAssetImport,
     startLocalVideoFileImport,
     cancelAssetImport,
@@ -6456,6 +6890,65 @@ function sanitizeAssetCleanupPreviewDiagnostics(diagnostics: string[]) {
       .filter(isSafeAssetImportDiagnostic)
       .map(truncateAssetCleanupPreviewDiagnostic),
   );
+}
+
+function getAssetCleanupDeletePreparationFailureMessage(
+  reason:
+    | "preflightMissing"
+    | "selectionChanged"
+    | "ownerChanged"
+    | "eligibleAssetRequired"
+    | "blockedAssetPresent",
+) {
+  switch (reason) {
+    case "preflightMissing":
+      return "削除前preflightを実行し直してください。";
+    case "selectionChanged":
+      return "選択内容がpreflight時から変わりました。削除前preflightを実行し直してください。";
+    case "ownerChanged":
+      return "選択中のworkspaceまたはprojectが変わりました。cleanup previewから確認し直してください。";
+    case "eligibleAssetRequired":
+      return "削除可能な未使用assetがありません。";
+    case "blockedAssetPresent":
+      return "blocked assetが含まれるため削除できません。";
+  }
+}
+
+function getAssetCleanupDeleteResultMessage(
+  status: DriveProjectUnusedAssetDeleteResult["status"],
+) {
+  switch (status) {
+    case "completed":
+      return "未使用 asset の削除が完了しました";
+    case "partialFailure":
+      return "一部の未使用 asset だけ削除されました";
+    case "blocked":
+      return "削除直前の再検証で停止しました";
+    case "failed":
+      return "未使用 asset の削除に失敗しました";
+  }
+}
+
+function buildAssetCleanupDeleteResultDiagnostics(
+  result: DriveProjectUnusedAssetDeleteResult,
+) {
+  const diagnostics = [
+    `requested: ${result.requestedCount}件`,
+    `deleted: ${result.deletedCount}件`,
+    `failed: ${result.failedCount}件`,
+    `blocked: ${result.blockedCount}件`,
+    `not attempted: ${result.notAttemptedCount}件`,
+    "自動retryは行いません。",
+  ];
+
+  if (result.status === "partialFailure") {
+    diagnostics.push(
+      "Drive上に一部削除済みの状態が残っています。",
+      "cleanup previewの再読込結果を確認してから、次の操作を手動で行ってください。",
+    );
+  }
+
+  return diagnostics;
 }
 
 function isSafeAssetImportDiagnostic(diagnostic: string) {

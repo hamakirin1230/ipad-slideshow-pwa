@@ -1,6 +1,6 @@
 # iPad用スライドショーPWA 現在の引き継ぎ
 
-Date: 2026-06-13
+Date: 2026-08-05
 
 このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-06-13時点の実装状態を正とします。
 
@@ -80,6 +80,7 @@ confirmed store promotion
 /admin slide duplicate
 /admin drag handle compact display
 /admin unused Drive asset cleanup preview
+/admin unused Drive asset explicit physical delete
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
 ```
@@ -164,14 +165,17 @@ ipad-slideshow-pwa-app-shell-v1
 - Photos Pickerから追加したslideは現在の`manifest.json.slides[]`末尾へ、選択順のままappendする
 - Drive上のslide削除・複製も`manifest.json.slides[]`だけを変更し、Drive assets/内の画像ファイルは削除・コピーしない
 - orphan asset cleanup previewはread-onlyで、`manifest.json.slides[]`から参照されないapp-managed asset filesだけを検出する
-- orphan asset cleanup previewではDrive fileの物理削除を実装しない
-- orphan asset cleanup previewでは`manifest.json` / `index.json` / `assets/`配下のfileを更新しない
+- unused assetの物理削除はlocal selection、fresh preflight、明示confirm、execute直前全件preflight、各DELETE直前preflightの順でのみ実行する
+- 物理削除対象は選択中projectの`assetsFolderId`直下にあるapp-managedな未参照画像asset（JPEG / PNG / WebP、最大50件）だけで、videoは削除対象外
+- Drive `files.delete`は順次実行し、204だけを成功とする。retryせず、最初の失敗で後続を`notAttempted`として停止する
+- partial failureでは削除済みfileを復元せず、deleted / failed / blocked / notAttemptedをsanitized resultで表示する
+- completed / partial failure後はcleanup previewを1回再読込するが、offline sync、confirmed store更新、player reloadは開始しない
+- unused asset物理削除では`manifest.json` / `index.json` / project folder / assets folderを更新・削除しない
 - unused asset delete readiness UIは追加済みだが、checkbox選択はUI local stateのみで永続化しない
-- disabledの削除buttonは将来導線の予告であり、Drive fileは削除しない
-- unused asset cleanupはpreview + delete-readiness + preflight/confirm UIまで実装済み
+- unused asset cleanupはpreview + delete-readiness + preflight + confirm + physical delete executionまで実装済み
 - preflightはfresh manifest再読込、参照数再計算、Drive metadata再取得を行う
-- confirm UIは表示のみで、delete executionはdisabled
-- Drive file物理削除はまだ未実装で、次フェーズで初めてDrive delete APIとpartial failure handlingを検討する
+- confirm UIは対象件数、合計サイズ、完全削除、取り消し不可、manifest / index / confirmed store非変更を明示する
+- pending delete planはAppProviders内部refだけに保持し、access tokenを含めず永続化しない
 - cleanup previewの診断にもaccess token、Authorization header、Drive download URL、raw API URLを含めない
 - Player反映は従来どおりoffline sync経由で、cleanup preview自体はPlayer snapshotやIndexedDBを変更しない
 - project単位ローカル削除ではDrive上のデータを削除しない

@@ -10,11 +10,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useAppState, type AssetCleanupPreviewStatus } from "@/app/app-providers";
+import {
+  useAppState,
+  type AssetCleanupDeleteStatus,
+  type AssetCleanupPreviewStatus,
+} from "@/app/app-providers";
+import type {
+  DriveProjectUnusedAssetDeleteFailureReason,
+  DriveProjectUnusedAssetDeleteResult,
+  DriveProjectUnusedAssetDeleteReview,
+} from "@/lib/drive-project-unused-asset-delete";
 import type {
   DriveProjectUnusedAssetDeletePreflightAsset,
   DriveProjectUnusedAssetDeletePreflightResult,
 } from "@/lib/google-drive";
+import {
+  canPrepareUnusedAssetDeletion,
+  getAssetCleanupDeleteLiveRole,
+} from "./asset-cleanup-delete-view";
 
 const unusedAssetTableGridStyle: CSSProperties = {
   gridTemplateColumns:
@@ -24,16 +37,6 @@ const unusedAssetTableGridStyle: CSSProperties = {
 const preflightAssetSummaryGridStyle: CSSProperties = {
   gridTemplateColumns: "8rem 14rem 10rem 8rem 24rem 24rem",
 };
-
-const deleteReadinessChecklistItems = [
-  "削除直前に Drive manifest.json を再読込する",
-  "削除直前に assetFileId の参照数を再計算する",
-  "削除対象 file の Drive metadata を再取得する",
-  "referenceSlideCount が 0 の file だけを削除対象にする",
-  "削除対象の assetName / size / fileId を confirm で再表示する",
-  "削除実行後に cleanup preview を再実行する",
-  "削除失敗時に partial failure を UI で明示する",
-];
 
 export function AssetCleanupPreviewPanel() {
   const {
@@ -48,9 +51,20 @@ export function AssetCleanupPreviewPanel() {
     assetCleanupDeletePreflightResult,
     isAssetCleanupDeletePreflightInFlight,
     assetCleanupDeletePreflightBlockedReason,
+    assetCleanupDeleteStatus,
+    assetCleanupDeleteMessage,
+    assetCleanupDeleteDiagnostics,
+    assetCleanupDeleteReview,
+    assetCleanupDeleteResult,
+    assetCleanupDeleteProgress,
+    isAssetCleanupDeleteInFlight,
+    assetCleanupDeleteBlockedReason,
     previewUnusedProjectAssets,
     preflightUnusedAssetDeletion,
     clearAssetCleanupDeletePreflight,
+    prepareUnusedAssetDeletion,
+    confirmUnusedAssetDeletion,
+    cancelUnusedAssetDeletion,
   } = useAppState();
   const [assetSelectionState, setAssetSelectionState] = useState<{
     previewResult: typeof assetCleanupPreviewResult;
@@ -90,6 +104,14 @@ export function AssetCleanupPreviewPanel() {
     (total, asset) => total + (asset.sizeBytes ?? 0),
     0,
   );
+  const canPrepareDelete = canPrepareUnusedAssetDeletion({
+    preflightResult: assetCleanupDeletePreflightResult,
+    selectedAssetFileIds: Array.from(selectedAssetFileIds),
+    blockedReason: assetCleanupDeleteBlockedReason,
+    isDeleteInFlight: isAssetCleanupDeleteInFlight,
+    isPreflightInFlight: isAssetCleanupDeletePreflightInFlight,
+    isPreviewInFlight: isAssetCleanupPreviewInFlight,
+  });
 
   function toggleAssetSelection(assetFileId: string) {
     clearAssetCleanupDeletePreflight();
@@ -133,6 +155,10 @@ export function AssetCleanupPreviewPanel() {
     void preflightUnusedAssetDeletion(Array.from(selectedAssetFileIds));
   }
 
+  function handlePrepareSelectedAssetDeletion() {
+    prepareUnusedAssetDeletion(Array.from(selectedAssetFileIds));
+  }
+
   return (
     <Card className="bg-white text-slate-950">
       <CardHeader>
@@ -150,9 +176,9 @@ export function AssetCleanupPreviewPanel() {
       </CardHeader>
       <CardContent className="space-y-4 text-sm text-slate-600">
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">
-          <p className="font-semibold">この機能は検出のみです。</p>
+          <p className="font-semibold">物理削除は明示confirm後だけ実行します。</p>
           <p className="mt-1">
-            Drive assets/ の画像 file は削除しません。削除機能は次フェーズで、別途 confirm 必須で実装します。
+            fresh preflightを通過した未使用画像assetだけを対象にし、自動削除・自動retry・自動修復は行いません。
           </p>
         </div>
 
@@ -177,6 +203,17 @@ export function AssetCleanupPreviewPanel() {
         {assetCleanupPreviewMessage ? (
           <p className="text-slate-700">{assetCleanupPreviewMessage}</p>
         ) : null}
+
+        <DeleteExecutionPanel
+          status={assetCleanupDeleteStatus}
+          message={assetCleanupDeleteMessage}
+          diagnostics={assetCleanupDeleteDiagnostics}
+          review={assetCleanupDeleteReview}
+          result={assetCleanupDeleteResult}
+          progress={assetCleanupDeleteProgress}
+          onConfirm={() => void confirmUnusedAssetDeletion()}
+          onCancel={cancelUnusedAssetDeletion}
+        />
 
         {assetCleanupPreviewResult ? (
           <div className="space-y-4">
@@ -221,7 +258,10 @@ export function AssetCleanupPreviewPanel() {
                         type="button"
                         size="sm"
                         variant="secondary"
-                        disabled={unusedAssets.length === 0}
+                        disabled={
+                          unusedAssets.length === 0 ||
+                          isAssetCleanupDeleteInFlight
+                        }
                         onClick={selectAllUnusedAssets}
                       >
                         すべて選択
@@ -230,7 +270,10 @@ export function AssetCleanupPreviewPanel() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        disabled={selectedAssets.length === 0}
+                        disabled={
+                          selectedAssets.length === 0 ||
+                          isAssetCleanupDeleteInFlight
+                        }
                         onClick={clearSelectedAssets}
                       >
                         選択解除
@@ -242,6 +285,7 @@ export function AssetCleanupPreviewPanel() {
                         disabled={
                           selectedAssets.length === 0 ||
                           isAssetCleanupDeletePreflightInFlight ||
+                          isAssetCleanupDeleteInFlight ||
                           assetCleanupDeletePreflightBlockedReason !== null
                         }
                         onClick={handlePreflightSelectedAssets}
@@ -250,18 +294,10 @@ export function AssetCleanupPreviewPanel() {
                           ? "削除前再検証中"
                           : "削除前再検証"}
                       </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="destructive"
-                        disabled
-                      >
-                        選択した未使用 asset を削除
-                      </Button>
                     </div>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-slate-500">
-                    この画面ではまだ削除しません。preflight は fresh manifest と fresh metadata で再検証します。物理削除は次フェーズです。
+                    preflightはfresh manifestとfresh metadataで再検証します。削除実行時にも全件と各DELETE直前の再検証を行います。
                   </p>
                   {assetCleanupDeletePreflightBlockedReason ? (
                     <p className="mt-2 text-xs text-slate-500">
@@ -277,30 +313,10 @@ export function AssetCleanupPreviewPanel() {
                     message={assetCleanupDeletePreflightMessage}
                     diagnostics={assetCleanupDeletePreflightDiagnostics}
                     result={assetCleanupDeletePreflightResult}
+                    canPrepareDelete={canPrepareDelete}
+                    onPrepareDelete={handlePrepareSelectedAssetDeletion}
                   />
                 ) : null}
-
-                <div className="rounded-xl border border-slate-200 bg-white p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold text-slate-900">
-                      削除を有効化する前に必要な確認
-                    </p>
-                    <Badge variant="secondary">未実装</Badge>
-                  </div>
-                  <p className="mt-2 text-sm text-slate-600">
-                    以下は今回のコミットでは未実装です。物理削除を有効化する前に、次フェーズで実装します。
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                    {deleteReadinessChecklistItems.map((item) => (
-                      <li key={item} className="flex gap-2">
-                        <span aria-hidden="true" className="text-slate-400">
-                          -
-                        </span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
 
                 <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200">
                   <div className="min-w-[148rem]">
@@ -333,6 +349,7 @@ export function AssetCleanupPreviewPanel() {
                               checked={selectedAssetFileIds.has(
                                 asset.assetFileId,
                               )}
+                              disabled={isAssetCleanupDeleteInFlight}
                               onChange={() =>
                                 toggleAssetSelection(asset.assetFileId)
                               }
@@ -425,14 +442,168 @@ export function AssetCleanupPreviewPanel() {
   );
 }
 
+function DeleteExecutionPanel({
+  status,
+  message,
+  diagnostics,
+  review,
+  result,
+  progress,
+  onConfirm,
+  onCancel,
+}: {
+  status: AssetCleanupDeleteStatus;
+  message: string | null;
+  diagnostics: string[];
+  review: DriveProjectUnusedAssetDeleteReview | null;
+  result: DriveProjectUnusedAssetDeleteResult | null;
+  progress: { current: number; total: number } | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (status === "idle") return null;
+
+  const role = getAssetCleanupDeleteLiveRole(status);
+  const className =
+    status === "partialFailure" || status === "blocked" || status === "error"
+      ? "rounded-xl border border-red-300 bg-red-50 p-4 text-red-950"
+      : "rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950";
+
+  return (
+    <div
+      className={className}
+      role={role}
+      aria-live={role === "status" ? "polite" : undefined}
+    >
+      {message ? <p className="font-semibold">{message}</p> : null}
+
+      {status === "confirming" && review ? (
+        <div className="mt-3 space-y-3">
+          <p>
+            対象 {review.assetCount}件 / 合計 {formatBytes(review.totalSizeBytes)}
+          </p>
+          <div className="rounded-lg border border-red-300 bg-white/60 p-3">
+            <p className="font-semibold">Google Driveから完全削除します</p>
+            <p className="mt-1">この操作は取り消せません。</p>
+            <p className="mt-1">
+              manifest / index / confirmed storeは変更しません。
+            </p>
+          </div>
+          <div className="max-w-full overflow-x-auto">
+            <div className="min-w-[42rem] space-y-2">
+              {review.assets.map((asset) => (
+                <div
+                  key={`${asset.assetFileIdPart}-${asset.assetName}`}
+                  className="grid grid-cols-[minmax(14rem,1fr)_10rem_8rem] gap-3 rounded-lg border border-red-200 bg-white p-2 text-sm"
+                >
+                  <p className="truncate" title={asset.assetName}>
+                    {asset.assetName}
+                  </p>
+                  <p className="font-mono text-xs">{asset.assetFileIdPart}</p>
+                  <p>{formatNullableBytes(asset.sizeBytes)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="destructive" onClick={onConfirm}>
+              完全削除を実行
+            </Button>
+            <Button type="button" variant="outline" onClick={onCancel}>
+              キャンセル
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {status === "deleting" && progress ? (
+        <p className="mt-2">
+          未使用 asset を削除中 {progress.current} / {progress.total}
+        </p>
+      ) : null}
+
+      {status === "partialFailure" ? (
+        <p className="mt-2">
+          Drive上に一部削除済みの状態が残っています。自動retryや復元は行いません。
+        </p>
+      ) : null}
+
+      {result ? (
+        <div className="mt-3 space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <SummaryPill label="requested" value={`${result.requestedCount}件`} />
+            <SummaryPill label="deleted" value={`${result.deletedCount}件`} />
+            <SummaryPill label="failed" value={`${result.failedCount}件`} />
+            <SummaryPill label="blocked" value={`${result.blockedCount}件`} />
+            <SummaryPill
+              label="not attempted"
+              value={`${result.notAttemptedCount}件`}
+            />
+          </div>
+          <div className="space-y-2">
+            {result.items.map((item, index) => (
+              <div
+                key={`${item.assetFileIdPart}-${index}`}
+                className="rounded-lg border border-current/20 bg-white/60 p-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-medium">{item.assetName}</p>
+                  <Badge variant="secondary">{item.status}</Badge>
+                </div>
+                <p className="mt-1 font-mono text-xs">
+                  {item.assetFileIdPart} / {formatNullableBytes(item.sizeBytes)}
+                </p>
+                {item.reason ? (
+                  <p className="mt-1 text-xs">
+                    reason: {getDeleteFailureReasonLabel(item.reason)}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {diagnostics.length > 0 ? (
+        <div className="mt-3 space-y-1 text-xs">
+          {diagnostics.map((diagnostic, index) => (
+            <p key={`${diagnostic}-${index}`}>・{diagnostic}</p>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function getDeleteFailureReasonLabel(
+  reason: DriveProjectUnusedAssetDeleteFailureReason,
+) {
+  const labels: Record<DriveProjectUnusedAssetDeleteFailureReason, string> = {
+    notFound: "対象なし",
+    stillReferenced: "参照あり",
+    metadataChanged: "metadata変更",
+    notAppManagedAsset: "app管理asset不一致",
+    wrongProject: "project不一致",
+    wrongParent: "parent不一致",
+    deleteRejected: "Drive削除拒否",
+    aborted: "中止",
+    unexpectedFailure: "予期しない失敗",
+  };
+  return labels[reason];
+}
+
 function PreflightResultPanel({
   message,
   diagnostics,
   result,
+  canPrepareDelete,
+  onPrepareDelete,
 }: {
   message: string | null;
   diagnostics: string[];
   result: DriveProjectUnusedAssetDeletePreflightResult | null;
+  canPrepareDelete: boolean;
+  onPrepareDelete: () => void;
 }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -474,7 +645,7 @@ function PreflightResultPanel({
 
           {result.blockedAssets.length > 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">
-              blocked asset があるため、将来の物理削除でもこのままでは実行できません。
+              blocked asset があるため物理削除を実行できません。
             </div>
           ) : null}
 
@@ -492,7 +663,7 @@ function PreflightResultPanel({
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-950">
             <p className="font-semibold">削除 confirm preview</p>
             <p className="mt-1 text-sm">
-              以下は削除直前preflightを通過した候補です。ただし、このコミットでは Drive file は削除しません。
+              以下は削除前preflightを通過した候補です。次の操作で最終confirmを表示します。
             </p>
             <div className="mt-3 max-w-full overflow-x-auto">
               {result.eligibleAssets.length > 0 ? (
@@ -509,11 +680,16 @@ function PreflightResultPanel({
               )}
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button type="button" variant="destructive" disabled>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={!canPrepareDelete}
+                onClick={onPrepareDelete}
+              >
                 preflight済み asset を物理削除
               </Button>
               <p className="text-xs leading-5">
-                物理削除は次フェーズで Drive delete API と partial failure handling を実装してから有効化します。
+                confirm後もDELETE開始前と各DELETE直前にfresh再検証します。
               </p>
             </div>
           </div>
