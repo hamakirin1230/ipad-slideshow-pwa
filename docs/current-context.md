@@ -376,6 +376,8 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 3. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
 ```
 
+publication write異常系の詳細計画は`docs/acceptance/publication-write-abnormal-acceptance-plan.md`を参照。計画作成済みだが実Google Drive試験は未実施で、Gate 0承認前にfault injection codeを作らない。
+
 ## 最新ハンドオフ
 
 読む順:
