@@ -45,18 +45,23 @@ export type ProjectRollbackIndexMirrorAdapter = {
   }): Promise<void>;
 };
 
-const defaultAdapter: ProjectRollbackIndexMirrorAdapter = {
-  readMetadata: readDriveFileMetadata,
-  readText: readDriveTextFile,
-  update: updateDriveJsonFileContent,
-};
+export function createProjectRollbackIndexMirrorDriveAdapter(): ProjectRollbackIndexMirrorAdapter {
+  return {
+    readMetadata: readDriveFileMetadata,
+    readText: readDriveTextFile,
+    update: updateDriveJsonFileContent,
+  };
+}
 
 export async function mirrorProjectRollbackIndexInDrive(input: {
   accessToken: string;
   plan: ProjectRollbackWritePlan;
   signal?: AbortSignal;
 }): Promise<MirrorProjectRollbackIndexResult> {
-  return mirrorProjectRollbackIndexWithAdapter(input, defaultAdapter);
+  return mirrorProjectRollbackIndexWithAdapter(
+    input,
+    createProjectRollbackIndexMirrorDriveAdapter(),
+  );
 }
 
 export async function mirrorProjectRollbackIndexWithAdapter(
