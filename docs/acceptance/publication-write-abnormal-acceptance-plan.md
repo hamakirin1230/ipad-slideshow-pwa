@@ -2,7 +2,7 @@
 
 Date: 2026-08-09
 
-Status: plan review待ち。実Google Drive試験、fault injection実装、preview deploymentは未実施。
+Status: Gate 0承認済み。browser origin単位のoffline baselineをGate 1開始前のreview clarificationとして追記。実Google Drive試験、fault injection実装、preview deploymentは未実施。
 
 ## 1. 目的と範囲
 
@@ -69,7 +69,8 @@ Status: plan review待ち。実Google Drive試験、fault injection実装、prev
 7. rollback workflowはcurrent manifest commit・検証後だけindex mirrorへ進む。
 8. index mirror失敗はrollback revisionやcurrent manifestを巻き戻さず、`indexStatus: "warning"`とする。
 9. publish / rollback成功だけではIndexedDB confirmed snapshot、player session、offline sync stateを自動更新しない。
-10. conflict、requiresInspection、warningはraw Drive値を公開せず、自動retry・自動repairしない。
+10. IndexedDB confirmed snapshotはbrowser origin単位であり、production originとVercel Preview originの間では共有されない。
+11. conflict、requiresInspection、warningはraw Drive値を公開せず、自動retry・自動repairしない。
 
 ## 4. 安全境界
 
@@ -112,19 +113,25 @@ Status: plan review待ち。実Google Drive試験、fault injection実装、prev
 
 停止後は自動retry、自動repair、削除を行わない。faultをdisarmし、preview deploymentで追加writeを止め、sanitizedな観測だけを残してplan reviewへ戻る。
 
-## 5. Disposable baseline
+## 5. Disposable Drive remote baseline
 
-各case projectを次の同一論理状態にする。
+Gate 1では、各case projectをDrive上で次の同一論理状態にする。
 
 1. JPEG / PNG / WebPの最小画像assetを1〜2件だけ追加する。動画は使わない。
 2. title / captionを`baseline-v1`として保存し、initial publishする。これを「target revision」と呼ぶ。
 3. titleまたはcaptionを`current-v2`へ正式UIで変更し、second publishする。これを「pre-case current revision」と呼ぶ。
-4. 明示的offline syncを実行し、confirmed snapshotの`publishedMatch`を確認する。
-5. `/admin/history`でcurrentがsecond publish revision、targetがinitial publish revisionであることを確認する。
-6. current manifest、current revision、history folder / revisions folder、index target project record、asset metadataがすべて正式・一意であることを通常UIから確認する。
-7. index title / `updatedAt`がcurrent manifestと一致し、他projectのrecordが変わっていないことを確認する。
+4. `/admin/history`でcurrentがsecond publish revision、targetがinitial publish revisionであることを確認する。
+5. current manifest、current revision、history folder / revisions folder、index target project record、asset metadata、project / manifest / assets locationがすべて正式・一意であることを通常UIから確認する。
+6. index title / `updatedAt`がcurrent manifestと一致し、他projectのrecordが変わっていないことを確認する。
 
-baseline evidenceには、case alias、asset / slide数、history件数、current operation=`publish`、current/targetの相対ラベル、confirmed provenance=`publishedMatch`、index整合=`ready`だけを記録する。ID、hash、raw JSONは記録しない。
+Gate 1のbaseline evidenceには、case alias、asset / slide数、history件数、current operation=`publish`、current/targetの相対ラベル、index整合=`ready`だけを記録する。ID、hash、raw JSONは記録しない。production originで明示的offline syncを行い`publishedMatch`を確認する場合も、それはDrive remote状態確認の補助に限る。production originのIndexedDB confirmed snapshotは、別originであるVercel Preview deployment上のCase A / C offline baselineの代用にはならない。
+
+### Same-origin offline baselineの定義
+
+各caseの「offline confirmed snapshot unchanged」は、そのcaseを実際に実行するbrowser originで、case開始直前に固定したconfirmed snapshotとの比較を意味する。confirmed project / assets / Blob / 保存済みprovenanceをsanitizedに確認し、異なるoriginのsnapshot同士は比較しない。
+
+- Case A / CはGate 4でVercel Preview origin上に作るbaselineを使う。
+- Case BはBを実行するoriginで明示的offline syncと`publishedMatch`を確認してからbaselineを固定し、Tab A / Tab Bの両方を同一originで開く。
 
 ## 6. Preview-only fault injection設計
 
@@ -142,6 +149,8 @@ Gate 0承認後、AとCだけに一時fault-injection branchを作る。Bにはf
 - preview-only controlはfault名、OFF / armed / consumedだけを表示し、console logを出さない
 - faultがarmedの間は対象case以外のpublish / rollback操作を禁止する
 - browser reload、session終了、project変更でarmed stateを解除する。Cのrecovery planはmemoryだけなので、Cではrecovery完了までreloadしない
+
+browser origin単位のbaseline補足は、このCのmemory-only plan、session / reload制約、fault timing、recovery semanticsを変更しない。
 
 ### Aの最小injection point
 
@@ -249,7 +258,7 @@ Tab Aは`stage: "revalidateBeforeRevision"`由来の「rollback revision作成�
 
 ### 11. Offline confirmed snapshot
 
-Tab B publishとTab A conflictだけではoffline syncが始まらず、confirmed project / assets / Blob、保存済みprovenance、player sessionがpre-caseから変わらないことを確認する。
+Bを実行するoriginでcase開始直前に固定したconfirmed snapshotをbaselineとする。Tab B publishとTab A conflictだけではoffline syncが始まらず、confirmed project / assets / Blob、保存済みprovenance、player sessionがそのsame-origin baselineから変わらないことを確認する。Tab A / Tab Bは同一originを使う。
 
 ### 12. Recovery手順
 
@@ -261,7 +270,7 @@ Tab Bのpublishが正常完了しない、indexが変わる、Tab Aがrollback r
 
 ### 14. Pass / fail criteria
 
-PassはTab Aが`stalePlan`相当のconflictでrevision作成前に停止し、Drive上の唯一の差分がTab Bの正規publishであり、currentがTab Bのまま維持されること。Tab Aがwriteした場合、または単なるUI owner mismatchだけでDrive guardを通っていない場合はfail。
+PassはTab Aが`stalePlan`相当のconflictでrevision作成前に停止し、Drive上の唯一の差分がTab Bの正規publishであり、currentがTab Bのまま維持されること。offline unchangedはB実行origin上でcase直前に固定したbaselineとの比較で判定する。Tab Aがwriteした場合、単なるUI owner mismatchだけでDrive guardを通っていない場合、またはsame-origin confirmed snapshotが変化した場合はfail。
 
 ### 15. 試験後cleanup
 
@@ -325,7 +334,7 @@ Drive current manifest writeの後、adapter success returnの前。revision作�
 
 ### 11. Offline confirmed snapshot
 
-rollback成功だけではoffline syncが始まらず、confirmed snapshot、保存済みprovenance、player content / sessionがpre-caseのままであることを確認する。
+Gate 4でPreview origin上に固定したCase A confirmed snapshotをbaselineとする。rollback成功だけではoffline syncが始まらず、confirmed project / assets / Blob、保存済みprovenance、player content / sessionがそのsame-origin baselineのままであることを確認する。
 
 ### 12. Recovery手順
 
@@ -337,7 +346,7 @@ faultがwrite前に発火した、Aが`consumed`にならない、`committed`へ
 
 ### 14. Pass / fail criteria
 
-PassはA faultが1回だけpost-writeで発火し、実Drive read-back完全一致によりworkflowが通常成功し、revision/current/indexが一貫すること。単にfaultなしで成功した場合、write前throw、manual retryで成功した場合はAのpassにしない。
+PassはA faultが1回だけpost-writeで発火し、実Drive read-back完全一致によりworkflowが通常成功し、revision/current/indexが一貫し、Preview originのsame-origin confirmed snapshotが変化しないこと。単にfaultなしで成功した場合、write前throw、manual retryで成功した場合はAのpassにしない。
 
 ### 15. 試験後cleanup
 
@@ -410,7 +419,7 @@ recovery後:
 
 ### 11. Offline confirmed snapshot
 
-warning直後もrecovery後もoffline syncを実行しない。confirmed project / assets / Blob、保存済みprovenance、player sessionがpre-caseから自動変化しないことを確認する。
+Gate 4でPreview origin上に固定したCase C confirmed snapshotをbaselineとする。warning直後もrecovery後もoffline syncを実行せず、confirmed project / assets / Blob、保存済みprovenance、player sessionがそのsame-origin baselineから自動変化しないことを確認する。
 
 ### 12. Recovery手順
 
@@ -434,7 +443,7 @@ Passには両方が必要である。
 1. injected index write failure後もrollback revision/current manifestが正式currentで、UIが`indexStatus: "warning"`を表示する。
 2. 明示recoveryがfresh guardを通り、revision/currentを変えずindex target recordだけを整合状態へ戻す。
 
-manifest commit前失敗、indexが自動repairされた、rollbackが自動rollbackされた、recoveryがstale planを無条件使用した場合はfail。
+さらに、Preview originのsame-origin confirmed snapshotがwarning直後もrecovery後も変化しないことを確認する。manifest commit前失敗、indexが自動repairされた、rollbackが自動rollbackされた、recoveryがstale planを無条件使用した場合はfail。
 
 ### 15. 試験後cleanup
 
@@ -446,6 +455,8 @@ index recoveryとfresh reloadで正常状態へ戻ったことを確認後、pro
 case: A | B | C
 preview deployment: verified preview only
 baseline: ready | not ready
+browser origin: production | preview | other sanitized label
+same-origin offline baseline: fixed immediately before case | not ready
 fault: not used | armed once | consumed once | unexpected
 history count: unchanged | +1 expected | unexpected
 current operation: publish | rollback | unchanged
@@ -479,13 +490,16 @@ project/revisionの実ID、hash、raw response、URL、tokenは添付しない�
 
 Exit: reviewerがplanを明示承認し、未解決事項が0件。
 
+Gate 0は承認済みであり、browser origin単位のbaseline補足はGate 1開始前のreview clarificationとして記録する。Gate 0をやり直さず、fault injection設計やrecovery semanticsも変更しない。
+
 ### Gate 1: disposable workspace準備
 
 - acceptance専用workspaceとcase別3 projectを作る
-- 各projectでtarget revision、pre-case current revision、offline sync、`publishedMatch`を準備する
-- current/history/index/asset/locationのsanitized baselineを記録する
+- 各projectでtarget revisionとpre-case current revisionを準備する
+- current / history / index / assets / locationが正常であることを確認し、Drive remoteのsanitized baselineを記録する
+- production originでoffline syncと`publishedMatch`を確認する場合はremote状態確認の補助とし、Case A / CのPreview-origin offline baselineの代用にしない
 
-Exit: 3 projectすべてがSection 5のbaselineを満たす。
+Exit: 3 projectすべてがSection 5のDrive remote baselineを満たす。
 
 ### Gate 2: 必要なpreview-only fault injection実装
 
@@ -512,16 +526,21 @@ Exit: focused / full tests、lint、build、diff checkがすべてpass。
 - production aliasへ昇格していないことを確認する
 - default OFFで通常rollbackが変化しないことをsanitized test projectで確認する
 - fault controlにsecret / ID入力欄やconsole出力がないことを確認する
+- faultをdefault OFFのままarmedせず、Case A projectをPreview originで明示的にoffline syncし、`publishedMatch`を確認する
+- 同じくfaultをarmedせず、Case C projectをPreview originで明示的にoffline syncし、`publishedMatch`を確認する
+- Case A / Cそれぞれのconfirmed project / assets / Blob / 保存済みprovenanceをsanitizedに確認し、Preview-origin baselineとして固定する
 
-Exit: preview-only、default OFF、production非影響が確認済み。
+Exit: preview-only、default OFF、fault未arm、production非影響、Case A / CのPreview-origin baselineが確認済み。
 
 ### Gate 5: case-by-case real Drive acceptance
 
-1. Bを実行し、passまたはsafe stopをreviewする
-2. B終了承認後だけAを実行し、passまたはsafe stopをreviewする
-3. A終了承認後だけCを実行し、warningと明示recoveryまでreviewする
+各caseで、実際にcaseを実行するbrowser originのconfirmed snapshotをcase開始直前のbaselineとして扱う。異なるoriginのsnapshotを代用または比較対象にしない。
 
-各caseでbaseline →操作→UI result→Drive read-back→history/current→offline unchanged→recovery→cleanupを個別sign-offする。
+1. Bを実行するoriginで明示的offline syncと`publishedMatch`を確認し、same-origin baselineを固定する。Tab A / Tab Bを同一originで開いてBを実行し、passまたはsafe stopをreviewする
+2. B終了承認後だけ、Gate 4のCase A Preview-origin baselineを使ってAを実行し、passまたはsafe stopをreviewする
+3. A終了承認後だけ、Gate 4のCase C Preview-origin baselineを使ってCを実行し、warningと明示recoveryまでreviewする
+
+各caseでbaseline →操作→UI result→Drive read-back→history/current→same-origin offline unchanged→recovery→cleanupを個別sign-offする。
 
 Exit: B/A/Cがpass、またはいずれかでstopして以後未実行であることが明確。
 
@@ -543,14 +562,14 @@ Exit: callableなfault deploymentがなく、production codeへfault hookが混�
 
 Exit: docs-only diffがreviewされ、実施済み範囲とremaining riskが正確にcurrent docsへ反映される。
 
-## 14. Gate 0 review checklist
+## 14. Gate 0 review checklist（承認済み）
 
-- [ ] Aをrollback current manifest commit限定とする理由を承認した
-- [ ] Bで同一contentの通常republishを使い、indexを変えず`currentRevisionId`を変える順序を承認した
-- [ ] C faultがmanifest read-back後 / index write前であることを承認した
-- [ ] C recoveryで同一planをmemoryだけに保持し、明示的にfresh index guardを通すことを承認した
-- [ ] disposable workspace / case別project / no-delete方針を承認した
-- [ ] global stop conditionsとsanitized evidence policyを承認した
-- [ ] fault branchをmergeせず、production aliasへ昇格しないことを承認した
+- [x] Aをrollback current manifest commit限定とする理由を承認した
+- [x] Bで同一contentの通常republishを使い、indexを変えず`currentRevisionId`を変える順序を承認した
+- [x] C faultがmanifest read-back後 / index write前であることを承認した
+- [x] C recoveryで同一planをmemoryだけに保持し、明示的にfresh index guardを通すことを承認した
+- [x] disposable workspace / case別project / no-delete方針を承認した
+- [x] global stop conditionsとsanitized evidence policyを承認した
+- [x] fault branchをmergeせず、production aliasへ昇格しないことを承認した
 
-すべて承認されるまでGate 1以降へ進まず、fault injection codeを作らない。
+Gate 0は承認済み。今回のorigin clarificationを反映したうえでGate 1から進め、Gate 2より前にfault injection codeを作らない。
