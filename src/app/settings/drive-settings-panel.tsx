@@ -62,7 +62,7 @@ export function DriveSettingsPanel() {
     <Card className="border-white/10 bg-white/5 text-slate-50">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
-          <CardTitle>第5 Driveワークスペース作成</CardTitle>
+          <CardTitle>Google / Drive接続</CardTitle>
           <Badge variant={googleStatus === "connected" ? "secondary" : "outline"}>
             {googleStatusLabel}
           </Badge>
@@ -71,9 +71,8 @@ export function DriveSettingsPanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          Google Drive上に、このPWA用の最小ワークスペースを作成します。
-          作成後はDrive状態を再確認し、metadata と workspace.json / index.json
-          の本文検証まで通った場合だけ準備済みとして扱います。
+          Googleに接続し、このPWAが使用するDriveワークスペースの状態を確認します。
+          未作成の場合は、この画面から作成できます。
         </CardDescription>
       </CardHeader>
 
@@ -190,7 +189,8 @@ export function DriveSettingsPanel() {
           <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
             <p className="font-semibold">Driveワークスペース準備済み</p>
             <p className="mt-2">
-              Driveワークスペースを確認できました。本番再生データ未準備、オフライン再生未対応です。
+              Driveワークスペースを確認できました。projectの編集、公開、ロールバック、offline syncは管理画面から明示的に実行できます。
+              保存や公開だけでは、この端末の再生用データは更新されません。remoteOnly動画は動画本体を端末に保存せず、オンラインかつGoogle接続中の場合だけ再生します。
             </p>
           </div>
         ) : null}

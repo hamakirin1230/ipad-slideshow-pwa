@@ -9,83 +9,30 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-const navigationItems = [
+const taskItems = [
   {
-    href: "/settings",
-    title: "設定",
+    href: "/player",
+    title: "再生",
     description:
-      "Google接続、Drive workspace 状態、OAuth scope、現在の接続状態を確認します。",
-    badge: "Google / Drive",
+      "この端末に同期済みのスライドショーを開き、画像や動画を再生します。",
+    badge: "iPad再生",
+    action: "再生画面を開く",
   },
   {
     href: "/admin",
-    title: "管理画面",
+    title: "管理",
     description:
-      "Drive project、Photos Picker、offline sync、confirmed store、project単位のローカル削除を扱います。",
-    badge: "同期 / 保存管理",
+      "projectの編集、公開、公開履歴、ロールバック、端末へのoffline syncを行います。",
+    badge: "編集 / 公開 / 同期",
+    action: "管理画面を開く",
   },
   {
-    href: "/player",
-    title: "再生画面",
+    href: "/settings",
+    title: "設定 / Google Drive接続",
     description:
-      "この端末に保存済みの IndexedDB confirmed Blob から、offline-first でスライドを再生します。",
-    badge: "iPad再生",
-  },
-];
-
-const completedItems = [
-  "Vercel production で公開中",
-  "Google OAuth / drive.file scope 接続済み",
-  "Google Drive workspace / project 検証済み",
-  "Google Photos Picker から素材追加済み",
-  "manifest.json / index.json 反映済み",
-  "IndexedDB confirmed store への offline sync 済み",
-  "confirmed asset Blob から /player 画像再生済み",
-  "next / previous / 自動送り / swipe 操作確認済み",
-  "Service Worker による app shell cache 追加済み",
-  "project 単位のローカル保存削除を追加済み",
-  "iPad 実機 PWA offline shell / player recovery 確認済み",
-  "iPad横向き再生UI polish 済み",
-  "browser storage estimate / app shell cache 管理UI 追加済み",
-  "multi-project playback selector 準備済み",
-];
-
-const storageItems = [
-  {
-    title: "Cache Storage",
-    description:
-      "Service Worker が app shell、manifest、icons、Next.js static chunks を保存します。",
-    detail: "cache: ipad-slideshow-pwa-app-shell-v1",
-  },
-  {
-    title: "IndexedDB",
-    description:
-      "project snapshot、asset metadata、asset Blob、sync state を保存します。",
-    detail: "db: ipad-slideshow-offline",
-  },
-  {
-    title: "Google Drive",
-    description:
-      "workspace、project folder、manifest、assets の本体を保持します。ローカル削除では消しません。",
-    detail: "source of truth",
-  },
-];
-
-const nextStepItems = [
-  {
-    title: "multi-project 実機確認",
-    description:
-      "Vercel productionで複数projectをoffline syncし、player selectorをiPad PWAで確認します。",
-  },
-  {
-    title: "本番モード",
-    description:
-      "本番中の誤操作を防ぐため、操作ロック、解除導線、表示制限を設計します。",
-  },
-  {
-    title: "再生機能拡張",
-    description:
-      "動画再生、テロップ、公開履歴、ロールバックを順番に追加します。",
+      "Google接続とDriveワークスペースの状態、この端末の保存準備を確認します。",
+    badge: "Google / Drive",
+    action: "設定を開く",
   },
 ];
 
@@ -104,8 +51,7 @@ export default function Home() {
               </h1>
               <p className="max-w-3xl text-base leading-7 text-slate-300">
                 iPadで安定して再生するためのスライドショーPWAです。
-                Google Drive上のprojectと素材を同期し、この端末のIndexedDBに保存した
-                confirmed Blobからoffline-firstで再生します。
+                Google Drive上でprojectを管理し、明示的なoffline syncでこの端末の再生用データを更新します。
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -120,7 +66,7 @@ export default function Home() {
         </section>
 
         <section className="grid gap-4 md:grid-cols-3">
-          {navigationItems.map((item) => (
+          {taskItems.map((item) => (
             <Card
               key={item.href}
               className="border-white/10 bg-white text-slate-950"
@@ -134,71 +80,35 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <Button asChild className="w-full">
-                  <Link href={item.href}>開く</Link>
+                  <Link href={item.href}>{item.action}</Link>
                 </Button>
               </CardContent>
             </Card>
           ))}
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <Card className="border-white/10 bg-white/5 text-slate-50">
-            <CardHeader>
-              <CardTitle>現在の到達点</CardTitle>
-              <CardDescription className="text-slate-300">
-                Vercel production、Drive連携、offline sync、iPad実機確認まで進んでいます。
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
-              {completedItems.map((item) => (
-                <p key={item}>・{item}</p>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card className="border-white/10 bg-white/5 text-slate-50">
-            <CardHeader>
-              <CardTitle>ローカル保存の扱い</CardTitle>
-              <CardDescription className="text-slate-300">
-                offline再生に必要なデータは、用途ごとに保存先を分けています。
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-slate-300">
-              {storageItems.map((item) => (
-                <div
-                  key={item.title}
-                  className="rounded-2xl border border-white/10 bg-black/30 p-4"
-                >
-                  <p className="font-semibold text-slate-50">{item.title}</p>
-                  <p className="mt-2 leading-6">{item.description}</p>
-                  <p className="mt-2 text-xs text-slate-500">{item.detail}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </section>
-
-        <section>
-          <Card className="border-white/10 bg-white/5 text-slate-50">
-            <CardHeader>
-              <CardTitle>次の開発候補</CardTitle>
-              <CardDescription className="text-slate-300">
-                offline再生の縦線が通った後は、実機確認と本番運用機能を進めます。
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 text-sm text-slate-300 md:grid-cols-3">
-              {nextStepItems.map((item) => (
-                <div
-                  key={item.title}
-                  className="rounded-2xl border border-white/10 bg-black/30 p-4"
-                >
-                  <p className="font-semibold text-slate-50">{item.title}</p>
-                  <p className="mt-2 leading-6">{item.description}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </section>
+        <Card className="border-white/10 bg-white/5 text-slate-50">
+          <CardHeader>
+            <CardTitle>反映と再生について</CardTitle>
+            <CardDescription className="text-slate-300">
+              Drive上の変更と、この端末で使用する再生用データは別に管理されます。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 text-sm text-slate-300 md:grid-cols-2">
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <p className="font-semibold text-slate-50">変更をiPadへ反映する</p>
+              <p className="mt-2 leading-6">
+                保存や公開だけでは再生用データは変わりません。管理画面で対象projectのoffline syncを明示的に実行してください。
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <p className="font-semibold text-slate-50">remoteOnly動画を再生する</p>
+              <p className="mt-2 leading-6">
+                remoteOnly動画は動画本体を端末に保存せず、オンラインかつGoogle接続中の場合だけ再生します。
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
