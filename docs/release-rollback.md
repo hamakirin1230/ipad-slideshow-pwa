@@ -8,11 +8,11 @@
 
 - 本番運用対象は Vercel production。
 - production alias は `https://ipad-slideshow-pwa.vercel.app/`。
-- GitHub Pages は本番ではない。
-- GitHub Pages workflow は削除せず、手動実行用途として残す。
+- GitHub Pages deploy は廃止済み。
+- GitHub Actions は test / lint / production build の CI として継続する。
 - main push の本番反映先は Vercel production。
 
-GitHub Pages は履歴または手動確認用途として扱う。GitHub Pages の過去 deployment が残っていても、本番状態の判定には使わない。
+GitHub Pages の過去 deployment は履歴に限り、本番状態の判定や新しいdeploymentには使わない。
 
 ## 公開履歴の単位
 

@@ -1,8 +1,8 @@
 # iPad用スライドショーPWA 現在の引き継ぎ
 
-Date: 2026-08-08
+Date: 2026-08-12
 
-このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-08時点の実装状態を正とします。
+このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-12時点の実装・運用状態を正とします。
 
 2026-06-22時点で、Vercel productionの既存運用を再確認済み。新規Vercel project作成、import、`vercel link` は不要。
 
@@ -25,8 +25,8 @@ Date: 2026-08-08
 https://ipad-slideshow-pwa.vercel.app/
 ```
 
-GitHub Pagesは初期フェーズの公開先だったが、現在の運用対象ではない。
-GitHub Pages workflowは履歴または手動確認用途への降格を検討するが、2026-06-22時点ではまだ変更しない。
+正式な本番運用・deployment先はVercel productionのみ。
+GitHub Pages deployは廃止済み。GitHub Actionsはtest / lint / production buildを行うCIとして継続する。
 
 現在のPWA path:
 
@@ -38,7 +38,7 @@ icons: /icons/...
 service worker: /sw.js
 ```
 
-`next.config.ts` は `GITHUB_PAGES=true` の場合だけ `basePath: "/ipad-slideshow-pwa"` を付ける。
+`next.config.ts` は常にroot deployment前提で、GitHub Pages用`basePath`分岐は持たない。
 
 ## 現在の到達点
 

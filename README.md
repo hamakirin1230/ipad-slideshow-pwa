@@ -60,7 +60,6 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - 実Google Driveでpublish / unpublished edit / republish / rollback後の各offline syncとpublication provenanceを確認し、Goal 6完了
 - rollback pipelineのproduction moduleを直接検証するunit testを含む、Vitest 24 files / 669 tests
 - mainへのpush、pull request、手動実行でtest / lint / production buildを行うGitHub Actions CI
-- GitHub Pagesの手動deployでもtest / lint / build成功後にartifactをdeploy
 
 ## 公開URL
 
@@ -68,7 +67,7 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 https://ipad-slideshow-pwa.vercel.app/
 ```
 
-現在の本番運用対象はVercel productionです。GitHub Pages前提の`basePath: "/ipad-slideshow-pwa"`は初期段階の履歴として残っていますが、現在の主運用対象ではありません。現在のmanifest / icon / Service Workerはroot path前提です。
+正式な本番運用・deployment先はVercel productionのみです。GitHub Pages deployは廃止済みですが、test / lint / production buildを行うGitHub Actions CIは継続します。manifest / icon / Service Workerを含む配信pathはroot前提です。
 
 ## 現在使える画面
 
@@ -162,7 +161,7 @@ mainへのpush、pull request、手動実行でGitHub ActionsのCIが動きま�
 
 workflow名は`CI`、job名は`Test, lint, and build`です。branch protection / Rulesetsでrequired checkにする設定はGitHub側の別作業です。
 
-GitHub Pagesは手動deployの位置づけで、同じtest / lintを通過してからPages用buildとdeployを行います。主productionはVercelです。
+GitHub ActionsはCI専用です。正式な本番deploymentはVercelで行い、GitHub Pagesへのdeploy workflowは使用しません。
 
 ## 次の作業候補
 
