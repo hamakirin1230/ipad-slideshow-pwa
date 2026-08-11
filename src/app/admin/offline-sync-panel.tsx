@@ -99,6 +99,7 @@ export function OfflineSyncPanel() {
           <Button
             type="button"
             variant={canStartOfflineSync ? "default" : "secondary"}
+            className="min-h-11"
             onClick={startOfflineSync}
             disabled={!canStartOfflineSync || isOfflineSyncInFlight}
           >
@@ -108,6 +109,7 @@ export function OfflineSyncPanel() {
           <Button
             type="button"
             variant="outline"
+            className="min-h-11"
             onClick={cancelOfflineSync}
             disabled={!canCancelOfflineSync}
           >

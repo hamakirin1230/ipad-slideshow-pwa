@@ -301,6 +301,7 @@ export function OfflineConfirmedStorePanel() {
         <Button
           type="button"
           variant="secondary"
+          className="min-h-11"
           onClick={handleCheckConfirmedStore}
           disabled={isChecking || isClearingProject}
         >
@@ -407,6 +408,7 @@ function OfflineStorageManagementView({
           <Button
             type="button"
             variant="secondary"
+            className="min-h-11"
             onClick={onCheck}
             disabled={isBusy}
           >
@@ -417,6 +419,7 @@ function OfflineStorageManagementView({
           <Button
             type="button"
             variant="destructive"
+            className="min-h-11"
             onClick={onClearAppShellCache}
             disabled={isBusy || !canClearAppShellCache}
           >
@@ -718,7 +721,7 @@ function ConfirmedStoreSnapshotView({
                       {project.projectTitle ?? "名称未設定"}
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      <Button asChild variant="secondary">
+                      <Button asChild variant="secondary" className="min-h-11">
                         <Link href={createPlayerProjectHref(project.projectId)}>
                           このprojectを再生
                         </Link>
@@ -726,6 +729,7 @@ function ConfirmedStoreSnapshotView({
                       <Button
                         type="button"
                         variant="destructive"
+                        className="min-h-11"
                         onClick={() => onClearProject(project)}
                         disabled={clearingProjectId !== null}
                       >

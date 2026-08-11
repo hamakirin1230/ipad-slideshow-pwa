@@ -185,6 +185,7 @@ export function AssetCleanupPreviewPanel() {
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
+            className="min-h-11"
             disabled={
               assetCleanupPreviewBlockedReason !== null ||
               isAssetCleanupPreviewInFlight
@@ -258,6 +259,7 @@ export function AssetCleanupPreviewPanel() {
                         type="button"
                         size="sm"
                         variant="secondary"
+                        className="min-h-11"
                         disabled={
                           unusedAssets.length === 0 ||
                           isAssetCleanupDeleteInFlight
@@ -270,6 +272,7 @@ export function AssetCleanupPreviewPanel() {
                         type="button"
                         size="sm"
                         variant="outline"
+                        className="min-h-11"
                         disabled={
                           selectedAssets.length === 0 ||
                           isAssetCleanupDeleteInFlight
@@ -282,6 +285,7 @@ export function AssetCleanupPreviewPanel() {
                         type="button"
                         size="sm"
                         variant="default"
+                        className="min-h-11"
                         disabled={
                           selectedAssets.length === 0 ||
                           isAssetCleanupDeletePreflightInFlight ||
@@ -506,10 +510,20 @@ function DeleteExecutionPanel({
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="destructive" onClick={onConfirm}>
+            <Button
+              type="button"
+              variant="destructive"
+              className="min-h-11"
+              onClick={onConfirm}
+            >
               完全削除を実行
             </Button>
-            <Button type="button" variant="outline" onClick={onCancel}>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={onCancel}
+            >
               キャンセル
             </Button>
           </div>
@@ -683,6 +697,7 @@ function PreflightResultPanel({
               <Button
                 type="button"
                 variant="destructive"
+                className="min-h-11"
                 disabled={!canPrepareDelete}
                 onClick={onPrepareDelete}
               >

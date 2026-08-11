@@ -416,6 +416,7 @@ export function DriveProjectWorkspacePanel() {
                       type="button"
                       size="sm"
                       variant="secondary"
+                      className="min-h-11"
                       disabled={selectedCount === 0 || isSlideEditInFlight}
                       onClick={clearSelectedSlides}
                     >
@@ -425,6 +426,7 @@ export function DriveProjectWorkspacePanel() {
                       type="button"
                       size="sm"
                       variant="destructive"
+                      className="min-h-11"
                       disabled={!canDeleteSelectedSlides}
                       onClick={handleDeleteSelectedSlides}
                     >
@@ -698,7 +700,7 @@ function SortableSlideRow({
       disabled={isDisabled}
       aria-label="ドラッグして並び替え"
       title="ドラッグして並び替え"
-      className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-base font-semibold leading-none text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex size-11 items-center justify-center rounded-md border border-slate-300 bg-white text-base font-semibold leading-none text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
       {...attributes}
       {...listeners}
     >
@@ -786,6 +788,7 @@ function SlideDurationEditor({
         <Button
           type="button"
           size="sm"
+          className="min-h-11"
           variant={hasUnsavedChange ? "default" : "secondary"}
           disabled={
             !hasUnsavedChange ||
@@ -849,6 +852,7 @@ function SlideCaptionEditor({
         <Button
           type="button"
           size="sm"
+          className="min-h-11"
           variant={hasUnsavedChange ? "default" : "secondary"}
           disabled={!hasUnsavedChange || isSaving || isDisabled || isTooLong}
           onClick={() => onSave(slideId, normalizedDraftCaption)}
@@ -879,6 +883,7 @@ function SlideSingleActions({
         type="button"
         size="sm"
         variant="secondary"
+        className="min-h-11"
         disabled={isDisabled || isDuplicateLimitReached}
         title={
           isDuplicateLimitReached
@@ -919,6 +924,7 @@ function SlideReorderControls({
         type="button"
         size="sm"
         variant="secondary"
+        className="min-h-11"
         disabled={isDisabled || isFirst}
         onClick={() => onMove(slideId, "up")}
       >
@@ -928,6 +934,7 @@ function SlideReorderControls({
         type="button"
         size="sm"
         variant="secondary"
+        className="min-h-11"
         disabled={isDisabled || isLast}
         onClick={() => onMove(slideId, "down")}
       >

@@ -57,6 +57,7 @@ export function AssetImportPanel() {
       <div className="mt-4 flex flex-wrap gap-3">
         <Button
           type="button"
+          className="min-h-11"
           variant={
             assetImportStatus === "selected" || assetImportStatus === "savedToDrive"
               ? "secondary"
@@ -81,6 +82,7 @@ export function AssetImportPanel() {
         <Button
           type="button"
           variant="outline"
+          className="min-h-11"
           onClick={openLocalVideoFilePicker}
           disabled={!canStartAssetImport}
         >
@@ -88,7 +90,12 @@ export function AssetImportPanel() {
         </Button>
 
         {isAssetImportInFlight ? (
-          <Button type="button" variant="outline" onClick={cancelAssetImport}>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            onClick={cancelAssetImport}
+          >
             素材追加を中止
           </Button>
         ) : null}

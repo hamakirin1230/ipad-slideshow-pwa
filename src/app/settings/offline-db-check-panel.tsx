@@ -66,6 +66,7 @@ export function OfflineDbCheckPanel() {
         <Button
           type="button"
           variant="secondary"
+          className="min-h-11"
           onClick={handleCheckOfflineDb}
           disabled={checkState.status === "checking"}
         >

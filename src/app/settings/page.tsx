@@ -6,7 +6,7 @@ import { OfflineDbCheckPanel } from "./offline-db-check-panel";
 
 export default function SettingsPage() {
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-8 text-slate-50">
+    <main className="min-h-screen bg-slate-950 px-4 py-6 text-slate-50 sm:px-6 sm:py-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -17,7 +17,7 @@ export default function SettingsPage() {
               Drive project、素材追加、offline sync、再生確認は管理画面と再生画面で扱います。
             </p>
           </div>
-          <Button asChild variant="secondary">
+          <Button asChild variant="secondary" className="min-h-11">
             <Link href="/">トップへ戻る</Link>
           </Button>
         </div>

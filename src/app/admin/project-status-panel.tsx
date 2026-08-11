@@ -170,7 +170,7 @@ export function ProjectStatusPanel() {
                     <Button
                       type="button"
                       variant={isSelected ? "secondary" : "outline"}
-                      className="mt-4 w-full"
+                      className="mt-4 min-h-11 w-full"
                       onClick={() => selectProject(project.projectId)}
                       disabled={isSelected || isDriveOperationInFlight}
                     >
@@ -254,6 +254,7 @@ export function ProjectStatusPanel() {
           <Button
             type="button"
             variant="secondary"
+            className="min-h-11"
             onClick={checkDriveWorkspace}
             disabled={!canCheckDriveWorkspace}
           >
@@ -265,6 +266,7 @@ export function ProjectStatusPanel() {
           <Button
             type="button"
             variant="secondary"
+            className="min-h-11"
             onClick={checkProject}
             disabled={!canCheckProject}
           >
@@ -338,7 +340,7 @@ function CreateProjectTitleForm(input: {
       </div>
       <Button
         type="submit"
-        className="mt-4 w-full"
+        className="mt-4 min-h-11 w-full"
         variant={input.projectStatus === "notCreated" ? "default" : "secondary"}
         disabled={!canSubmit}
       >
@@ -404,7 +406,7 @@ function SelectedProjectTitleForm(input: {
       </div>
       <Button
         type="submit"
-        className="mt-4 w-full"
+        className="mt-4 min-h-11 w-full"
         variant="secondary"
         disabled={!canSubmit}
       >

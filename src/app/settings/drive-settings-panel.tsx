@@ -115,6 +115,7 @@ export function DriveSettingsPanel() {
           <Button
             type="button"
             variant="secondary"
+            className="min-h-11"
             onClick={connectGoogle}
             disabled={!canConnect}
           >
@@ -124,6 +125,7 @@ export function DriveSettingsPanel() {
           <Button
             type="button"
             variant="secondary"
+            className="min-h-11"
             onClick={checkDriveWorkspace}
             disabled={!canCheckDrive}
           >
@@ -133,6 +135,7 @@ export function DriveSettingsPanel() {
           <Button
             type="button"
             variant="outline"
+            className="min-h-11"
             onClick={resetGoogleAuthFlow}
             disabled={!canResetGoogleAuth}
           >
@@ -143,6 +146,7 @@ export function DriveSettingsPanel() {
             <Button
               type="button"
               variant="secondary"
+              className="min-h-11"
               onClick={createWorkspace}
               disabled={isDriveCreating}
             >
@@ -153,6 +157,7 @@ export function DriveSettingsPanel() {
           <Button
             type="button"
             variant="outline"
+            className="min-h-11"
             onClick={disconnectGoogle}
             disabled={!canDisconnect}
           >
