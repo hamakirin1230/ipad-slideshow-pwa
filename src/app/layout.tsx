@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppProviders } from "./app-providers";
 import { ServiceWorkerRegistration } from "./service-worker-registration";
@@ -19,11 +19,39 @@ export const metadata: Metadata = {
   description: "iPadで安定して再生するためのスライドショーPWAです。",
   applicationName: "スライドショー",
   manifest: "/manifest.json",
+  icons: {
+    icon: [
+      {
+        url: "/icons/icon-192.png",
+        type: "image/png",
+        sizes: "192x192",
+      },
+      {
+        url: "/icons/icon-512.png",
+        type: "image/png",
+        sizes: "512x512",
+      },
+    ],
+    apple: {
+      url: "/icons/icon-192.png",
+      type: "image/png",
+      sizes: "192x192",
+    },
+  },
   appleWebApp: {
     capable: true,
     title: "スライドショー",
     statusBarStyle: "black-translucent",
   },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#020617",
 };
 
 export default function RootLayout({
