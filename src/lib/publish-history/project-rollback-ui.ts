@@ -90,6 +90,20 @@ export function buildProjectRollbackCommitFailure(input: {
   };
 }
 
+export function getProjectRollbackFailureDisplayMessage(error: {
+  message?: string;
+  recoverability: "retryable" | "conflict" | "requiresInspection";
+}): string {
+  switch (error.recoverability) {
+    case "retryable":
+      return "ロールバック処理を完了できませんでした。同じ確認済み内容で再試行できます。";
+    case "conflict":
+      return "確認後にGoogle Drive上の内容が変更されました。プレビューからやり直してください。";
+    case "requiresInspection":
+      return "ロールバックの反映状態を安全に確定できません。公開履歴と現在の公開状態を確認してください。";
+  }
+}
+
 export function sanitizeProjectRollbackExecutionReview(
   review: ProjectRollbackExecutionReview,
 ) {

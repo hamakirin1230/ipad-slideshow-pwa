@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAppState } from "@/app/app-providers";
+import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 import { DRIVE_PROJECT_TITLE_MAX_LENGTH } from "@/lib/google-drive";
 
 export function ProjectStatusPanel() {
@@ -87,7 +88,7 @@ export function ProjectStatusPanel() {
       <CardContent className="space-y-4 text-sm text-slate-300">
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
           <p className="font-semibold text-slate-50">状態メッセージ</p>
-          <p className="mt-2">{projectMessage}</p>
+          <p className="mt-2">{sanitizeUserFacingDiagnostic(projectMessage)}</p>
         </div>
 
         {driveStatus !== "ready" ? (
@@ -195,7 +196,7 @@ export function ProjectStatusPanel() {
                 <dd className="font-medium">{projectSummary.title}</dd>
               </div>
               <div>
-                <dt className="text-emerald-200/80">projectId</dt>
+                <dt className="text-emerald-200/80">識別コード</dt>
                 <dd className="font-medium">{projectSummary.projectIdPart}</dd>
               </div>
               <div className="sm:col-span-2">
@@ -241,7 +242,9 @@ export function ProjectStatusPanel() {
             <p className="font-semibold text-slate-50">プロジェクト診断</p>
             <div className="mt-3 space-y-2">
               {projectDiagnostics.map((diagnostic) => (
-                <p key={diagnostic}>・{diagnostic}</p>
+                <p key={diagnostic}>
+                  ・{sanitizeUserFacingDiagnostic(diagnostic)}
+                </p>
               ))}
             </div>
           </div>

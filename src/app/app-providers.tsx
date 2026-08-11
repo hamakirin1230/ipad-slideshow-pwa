@@ -167,6 +167,10 @@ import {
   OFFLINE_SYNC_STALE_MANIFEST_MESSAGE,
   type OfflineSyncProgress,
 } from "@/lib/offline-sync-progress";
+import {
+  getUserFacingOperationFailureMessage,
+  sanitizeUserFacingDiagnostic,
+} from "@/lib/user-facing-diagnostics";
 
 const DRIVE_OPERATION_TIMEOUT_MS = 15_000;
 const GOOGLE_DRIVE_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
@@ -1300,7 +1304,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           status: "error",
           message: "Photos access token was missing.",
           diagnostics: [
-            "Google Photos用のaccess_tokenを受け取れませんでした。",
+            "Google Photos用の認証情報を受け取れませんでした。",
             "Drive保存: 未実行",
             "manifest反映: 未実行",
           ],
@@ -1439,7 +1443,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (!accessTokenRef.current) {
-      return "Google access_token を確認できません。Googleへ再接続してください。";
+      return "Google認証情報を確認できません。Googleへ再接続してください。";
     }
 
     if (driveStatus !== "ready" || !workspaceReadyContext) {
@@ -1499,7 +1503,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (!accessTokenRef.current) {
-      return "Google access_token を確認できません。Googleへ再接続してください。";
+      return "Google認証情報を確認できません。Googleへ再接続してください。";
     }
 
     if (driveStatus !== "ready" || !workspaceReadyContext) {
@@ -1557,7 +1561,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (!accessTokenRef.current) {
-      return "Google access_token を確認できません。Googleへ再接続してください。";
+      return "Google認証情報を確認できません。Googleへ再接続してください。";
     }
 
     if (driveStatus !== "ready" || !workspaceReadyContext) {
@@ -1975,7 +1979,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setDriveFileGranted(null);
           setGoogleStatus("error");
           setGoogleMessage(
-            "アクセストークンを受け取れませんでした。認証状態をリセットしてから再試行してください。",
+            "Google認証情報を受け取れませんでした。認証状態をリセットしてから再試行してください。",
           );
           abortDriveOperation();
           resetDriveState();
@@ -1989,7 +1993,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setDriveFileGranted(false);
           setGoogleStatus("scopeMissing");
           setGoogleMessage(
-            "access_token は返されましたが、drive.file の許可を確認できませんでした。認証状態をリセットしてから再試行してください。",
+            "Google Driveの権限を確認できませんでした。認証状態をリセットしてから再試行してください。",
           );
           abortDriveOperation();
           resetDriveState();
@@ -2000,7 +2004,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setDriveFileGranted(true);
         setGoogleStatus("connected");
         setGoogleMessage(
-          "Google接続済みです。access_token の実値は表示・保存していません。",
+          "Google接続済みです。認証情報は画面表示や永続保存を行いません。",
         );
         abortDriveOperation();
         resetDriveState();
@@ -6078,7 +6082,6 @@ function buildOfflineSyncResultDiagnostics(
   switch (result.status) {
     case "ready":
       return [
-        `projectId: ${result.projectId}`,
         `manifest slide count: ${result.manifestSlideCount}`,
         `image sync candidate count: ${result.imageSyncCandidateCount}`,
         `video sync candidate count: ${result.videoSyncCandidateCount}`,
@@ -6098,10 +6101,6 @@ function buildOfflineSyncResultDiagnostics(
         "大容量videoはBlob未保存ですが、remoteOnly metadataとしてconfirmed storeに残り、オンライン時はstream再生対象になります。",
         "Blob未保存はDrive削除、cleanup対象、sync失敗を意味しません。MP4/MOV以外の動画形式は未対応です。",
         result.publicationProvenance.message,
-        ...appendOmittedDiagnosticCount(
-          result.diagnostics,
-          result.omittedDiagnosticCount,
-        ),
       ];
 
     case "stale":
@@ -6110,53 +6109,31 @@ function buildOfflineSyncResultDiagnostics(
       ];
 
     case "staleManifest":
-      return appendOmittedDiagnosticCount(
-        result.diagnostics,
-        result.omittedDiagnosticCount,
-      );
-
-    case "driveFetchOrStagingWriteFailed":
-      return appendOmittedDiagnosticCount(
-        result.diagnostics,
-        result.omittedDiagnosticCount,
-      );
-
-    case "promotionFailed":
-      if (result.promotionFailure.reason === "validation-failed") {
-        return [
-          "promotion validation failed.",
-          `validationReason: ${result.promotionFailure.validationReason}`,
-          `validationClassification: ${result.promotionFailure.validationClassification}`,
-        ];
-      }
-
       return [
-        "promotion or cleanup failed.",
+        "Drive上の内容が同期中に変更されたため、今回の結果は端末へ反映していません。",
       ];
 
+    case "driveFetchOrStagingWriteFailed":
+      return ["Driveからの取得または端末への一時保存に失敗しました。"];
+
+    case "promotionFailed":
+      return ["確認済みデータへの切り替えに失敗しました。以前の再生用データを維持しています。"];
+
     case "orchestrationPreconditionFailed":
+      return ["offline syncの前提条件を確認してください。"];
+
     case "orchestrationUnexpectedFailure":
+      return ["offline sync中に予期しない失敗が発生しました。"];
+
     case "syncAlreadyInFlight":
+      return ["offline syncはすでに実行中です。"];
+
     case "syncRuntimeCancelled":
-      return appendOmittedDiagnosticCount(
-        result.diagnostics,
-        result.omittedDiagnosticCount,
-      );
+      return [OFFLINE_SYNC_CANCELLED_MESSAGE];
 
     default:
       return assertNeverOfflineSyncResultStatus(result);
   }
-}
-
-function appendOmittedDiagnosticCount(
-  diagnostics: string[],
-  omittedDiagnosticCount: number,
-): string[] {
-  if (omittedDiagnosticCount <= 0) {
-    return diagnostics;
-  }
-
-  return [...diagnostics, `omitted diagnostics: ${omittedDiagnosticCount}`];
 }
 
 function areStringArraysEqual(left: string[], right: string[]) {
@@ -6169,7 +6146,7 @@ function areStringArraysEqual(left: string[], right: string[]) {
 function sanitizeOfflineSyncDiagnostics(diagnostics: string[]): string[] {
   return diagnostics.map((diagnostic) =>
     truncateOfflineSyncDiagnostic(
-      diagnostic,
+      sanitizeUserFacingDiagnostic(diagnostic),
       OFFLINE_SYNC_DIAGNOSTIC_MAX_LENGTH,
     ),
   );
@@ -6576,7 +6553,7 @@ function getAssetImportItemErrorMessage(error: unknown) {
   }
 
   if (error instanceof Error) {
-    return error.message;
+    return getUserFacingOperationFailureMessage("assetImport", error);
   }
 
   return "処理に失敗しました。";
@@ -6879,6 +6856,7 @@ function sanitizeAssetImportDiagnostics(diagnostics: string[]) {
       .map((diagnostic) => diagnostic.trim())
       .filter((diagnostic) => diagnostic.length > 0)
       .filter(isSafeAssetImportDiagnostic)
+      .map(sanitizeUserFacingDiagnostic)
       .map(truncateAssetImportDiagnostic),
   );
 }
@@ -6889,6 +6867,7 @@ function sanitizeAssetCleanupPreviewDiagnostics(diagnostics: string[]) {
       .map((diagnostic) => diagnostic.trim())
       .filter((diagnostic) => diagnostic.length > 0)
       .filter(isSafeAssetImportDiagnostic)
+      .map(sanitizeUserFacingDiagnostic)
       .map(truncateAssetCleanupPreviewDiagnostic),
   );
 }

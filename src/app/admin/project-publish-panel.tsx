@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import {
   getManifestCommitLabel,
+  getProjectPublishFailureDisplayMessage,
   getProjectPublishAssetDiagnosticLabel,
   getProjectPublishModeLabel,
   getRevisionPreparationLabel,
@@ -30,6 +31,7 @@ import {
   type SanitizedPublishError,
   type SanitizedPublishSuccess,
 } from "@/lib/publish-history/project-publish-ui";
+import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 
 type PublishUiState =
   | { status: "idle" }
@@ -41,7 +43,6 @@ type PublishUiState =
       status: "error";
       phase: "preflight" | "publish";
       error: {
-        message: string;
         diagnosticCode?: ProjectPublishAssetDiagnosticCode;
         recoverability?: SanitizedPublishError["recoverability"];
         canRetry: boolean;
@@ -117,7 +118,6 @@ function ProjectPublishPanelSession() {
             status: "error",
             phase: "preflight",
             error: {
-              message: result.message,
               ...(result.diagnosticCode
                 ? { diagnosticCode: result.diagnosticCode }
                 : {}),
@@ -158,7 +158,6 @@ function ProjectPublishPanelSession() {
       status: "error",
       phase: "publish",
       error: {
-        message: result.error.message,
         recoverability: result.error.recoverability,
         canRetry: result.error.canRetry,
       },
@@ -324,12 +323,9 @@ function PublishReview({
             value={`${review.remoteOnlyAssetCount}件`}
           />
           <ReviewItem
-            label="previous revision ID"
-            value={review.previousRevisionId ?? "初回公開のためなし"}
+            label="公開種別"
+            value={review.initialPublish ? "初回公開" : "更新公開"}
           />
-          <div className="sm:col-span-2">
-            <ReviewItem label="revision ID" value={review.revisionId} />
-          </div>
         </dl>
       </div>
 
@@ -342,7 +338,9 @@ function PublishReview({
         ) : (
           <ul className="mt-3 space-y-2 text-amber-100">
             {review.warnings.map((warning, index) => (
-              <li key={`${warning.code}-${index}`}>{warning.message}</li>
+              <li key={`${warning.code}-${index}`}>
+                {sanitizeUserFacingDiagnostic(warning.message)}
+              </li>
             ))}
           </ul>
         )}
@@ -439,7 +437,6 @@ function PublishSuccess({
         <p className="mt-2">{PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE}</p>
       </div>
       <dl className="grid gap-3 sm:grid-cols-2">
-        <ReviewItem label="revision ID" value={result.revisionId} />
         <ReviewItem label="公開日時" value={result.publishedAt} />
         <ReviewItem
           label="公開履歴"
@@ -496,13 +493,17 @@ function PublishError({
             ? "公開前確認を完了できませんでした。"
             : "公開処理を完了できませんでした。"}
         </h3>
-        <p className="mt-2">{state.error.message}</p>
+        <p className="mt-2">
+          {getProjectPublishFailureDisplayMessage({
+            phase: state.phase,
+            error: state.error,
+          })}
+        </p>
         {state.error.diagnosticCode ? (
           <p className="mt-2">
             診断: {getProjectPublishAssetDiagnosticLabel(
               state.error.diagnosticCode,
             )}
-            （{state.error.diagnosticCode}）
           </p>
         ) : null}
       </div>

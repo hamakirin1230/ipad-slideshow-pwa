@@ -181,6 +181,29 @@ export function mapPublishWorkflowError(
   };
 }
 
+export function getProjectPublishFailureDisplayMessage(input: {
+  phase: "preflight" | "publish";
+  error: {
+    message?: string;
+    recoverability?: SanitizedPublishError["recoverability"];
+  };
+}): string {
+  if (input.phase === "preflight") {
+    return "公開前確認を完了できませんでした。現在の状態を再確認して、もう一度お試しください。";
+  }
+
+  switch (input.error.recoverability) {
+    case "retryable":
+      return "公開処理を完了できませんでした。同じ公開内容で再試行できます。";
+    case "conflict":
+      return "公開前確認後にGoogle Drive上の内容が変更されました。公開前確認をやり直してください。";
+    case "requiresInspection":
+      return "公開履歴または現在の公開版が部分的に更新された可能性があります。公開履歴を確認してください。";
+    default:
+      return "公開処理を完了できませんでした。現在の状態を確認してください。";
+  }
+}
+
 export function shouldDiscardPendingPlan(
   reason:
     | "projectChanged"

@@ -8,8 +8,8 @@ export function ServiceWorkerRegistration() {
       return;
     }
 
-    navigator.serviceWorker.register("/sw.js").catch((error: unknown) => {
-      console.warn("[pwa] Failed to register service worker", error);
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      console.warn("[pwa] Failed to register service worker");
     });
   }, []);
 

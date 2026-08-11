@@ -23,8 +23,10 @@ import {
 import type { ProjectRollbackExecutionReview } from "@/lib/publish-history/project-rollback-execution-review";
 import {
   areProjectRollbackConfirmationsComplete,
+  getProjectRollbackFailureDisplayMessage,
   type ProjectRollbackConfirmations,
 } from "@/lib/publish-history/project-rollback-ui";
+import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 import {
   buildRevisionDetailViewModel,
   formatMetadataStatus,
@@ -127,7 +129,6 @@ export function PublishHistoryClient() {
   const [rollbackOutcome, setRollbackOutcome] = useState<{
     kind: "success" | "warning";
     message: string;
-    revisionId: string;
   } | null>(null);
   const listSequenceRef = useRef(0);
   const detailSequenceRef = useRef(0);
@@ -553,7 +554,9 @@ export function PublishHistoryClient() {
     rollbackActionInFlightRef.current = false;
     if (!result.ok) {
       setExecutionState("error");
-      setExecutionMessage(result.error.message);
+      setExecutionMessage(
+        getProjectRollbackFailureDisplayMessage(result.error),
+      );
       if (!result.error.canRetry) {
         setExecutionReview(null);
         setConfirmations(emptyRollbackConfirmations);
@@ -565,10 +568,8 @@ export function PublishHistoryClient() {
     const warning = result.result.indexStatus === "warning";
     setRollbackOutcome({
       kind: warning ? "warning" : "success",
-      revisionId: result.result.revisionId,
       message: warning
-        ? result.result.warning ??
-          "rollback本体は成功しました。index mirrorは要確認です。"
+        ? "rollback本体は成功しました。index mirrorは要確認です。自動的な巻き戻しは行っていません。"
         : "rollbackが完了し、manifestとindex mirrorの再検証に成功しました。",
     });
     setExecutionState("idle");
@@ -668,9 +669,6 @@ export function PublishHistoryClient() {
               : "rollback完了"}
           </p>
           <p className="mt-2">{rollbackOutcome.message}</p>
-          <p className="mt-2 break-all font-mono text-xs">
-            revision: {rollbackOutcome.revisionId}
-          </p>
         </div>
       ) : null}
 
@@ -803,19 +801,16 @@ function PublicationStatusCard({
               <Badge variant="outline" className={badgeClassName}>
                 {formatPublicationStatus(publication.status)}
               </Badge>
-              <p className="mt-3 font-semibold">{publication.message}</p>
+              <p className="mt-3 font-semibold">
+                {sanitizeUserFacingDiagnostic(publication.message)}
+              </p>
               {publication.diagnostics.map((diagnostic) => (
                 <p key={diagnostic} className="mt-2 text-sm">
-                  {diagnostic}
+                  {sanitizeUserFacingDiagnostic(diagnostic)}
                 </p>
               ))}
             </div>
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
-              <DetailField
-                label="current revision ID"
-                value={publication.currentRevisionId ?? "なし"}
-                mono
-              />
               <DetailField
                 label="公開日時"
                 value={
@@ -918,7 +913,6 @@ function RevisionList(props: {
               </div>
               <dl className="mt-3 grid gap-2 text-sm">
                 <div><dt className="text-slate-400">公開日時</dt><dd>{formatPublishedAt(item.publishedAt)}</dd></div>
-                <div><dt className="text-slate-400">revision ID</dt><dd className="break-all font-mono text-xs">{item.revisionId}</dd></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><dt className="text-slate-400">schema</dt><dd>{item.schemaVersion ?? "不明"}</dd></div>
                   <div><dt className="text-slate-400">metadata更新</dt><dd>{formatPublishedAt(item.modifiedTime)}</dd></div>
@@ -971,14 +965,14 @@ function RevisionDetail(props: {
           <CardTitle>revision詳細</CardTitle>
           {props.state !== "closed" ? <Button type="button" variant="outline" className="min-h-11" onClick={props.onClose} disabled={props.rollbackBusy}>閉じる</Button> : null}
         </div>
-        <CardDescription className="text-slate-300">Drive内部ID、raw JSON、asset checksum本文は表示しません。</CardDescription>
+        <CardDescription className="text-slate-300">公開日時、操作、対象内容を確認できます。</CardDescription>
       </CardHeader>
       <CardContent>
         {props.state === "closed" ? <p className="text-sm text-slate-400">一覧から有効なrevisionを選択してください。</p> : null}
         {props.state === "loading" ? <p role="status" aria-live="polite">{props.message}</p> : null}
         {props.state === "error" ? (
           <div role="alert" className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-100">
-            <p>{props.message}</p>
+            <p>{sanitizeUserFacingDiagnostic(props.message)}</p>
             <Button type="button" variant="secondary" className="mt-3 min-h-11" onClick={props.onRetry}>詳細を再読込</Button>
           </div>
         ) : null}
@@ -1053,12 +1047,9 @@ function ReadyRevisionDetail({
         </p>
       </div>
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
-        <DetailField label="revision ID" value={detail.revisionId} mono />
         <DetailField label="公開日時" value={detail.publishedAt} />
         <DetailField label="操作" value={detail.operation} />
         <DetailField label="schemaVersion" value={String(detail.schemaVersion)} />
-        <DetailField label="rollback元" value={detail.restoredFromRevisionId ?? "なし"} mono />
-        <DetailField label="直前revision" value={detail.previousRevisionId ?? "なし"} mono />
         <DetailField label="source manifest更新" value={detail.sourceManifestModifiedTime} />
         <DetailField label="revisionとの整合性" value="確認済み" />
       </dl>
@@ -1074,7 +1065,6 @@ function ReadyRevisionDetail({
             <article key={slide.slideId} className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{slide.order}</Badge><span>{slide.type}</span>{slide.remoteOnly ? <Badge variant="secondary">remoteOnly</Badge> : null}</div>
               <p className="mt-2 break-words font-medium">{slide.assetName}</p>
-              <p className="mt-1 break-all text-xs text-slate-400">asset: {slide.assetId}</p>
               <p className="mt-2 break-words text-slate-300">caption: {slide.caption || "なし"}</p>
               <p className="mt-1 text-slate-300">duration override: {slide.durationSeconds}秒</p>
             </article>
@@ -1085,11 +1075,11 @@ function ReadyRevisionDetail({
       <section aria-labelledby="history-assets-heading">
         <h3 id="history-assets-heading" className="text-lg font-semibold">asset一覧</h3>
         <div className="mt-3 max-h-[28rem] space-y-3 overflow-y-auto pr-1">
-          {detail.assets.map((asset) => (
+          {detail.assets.map((asset, index) => (
             <article key={asset.assetId} className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{asset.mimeType}</Badge>{asset.remoteOnly ? <Badge variant="secondary">remoteOnly</Badge> : null}</div>
-              <p className="mt-2 break-all font-medium">{asset.assetId}</p>
-              <dl className="mt-2 grid grid-cols-2 gap-2 text-slate-300"><div><dt className="text-slate-400">size</dt><dd>{asset.size}</dd></div><div><dt className="text-slate-400">checksum</dt><dd>{asset.checksumAvailable ? "あり" : "なし"}</dd></div><div className="col-span-2"><dt className="text-slate-400">更新日時</dt><dd>{asset.modifiedTime}</dd></div></dl>
+              <p className="mt-2 font-medium">素材 {index + 1}</p>
+              <dl className="mt-2 grid grid-cols-2 gap-2 text-slate-300"><div><dt className="text-slate-400">size</dt><dd>{asset.size}</dd></div><div><dt className="text-slate-400">更新日時</dt><dd>{asset.modifiedTime}</dd></div></dl>
             </article>
           ))}
           {detail.assets.length === 0 ? <p className="text-sm text-slate-400">assetはありません。</p> : null}
@@ -1198,7 +1188,9 @@ function RollbackPreviewPanel(props: {
         }
       >
         <Badge variant="outline">{statusLabel}</Badge>
-        <p className="mt-3 font-semibold">{props.message}</p>
+        <p className="mt-3 font-semibold">
+          {sanitizeUserFacingDiagnostic(props.message)}
+        </p>
         {props.state === "loading" ? (
           <p className="mt-2 text-sm">
             current manifest、current revision、target revision、全参照asset
@@ -1229,7 +1221,7 @@ function RollbackPreviewPanel(props: {
               role="status"
               className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-4 font-semibold text-amber-100"
             >
-              {warning}
+              {sanitizeUserFacingDiagnostic(warning)}
             </div>
           ))}
 
@@ -1239,22 +1231,12 @@ function RollbackPreviewPanel(props: {
               value={formatPublishedAt(props.preview.checkedAt)}
             />
             <DetailField
-              label="target revision ID"
-              value={props.preview.targetRevisionId}
-              mono
-            />
-            <DetailField
               label="target公開日時"
               value={formatPublishedAt(props.preview.targetPublishedAt)}
             />
             <DetailField
               label="target操作"
               value={formatPublishOperation(props.preview.targetOperation)}
-            />
-            <DetailField
-              label="rollback元revision"
-              value={props.preview.restoredFromRevisionId ?? "なし"}
-              mono
             />
             <DetailField
               label="公開後の未公開編集"
@@ -1341,7 +1323,7 @@ function RollbackPreviewPanel(props: {
                   </p>
                   {asset.sanitizedReasons.map((reason) => (
                     <p key={reason} className="mt-1 break-words text-slate-300">
-                      {reason}
+                      {sanitizeUserFacingDiagnostic(reason)}
                     </p>
                   ))}
                 </article>
@@ -1453,7 +1435,7 @@ function RollbackPreviewPanel(props: {
                   : "rounded-xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100"
               }
             >
-              {props.executionMessage}
+              {sanitizeUserFacingDiagnostic(props.executionMessage)}
             </div>
           ) : null}
 
@@ -1475,11 +1457,6 @@ function RollbackPreviewPanel(props: {
               </p>
               <dl className="mt-4 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
                 <DetailField
-                  label="target revision ID"
-                  value={props.executionReview.targetRevisionId}
-                  mono
-                />
-                <DetailField
                   label="target公開日時"
                   value={formatPublishedAt(
                     props.executionReview.targetPublishedAt,
@@ -1490,23 +1467,6 @@ function RollbackPreviewPanel(props: {
                   value={formatPublishOperation(
                     props.executionReview.targetOperation,
                   )}
-                />
-                <DetailField
-                  label="targetのrollback元"
-                  value={
-                    props.executionReview.restoredFromRevisionId ?? "なし"
-                  }
-                  mono
-                />
-                <DetailField
-                  label="直前のcurrent revision"
-                  value={props.executionReview.previousRevisionId}
-                  mono
-                />
-                <DetailField
-                  label="新しいrollback revision"
-                  value={props.executionReview.revisionId}
-                  mono
                 />
                 <DetailField
                   label="rollback後のtitle"
@@ -1574,8 +1534,8 @@ function formatRollbackOfflineDisposition(
   return "offline利用不可";
 }
 
-function DetailField({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return <div><dt className="text-slate-400">{label}</dt><dd className={mono ? "break-all font-mono text-xs" : "break-words"}>{value}</dd></div>;
+function DetailField({ label, value }: { label: string; value: string }) {
+  return <div><dt className="text-slate-400">{label}</dt><dd className="break-words">{value}</dd></div>;
 }
 
 function SummaryBox({ label, value }: { label: string; value: number }) {

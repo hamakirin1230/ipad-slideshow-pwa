@@ -325,7 +325,7 @@ export function DriveProjectWorkspacePanel() {
 
                 <dl className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
                   <div>
-                    <dt className="font-medium text-slate-900">projectId</dt>
+                    <dt className="font-medium text-slate-900">識別コード</dt>
                     <dd>{projectSummary.projectIdPart}</dd>
                   </div>
                   <div>
@@ -991,7 +991,7 @@ function DriveSlidePreview({
           objectUrl: createdObjectUrl,
         });
       })
-      .catch((error) => {
+      .catch(() => {
         if (abortController.signal.aborted) {
           return;
         }
@@ -1004,7 +1004,7 @@ function DriveSlidePreview({
         setPreviewState({ status: "error" });
 
         if (process.env.NODE_ENV !== "production") {
-          console.warn("Drive slide preview fetch failed.", error);
+          console.warn("Drive slide preview fetch failed.");
         }
       });
 

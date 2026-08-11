@@ -328,7 +328,7 @@ export function AssetCleanupPreviewPanel() {
                       <p className="whitespace-nowrap">assetName</p>
                       <p className="whitespace-nowrap">type</p>
                       <p className="whitespace-nowrap">assetFileId</p>
-                      <p className="whitespace-nowrap">assetId</p>
+                      <p className="whitespace-nowrap">素材識別コード</p>
                       <p className="whitespace-nowrap">mimeType</p>
                       <p className="whitespace-nowrap">size</p>
                       <p className="whitespace-nowrap">createdTime</p>

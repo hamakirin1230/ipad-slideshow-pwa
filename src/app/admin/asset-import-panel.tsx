@@ -176,7 +176,7 @@ export function AssetImportPanel() {
                     }
                   />
                   {item.assetIdPart ? (
-                    <SummaryRow label="assetId" value={item.assetIdPart} />
+                    <SummaryRow label="素材識別コード" value={item.assetIdPart} />
                   ) : null}
                   {item.assetFileIdPart ? (
                     <SummaryRow

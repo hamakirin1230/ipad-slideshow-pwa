@@ -1828,7 +1828,7 @@ export default function PlayerPage() {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-slate-100">
-                {readySnapshot.projectTitle ?? readySnapshot.projectId}
+                {readySnapshot.projectTitle ?? "名称未設定"}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-300">
                 <Badge

@@ -27,6 +27,11 @@ import {
   type ClearAppShellCacheResult,
   type OfflineStorageManagementSnapshot,
 } from "@/lib/offline-storage-management";
+import {
+  buildLocalOfflineProjectClearConfirmation,
+  getUserFacingOperationFailureMessage,
+  sanitizeUserFacingDiagnostic,
+} from "@/lib/user-facing-diagnostics";
 
 type OfflineConfirmedStorePanelState =
   | {
@@ -41,7 +46,6 @@ type OfflineConfirmedStorePanelState =
     }
   | {
       status: "error";
-      errorName: string;
       message: string;
       checkedAt: string;
     };
@@ -61,7 +65,6 @@ type LocalOfflineProjectClearState =
   | {
       status: "error";
       projectId: string;
-      errorName: string;
       message: string;
       failedAt: string;
     };
@@ -88,7 +91,6 @@ type OfflineStorageManagementState =
     }
   | {
       status: "error";
-      errorName: string;
       message: string;
       failedAt: string;
     };
@@ -138,8 +140,10 @@ export function OfflineConfirmedStorePanel() {
     } catch (error) {
       setState({
         status: "error",
-        errorName: getErrorName(error),
-        message: getErrorMessage(error),
+        message: getUserFacingOperationFailureMessage(
+          "confirmedStoreCheck",
+          error,
+        ),
         checkedAt: new Date().toISOString(),
       });
     }
@@ -148,27 +152,8 @@ export function OfflineConfirmedStorePanel() {
   async function handleClearLocalOfflineProject(
     project: OfflineConfirmedProjectSummary,
   ) {
-    const projectLabel = project.projectTitle ?? formatIdPart(project.projectId);
-
     const shouldClear = window.confirm(
-      [
-        "この端末に保存された対象プロジェクトのオフライン再生用データを削除します。",
-        "",
-        `対象 project: ${projectLabel}`,
-        `projectId: ${project.projectId}`,
-        "",
-        "削除対象:",
-        "・confirmed project",
-        "・asset metadata",
-        "・asset Blob、つまりローカル保存写真",
-        "・sync state",
-        "・staging records",
-        "",
-        "Google Drive 上の project / manifest / assets は削除しません。",
-        "削除後にこのプロジェクトを再生するには、管理画面で offline sync を再実行してください。",
-        "",
-        "削除しますか？",
-      ].join("\n"),
+      buildLocalOfflineProjectClearConfirmation(project),
     );
 
     if (!shouldClear) {
@@ -198,8 +183,10 @@ export function OfflineConfirmedStorePanel() {
       } catch (error) {
         setState({
           status: "error",
-          errorName: getErrorName(error),
-          message: getErrorMessage(error),
+          message: getUserFacingOperationFailureMessage(
+            "confirmedStoreCheck",
+            error,
+          ),
           checkedAt: new Date().toISOString(),
         });
       }
@@ -207,8 +194,10 @@ export function OfflineConfirmedStorePanel() {
       setClearState({
         status: "error",
         projectId: project.projectId,
-        errorName: getErrorName(error),
-        message: getErrorMessage(error),
+        message: getUserFacingOperationFailureMessage(
+          "localProjectClear",
+          error,
+        ),
         failedAt: new Date().toISOString(),
       });
     }
@@ -227,8 +216,10 @@ export function OfflineConfirmedStorePanel() {
     } catch (error) {
       setStorageManagementState({
         status: "error",
-        errorName: getErrorName(error),
-        message: getErrorMessage(error),
+        message: getUserFacingOperationFailureMessage(
+          "storageManagementCheck",
+          error,
+        ),
         failedAt: new Date().toISOString(),
       });
     }
@@ -281,8 +272,10 @@ export function OfflineConfirmedStorePanel() {
     } catch (error) {
       setStorageManagementState({
         status: "error",
-        errorName: getErrorName(error),
-        message: getErrorMessage(error),
+        message: getUserFacingOperationFailureMessage(
+          "appShellCacheClear",
+          error,
+        ),
         failedAt: new Date().toISOString(),
       });
     }
@@ -340,10 +333,8 @@ export function OfflineConfirmedStorePanel() {
               プロジェクト単位のローカル保存データを削除できませんでした。
             </p>
             <div className="mt-3 space-y-1">
-              <p>projectId: {formatIdPart(clearState.projectId)}</p>
-              <p>error name: {clearState.errorName}</p>
               <p>{clearState.message}</p>
-              <p>failedAt: {clearState.failedAt}</p>
+              <p>失敗日時: {clearState.failedAt}</p>
             </div>
           </div>
         ) : null}
@@ -352,9 +343,8 @@ export function OfflineConfirmedStorePanel() {
           <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-red-100">
             <p className="font-semibold">confirmed store を確認できませんでした。</p>
             <div className="mt-3 space-y-1">
-              <p>error name: {state.errorName}</p>
               <p>{state.message}</p>
-              <p>checkedAt: {state.checkedAt}</p>
+              <p>確認日時: {state.checkedAt}</p>
             </div>
           </div>
         ) : null}
@@ -450,9 +440,8 @@ function OfflineStorageManagementView({
             端末ストレージ情報を操作できませんでした。
           </p>
           <div className="mt-3 space-y-1 text-xs">
-            <p>error name: {state.errorName}</p>
             <p>{state.message}</p>
-            <p>failedAt: {state.failedAt}</p>
+            <p>失敗日時: {state.failedAt}</p>
           </div>
         </div>
       ) : null}
@@ -461,7 +450,6 @@ function OfflineStorageManagementView({
         <div className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
           <p className="font-semibold">app shell cache を削除しました。</p>
           <dl className="mt-3 grid gap-1 text-xs sm:grid-cols-2">
-            <SummaryRow label="cache" value={state.result.cacheName} />
             <SummaryRow
               label="deleted"
               value={state.result.deleted ? "削除済み" : "対象なし"}
@@ -582,7 +570,6 @@ function ClearLocalOfflineProjectDataResultView({
         プロジェクト単位のローカル保存データを削除しました。
       </p>
       <dl className="mt-3 grid gap-1 text-xs sm:grid-cols-2">
-        <SummaryRow label="projectId" value={formatIdPart(result.projectId)} />
         <SummaryRow label="clearedAt" value={result.clearedAt} />
         <SummaryRow label="projects" value={result.deletedProjects} />
         <SummaryRow label="assets" value={result.deletedAssets} />
@@ -666,9 +653,6 @@ function ConfirmedStoreSnapshotView({
                   <div>
                     <p className="font-medium text-slate-50">
                       {summary.projectTitle ?? "名称未設定"}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {formatIdPart(summary.projectId)}
                     </p>
                   </div>
                   <Badge
@@ -755,10 +739,6 @@ function ConfirmedStoreSnapshotView({
                     provenance={project.publicationProvenance}
                   />
                   <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
-                    <SummaryRow
-                      label="projectId"
-                      value={formatIdPart(project.projectId)}
-                    />
                     <SummaryRow label="slides" value={project.slideCount} />
                     <SummaryRow
                       label="local blob size"
@@ -767,10 +747,6 @@ function ConfirmedStoreSnapshotView({
                     <SummaryRow
                       label="asset blobs"
                       value={projectStorageSummary.assetBlobCount}
-                    />
-                    <SummaryRow
-                      label="manifestFileId"
-                      value={formatIdPart(project.sourceManifestFileId)}
                     />
                     <SummaryRow label="syncedAt" value={project.syncedAt} />
                     <SummaryRow
@@ -796,7 +772,9 @@ function ConfirmedStoreSnapshotView({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium text-slate-50">
-                    {formatIdPart(syncState.projectId)}
+                    {snapshot.projects.find(
+                      (project) => project.projectId === syncState.projectId,
+                    )?.projectTitle ?? "名称未設定"}
                   </p>
                   <Badge
                     variant={syncState.status === "ready" ? "secondary" : "outline"}
@@ -842,18 +820,9 @@ function ConfirmedStoreSnapshotView({
                 className="rounded-xl border border-white/10 p-3"
               >
                 <p className="font-medium text-slate-50">
-                  {asset.sourceName ?? formatIdPart(asset.assetId)}
+                  {asset.sourceName ?? "名称未設定"}
                 </p>
                 <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
-                  <SummaryRow label="assetId" value={formatIdPart(asset.assetId)} />
-                  <SummaryRow
-                    label="projectId"
-                    value={formatIdPart(asset.projectId)}
-                  />
-                  <SummaryRow
-                    label="sourceDriveFileId"
-                    value={formatIdPart(asset.sourceDriveFileId)}
-                  />
                   <SummaryRow label="mimeType" value={asset.blobMimeType} />
                   <SummaryRow
                     label="blobSize"
@@ -878,12 +847,13 @@ function ConfirmedStoreSnapshotView({
 
       {snapshot.diagnostics.length > 0 ? (
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-          <p className="font-semibold text-slate-50">confirmed store 診断</p>
-          <div className="mt-3 space-y-2">
-            {snapshot.diagnostics.map((diagnostic, index) => (
-              <p key={`${diagnostic}-${index}`}>・{formatDiagnostic(diagnostic)}</p>
-            ))}
-          </div>
+          <p className="font-semibold text-slate-50">
+            保存状態に要確認項目があります
+          </p>
+          <p className="mt-2 text-slate-300">
+            要確認項目は{snapshot.diagnostics.length}
+            件です。offline syncを再実行して状態を確認してください。
+          </p>
         </div>
       ) : null}
     </div>
@@ -1017,22 +987,6 @@ function getStateLabel(state: OfflineConfirmedStorePanelState["status"]) {
   }
 }
 
-function getErrorName(error: unknown) {
-  if (error instanceof Error) {
-    return error.name;
-  }
-
-  return "UnknownError";
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "confirmed offline store の操作中に不明なエラーが発生しました。";
-}
-
 function ConfirmedPublicationProvenance({
   provenance,
 }: {
@@ -1056,44 +1010,19 @@ function ConfirmedPublicationProvenance({
           <span className="text-xs">operation: {provenance.operation}</span>
         ) : null}
       </div>
-      <p className="mt-2 text-sm leading-6">{provenance.message}</p>
-      {provenance.currentPublishedRevisionId ? (
-        <p className="mt-2 text-xs">
-          current published revision:{" "}
-          {formatIdPart(provenance.currentPublishedRevisionId)}
-        </p>
-      ) : null}
+      <p className="mt-2 text-sm leading-6">
+        {sanitizeUserFacingDiagnostic(provenance.message)}
+      </p>
       {provenance.publishedAt ? (
         <p className="text-xs">publishedAt: {provenance.publishedAt}</p>
       ) : null}
-      {provenance.restoredFromRevisionId ? (
-        <p className="text-xs">
-          restored from: {formatIdPart(provenance.restoredFromRevisionId)}
-        </p>
-      ) : null}
       {provenance.needsInspectionReason ? (
         <p className="text-xs">
-          reason: {provenance.needsInspectionReason}
+          reason: {sanitizeUserFacingDiagnostic(provenance.needsInspectionReason)}
         </p>
       ) : null}
     </div>
   );
-}
-
-function formatIdPart(id: string | undefined) {
-  if (!id) {
-    return "未設定";
-  }
-
-  return `${id.slice(0, 8)}...`;
-}
-
-function formatDiagnostic(diagnostic: string) {
-  if (diagnostic.length <= 180) {
-    return diagnostic;
-  }
-
-  return `${diagnostic.slice(0, 179)}…`;
 }
 
 function createPlayerProjectHref(projectId: string) {

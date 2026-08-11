@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useAppState } from "@/app/app-providers";
+import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 
 export function DriveSettingsPanel() {
   const {
@@ -80,18 +81,18 @@ export function DriveSettingsPanel() {
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <p className="font-semibold text-slate-50">Google接続</p>
-            <p className="mt-2">{googleMessage}</p>
+            <p className="mt-2">{sanitizeUserFacingDiagnostic(googleMessage)}</p>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <p className="font-semibold text-slate-50">Drive状態</p>
-            <p className="mt-2">{driveMessage}</p>
+            <p className="mt-2">{sanitizeUserFacingDiagnostic(driveMessage)}</p>
           </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <p className="font-semibold text-slate-50">drive.file scope</p>
+            <p className="font-semibold text-slate-50">Google Drive権限</p>
             <p className="mt-2">
               {driveFileGranted === null
                 ? "未確認です。"
@@ -104,7 +105,7 @@ export function DriveSettingsPanel() {
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <p className="font-semibold text-slate-50">安全方針</p>
             <p className="mt-2">
-              access_token はProvider内部のuseRefだけに保持し、画面表示・console出力・永続保存は行いません。
+              Google認証情報は画面表示・console出力・永続保存を行いません。
               Drive作成中は、作成・再確認・接続解除の操作を無効化します。
             </p>
           </div>
@@ -232,7 +233,9 @@ export function DriveSettingsPanel() {
             <p className="font-semibold text-slate-50">診断</p>
             <div className="mt-3 space-y-2 text-sm text-slate-300">
               {driveDiagnostics.map((diagnostic) => (
-                <p key={diagnostic}>・{diagnostic}</p>
+                <p key={diagnostic}>
+                  ・{sanitizeUserFacingDiagnostic(diagnostic)}
+                </p>
               ))}
             </div>
           </div>

@@ -15,6 +15,7 @@ import {
   createPrepareReviewFailure,
   createRandomHexSuffix,
   getProjectPublishAssetDiagnosticLabel,
+  getProjectPublishFailureDisplayMessage,
   getManifestCommitLabel,
   getProjectPublishModeLabel,
   getRevisionPreparationLabel,
@@ -692,6 +693,22 @@ describe("workflow error and success labels", () => {
     expect(mapped.message).not.toContain("drive-file");
     expect(mapped.message).not.toContain("fnv1a64");
   });
+
+  it.each(errors)(
+    "keeps sentinel error text out of the %s presentation message",
+    (recoverability) => {
+      const sentinel =
+        "RAW_ERROR_SECRET_SENTINEL Bearer SECRET_SENTINEL https://secret.invalid/internal";
+      const message = getProjectPublishFailureDisplayMessage({
+        phase: "publish",
+        error: { message: sentinel, recoverability },
+      });
+
+      expect(message).not.toContain("RAW_ERROR_SECRET_SENTINEL");
+      expect(message).not.toContain("Bearer SECRET_SENTINEL");
+      expect(message).not.toContain("https://secret.invalid/internal");
+    },
+  );
 
   it("labels a created revision", () => {
     expect(getRevisionPreparationLabel("created")).toContain("作成");

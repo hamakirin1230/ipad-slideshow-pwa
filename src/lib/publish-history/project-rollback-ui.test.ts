@@ -3,6 +3,7 @@ import {
   areProjectRollbackConfirmationsComplete,
   buildProjectRollbackCommitFailure,
   buildSanitizedRollbackSuccess,
+  getProjectRollbackFailureDisplayMessage,
   sanitizeProjectRollbackExecutionReview,
 } from "./project-rollback-ui";
 import {
@@ -15,6 +16,22 @@ import {
 } from "./project-rollback-test-fixture";
 
 describe("rollback UI sanitizers", () => {
+  it.each(["retryable", "conflict", "requiresInspection"] as const)(
+    "keeps sentinel error text out of the %s presentation message",
+    (recoverability) => {
+      const sentinel =
+        "RAW_ERROR_SECRET_SENTINEL Bearer SECRET_SENTINEL https://secret.invalid/internal";
+      const message = getProjectRollbackFailureDisplayMessage({
+        message: sentinel,
+        recoverability,
+      });
+
+      expect(message).not.toContain("RAW_ERROR_SECRET_SENTINEL");
+      expect(message).not.toContain("Bearer SECRET_SENTINEL");
+      expect(message).not.toContain("https://secret.invalid/internal");
+    },
+  );
+
   it("allows retry only for retryable failures", () => {
     expect(
       buildProjectRollbackCommitFailure({
