@@ -52,16 +52,6 @@ import {
   pendingProjectRollbackOwnerMatches,
   type CommitPreparedProjectRollbackResult,
 } from "@/lib/publish-history/project-rollback-ui";
-import {
-  PublicationAcceptanceFaultSession,
-  executePreparedProjectRollbackWithPublicationAcceptanceFaults,
-  isPublicationAcceptanceFaultRuntimeEnabled,
-  runPublicationAcceptanceIndexRecovery,
-  type PublicationAcceptanceFaultKind,
-  type PublicationAcceptanceFaultMode,
-  type PublicationAcceptanceRecoveryStatus,
-} from "@/lib/publish-history/publication-acceptance-faults";
-import { mirrorProjectRollbackIndexInDrive } from "@/lib/publish-history/project-rollback-index-mirror";
 import { executePreparedProjectRollback } from "@/lib/publish-history/project-rollback-workflow";
 import type {
   ProjectRollbackPreviewGuard,
@@ -633,14 +623,6 @@ type AppContextValue = {
     revisionId: string;
   }) => Promise<CommitPreparedProjectRollbackResult>;
   cancelPreparedProjectRollback: () => void;
-  publicationAcceptanceFaultMode: PublicationAcceptanceFaultMode;
-  publicationAcceptanceRecoveryStatus: PublicationAcceptanceRecoveryStatus;
-  publicationAcceptanceRecoveryMessage: string;
-  armPublicationAcceptanceFault: (
-    fault: PublicationAcceptanceFaultKind,
-  ) => void;
-  disarmPublicationAcceptanceFault: () => void;
-  recoverPublicationAcceptanceIndex: () => Promise<void>;
   prepareProjectPublishReview: (
     projectId: string,
   ) => Promise<PrepareProjectPublishReviewResult>;
@@ -821,16 +803,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const projectRollbackAbortRef = useRef<AbortController | null>(null);
   const projectRollbackRequestSequenceRef = useRef(0);
   const projectRollbackInFlightRef = useRef(false);
-  const publicationAcceptanceFaultSessionRef =
-    useRef<PublicationAcceptanceFaultSession | null>(null);
-  const publicationAcceptanceRecoveryInFlightRef = useRef(false);
-
-  if (publicationAcceptanceFaultSessionRef.current === null) {
-    publicationAcceptanceFaultSessionRef.current =
-      new PublicationAcceptanceFaultSession();
-  }
-  const publicationAcceptanceFaultSession =
-    publicationAcceptanceFaultSessionRef.current;
 
   const pendingPhotosTokenRequestRef =
     useRef<PendingPhotosTokenRequest | null>(null);
@@ -900,12 +872,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
     useState(false);
   const [isProjectRollbackInFlight, setIsProjectRollbackInFlight] =
     useState(false);
-  const [publicationAcceptanceFaultMode, setPublicationAcceptanceFaultMode] =
-    useState<PublicationAcceptanceFaultMode>("off");
-  const [publicationAcceptanceRecoveryStatus, setPublicationAcceptanceRecoveryStatus] =
-    useState<PublicationAcceptanceRecoveryStatus>("unavailable");
-  const [publicationAcceptanceRecoveryMessage, setPublicationAcceptanceRecoveryMessage] =
-    useState("C warning後の明示recoveryは利用できません。");
 
   const [assetImportStatus, setAssetImportStatus] =
     useState<AssetImportStatus>("idle");
@@ -1814,56 +1780,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
-  function syncPublicationAcceptanceFaultMode() {
-    setPublicationAcceptanceFaultMode(
-      publicationAcceptanceFaultSession.getSnapshot().mode,
-    );
-  }
-
-  function resetPublicationAcceptanceSession() {
-    publicationAcceptanceFaultSession.clearForProjectChange();
-    publicationAcceptanceRecoveryInFlightRef.current = false;
-    syncPublicationAcceptanceFaultMode();
-    setPublicationAcceptanceRecoveryStatus("unavailable");
-    setPublicationAcceptanceRecoveryMessage(
-      "C warning後の明示recoveryは利用できません。",
-    );
-  }
-
-  function armPublicationAcceptanceFault(
-    fault: PublicationAcceptanceFaultKind,
-  ) {
-    const project = driveProjectReadyContext;
-    if (
-      !isPublicationAcceptanceFaultRuntimeEnabled() ||
-      !project ||
-      projectPublicationWriteInFlightRef.current ||
-      publicationAcceptanceRecoveryInFlightRef.current
-    ) {
-      return;
-    }
-    if (publicationAcceptanceFaultSession.arm(fault, project.title)) {
-      syncPublicationAcceptanceFaultMode();
-      setPublicationAcceptanceRecoveryStatus("unavailable");
-      setPublicationAcceptanceRecoveryMessage(
-        "faultはarmedです。対象rollbackを1回だけ実行できます。",
-      );
-    }
-  }
-
-  function disarmPublicationAcceptanceFault() {
-    if (
-      projectPublicationWriteInFlightRef.current ||
-      publicationAcceptanceRecoveryInFlightRef.current
-    ) {
-      return;
-    }
-    publicationAcceptanceFaultSession.disarm();
-    syncPublicationAcceptanceFaultMode();
-  }
-
   function clearProjectReadyDetails() {
-    resetPublicationAcceptanceSession();
     discardPendingProjectPublish();
     discardPendingProjectRollback();
     setDriveProjectReadyContext(null);
@@ -5430,18 +5347,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
         },
       };
     }
-    if (publicationAcceptanceFaultSession.isArmed()) {
-      return {
-        ok: false,
-        error: {
-          code: "publicationAcceptanceFaultArmed",
-          message:
-            "acceptance faultがarmedの間は対象rollback以外のpublication writeを実行できません。",
-          recoverability: "conflict",
-          canRetry: false,
-        },
-      };
-    }
 
     const pending = pendingProjectPublishRef.current;
     if (
@@ -5869,18 +5774,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
     }
 
-    const acceptanceFault = isPublicationAcceptanceFaultRuntimeEnabled()
-      ? publicationAcceptanceFaultSession.getArmedFault(project.title)
-      : null;
-    if (publicationAcceptanceFaultSession.isArmed() && !acceptanceFault) {
-      return buildProjectRollbackCommitFailure({
-        code: "publicationAcceptanceProjectMismatch",
-        message:
-          "acceptance faultの対象projectが一致しないため、rollback writeを停止しました。",
-        recoverability: "conflict",
-      });
-    }
-
     const requestSequence = pending.owner.requestSequence;
     const controller = new AbortController();
     projectRollbackAbortRef.current = controller;
@@ -5888,63 +5781,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
     projectPublicationWriteInFlightRef.current = true;
     setIsProjectRollbackInFlight(true);
     try {
-      if (acceptanceFault === "C") {
-        publicationAcceptanceFaultSession.retainCRecoveryPlan(
-          project.title,
-          pending.plan,
-        );
-        setPublicationAcceptanceRecoveryStatus("unavailable");
-        setPublicationAcceptanceRecoveryMessage(
-          "C fault実行中です。warning確認前にrecoveryは行いません。",
-        );
-      }
-      const workflow = acceptanceFault
-        ? await executePreparedProjectRollbackWithPublicationAcceptanceFaults({
-            accessToken,
-            projectsRootFolderId: workspace.projectsRootFolderId,
-            project,
-            plan: pending.plan,
-            session: publicationAcceptanceFaultSession,
-            onConsumed: syncPublicationAcceptanceFaultMode,
-            signal: controller.signal,
-          })
-        : await executePreparedProjectRollback({
-            accessToken,
-            projectsRootFolderId: workspace.projectsRootFolderId,
-            project,
-            plan: pending.plan,
-            signal: controller.signal,
-          });
-      if (acceptanceFault === "C") {
-        if (
-          workflow.ok &&
-          workflow.indexStatus === "warning" &&
-          publicationAcceptanceFaultSession.markCRecoveryReady(project.title)
-        ) {
-          setPublicationAcceptanceRecoveryStatus("ready");
-          setPublicationAcceptanceRecoveryMessage(
-            "C warningを確認しました。明示的なindex recoveryを1回実行できます。",
-          );
-        } else {
-          publicationAcceptanceFaultSession.clearRecoveryPlan();
-          publicationAcceptanceFaultSession.disarm();
-          setPublicationAcceptanceRecoveryStatus("stopped");
-          setPublicationAcceptanceRecoveryMessage(
-            "C faultが期待したwarningへ到達しなかったため、recoveryを停止しました。",
-          );
-        }
-        syncPublicationAcceptanceFaultMode();
-      } else if (
-        acceptanceFault === "A" &&
-        publicationAcceptanceFaultSession.getSnapshot().mode === "aArmed"
-      ) {
-        publicationAcceptanceFaultSession.disarm();
-        syncPublicationAcceptanceFaultMode();
-        setPublicationAcceptanceRecoveryStatus("stopped");
-        setPublicationAcceptanceRecoveryMessage(
-          "A faultが期待したpost-write pointへ到達しなかったため停止しました。",
-        );
-      }
+      const workflow = await executePreparedProjectRollback({
+        accessToken,
+        projectsRootFolderId: workspace.projectsRootFolderId,
+        project,
+        plan: pending.plan,
+        signal: controller.signal,
+      });
       if (
         requestSequence !== projectRollbackRequestSequenceRef.current ||
         accessTokenRef.current !== accessToken
@@ -6000,73 +5843,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
         projectRollbackAbortRef.current = null;
         projectRollbackInFlightRef.current = false;
         projectPublicationWriteInFlightRef.current = false;
-        setIsProjectRollbackInFlight(false);
-      }
-    }
-  }
-
-  async function recoverPublicationAcceptanceIndex() {
-    const accessToken = accessTokenRef.current;
-    const project = driveProjectReadyContext;
-    if (
-      !isPublicationAcceptanceFaultRuntimeEnabled() ||
-      !accessToken ||
-      !project ||
-      publicationAcceptanceRecoveryStatus !== "ready" ||
-      publicationAcceptanceRecoveryInFlightRef.current ||
-      projectPublicationWriteInFlightRef.current
-    ) {
-      return;
-    }
-    const plan = publicationAcceptanceFaultSession.takeCRecoveryPlan(
-      project.title,
-    );
-    if (!plan) {
-      setPublicationAcceptanceRecoveryStatus("unavailable");
-      setPublicationAcceptanceRecoveryMessage(
-        "同一sessionのrecovery planを利用できません。自動修復は行いません。",
-      );
-      return;
-    }
-
-    syncPublicationAcceptanceFaultMode();
-    setPublicationAcceptanceRecoveryStatus("running");
-    setPublicationAcceptanceRecoveryMessage(
-      "fresh index guardを確認して明示recoveryを実行しています。",
-    );
-    const requestSequence = projectRollbackRequestSequenceRef.current;
-    const controller = new AbortController();
-    projectRollbackAbortRef.current = controller;
-    projectRollbackInFlightRef.current = true;
-    projectPublicationWriteInFlightRef.current = true;
-    publicationAcceptanceRecoveryInFlightRef.current = true;
-    setIsProjectRollbackInFlight(true);
-    try {
-      const result = await runPublicationAcceptanceIndexRecovery({
-        plan,
-        mirror: (recoveryPlan) =>
-          mirrorProjectRollbackIndexInDrive({
-            accessToken,
-            plan: recoveryPlan,
-            signal: controller.signal,
-          }),
-      });
-      if (
-        requestSequence !== projectRollbackRequestSequenceRef.current ||
-        accessTokenRef.current !== accessToken
-      ) {
-        return;
-      }
-      setPublicationAcceptanceRecoveryStatus(
-        result.ok ? "success" : "stopped",
-      );
-      setPublicationAcceptanceRecoveryMessage(result.message);
-    } finally {
-      if (requestSequence === projectRollbackRequestSequenceRef.current) {
-        projectRollbackAbortRef.current = null;
-        projectRollbackInFlightRef.current = false;
-        projectPublicationWriteInFlightRef.current = false;
-        publicationAcceptanceRecoveryInFlightRef.current = false;
         setIsProjectRollbackInFlight(false);
       }
     }
@@ -6171,12 +5947,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
     prepareProjectRollbackExecutionReview,
     commitPreparedProjectRollback,
     cancelPreparedProjectRollback,
-    publicationAcceptanceFaultMode,
-    publicationAcceptanceRecoveryStatus,
-    publicationAcceptanceRecoveryMessage,
-    armPublicationAcceptanceFault,
-    disarmPublicationAcceptanceFault,
-    recoverPublicationAcceptanceIndex,
     prepareProjectPublishReview,
     commitPreparedProjectPublish,
     cancelPreparedProjectPublish,

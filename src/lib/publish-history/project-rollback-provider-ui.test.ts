@@ -36,16 +36,4 @@ describe("rollback Provider boundary", () => {
     );
     expect(provider).toContain("pendingProjectRollbackRef.current = null");
   });
-
-  it("keeps acceptance recovery memory-only and clears it with project state", () => {
-    expect(provider).toContain("PublicationAcceptanceFaultSession");
-    expect(provider).toContain("publicationAcceptanceFaultSessionRef");
-    expect(provider).toContain(
-      "publicationAcceptanceFaultSession.clearForProjectChange()",
-    );
-    expect(provider).toContain("resetPublicationAcceptanceSession();");
-    expect(provider).toContain("takeCRecoveryPlan");
-    expect(provider).not.toContain("sessionStorage.setItem");
-    expect(provider).not.toContain("localStorage.setItem");
-  });
 });
