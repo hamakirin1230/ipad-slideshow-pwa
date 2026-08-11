@@ -6,7 +6,8 @@
 
 1. [`../README.md`](../README.md) — 製品の現在地、主要機能、ローカル検証方法
 2. [`current-context.md`](current-context.md) — 2026-08-12時点の最新作業引き継ぎと実装境界
-3. [`release-rollback.md`](release-rollback.md) — Vercel productionのrelease / rollback運用
+3. [`environment-security.md`](environment-security.md) — runtime environmentとVercel security headerの現行契約
+4. [`release-rollback.md`](release-rollback.md) — Vercel productionのrelease / rollback運用
 
 現在の正式productionはVercelのみです。GitHub Pages deployは廃止済みで、GitHub ActionsはCIとして継続します。package managerは`pnpm@10.34.4`に固定します。
 
@@ -16,6 +17,7 @@
 
 - [`../README.md`](../README.md)
 - [`current-context.md`](current-context.md)
+- [`environment-security.md`](environment-security.md)
 - [`release-rollback.md`](release-rollback.md)
 
 Currentに記載がない詳細はproduction codeとtestsで確認し、古い文書だけから現在仕様を推測しません。

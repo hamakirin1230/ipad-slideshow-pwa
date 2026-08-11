@@ -5,6 +5,7 @@ Date: 2026-08-12
 このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-12時点の実装・運用状態を正とします。
 
 docs全体のCurrent / Historical分類は[`docs/README.md`](README.md)を参照してください。
+runtime environmentとVercel security headerの現行契約は[`environment-security.md`](environment-security.md)を参照してください。
 
 2026-06-22時点で、Vercel productionの既存運用を再確認済み。新規Vercel project作成、import、`vercel link` は不要。
 
