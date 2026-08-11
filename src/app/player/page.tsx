@@ -4,11 +4,14 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
+  type ComponentPropsWithoutRef,
   type MutableRefObject,
   type PointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import Link from "next/link";
 import {
@@ -238,6 +241,61 @@ type PlayerGuidanceItem = {
   description: string;
 };
 
+type PlayerControlGroupProps = Omit<
+  ComponentPropsWithoutRef<"div">,
+  "aria-hidden" | "inert"
+> & {
+  visible: boolean;
+  focusDestinationRef: RefObject<HTMLElement | null>;
+};
+
+function relocateFocusFromHiddenPlayerControls(
+  controlGroup: Pick<HTMLElement, "contains"> | null,
+  activeElement: Element | null,
+  focusDestination: Pick<HTMLElement, "focus"> | null,
+): boolean {
+  if (
+    controlGroup === null ||
+    activeElement === null ||
+    focusDestination === null ||
+    !controlGroup.contains(activeElement)
+  ) {
+    return false;
+  }
+
+  focusDestination.focus({ preventScroll: true });
+  return true;
+}
+
+function PlayerControlGroup({
+  visible,
+  focusDestinationRef,
+  ...props
+}: PlayerControlGroupProps) {
+  const controlGroupRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (visible) {
+      return;
+    }
+
+    relocateFocusFromHiddenPlayerControls(
+      controlGroupRef.current,
+      document.activeElement,
+      focusDestinationRef.current,
+    );
+  }, [focusDestinationRef, visible]);
+
+  return (
+    <div
+      {...props}
+      ref={controlGroupRef}
+      inert={visible ? undefined : true}
+      aria-hidden={visible ? undefined : true}
+    />
+  );
+}
+
 export default function PlayerPage() {
   const {
     googleStatus,
@@ -314,6 +372,7 @@ export default function PlayerPage() {
     useState<PlayerPresentationMode>(() => readStoredPresentationMode());
   const [interactionLock, setInteractionLock] =
     useState<PlayerInteractionLock>("unlocked");
+  const playerRootRef = useRef<HTMLElement | null>(null);
 
   const readySnapshot = snapshot?.status === "ready" ? snapshot : null;
   const projectSelectionSnapshot =
@@ -1674,7 +1733,11 @@ export default function PlayerPage() {
     const isAutoAdvanceDisabled = autoAdvanceIntervalSeconds === null;
 
     return (
-      <main className="relative h-[100svh] min-h-[100svh] overflow-hidden bg-black text-slate-50">
+      <main
+        ref={playerRootRef}
+        tabIndex={-1}
+        className="relative h-[100svh] min-h-[100svh] overflow-hidden bg-black text-slate-50"
+      >
         <div
           className="absolute inset-0 flex items-center justify-center bg-black"
           onPointerDown={handlePointerDown}
@@ -1796,6 +1859,7 @@ export default function PlayerPage() {
                 canShowVideoDiagnostics && videoDiagnosticsVisible
               }
               canShowDiagnosticsToggle={canShowVideoDiagnostics}
+              focusDestinationRef={playerRootRef}
               onToggleDiagnostics={() =>
                 setVideoDiagnosticsVisible((current) => !current)
               }
@@ -1819,7 +1883,10 @@ export default function PlayerPage() {
           ) : null}
         </div>
 
-        <div
+        <PlayerControlGroup
+          data-player-controls="normal"
+          visible={shouldShowNormalControls}
+          focusDestinationRef={playerRootRef}
           className={`absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent px-4 pb-16 transition-opacity duration-300 sm:px-6 ${controlsVisibilityClassName}`}
           style={{
             paddingTop: "max(env(safe-area-inset-top), 1rem)",
@@ -2000,9 +2067,12 @@ export default function PlayerPage() {
               </Button>
             </div>
           </div>
-        </div>
+        </PlayerControlGroup>
 
-        <div
+        <PlayerControlGroup
+          data-player-controls="normal"
+          visible={shouldShowNormalControls}
+          focusDestinationRef={playerRootRef}
           className={`absolute left-4 top-1/2 z-20 hidden -translate-y-1/2 transition-opacity duration-300 sm:block ${controlsVisibilityClassName}`}
         >
           <Button
@@ -2017,9 +2087,12 @@ export default function PlayerPage() {
           >
             <ChevronLeft className="size-7" />
           </Button>
-        </div>
+        </PlayerControlGroup>
 
-        <div
+        <PlayerControlGroup
+          data-player-controls="normal"
+          visible={shouldShowNormalControls}
+          focusDestinationRef={playerRootRef}
           className={`absolute right-4 top-1/2 z-20 hidden -translate-y-1/2 transition-opacity duration-300 sm:block ${controlsVisibilityClassName}`}
         >
           <Button
@@ -2034,7 +2107,7 @@ export default function PlayerPage() {
           >
             <ChevronRight className="size-7" />
           </Button>
-        </div>
+        </PlayerControlGroup>
 
         {isProductionMode ? (
           <ProductionModeOverlay
@@ -2084,7 +2157,10 @@ export default function PlayerPage() {
               paddingBottom: "max(env(safe-area-inset-bottom), 1rem)",
             }}
           >
-            <div
+            <PlayerControlGroup
+              data-player-controls="normal"
+              visible={shouldShowNormalControls}
+              focusDestinationRef={playerRootRef}
               className={`mx-auto flex max-w-xl items-center justify-center gap-4 transition-opacity duration-300 ${controlsVisibilityClassName}`}
             >
               <Button
@@ -2122,7 +2198,7 @@ export default function PlayerPage() {
               >
                 <ChevronRight className="size-6" />
               </Button>
-            </div>
+            </PlayerControlGroup>
           </div>
         ) : null}
 
@@ -2427,6 +2503,7 @@ function PlayerVideoSlide({
   diagnostics,
   diagnosticsVisible,
   canShowDiagnosticsToggle,
+  focusDestinationRef,
   onToggleDiagnostics,
 }: {
   video: PlayerSlideVideo;
@@ -2450,6 +2527,7 @@ function PlayerVideoSlide({
   diagnostics: string[];
   diagnosticsVisible: boolean;
   canShowDiagnosticsToggle: boolean;
+  focusDestinationRef: RefObject<HTMLElement | null>;
   onToggleDiagnostics: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -3058,7 +3136,10 @@ function PlayerVideoSlide({
         className="absolute inset-0 h-full w-full object-contain"
       />
 
-      <div
+      <PlayerControlGroup
+        data-player-controls="video"
+        visible={showVideoControls}
+        focusDestinationRef={focusDestinationRef}
         className={`absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pt-16 transition-opacity duration-300 sm:px-6 ${
           showVideoControls ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
@@ -3224,7 +3305,7 @@ function PlayerVideoSlide({
             />
           ) : null}
         </div>
-      </div>
+      </PlayerControlGroup>
     </div>
   );
 }
