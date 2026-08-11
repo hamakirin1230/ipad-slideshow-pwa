@@ -1513,7 +1513,10 @@ export async function saveDriveProjectAsset(
   input: DriveProjectAssetSaveInput,
 ): Promise<DriveProjectSavedAsset> {
   const assetId = crypto.randomUUID();
-  const driveFilename = `${assetId}.${getDriveAssetExtension(input.mimeType)}`;
+  const driveFilename = buildDriveProjectAssetStorageFilename({
+    assetId,
+    mimeType: input.mimeType,
+  });
   const appProperties = buildDriveAssetAppProperties({
     workspaceId: input.workspaceId,
     projectId: input.project.projectId,
@@ -1526,8 +1529,11 @@ export async function saveDriveProjectAsset(
     input,
     assetId,
   });
+  if (driveFilename === null) {
+    inputDiagnostics.push("Drive asset保存対象のMIME typeが不正です。");
+  }
 
-  if (inputDiagnostics.length > 0) {
+  if (driveFilename === null || inputDiagnostics.length > 0) {
     throw new DriveProjectAssetSaveError({
       status: "invalidProject",
       possibleCreatedAsset: null,
@@ -7382,7 +7388,15 @@ function buildDriveAssetAppProperties(input: {
   };
 }
 
-function getDriveAssetExtension(mimeType: DriveAssetMimeType) {
+export function buildDriveProjectAssetStorageFilename(input: {
+  assetId: string;
+  mimeType: string;
+}): string | null {
+  const extension = getDriveAssetExtension(input.mimeType);
+  return extension === null ? null : `${input.assetId}.${extension}`;
+}
+
+function getDriveAssetExtension(mimeType: string): string | null {
   switch (mimeType) {
     case "image/jpeg":
       return "jpg";
@@ -7395,12 +7409,8 @@ function getDriveAssetExtension(mimeType: DriveAssetMimeType) {
     case "video/quicktime":
       return "mov";
     default:
-      return assertNeverDriveAssetMimeType(mimeType);
+      return null;
   }
-}
-
-function assertNeverDriveAssetMimeType(value: never): never {
-  throw new Error(`Unsupported Drive asset MIME type: ${value}`);
 }
 
 function validateDriveProjectAssetSaveInput(input: {

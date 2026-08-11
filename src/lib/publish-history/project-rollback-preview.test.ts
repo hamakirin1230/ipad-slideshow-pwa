@@ -113,7 +113,7 @@ function metadata(
 ): DriveFileCandidate {
   return {
     id: IMAGE_FILE_ID,
-    name: "image.jpg",
+    name: `${IMAGE_ASSET_ID}.jpg`,
     mimeType: "image/jpeg",
     modifiedTime: "2026-07-20T00:00:00.000Z",
     sizeBytes: 1200,
@@ -182,13 +182,37 @@ function previewFixture(input: {
 
 describe("buildProjectRollbackPreview", () => {
   it("classifies unchanged assets as ready and calculates caption impact", () => {
-    const result = previewFixture();
+    const result = previewFixture({
+      targetManifest: manifest("Restored title", [
+        slide({ assetName: "peach-1.jpg" }),
+      ]),
+    });
     expect(result.readiness).toBe("ready");
     expect(result.assets[0]).toMatchObject({
       impactStatus: "unchanged",
       offlineDisposition: "offlineEligible",
     });
     expect(result.manifestImpact.changedSlideCount).toBe(1);
+  });
+
+  it("degrades when the fresh Drive storage name is not canonical", () => {
+    const result = previewFixture({
+      targetManifest: manifest("Restored title", [
+        slide({ assetName: "peach-1.jpg" }),
+      ]),
+      freshAssets: [
+        {
+          assetId: IMAGE_ASSET_ID,
+          metadata: metadata({ name: "renamed.jpg" }),
+        },
+      ],
+    });
+
+    expect(result.readiness).toBe("degraded");
+    expect(result.assets[0]).toMatchObject({
+      displayName: "peach-1.jpg",
+      impactStatus: "metadataChanged",
+    });
   });
 
   it("returns noChange when playback content and title are the same", () => {
@@ -250,7 +274,7 @@ describe("buildProjectRollbackPreview", () => {
     };
     const baseMetadata = metadata({
       id: VIDEO_FILE_ID,
-      name: "video.mp4",
+      name: `${VIDEO_ASSET_ID}.mp4`,
       mimeType: "video/mp4",
       sizeBytes: 50 * 1024 * 1024,
       checksum: "video-checksum",
@@ -264,6 +288,7 @@ describe("buildProjectRollbackPreview", () => {
       targetAssets: [savedVideo],
       freshAssets: [{ assetId: VIDEO_ASSET_ID, metadata: baseMetadata }],
     });
+    expect(exact.readiness).toBe("ready");
     expect(exact.assets[0].offlineDisposition).toBe("offlineEligible");
 
     const large = previewFixture({
@@ -302,7 +327,7 @@ describe("buildProjectRollbackPreview", () => {
     };
     const freshVideo = metadata({
       id: VIDEO_FILE_ID,
-      name: "stored-video.mov",
+      name: `${VIDEO_ASSET_ID}.mov`,
       mimeType: "video/quicktime",
       sizeBytes: DRIVE_VIDEO_MAX_BYTES,
       checksum: "video-checksum",
@@ -321,7 +346,9 @@ describe("buildProjectRollbackPreview", () => {
     expect(result.assets[0]).toMatchObject({
       mimeType: "video/quicktime",
       offlineDisposition: "remoteOnly",
+      impactStatus: "unchanged",
     });
+    expect(result.readiness).toBe("ready");
     expect(result.assets[0]?.sanitizedReasons.join(" ")).not.toContain(
       "対応していないMIME",
     );
@@ -355,7 +382,7 @@ describe("buildProjectRollbackPreview", () => {
           assetId: VIDEO_ASSET_ID,
           metadata: metadata({
             id: VIDEO_FILE_ID,
-            name: "stored-video.mov",
+            name: `${VIDEO_ASSET_ID}.mov`,
             mimeType: "video/quicktime",
             sizeBytes,
             checksum: "video-checksum",
@@ -390,7 +417,7 @@ describe("buildProjectRollbackPreview", () => {
     };
     const freshVideo = metadata({
       id: VIDEO_FILE_ID,
-      name: "video.mp4",
+      name: `${VIDEO_ASSET_ID}.mp4`,
       mimeType: "video/mp4",
       sizeBytes: undefined,
       checksum: "video-checksum",
@@ -407,6 +434,40 @@ describe("buildProjectRollbackPreview", () => {
     expect(result.readiness).toBe("degraded");
     expect(result.assets[0]).toMatchObject({
       impactStatus: "unverifiable",
+      offlineDisposition: "unavailable",
+    });
+  });
+
+  it("keeps an unsupported legacy MIME unavailable without throwing", () => {
+    const unsupportedSlide = slide({
+      assetName: "legacy.gif",
+      mimeType: "image/gif",
+      sourceMimeType: "image/gif",
+    });
+    const unsupportedAsset = {
+      ...revision({
+        revisionId: TARGET_REVISION_ID,
+        manifest: manifest("Current title", [unsupportedSlide]),
+      }).assets[0],
+      mimeType: "image/gif",
+    };
+    const result = previewFixture({
+      targetManifest: manifest("Current title", [unsupportedSlide]),
+      targetAssets: [unsupportedAsset],
+      freshAssets: [
+        {
+          assetId: IMAGE_ASSET_ID,
+          metadata: metadata({
+            name: `${IMAGE_ASSET_ID}.gif`,
+            mimeType: "image/gif",
+          }),
+        },
+      ],
+    });
+
+    expect(result.readiness).toBe("blocked");
+    expect(result.assets[0]).toMatchObject({
+      impactStatus: "unavailable",
       offlineDisposition: "unavailable",
     });
   });

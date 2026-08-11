@@ -199,6 +199,22 @@ describe("rollback execution preflight", () => {
     ).toBe(expected);
   });
 
+  it("stops before write when the Drive storage name changes after preview", async () => {
+    const fixture = buildRollbackTestFixture();
+    const renamedAsset = structuredClone(fixture.drive.assetFile);
+    renamedAsset.name = "renamed.jpg";
+    const built = buildAdapter({ assetFile: renamedAsset });
+
+    const result = await prepareProjectRollbackExecutionReviewWithAdapter(
+      inputFor(built.fixture),
+      built.adapter,
+    );
+
+    expect(result).toMatchObject({ ok: false, code: "stalePreview" });
+    expect(result).not.toHaveProperty("plan");
+    expect(built.adapter.randomHexSuffix).not.toHaveBeenCalled();
+  });
+
   it("rejects current publication inconsistency", async () => {
     const fixture = buildRollbackTestFixture();
     const inconsistent = structuredClone(fixture.currentRevision);
@@ -291,6 +307,7 @@ describe("rollback execution preflight", () => {
     );
     const asset = structuredClone(fixture.drive.assetFile);
     asset.mimeType = "video/mp4";
+    asset.name = `${asset.appProperties.assetId}.mp4`;
     asset.sizeBytes = 60 * 1024 * 1024;
     const built = buildAdapter({ targetRevision: target, assetFile: asset });
     const guard = structuredClone(built.fixture.guard);
