@@ -1,7 +1,6 @@
 "use client";
 
 import Script from "next/script";
-import { usePathname } from "next/navigation";
 import {
   createContext,
   useContext,
@@ -774,11 +773,9 @@ const initialAssetCleanupDeletePreflightMessage =
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
   const clientId = getGoogleClientId();
   const hasClientId = hasGoogleClientId();
-  const shouldLoadGoogleIdentityScript =
-    hasClientId && !pathname.startsWith("/visual-check");
+  const shouldLoadGoogleIdentityScript = hasClientId;
 
   const accessTokenRef = useRef<string | null>(null);
   const tokenClientRef = useRef<GoogleTokenClient | null>(null);

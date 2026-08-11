@@ -496,6 +496,8 @@ Phase 6Cでまだ実装していないこと:
 - VitestのNode環境でpure helperだけをunit testし、DOM、Service Worker、Google API、IndexedDB、Drive通信はmockしない。
 - visual-checkは引き続きUI状態とアクセシビリティ表示の確認に使い、remote streamingのruntime integrationはproduction / iPad確認対象として残す。
 
+Finalization時点では、本文中の`/visual-check/*`はhistoricalな検証記録であり、production App Routerからは撤去済みである。
+
 ## 未解決事項
 
 - 動画サイズ上限はPhase 6Aで1fileあたり50MBに設定したが、本番運用で妥当性確認が必要。

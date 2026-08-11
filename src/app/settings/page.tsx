@@ -120,19 +120,6 @@ export default function SettingsPage() {
           ))}
         </section>
 
-        <Card className="border-white/10 bg-white/5 text-slate-50">
-          <CardHeader>
-            <CardTitle>開発用ページ</CardTitle>
-            <CardDescription className="text-slate-300">
-              Google OAuth単体の接続確認用ページです。通常の運用導線はこの設定画面を使います。
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild variant="secondary">
-              <Link href="/auth-test">Google認証テストを開く</Link>
-            </Button>
-          </CardContent>
-        </Card>
         <section className="grid gap-4 lg:grid-cols-2">
           <Card className="border-white/10 bg-white/5 text-slate-50">
             <CardHeader>

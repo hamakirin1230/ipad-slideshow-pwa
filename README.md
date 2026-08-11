@@ -77,7 +77,6 @@ https://ipad-slideshow-pwa.vercel.app/
 - `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete
 - `/admin/history` project別公開履歴一覧、current公開状態と未公開編集表示、revision詳細、rollback影響確認、fresh preflightを経たverified rollback実行
 - `/player` 画像／Blob保存済み動画のoffline-first再生、remoteOnly動画のonline Drive streaming、remote video手動retry、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
-- `/auth-test` OAuth単体確認用の開発ページ
 
 ## 重要な運用方針
 

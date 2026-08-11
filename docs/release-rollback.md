@@ -147,9 +147,9 @@ Git / Vercel rollback と Drive data rollback と端末内状態のリセット�
 - iPad PWA cache reset 手順。
 - Playwright screenshot smoke test。
 
-## Mock visual check route
+## Historical mock visual check route
 
-- `/visual-check/admin-cleanup` は、`/admin` cleanup preview 周辺をスクリーンショットレビューするための mock-only 表示確認ページ。
+- `/visual-check/admin-cleanup` は、`/admin` cleanup preview 周辺をスクリーンショットレビューするために使用したhistoricalなmock-only表示確認ページで、finalization時点ではproduction App Routerから撤去済み。
 - 実データ、Google認証、Drive API、端末内保存は使わない。
 - cleanup preview table、preflight eligible / blocked list、confirm preview、空状態を固定mockで確認する。
 - 本番確認の最終判断は、Vercel production と iPad ホーム画面 PWA 実機確認で行う。
