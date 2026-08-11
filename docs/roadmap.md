@@ -1,5 +1,7 @@
 # ロードマップ
 
+> **Historical document.** これは初期フェーズのroadmap記録です。現在の実装・運用判断には[`docs/README.md`](README.md)と[`current-context.md`](current-context.md)を参照してください。
+
 ## 第1ゴール: PWAの土台を作る
 
 GitHub Pagesに公開したPWAを、iPadのホーム画面から起動できる状態にする。

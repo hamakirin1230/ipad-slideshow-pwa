@@ -1,5 +1,7 @@
 # Windows 11 セットアップ手順
 
+> **Historical document.** これは第1-1を再現する当時の環境記録で、現在のsetup guideではありません。現在の実装・運用判断には[`docs/README.md`](README.md)と[`../README.md`](../README.md)を参照してください。
+
 ## 前提
 
 この手順は、Windows 11 PCで第1-1を再現するためのメモです。

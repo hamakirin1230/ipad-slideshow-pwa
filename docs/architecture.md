@@ -1,5 +1,7 @@
 # アーキテクチャメモ
 
+> **Historical document.** これは初期フェーズの設計記録です。現在の実装・運用判断には[`docs/README.md`](README.md)と[`current-context.md`](current-context.md)を参照してください。
+
 ## 基本方針
 
 初期版は、GitHub Pagesで公開する完全静的PWAとして作る。

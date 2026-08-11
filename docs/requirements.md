@@ -1,5 +1,7 @@
 # 要件メモ
 
+> **Historical document.** これは初期フェーズの要件記録です。現在の実装・運用判断には[`docs/README.md`](README.md)と[`current-context.md`](current-context.md)を参照してください。
+
 ## 目的
 
 iPadで安定して閲覧・操作できるスライドショーPWAを作る。

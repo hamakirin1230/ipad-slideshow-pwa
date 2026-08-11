@@ -1,5 +1,7 @@
 # リスク登録簿
 
+> **Historical document.** これは初期フェーズのrisk記録です。現在の実装・運用判断には[`docs/README.md`](README.md)と[`current-context.md`](current-context.md)を参照してください。
+
 ## 方針
 
 このプロジェクトでは、「実装できるか」よりも「本番で事故らないか」を重視する。

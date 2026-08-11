@@ -2,7 +2,7 @@
 
 ## 目的
 
-この文書は、iPad slideshow PWA の公開履歴とロールバック方針を整理するための運用設計である。今回の段階ではコード挙動を変更しない。
+この文書は、iPad slideshow PWAのVercel release、アプリコードrollback、publication rollback、Drive data、端末内状態を区別する現在の運用ガイドである。
 
 ## 本番運用対象
 
@@ -60,7 +60,7 @@ Drive workspace data には以下が含まれる。
 - asset metadata
 - confirmed store へ反映される Drive 側データ
 
-現時点で Drive data rollback の専用実装は未整備である。Drive data の不整合を戻す場合は、Git / Vercel rollback とは別に、Drive 側の状態を確認し、必要な修正方針を決める。
+projectのpublication rollbackは、公開履歴からfresh preflightを経て新しいrollback revisionを作る方式で実装済みである。一方、workspace全体やasset fileを任意時点へ戻す汎用snapshot rollbackはない。publication以外のDrive data不整合を戻す場合は、Git / Vercel rollbackとは別にDrive側の状態を確認し、必要な修正方針を決める。
 
 ### 端末内状態
 
@@ -73,7 +73,7 @@ Drive workspace data には以下が含まれる。
 
 これらは Vercel rollback だけでは戻らない。アプリコードを戻しても、iPad 側の confirmed store や cache が古い / 壊れた状態のまま残ることがある。player 反映は既存どおり offline sync 経由で行う。
 
-## ロールバック手順案
+## ロールバック手順
 
 ### 1. 障害範囲を判定する
 
@@ -132,24 +132,16 @@ Git / Vercel rollback と Drive data rollback と端末内状態のリセット�
 - Drive raw response を UI / docs / logs に出さない。
 - download URL や Blob 本体を UI / docs / logs に出さない。
 - Client Secret / API キーは作らない、使わない。
-- Drive file 物理削除は未実装。
-- Drive file delete API は未実装。
-- cleanup preview / preflight / confirm preview は read-only。
+- rollback recoveryとしてDrive fileを手作業で削除しない。
+- unused assetの物理削除は、`/admin`のfresh preflightと明示confirmを通った未参照app-managed JPEG / PNG / WebPだけを対象にする。
+- cleanup preview / preflight / confirm previewはread-onlyで、明示的なdelete executionだけが対象fileを変更する。
 - rollback docs で secret や credential の値を例示しない。
 
 ## 今後の候補
 
 - release manifest の導入。
 - Drive workspace snapshot の導入。
-- admin 上の release history 表示。
 - rollback 前チェックリスト。
 - rollback 後チェックリスト。
 - iPad PWA cache reset 手順。
 - Playwright screenshot smoke test。
-
-## Historical mock visual check route
-
-- `/visual-check/admin-cleanup` は、`/admin` cleanup preview 周辺をスクリーンショットレビューするために使用したhistoricalなmock-only表示確認ページで、finalization時点ではproduction App Routerから撤去済み。
-- 実データ、Google認証、Drive API、端末内保存は使わない。
-- cleanup preview table、preflight eligible / blocked list、confirm preview、空状態を固定mockで確認する。
-- 本番確認の最終判断は、Vercel production と iPad ホーム画面 PWA 実機確認で行う。

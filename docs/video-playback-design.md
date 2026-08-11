@@ -1,5 +1,7 @@
 # 動画再生設計
 
+> **Historical document.** これは動画実装前の設計記録です。現在のMP4/MOV実装・acceptance状態には[`docs/README.md`](README.md)と[`current-context.md`](current-context.md)を参照してください。
+
 Date: 2026-06-27
 
 ## 目的

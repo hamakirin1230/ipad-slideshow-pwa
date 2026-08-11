@@ -2,7 +2,12 @@
 
 Date: 2026-08-09
 
-Status: Gate 0承認済み。browser origin単位のoffline baselineをGate 1開始前のreview clarificationとして追記。実Google Drive試験、fault injection実装、preview deploymentは未実施。
+Status:
+
+- Gate 0承認済み。browser origin単位のoffline baseline clarificationも反映済み。
+- temporary Preview-only fault harnessはacceptance専用branchで実装後、同branchから完全撤去済み。
+- fault harnessはproduction mainへmergeしておらず、撤去commit後のacceptance branch treeは当時のmainと同一。
+- repository docsには、実Google DriveでCase A / B / Cを実行・完了した結果記録がない。異常系acceptanceは完了扱いにしない。
 
 ## 1. 目的と範囲
 

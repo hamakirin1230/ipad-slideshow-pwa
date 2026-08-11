@@ -1,5 +1,7 @@
 # データフローメモ
 
+> **Historical document.** これは初期フェーズのdata flow案です。現在の実装・運用判断には[`docs/README.md`](README.md)と[`current-context.md`](current-context.md)を参照してください。
+
 ## 基本方針
 
 Googleフォトは素材の取り込み元として使う。  

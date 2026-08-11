@@ -1,5 +1,7 @@
 # 決定事項インデックス
 
+> **Historical document.** これは過去decisionの集約記録です。現在の実装・運用判断には[`docs/README.md`](README.md)と[`current-context.md`](current-context.md)を参照してください。
+
 このファイルは、プロジェクト全体の主要な決定事項を短く参照するための索引である。
 詳細な作業ログ、完了確認、実装経緯は `docs/decisions/` 配下のフェーズ別ファイルに分離する。
 

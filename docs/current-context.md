@@ -4,6 +4,8 @@ Date: 2026-08-12
 
 このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-12時点の実装・運用状態を正とします。
 
+docs全体のCurrent / Historical分類は[`docs/README.md`](README.md)を参照してください。
+
 2026-06-22時点で、Vercel productionの既存運用を再確認済み。新規Vercel project作成、import、`vercel link` は不要。
 
 ## 最重要方針
@@ -18,6 +20,7 @@ Date: 2026-08-12
 - Client Secretは作らない、使わない
 - APIキーは作らない、使わない
 - iPadホーム画面PWAで確認できないものは、本番完了扱いにしない
+- package managerは`pnpm@10.34.4`に固定し、local validationはpnpm 10で実行する
 
 ## 現在の公開先
 
@@ -39,6 +42,27 @@ service worker: /sw.js
 ```
 
 `next.config.ts` は常にroot deployment前提で、GitHub Pages用`basePath`分岐は持たない。
+
+## 現行の運用契約
+
+production App Routerに存在する主要route:
+
+```text
+/
+/settings
+/admin
+/admin/history
+/player
+```
+
+`/auth-test`と`/visual-check/*`はproduction App Routerから撤去済みで、現行routeではない。
+
+- Drive current manifestへの編集保存とpublishは別操作で、saveだけではrevisionを作らない
+- publish / rollbackはimmutable revisionを作成し、current published revisionは`manifest.publication.currentRevisionId`をauthorityとする
+- rollbackは過去revisionへpointerを戻さず、過去内容から新しいrollback revisionを作る
+- save / publish / rollbackだけではoffline dataを更新せず、端末反映には明示的offline syncが必要
+- publication writeのin-flight guardは同一tab内の直列化であり、既知のmulti-tab raceは未解決
+- temporary publication acceptance fault harnessは専用branchで実装後に完全撤去され、production sourceには存在しない
 
 ## 現在の到達点
 
@@ -89,8 +113,8 @@ Goal 6 publication provenance（publishedMatch / unpublishedChanges / unpublishe
 stale sync時にprevious confirmed snapshotを保持するreview fix
 実Google Driveでpublish / unpublished edit / republish / rollback後の各offline syncとprovenance acceptance（Goal 6完了）
 local MP4/MOV resumable upload（1ファイル5GB以下）
-MP4/MOV offline Blob保存（50MB以下）
-MP4/MOV remoteOnly Drive streaming（50MB超〜5GB以下）
+MP4/MOV offline Blob保存（50 MiB以下）
+MP4/MOV remoteOnly Drive streaming（50 MiB超〜5GB以下）
 Vercel production / 実iPadで約3GB MOVのremoteOnly Drive streaming再生
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
@@ -200,15 +224,15 @@ ipad-slideshow-pwa-app-shell-v1
 対応playback MIME: video/mp4, video/quicktime
 local file import max: 5 * 1024 * 1024 * 1024 bytes
 resumable upload chunk: 8 MiB
-offline Blob cap: 50 * 1024 * 1024 bytes
+offline Blob cap: 50 MiB（50 * 1024 * 1024 bytes）
 remote stream chunk cap: 32 MiB
 Google Photos Picker video cap: 50 MB（変更なし）
 ```
 
 - MIMEが空または`application/octet-stream`でも、`.mp4` / `.mov`から安全にMIMEを補完する
 - 既知MIMEと`.mp4` / `.mov`が矛盾する場合はupload前にrejectし、変換や推測補正を行わない
-- 50MB以下のMP4/MOVはactual MIMEでBlob取得・検証し、offline confirmed storeへ保存する
-- 50MB超〜5GB以下はBlobを取得せず、metadataだけを`remoteOnly`としてconfirmed storeへ保持する
+- 50 MiB以下のMP4/MOVはactual MIMEでBlob取得・検証し、offline confirmed storeへ保存する
+- 50 MiB超〜5GB以下はBlobを取得せず、metadataだけを`remoteOnly`としてconfirmed storeへ保持する
 - 5GB超とsize不明は再生対象外とし、Drive fileの自動削除・rename・修復を行わない
 - remoteOnly sessionはactual MIMEをService Workerへ渡し、Range / Content-Rangeはsafe Numberで扱う
 - MOVはiPad/WebKitのnative playbackへ渡し、codec/containerをclient-side transcodeしない
@@ -369,14 +393,13 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. 古いdocs / decisions / architectureを「履歴」と「現行方針」に分けて整理
-2. publication write異常系acceptanceの安全な試験計画
-   update応答不明、current競合、index warningは、専用disposable test workspace、
-   復旧手順、観測項目、停止条件を先に設計し、通常acceptanceでは故意に発生させない
-3. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
+1. publication write異常系の実Google Drive acceptance
+   承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
+   production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
+2. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
 ```
 
-publication write異常系の詳細計画は`docs/acceptance/publication-write-abnormal-acceptance-plan.md`を参照。計画作成済みだが実Google Drive試験は未実施で、Gate 0承認前にfault injection codeを作らない。
+publication write異常系の詳細計画は`docs/acceptance/publication-write-abnormal-acceptance-plan.md`を参照。Gate 0承認後にtemporary harnessを専用branchで実装したが、その後完全撤去済みでmainへmergeしていない。repository docsに実Google DriveでA/B/Cを完了した結果記録はない。
 
 ## 最新ハンドオフ
 

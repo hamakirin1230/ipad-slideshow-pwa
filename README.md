@@ -4,6 +4,10 @@ iPadで安定して本番再生するためのスライドショーPWAです。
 
 PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、iPad側ではDriveから取得した再生用コピーをIndexedDBに保存して、offline-firstで再生します。大容量動画は端末へ本体保存せず、online時にDrive streamingで再生します。最優先は、学校現場・イベント現場で本番中に止まらないことです。
 
+## Documentation
+
+現在のdocs入口は[`docs/README.md`](docs/README.md)です。最新の作業引き継ぎは`docs/current-context.md`、dated handoffは当時の実装・acceptanceを保存するhistorical recordとして扱います。正式productionはVercelのみで、package managerは`pnpm@10.34.4`です。
+
 ## 現在の到達点
 
 現在はVercel productionでの運用を前提に、Drive連携からoffline playbackまでの主要な縦線が通っています。
@@ -39,7 +43,7 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - fresh preflight、明示confirm、順次DELETE、partial failure停止を経た未参照app-managed JPEG / PNG / WebPの物理削除と、実Google Driveでの動作確認
 - `/admin/` からローカル動画をDrive assetとして追加し、動画slideをmanifestへ保存
 - ローカルMP4/MOVを1ファイル5GB以下までresumable uploadで追加
-- MP4/MOVのoffline Blob保存上限を50MBとし、50MB超〜5GB以下は`remoteOnly` metadataとしてconfirmed storeへ保持
+- MP4/MOVのoffline Blob保存上限を50 MiBとし、50 MiB超〜5GB以下は`remoteOnly` metadataとしてconfirmed storeへ保持
 - remoteOnly MP4/MOVをonlineかつGoogle接続済みの場合にDrive streamingで再生
 - Vercel production / 実iPadで、当初再生できなかった同じ約3GB MOVの`remoteOnly` Drive streaming再生に成功し、旧2GB上限を超える実データ経路を確認
 - 画像／動画混在再生、offline Blob動画、動画slideごとのduration override
@@ -105,8 +109,8 @@ https://ipad-slideshow-pwa.vercel.app/
 - Drive上のslide削除・複製をiPad再生へ反映するにも、対象projectのoffline syncを実行する
 - Drive cleanup preview / readiness / preflight / confirm previewはread-onlyで、Player snapshotやIndexedDBを変更しない
 - unused Drive assetの物理削除は、fresh preflightと明示confirmを通った未参照JPEG / PNG / WebPだけを対象とし、MP4/MOVは対象外にする
-- offline保存対象assetの上限は50MBとし、これは端末ストレージ全体の上限ではない
-- 50MB超〜5GB以下のMP4/MOVは`remoteOnly`としてmetadataのみをconfirmed storeへ保持し、動画本体はIndexedDBへ保存しない
+- offline保存対象assetの上限は50 MiBとし、これは端末ストレージ全体の上限ではない
+- 50 MiB超〜5GB以下のMP4/MOVは`remoteOnly`としてmetadataのみをconfirmed storeへ保持し、動画本体はIndexedDBへ保存しない
 - 5GB超またはsize不明の動画は安全側で再生対象外にし、自動削除・自動修復しない
 - remoteOnly MP4/MOVはofflineでは再生できず、onlineかつGoogle接続済みの場合だけDrive streamingで再生する
 - MOVはWebKitのnative playbackへ渡し、codec/containerのclient-side transcodeは行わない
@@ -165,9 +169,8 @@ GitHub ActionsはCI専用です。正式な本番deploymentはVercelで行い、
 
 ## 次の作業候補
 
-1. 古い`docs/decisions`や`docs/architecture`を「履歴」と「現行方針」に分けて整理する
-2. publication writeのupdate応答不明、current競合、index warningを実環境確認する。通常acceptanceでは故意に通信遮断や競合を作らず、専用disposable test workspace、復旧手順、観測項目、停止条件を先に設計する
-3. MOVのexactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後のmanual retry実機経路を確認する
+1. publication writeのupdate応答不明、current競合、index warningを、承認済みplanに従って専用disposable workspaceと一時的なPreview-only harnessで実Google Drive確認する
+2. MOVのexactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後のmanual retry実機経路を確認する
 
 ## 最新ハンドオフ
 
