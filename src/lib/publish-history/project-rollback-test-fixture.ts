@@ -190,7 +190,7 @@ export function buildRollbackTestFixture() {
   };
   const assetMetadata = buildTestMetadata(
     "asset-file",
-    "photo.jpg",
+    `${TEST_ASSET_ID}.jpg`,
     "asset",
     "assets-folder",
     "image/jpeg",

@@ -2,10 +2,11 @@ import {
   getDriveVideoStorageDisposition,
   isSupportedDriveVideoMimeType,
 } from "../drive-video-policy";
-import type {
-  DriveFileCandidate,
-  DriveSlideSummary,
-  ProjectManifest,
+import {
+  buildDriveProjectAssetStorageFilename,
+  type DriveFileCandidate,
+  type DriveSlideSummary,
+  type ProjectManifest,
 } from "../google-drive";
 import {
   getProjectManifestContentCanonicalHash,
@@ -320,7 +321,21 @@ function classifyRollbackAsset(input: {
   }
 
   const metadataReasons: string[] = [];
-  if (input.slides.some((slide) => slide.assetName !== metadata.name)) {
+  const expectedStorageFilename = buildDriveProjectAssetStorageFilename({
+    assetId: input.savedAsset.assetId,
+    mimeType: input.savedAsset.mimeType,
+  });
+  if (expectedStorageFilename === null) {
+    return assetPreview(
+      input.savedAsset.assetId,
+      displayName,
+      input.savedAsset.mimeType,
+      "unavailable",
+      "unavailable",
+      ["対応していないasset形式です。"],
+    );
+  }
+  if (metadata.name !== expectedStorageFilename) {
     metadataReasons.push("asset名が保存時から変更されています。");
   }
   if (input.savedAsset.modifiedTime !== metadata.modifiedTime) {
