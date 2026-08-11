@@ -12,6 +12,9 @@ const releaseRollback = readRepoFile("docs/release-rollback.md");
 const abnormalAcceptancePlan = readRepoFile(
   "docs/acceptance/publication-write-abnormal-acceptance-plan.md",
 );
+const finalizationAcceptance = readRepoFile(
+  "docs/acceptance/product-ready-finalization-acceptance.md",
+);
 const authoritativeDocs = [
   rootReadme,
   docsIndex,
@@ -38,6 +41,13 @@ describe("current documentation contract", () => {
     ]) {
       expect(docsIndex).toContain(currentDoc);
     }
+    const acceptanceEvidence = docsIndex.slice(
+      docsIndex.indexOf("## Acceptance / evidence"),
+      docsIndex.indexOf("## 更新ルール"),
+    );
+    expect(acceptanceEvidence).toContain(
+      "acceptance/product-ready-finalization-acceptance.md",
+    );
   });
 
   it("captures the current hosting, package, route, and publication contract", () => {
@@ -108,5 +118,21 @@ describe("current documentation contract", () => {
     expect(status).toContain("production mainへmergeしておらず");
     expect(status).toContain("結果記録がない");
     expect(status).toContain("完了扱いにしない");
+  });
+
+  it("records finalization merge readiness without overstating deployment or acceptance", () => {
+    expect(finalizationAcceptance).toContain(
+      "Accepted for main merge, with explicitly recorded remaining unverified items",
+    );
+    expect(finalizationAcceptance).toContain("PWA new install | 未確認");
+    expect(finalizationAcceptance).toContain("main mergeへ進める状態");
+    expect(finalizationAcceptance).toContain("Production反映済みという判断ではない");
+    expect(finalizationAcceptance).toContain(
+      "publication abnormal write A/B/C: real Google Drive completion recordなし",
+    );
+    expect(finalizationAcceptance).toContain(
+      "latest runtime-changing Preview",
+    );
+    expect(finalizationAcceptance).not.toContain("最新HEADのPreviewを確認済みである");
   });
 });
