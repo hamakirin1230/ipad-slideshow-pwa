@@ -60,7 +60,13 @@ describe("current documentation contract", () => {
       currentContext.indexOf("## 現在の到達点"),
     );
     expect(operations).toContain("```text\n/\n/settings");
-    for (const route of ["/settings", "/admin", "/admin/history", "/player"]) {
+    for (const route of [
+      "/settings",
+      "/system",
+      "/admin",
+      "/admin/history",
+      "/player",
+    ]) {
       expect(operations).toContain(route);
     }
     expect(operations).toContain(

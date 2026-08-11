@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DriveStatusSummary } from "@/components/drive-status-summary";
 import { ProjectStatusPanel } from "./project-status-panel";
 import { ProjectPublishPanel } from "./project-publish-panel";
 import { OfflineSyncPanel } from "./offline-sync-panel";
@@ -50,7 +49,6 @@ export default function AdminPage() {
           title="プロジェクト"
           description="Google Driveとの接続状態を確認し、作業対象のプロジェクトを選択または作成します。"
         >
-          <DriveStatusSummary />
           <ProjectStatusPanel />
         </AdminSection>
 

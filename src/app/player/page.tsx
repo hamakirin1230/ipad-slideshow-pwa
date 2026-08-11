@@ -32,7 +32,6 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DriveStatusSummary } from "@/components/drive-status-summary";
 import type { OfflinePlaybackSlide } from "@/lib/offline-playback-snapshot";
 import type { OfflinePublicationProvenanceView } from "@/lib/offline-publication-provenance";
 import {
@@ -2255,8 +2254,6 @@ export default function PlayerPage() {
             </Button>
           </div>
         </div>
-
-        <DriveStatusSummary />
 
         {isSnapshotLoading ? (
           <PlayerStatusCard

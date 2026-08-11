@@ -23,19 +23,24 @@ const terminologyUiSource = [
   .join("\n");
 
 describe("production task copy", () => {
-  it("keeps the three primary task routes on Home without a development roadmap", () => {
-    for (const href of ["/player", "/admin", "/settings"]) {
-      expect(homeSource).toContain(`href: "${href}"`);
+  it("keeps Home focused on playback and editing", () => {
+    for (const href of ["/player", "/admin", "/settings", "/system"]) {
+      expect(homeSource).toContain(`href="${href}"`);
     }
 
+    expect(homeSource).toContain("再生する");
+    expect(homeSource).toContain("編集する");
     expect(homeSource).not.toContain("次の開発候補");
     expect(homeSource).not.toContain("nextStepItems");
     expect(homeSource).not.toContain("現在の到達点");
+    expect(homeSource).not.toMatch(/Vercel|IndexedDB|offline-first|Drive workspace/);
   });
 
-  it("keeps Settings focused on connection checks instead of implementation status", () => {
+  it("keeps Settings focused on connection setup and links to system status", () => {
     expect(settingsSource).toContain("<DriveSettingsPanel />");
-    expect(settingsSource).toContain("<OfflineDbCheckPanel />");
+    expect(settingsSource).not.toContain("<OfflineDbCheckPanel />");
+    expect(settingsSource).toContain('href="/system"');
+    expect(settingsSource).toContain("接続・端末の状態を見る");
     expect(settingsSource).not.toContain("futureItems");
     expect(settingsSource).not.toContain("notImplementedItems");
     expect(settingsSource).not.toContain("まだ未実装");

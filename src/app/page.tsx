@@ -1,114 +1,70 @@
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
+import { Activity, ArrowRight, Pencil, Play, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-
-const taskItems = [
-  {
-    href: "/player",
-    title: "再生",
-    description:
-      "この端末に同期済みのスライドショーを開き、画像や動画を再生します。",
-    badge: "iPad再生",
-    action: "再生画面を開く",
-  },
-  {
-    href: "/admin",
-    title: "管理",
-    description:
-      "プロジェクトの編集、公開、公開履歴、ロールバック、端末への同期を行います。",
-    badge: "編集 / 公開 / 同期",
-    action: "管理画面を開く",
-  },
-  {
-    href: "/settings",
-    title: "設定 / Google Drive接続",
-    description:
-      "Google接続とDriveの保存領域、この端末の保存準備を確認します。",
-    badge: "Google / Drive",
-    action: "設定を開く",
-  },
-];
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-8 text-slate-50">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl">
-          <div className="flex flex-col gap-4">
-            <Badge className="w-fit" variant="secondary">
-              Vercel production / iPad PWA
-            </Badge>
-            <div className="space-y-3">
-              <h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
-                スライドショー
-              </h1>
-              <p className="max-w-3xl text-base leading-7 text-slate-300">
-                iPadで安定して再生するためのスライドショーPWAです。
-                Google Drive上でプロジェクトを管理し、明示的な端末への同期で再生用データを更新します。
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild variant="secondary">
-                <Link href="/player">再生画面を開く</Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link href="/admin">管理画面を開く</Link>
-              </Button>
-            </div>
+    <main className="relative isolate min-h-svh overflow-hidden bg-slate-950 px-5 py-10 text-slate-50 sm:px-8 md:flex md:items-center md:px-12 md:py-14">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_75%_18%,rgba(56,189,248,0.10),transparent_32%),radial-gradient(circle_at_20%_85%,rgba(14,165,233,0.06),transparent_28%)]"
+      />
+      <div className="mx-auto w-full max-w-5xl">
+        <div className="flex items-center gap-3 text-xs font-semibold tracking-[0.2em] text-sky-300">
+          <span className="h-px w-8 bg-sky-300/60" aria-hidden="true" />
+          SLIDESHOW
+        </div>
+
+        <section className="mt-14 max-w-3xl sm:mt-20 md:mt-0">
+          <h1 className="text-5xl font-semibold tracking-[-0.04em] text-balance sm:text-7xl md:text-8xl">
+            スライドショー
+          </h1>
+          <p className="mt-6 max-w-xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
+            大切な写真や動画を、すぐに編集して、心地よく再生できます。
+          </p>
+
+          <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+            <Button
+              asChild
+              className="min-h-14 justify-between gap-8 rounded-xl bg-sky-300 px-6 text-base font-semibold text-slate-950 hover:bg-sky-200"
+            >
+              <Link href="/player">
+                <span className="flex items-center gap-3">
+                  <Play className="size-5 fill-current" aria-hidden="true" />
+                  再生する
+                </span>
+                <ArrowRight className="size-5" aria-hidden="true" />
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              className="min-h-14 gap-3 rounded-xl border-white/15 bg-white/5 px-6 text-base text-slate-50 hover:bg-white/10"
+            >
+              <Link href="/admin">
+                <Pencil className="size-5" aria-hidden="true" />
+                編集する
+              </Link>
+            </Button>
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          {taskItems.map((item) => (
-            <Card
-              key={item.href}
-              className="border-white/10 bg-white text-slate-950"
-            >
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle>{item.title}</CardTitle>
-                  <Badge variant="outline">{item.badge}</Badge>
-                </div>
-                <CardDescription>{item.description}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button asChild className="w-full">
-                  <Link href={item.href}>{item.action}</Link>
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </section>
-
-        <Card className="border-white/10 bg-white/5 text-slate-50">
-          <CardHeader>
-            <CardTitle>反映と再生について</CardTitle>
-            <CardDescription className="text-slate-300">
-              Drive上の変更と、この端末で使用する再生用データは別に管理されます。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 text-sm text-slate-300 md:grid-cols-2">
-            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-              <p className="font-semibold text-slate-50">変更をiPadへ反映する</p>
-              <p className="mt-2 leading-6">
-                保存や公開だけでは再生用データは変わりません。管理画面で対象プロジェクトの「端末へ同期」を明示的に実行してください。
-              </p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-              <p className="font-semibold text-slate-50">remoteOnly動画を再生する</p>
-              <p className="mt-2 leading-6">
-                remoteOnly動画は動画本体を端末に保存せず、オンラインかつGoogle接続中の場合だけ再生します。
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="mt-20 flex flex-col gap-2 border-t border-white/8 pt-6 text-sm sm:mt-24 sm:flex-row sm:items-center sm:gap-6">
+          <Link
+            href="/settings"
+            className="flex min-h-11 items-center gap-2 rounded-lg px-1 text-slate-300 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+          >
+            <Settings2 className="size-4" aria-hidden="true" />
+            Google Driveから準備する
+          </Link>
+          <Link
+            href="/system"
+            className="flex min-h-11 items-center gap-2 rounded-lg px-1 text-slate-400 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+          >
+            <Activity className="size-4" aria-hidden="true" />
+            接続・端末の状態を見る
+          </Link>
+        </div>
       </div>
     </main>
   );

@@ -303,7 +303,7 @@ function CreateProjectTitleForm(input: {
           value={projectTitle}
           onChange={(event) => setProjectTitle(event.target.value)}
           maxLength={DRIVE_PROJECT_TITLE_MAX_LENGTH}
-          className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-emerald-300"
+          className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-emerald-300"
           placeholder={input.suggestedProjectTitle}
           disabled={input.isDriveOperationInFlight}
         />
@@ -367,7 +367,7 @@ function SelectedProjectTitleForm(input: {
           value={projectTitle}
           onChange={(event) => setProjectTitle(event.target.value)}
           maxLength={DRIVE_PROJECT_TITLE_MAX_LENGTH}
-          className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-emerald-300 disabled:opacity-60"
+          className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-emerald-300 disabled:opacity-60"
           placeholder="Project A"
           disabled={!input.hasProject || input.isDriveOperationInFlight}
         />

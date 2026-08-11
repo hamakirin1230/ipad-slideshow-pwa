@@ -3,10 +3,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import AdminPage from "./page";
 
-vi.mock("@/components/drive-status-summary", () => ({
-  DriveStatusSummary: () => <div data-panel="drive-status" />,
-}));
-
 vi.mock("./project-status-panel", () => ({
   ProjectStatusPanel: () => <div data-panel="project-status" />,
 }));
@@ -78,6 +74,7 @@ describe("admin section navigation", () => {
   });
 
   it("keeps existing panels in the section matching their operation", () => {
+    expect(markup).not.toContain('data-panel="drive-status"');
     expect(sectionMarkup(markup, "project", "edit")).toContain(
       'data-panel="project-status"',
     );

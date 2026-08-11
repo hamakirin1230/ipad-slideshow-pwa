@@ -55,6 +55,7 @@ production App Routerに存在する主要route:
 ```text
 /
 /settings
+/system
 /admin
 /admin/history
 /player
