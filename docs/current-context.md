@@ -11,7 +11,7 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 
 ## Product-ready finalization status
 
-2026-08-12、`finalization/product-ready`のmerge前acceptanceを完了した。Home、Settings、Admin、Historyのrollback preview、Player、existing installed PWAを手動確認済み。PWA new installは未確認のまま保持する。次の操作はmain mergeと、正式なVercel Production deployment後のProduction smoke checkである。詳細は[`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md)を参照する。
+2026-08-12、`finalization/product-ready`をmainへmergeし、Vercel Production反映後の実iPad smoke checkを完了した。ProductionのHome、Settings / Google接続、Admin、Historyのrollback preview、Player playback、existing installed PWAはOK。PWA new installは未確認のまま保持する。product-ready finalization Production acceptanceは完了しており、remaining exclusionsは[`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md)を参照する。
 
 ## 最重要方針
 

@@ -120,19 +120,35 @@ describe("current documentation contract", () => {
     expect(status).toContain("完了扱いにしない");
   });
 
-  it("records finalization merge readiness without overstating deployment or acceptance", () => {
+  it("records finalization Production acceptance without overstating its scope", () => {
     expect(finalizationAcceptance).toContain(
-      "Accepted for main merge, with explicitly recorded remaining unverified items",
+      "Product-ready finalization accepted in Production, with explicitly recorded remaining unverified/non-blocking items",
     );
     expect(finalizationAcceptance).toContain("PWA new install | 未確認");
-    expect(finalizationAcceptance).toContain("main mergeへ進める状態");
-    expect(finalizationAcceptance).toContain("Production反映済みという判断ではない");
+    expect(finalizationAcceptance).toContain("mainへfast-forward merge済み");
+    expect(finalizationAcceptance).toContain(
+      "Vercel Production deploymentがREADYになったことを確認済み",
+    );
+    expect(finalizationAcceptance).toContain(
+      "Production Player playback | OK",
+    );
     expect(finalizationAcceptance).toContain(
       "publication abnormal write A/B/C: real Google Drive completion recordなし",
     );
     expect(finalizationAcceptance).toContain(
-      "latest runtime-changing Preview",
+      "今回実rollbackを実行した記録ではない",
     );
-    expect(finalizationAcceptance).not.toContain("最新HEADのPreviewを確認済みである");
+    expect(finalizationAcceptance).toContain(
+      "すべての機能、MOV codec、境界条件を完全検証したという意味ではない",
+    );
+    expect(finalizationAcceptance).not.toContain(
+      "すべての機能、MOV codec、境界条件を完全検証済みである",
+    );
+    expect(currentContext).toContain(
+      "product-ready finalization Production acceptanceは完了",
+    );
+    expect(currentContext).not.toContain(
+      "次の操作はmain mergeと、正式なVercel Production deployment後のProduction smoke check",
+    );
   });
 });

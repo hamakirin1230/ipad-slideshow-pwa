@@ -36,7 +36,7 @@ HistoricalとCurrentが衝突する場合はCurrentを優先します。dated ha
 
 ## Acceptance / evidence
 
-- [`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md) — 2026-08-12 finalization merge前acceptanceと未確認項目
+- [`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md) — 2026-08-12 finalization merge前 / Production acceptanceと未確認項目
 - [`acceptance/publication-write-abnormal-acceptance-plan.md`](acceptance/publication-write-abnormal-acceptance-plan.md) — publication write異常系の承認済み試験計画。temporary harnessの履歴を含むが、実Google DriveでのA/B/C完了記録はない
 - [`verification/`](verification/) — 各時点の検証記録
 - [`handoffs/`](handoffs/) — 実環境・実機acceptanceを含むdated evidence

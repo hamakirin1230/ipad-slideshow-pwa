@@ -2,9 +2,9 @@
 
 Date: 2026-08-12
 
-Status: Accepted for main merge, with explicitly recorded remaining unverified items
+Status: Product-ready finalization accepted in Production, with explicitly recorded remaining unverified/non-blocking items
 
-この文書は、`finalization/product-ready`のmain merge前acceptanceを記録する。local validation、Preview / iPad手動確認、過去のacceptance evidenceは別の根拠として扱い、今回再実行していない操作を今回の確認結果へ含めない。Productionへはまだ反映していない。
+この文書は、`finalization/product-ready`のmain merge前acceptanceと、その後のProduction acceptanceを記録する。local validation、Preview / iPad手動確認、Production手動確認、過去のacceptance evidenceは別の根拠として扱い、各段階で再実行していない操作をその段階の確認結果へ含めない。merge前acceptanceの作成時点ではProductionへ未反映だった。
 
 ## Scope
 
@@ -80,8 +80,37 @@ latest runtime-changing Previewでは上記のmanual signoffを完了した。�
 - Vercel Dashboard固有security settings / Firewall等: 未監査
 - CSP / COOP / COEP等security hardening: 未導入であり、別acceptance対象
 
-## Merge readiness conclusion
+## Merge readiness conclusion（merge前記録）
 
-`finalization/product-ready`のproduction-readiness changesをacceptし、main mergeへ進める状態と判断する。PWA new installを含む明示的な未確認項目は、merge後も上記の状態で記録を保持する。
+`finalization/product-ready`のproduction-readiness changesをacceptし、main mergeへ進める状態と判断した。PWA new installを含む明示的な未確認項目は、merge後も上記の状態で記録を保持する方針とした。
 
-これはProduction反映済みという判断ではない。PreviewをProductionへ手動promoteすることを前提とせず、main mergeによる正式なVercel Production deployment後にProduction smoke checkを行う。
+このmerge前判断はProduction反映済みという判断ではなかった。PreviewをProductionへ手動promoteすることを前提とせず、main mergeによる正式なVercel Production deployment後にProduction smoke checkを行う計画だった。
+
+## Production acceptance
+
+Date: 2026-08-12
+
+確認済みのdeployment事実:
+
+- mainへfast-forward merge済み
+- Vercel Production deploymentがREADYになったことを確認済み
+- Production rootが正常応答することを確認済み
+- 撤去したproduction debug routeがProductionに存在しないことを確認済み
+
+実iPadでのProduction smoke check結果:
+
+| 対象 | 結果 |
+| --- | --- |
+| Production Home | OK |
+| Production Settings / Google接続 | OK |
+| Production Admin | OK |
+| Production History / rollback preview | OK |
+| Production Player playback | OK |
+| Production existing installed PWA | OK |
+| PWA new install | 未確認 |
+
+Historyで確認したのはrollback previewまでであり、今回実rollbackを実行した記録ではない。AdminでpublishやDrive素材の完全削除を今回再実行した記録でもない。existing installed PWAはOKだが、PWA new installは未確認のまま維持する。
+
+このProduction acceptance後も、multi-tab publication race、exact 5 GiB upload boundary、publication abnormal write A/B/Cのreal Google Drive completion、Vercel Dashboard固有security settings / Firewall、CSP / COOP / COEP hardening、PWA new installは、上記の未確認・未解決状態を維持する。
+
+product-ready finalizationはProductionでacceptされた。これは記録した範囲のProduction smoke check完了を意味し、すべての機能、MOV codec、境界条件を完全検証したという意味ではない。
