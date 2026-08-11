@@ -585,9 +585,9 @@ describe("review and warning mapping", () => {
   });
 
   it.each([
-    ["assetFileIdMismatch", "ファイル参照ID不一致"],
+    ["assetFileIdMismatch", "素材ファイル参照不一致"],
     ["assetSizeMismatch", "ファイルサイズ不一致"],
-    ["assetMediaTypeMismatch", "image/video分類不一致"],
+    ["assetMediaTypeMismatch", "画像・動画分類不一致"],
   ] as const)("maps sanitized diagnostic %s", (code, label) => {
     expect(
       getProjectPublishAssetDiagnosticLabel(
@@ -768,7 +768,7 @@ describe("workflow error and success labels", () => {
 
   it("defines the required offline sync guidance", () => {
     expect(PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE).toBe(
-      "iPadへ反映するには通常のオフライン同期を実行してください。",
+      "iPadへ反映するには「端末へ同期」を実行してください。",
     );
   });
 });

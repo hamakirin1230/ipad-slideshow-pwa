@@ -39,8 +39,8 @@ export function formatRevisionPublicationMarker(
   marker: ProjectPublishRevisionPublicationMarker,
 ) {
   if (marker === "current") return "現在公開中";
-  if (marker === "needsInspection") return "manifest参照先・要確認";
-  return "履歴revision";
+  if (marker === "needsInspection") return "プロジェクト設定の参照先・要確認";
+  return "過去の公開版";
 }
 
 export function formatPublicationStatus(
@@ -58,7 +58,7 @@ export function formatPublicationStatus(
     case "unavailable":
       return "現在の公開情報を確認できない";
     case "noPublicationWithHistory":
-      return "publicationなし・履歴revisionあり";
+      return "現在の公開情報なし・公開履歴あり";
   }
 }
 

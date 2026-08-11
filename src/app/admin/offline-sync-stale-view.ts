@@ -15,7 +15,7 @@ export function buildOfflineSyncStaleView(
       title: "Drive上の内容が変更されています",
       message: OFFLINE_SYNC_STALE_MANIFEST_MESSAGE,
       retentionMessage:
-        "今回の結果はconfirmed storeへ反映していません。以前のconfirmed storeと以前のsync stateを維持しています。自動retryは行いません。最新内容を反映する場合はoffline syncを手動で再実行してください。",
+        "今回の結果は端末保存データへ反映していません。以前の端末保存データと同期状態を維持しています。自動再試行は行いません。最新内容を反映する場合は端末への同期を手動で再実行してください。",
     };
   }
 
@@ -23,16 +23,16 @@ export function buildOfflineSyncStaleView(
     return {
       title: "今回の同期結果が古くなっています",
       message:
-        "より新しいsync runが優先されたため、今回の結果はconfirmed storeへ反映していません。",
+        "より新しい同期処理が優先されたため、今回の結果は端末保存データへ反映していません。",
       retentionMessage:
-        "以前のconfirmed storeを維持しています。最新内容を反映する場合はoffline syncを手動で再実行してください。",
+        "以前の端末保存データを維持しています。最新内容を反映する場合は端末への同期を手動で再実行してください。",
     };
   }
 
   return {
     title: "今回の同期結果を反映していません",
-    message: "今回の結果はconfirmed storeへ反映していません。",
+    message: "今回の結果は端末保存データへ反映していません。",
     retentionMessage:
-      "以前のconfirmed storeを維持しています。状態を確認し、offline syncを手動で再実行してください。",
+      "以前の端末保存データを維持しています。状態を確認し、端末への同期を手動で再実行してください。",
   };
 }

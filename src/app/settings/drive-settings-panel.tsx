@@ -72,7 +72,7 @@ export function DriveSettingsPanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          Googleに接続し、このPWAが使用するDriveワークスペースの状態を確認します。
+          Googleに接続し、このPWAが使用するGoogle Driveの保存領域を確認します。
           未作成の場合は、この画面から作成できます。
         </CardDescription>
       </CardHeader>
@@ -150,7 +150,7 @@ export function DriveSettingsPanel() {
               onClick={createWorkspace}
               disabled={isDriveCreating}
             >
-              Driveワークスペースを作成
+              Driveの保存領域を作成
             </Button>
           ) : null}
 
@@ -177,15 +177,15 @@ export function DriveSettingsPanel() {
 
         {driveStatus === "unchecked" && googleStatus === "connected" ? (
           <p className="text-sm text-slate-400">
-            まず「Drive状態を再確認」を押して、既存ワークスペースの有無を確認してください。
+            まず「Drive状態を再確認」を押して、既存の保存領域があるか確認してください。
           </p>
         ) : null}
 
         {driveStatus === "notCreated" ? (
           <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100">
-            <p className="font-semibold">Driveワークスペース未作成</p>
+            <p className="font-semibold">Driveの保存領域は未作成です</p>
             <p className="mt-2">
-              この状態でのみ、Driveワークスペース作成を実行できます。
+              この状態でのみ、Driveの保存領域を作成できます。
               作成ボタンを押すと、作成前にDrive状態を再確認し、未作成の場合だけ4点を作成します。
             </p>
           </div>
@@ -193,9 +193,9 @@ export function DriveSettingsPanel() {
 
         {driveStatus === "ready" ? (
           <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
-            <p className="font-semibold">Driveワークスペース準備済み</p>
+            <p className="font-semibold">Driveの保存領域を利用できます</p>
             <p className="mt-2">
-              Driveワークスペースを確認できました。projectの編集、公開、ロールバック、offline syncは管理画面から明示的に実行できます。
+              Driveの保存領域を確認できました。プロジェクトの編集、公開、ロールバック、端末への同期は管理画面から明示的に実行できます。
               保存や公開だけでは、この端末の再生用データは更新されません。remoteOnly動画は動画本体を端末に保存せず、オンラインかつGoogle接続中の場合だけ再生します。
             </p>
           </div>
@@ -222,10 +222,6 @@ export function DriveSettingsPanel() {
                       <dt className="text-slate-500">更新日時</dt>
                       <dd>{candidate.modifiedTime}</dd>
                     </div>
-                    <div>
-                      <dt className="text-slate-500">workspaceId</dt>
-                      <dd>{candidate.workspaceIdPart}</dd>
-                    </div>
                   </dl>
                 </div>
               ))}
@@ -249,8 +245,8 @@ export function DriveSettingsPanel() {
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
           <p className="font-semibold">この画面で扱わないこと</p>
           <p className="mt-2">
-            Drive workspace の自動削除・自動修復・自動リトライは行いません。
-            Drive project、素材追加、offline sync、端末内保存管理、再生確認は管理画面と再生画面で扱います。
+            Driveの保存領域は自動削除・自動修復・自動再試行しません。
+            プロジェクト、素材追加、端末への同期、端末内保存管理、再生確認は管理画面と再生画面で扱います。
           </p>
         </div>
       </CardContent>

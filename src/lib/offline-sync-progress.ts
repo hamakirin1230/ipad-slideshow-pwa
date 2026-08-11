@@ -41,12 +41,12 @@ const PHASE_INDEX = new Map(
 
 const PHASE_MESSAGES: Record<OfflineSyncProgressPhase, string> = {
   preflight: "同期前確認中",
-  manifest: "manifestを確認中",
+  manifest: "プロジェクト設定を確認中",
   publication: "公開状態を確認中",
   assetMetadata: "素材情報を取得中",
   assetSaving: "素材を保存中",
-  stagingValidation: "stagingを検証中",
-  promotion: "confirmed storeへ反映中",
+  stagingValidation: "同期内容を検証中",
+  promotion: "端末保存データへ反映中",
   completed: OFFLINE_SYNC_COMPLETED_MESSAGE,
 };
 

@@ -15,13 +15,12 @@ export default function AdminPage() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Badge variant="secondary">Drive / offline sync / storage</Badge>
+            <Badge variant="secondary">Drive / 端末同期 / 保存管理</Badge>
             <h1 className="mt-3 text-3xl font-bold">管理画面</h1>
             <p className="mt-2 max-w-2xl text-slate-300">
-              DriveワークスペースとDrive projectを確認し、Drive上のmanifestと素材を
-              IndexedDB offline store へ同期する管理導線です。
-              同期実行、confirmed store 確認、端末ストレージ管理、project単位のローカル削除、
-              再生画面へのproject指定導線を扱います。
+              Google Driveの保存領域とプロジェクトを確認し、編集・公開・端末への同期を行う管理画面です。
+              端末保存データの確認、ストレージ管理、プロジェクト単位のローカル削除、
+              再生画面への移動もここから行えます。
             </p>
           </div>
           <Button asChild variant="secondary" className="min-h-11">
@@ -49,7 +48,7 @@ export default function AdminPage() {
         <AdminSection
           id="project"
           title="プロジェクト"
-          description="Google Driveとの接続状態を確認し、作業対象のprojectを選択または作成します。"
+          description="Google Driveとの接続状態を確認し、作業対象のプロジェクトを選択または作成します。"
         >
           <DriveStatusSummary />
           <ProjectStatusPanel />

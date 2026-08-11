@@ -10,6 +10,17 @@ const driveSettingsSource = readFileSync(
   new URL("./settings/drive-settings-panel.tsx", import.meta.url),
   "utf8",
 );
+const terminologyUiSource = [
+  "./admin/asset-cleanup-preview-panel.tsx",
+  "./admin/history/publish-history-client.tsx",
+  "./admin/offline-confirmed-store-panel.tsx",
+  "./admin/offline-sync-panel.tsx",
+  "./admin/project-publish-panel.tsx",
+  "./player/page.tsx",
+  "./settings/drive-settings-panel.tsx",
+]
+  .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
+  .join("\n");
 
 describe("production task copy", () => {
   it("keeps the three primary task routes on Home without a development roadmap", () => {
@@ -51,5 +62,54 @@ describe("production task copy", () => {
     ]) {
       expect(driveSettingsSource).toContain(guard);
     }
+  });
+
+  it("uses production-facing terminology in the audited UI copy", () => {
+    for (const legacyCopy of [
+      "confirmed store",
+      "staging manifest",
+      "preflight済み asset",
+      "未使用 asset",
+      "Goal ",
+      "Phase ",
+      "第Nゴール",
+      "第1ゴール",
+      "Provider内部のuseRef",
+      "AppProviders内",
+      "manifestPath:",
+      "remoteOnly video",
+    ]) {
+      expect(terminologyUiSource).not.toContain(legacyCopy);
+    }
+
+    for (const productionCopy of [
+      "端末保存データ",
+      "公開前確認",
+      "確認済み素材を物理削除",
+      "remoteOnly動画",
+    ]) {
+      expect(terminologyUiSource).toContain(productionCopy);
+    }
+
+    for (const internalIdentifierPresentation of [
+      "title={project.projectIdPart}",
+      "title={candidate.workspaceIdPart}",
+      "title={asset.assetIdPart}",
+      "title={asset.assetFileIdPart}",
+      "value={asset.assetIdPart}",
+      "value={asset.assetFileIdPart}",
+      "title={item.assetIdPart}",
+      "title={item.assetFileIdPart}",
+      "value={item.assetIdPart}",
+      "value={item.assetFileIdPart}",
+      "{formatIdPart(project.projectId)}",
+    ]) {
+      expect(terminologyUiSource).not.toContain(
+        internalIdentifierPresentation,
+      );
+    }
+
+    expect(terminologyUiSource).toContain("Google Driveから完全削除します");
+    expect(terminologyUiSource).toContain("取り消せません");
   });
 });

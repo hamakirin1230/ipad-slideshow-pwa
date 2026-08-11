@@ -78,7 +78,7 @@ describe("Drive offline staging sync runtime progress ownership", () => {
 
     expect(onProgress.mock.calls.map(([progress]) => progress)).toEqual([
       { phase: "preflight", message: "同期前確認中" },
-      { phase: "manifest", message: "manifestを確認中" },
+      { phase: "manifest", message: "プロジェクト設定を確認中" },
       {
         phase: "assetSaving",
         processedAssetCount: 3,

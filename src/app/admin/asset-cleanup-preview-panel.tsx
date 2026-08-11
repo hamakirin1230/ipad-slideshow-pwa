@@ -17,6 +17,7 @@ import {
 } from "@/app/app-providers";
 import type {
   DriveProjectUnusedAssetDeleteFailureReason,
+  DriveProjectUnusedAssetDeleteItemStatus,
   DriveProjectUnusedAssetDeleteResult,
   DriveProjectUnusedAssetDeleteReview,
 } from "@/lib/drive-project-unused-asset-delete";
@@ -31,11 +32,11 @@ import {
 
 const unusedAssetTableGridStyle: CSSProperties = {
   gridTemplateColumns:
-    "4rem 22rem 7rem 10rem 10rem 10rem 8rem 14rem 14rem 8rem 24rem",
+    "4rem 22rem 7rem 8rem 14rem 14rem 8rem 24rem",
 };
 
 const preflightAssetSummaryGridStyle: CSSProperties = {
-  gridTemplateColumns: "8rem 14rem 10rem 8rem 24rem 24rem",
+  gridTemplateColumns: "8rem 14rem 8rem 24rem 24rem",
 };
 
 export function AssetCleanupPreviewPanel() {
@@ -164,9 +165,9 @@ export function AssetCleanupPreviewPanel() {
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <CardTitle>未使用 asset cleanup preview</CardTitle>
+            <CardTitle>未使用素材の削除候補</CardTitle>
             <CardDescription>
-              選択中projectのDrive assets/ をmetadataだけで検出します。
+              選択中プロジェクトの素材情報から、参照されていない素材を検出します。
             </CardDescription>
           </div>
           <Badge variant={getStatusBadgeVariant(assetCleanupPreviewStatus)}>
@@ -176,9 +177,9 @@ export function AssetCleanupPreviewPanel() {
       </CardHeader>
       <CardContent className="space-y-4 text-sm text-slate-600">
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">
-          <p className="font-semibold">物理削除は明示confirm後だけ実行します。</p>
+          <p className="font-semibold">物理削除は明示的な最終確認後だけ実行します。</p>
           <p className="mt-1">
-            fresh preflightを通過した未使用画像assetだけを対象にし、自動削除・自動retry・自動修復は行いません。
+            最新状態の安全確認を通過した未使用画像だけを対象にし、自動削除・自動再試行・自動修復は行いません。
           </p>
         </div>
 
@@ -193,8 +194,8 @@ export function AssetCleanupPreviewPanel() {
             onClick={previewUnusedProjectAssets}
           >
             {isAssetCleanupPreviewInFlight
-              ? "未使用 asset を検出中"
-              : "未使用 asset を検出"}
+              ? "未使用素材を検出中"
+              : "未使用素材を検出"}
           </Button>
           {assetCleanupPreviewBlockedReason ? (
             <p className="text-slate-500">{assetCleanupPreviewBlockedReason}</p>
@@ -220,23 +221,23 @@ export function AssetCleanupPreviewPanel() {
           <div className="space-y-4">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               <SummaryPill
-                label="scanned asset files"
+                label="確認した素材"
                 value={`${assetCleanupPreviewResult.scannedAssetCount}件`}
               />
               <SummaryPill
-                label="referenced asset files"
+                label="使用中の素材"
                 value={`${assetCleanupPreviewResult.referencedAssetFileCount}件`}
               />
               <SummaryPill
-                label="unused asset files"
+                label="未使用素材"
                 value={`${assetCleanupPreviewResult.unusedAssetCount}件`}
               />
               <SummaryPill
-                label="ignored files"
+                label="対象外のファイル"
                 value={`${assetCleanupPreviewResult.ignoredFileCount}件`}
               />
               <SummaryPill
-                label="unused total size"
+                label="未使用素材の合計容量"
                 value={formatBytes(unusedTotalSizeBytes)}
               />
             </div>
@@ -247,10 +248,10 @@ export function AssetCleanupPreviewPanel() {
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <p className="font-semibold text-slate-900">
-                        削除 readiness
+                        削除の準備状況
                       </p>
                       <p className="mt-1 text-sm text-slate-600">
-                        選択中 {selectedAssets.length}件 / 選択 total size{" "}
+                        選択中 {selectedAssets.length}件 / 選択した合計容量{" "}
                         {formatBytes(selectedTotalSizeBytes)}
                       </p>
                     </div>
@@ -301,7 +302,7 @@ export function AssetCleanupPreviewPanel() {
                     </div>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-slate-500">
-                    preflightはfresh manifestとfresh metadataで再検証します。削除実行時にも全件と各DELETE直前の再検証を行います。
+                    削除前確認ではDriveの最新のプロジェクト設定と素材情報を再取得します。削除実行時にも全件と各削除直前の再確認を行います。
                   </p>
                   {assetCleanupDeletePreflightBlockedReason ? (
                     <p className="mt-2 text-xs text-slate-500">
@@ -323,22 +324,19 @@ export function AssetCleanupPreviewPanel() {
                 ) : null}
 
                 <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200">
-                  <div className="min-w-[148rem]">
+                  <div className="min-w-[132rem]">
                     <div
                       className="grid gap-4 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase text-slate-500"
                       style={unusedAssetTableGridStyle}
                     >
-                      <p className="whitespace-nowrap">select</p>
-                      <p className="whitespace-nowrap">assetName</p>
-                      <p className="whitespace-nowrap">type</p>
-                      <p className="whitespace-nowrap">assetFileId</p>
-                      <p className="whitespace-nowrap">素材識別コード</p>
-                      <p className="whitespace-nowrap">mimeType</p>
-                      <p className="whitespace-nowrap">size</p>
-                      <p className="whitespace-nowrap">createdTime</p>
-                      <p className="whitespace-nowrap">modifiedTime</p>
-                      <p className="whitespace-nowrap">references</p>
-                      <p className="whitespace-nowrap">unsupportedReason</p>
+                      <p className="whitespace-nowrap">選択</p>
+                      <p className="whitespace-nowrap">素材名</p>
+                      <p className="whitespace-nowrap">種類</p>
+                      <p className="whitespace-nowrap">容量</p>
+                      <p className="whitespace-nowrap">作成日時</p>
+                      <p className="whitespace-nowrap">更新日時</p>
+                      <p className="whitespace-nowrap">参照数</p>
+                      <p className="whitespace-nowrap">対象外の理由</p>
                     </div>
                     <div className="divide-y divide-slate-200">
                       {unusedAssets.map((asset) => (
@@ -373,24 +371,6 @@ export function AssetCleanupPreviewPanel() {
                           >
                             {getAssetTypeFromMimeType(asset.mimeType)}
                           </p>
-                          <p
-                            className="min-w-0 truncate font-mono text-xs"
-                            title={asset.assetFileIdPart}
-                          >
-                            {asset.assetFileIdPart}
-                          </p>
-                          <p
-                            className="min-w-0 truncate font-mono text-xs"
-                            title={asset.assetIdPart}
-                          >
-                            {asset.assetIdPart}
-                          </p>
-                          <p
-                            className="min-w-0 truncate font-mono text-xs"
-                            title={asset.mimeType}
-                          >
-                            {asset.mimeType}
-                          </p>
                           <p className="whitespace-nowrap">
                             {formatNullableBytes(asset.sizeBytes)}
                           </p>
@@ -424,7 +404,7 @@ export function AssetCleanupPreviewPanel() {
             ) : (
               <div className="rounded-xl border border-dashed border-slate-300 p-4">
                 <p className="font-medium text-slate-900">
-                  未使用 asset は見つかりませんでした。
+                  未使用素材は見つかりませんでした。
                 </p>
               </div>
             )}
@@ -433,7 +413,7 @@ export function AssetCleanupPreviewPanel() {
 
         {assetCleanupPreviewDiagnostics.length > 0 ? (
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <p className="font-medium text-slate-900">cleanup preview 診断</p>
+            <p className="font-medium text-slate-900">未使用素材の診断</p>
             <div className="mt-2 space-y-1 text-xs">
               {assetCleanupPreviewDiagnostics.map((diagnostic, index) => (
                 <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
@@ -490,7 +470,7 @@ function DeleteExecutionPanel({
             <p className="font-semibold">Google Driveから完全削除します</p>
             <p className="mt-1">この操作は取り消せません。</p>
             <p className="mt-1">
-              manifest / index / confirmed storeは変更しません。
+              プロジェクト設定・プロジェクト一覧・端末保存データは変更しません。
             </p>
           </div>
           <div className="max-w-full overflow-x-auto">
@@ -498,12 +478,11 @@ function DeleteExecutionPanel({
               {review.assets.map((asset) => (
                 <div
                   key={`${asset.assetFileIdPart}-${asset.assetName}`}
-                  className="grid grid-cols-[minmax(14rem,1fr)_10rem_8rem] gap-3 rounded-lg border border-red-200 bg-white p-2 text-sm"
+                  className="grid grid-cols-[minmax(14rem,1fr)_8rem] gap-3 rounded-lg border border-red-200 bg-white p-2 text-sm"
                 >
                   <p className="truncate" title={asset.assetName}>
                     {asset.assetName}
                   </p>
-                  <p className="font-mono text-xs">{asset.assetFileIdPart}</p>
                   <p>{formatNullableBytes(asset.sizeBytes)}</p>
                 </div>
               ))}
@@ -532,25 +511,25 @@ function DeleteExecutionPanel({
 
       {status === "deleting" && progress ? (
         <p className="mt-2">
-          未使用 asset を削除中 {progress.current} / {progress.total}
+          未使用素材を削除中 {progress.current} / {progress.total}
         </p>
       ) : null}
 
       {status === "partialFailure" ? (
         <p className="mt-2">
-          Drive上に一部削除済みの状態が残っています。自動retryや復元は行いません。
+          Drive上に一部削除済みの状態が残っています。自動再試行や復元は行いません。
         </p>
       ) : null}
 
       {result ? (
         <div className="mt-3 space-y-3">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            <SummaryPill label="requested" value={`${result.requestedCount}件`} />
-            <SummaryPill label="deleted" value={`${result.deletedCount}件`} />
-            <SummaryPill label="failed" value={`${result.failedCount}件`} />
-            <SummaryPill label="blocked" value={`${result.blockedCount}件`} />
+            <SummaryPill label="依頼" value={`${result.requestedCount}件`} />
+            <SummaryPill label="削除済み" value={`${result.deletedCount}件`} />
+            <SummaryPill label="失敗" value={`${result.failedCount}件`} />
+            <SummaryPill label="停止" value={`${result.blockedCount}件`} />
             <SummaryPill
-              label="not attempted"
+              label="未実行"
               value={`${result.notAttemptedCount}件`}
             />
           </div>
@@ -562,14 +541,14 @@ function DeleteExecutionPanel({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium">{item.assetName}</p>
-                  <Badge variant="secondary">{item.status}</Badge>
+                  <Badge variant="secondary">
+                    {getDeleteItemStatusLabel(item.status)}
+                  </Badge>
                 </div>
-                <p className="mt-1 font-mono text-xs">
-                  {item.assetFileIdPart} / {formatNullableBytes(item.sizeBytes)}
-                </p>
+                <p className="mt-1 text-xs">{formatNullableBytes(item.sizeBytes)}</p>
                 {item.reason ? (
                   <p className="mt-1 text-xs">
-                    reason: {getDeleteFailureReasonLabel(item.reason)}
+                    理由: {getDeleteFailureReasonLabel(item.reason)}
                   </p>
                 ) : null}
               </div>
@@ -595,15 +574,25 @@ function getDeleteFailureReasonLabel(
   const labels: Record<DriveProjectUnusedAssetDeleteFailureReason, string> = {
     notFound: "対象なし",
     stillReferenced: "参照あり",
-    metadataChanged: "metadata変更",
-    notAppManagedAsset: "app管理asset不一致",
-    wrongProject: "project不一致",
-    wrongParent: "parent不一致",
+    metadataChanged: "素材情報が変更済み",
+    notAppManagedAsset: "アプリ管理素材ではない",
+    wrongProject: "別のプロジェクトに属する",
+    wrongParent: "保存場所が異なる",
     deleteRejected: "Drive削除拒否",
     aborted: "中止",
     unexpectedFailure: "予期しない失敗",
   };
   return labels[reason];
+}
+
+function getDeleteItemStatusLabel(status: DriveProjectUnusedAssetDeleteItemStatus) {
+  const labels: Record<DriveProjectUnusedAssetDeleteItemStatus, string> = {
+    deleted: "削除済み",
+    failed: "失敗",
+    notAttempted: "未実行",
+    blocked: "安全確認で停止",
+  };
+  return labels[status];
 }
 
 function PreflightResultPanel({
@@ -622,62 +611,62 @@ function PreflightResultPanel({
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="font-semibold text-slate-900">削除前preflight</p>
+        <p className="font-semibold text-slate-900">削除前の最新確認</p>
         <Badge variant={result ? "default" : "secondary"}>
           {result ? "再検証済み" : "未実行"}
         </Badge>
       </div>
       {message ? <p className="mt-2 text-sm text-slate-700">{message}</p> : null}
       <p className="mt-2 text-xs leading-5 text-slate-500">
-        preflight は fresh manifest と fresh metadata で再検証します。この段階ではまだ Drive file は削除しません。
+        Driveの最新のプロジェクト設定と素材情報で再確認します。この段階ではまだDriveの素材を削除しません。
       </p>
 
       {result ? (
         <div className="mt-4 space-y-4">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <SummaryPill
-              label="checked"
+              label="確認済み"
               value={`${result.checkedAssetCount}件`}
             />
             <SummaryPill
-              label="eligible"
+              label="削除可能"
               value={`${result.eligibleAssetCount}件`}
             />
             <SummaryPill
-              label="blocked"
+              label="停止"
               value={`${result.blockedAssetCount}件`}
             />
             <SummaryPill
-              label="fresh manifest slides"
+              label="最新のスライド数"
               value={`${result.freshManifestSlideCount}件`}
             />
             <SummaryPill
-              label="eligible total size"
+              label="削除可能な合計容量"
               value={formatBytes(result.eligibleTotalSizeBytes)}
             />
           </div>
 
           {result.blockedAssets.length > 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">
-              blocked asset があるため物理削除を実行できません。
+              安全確認で停止した素材があるため、物理削除を実行できません。
             </div>
           ) : null}
 
           <PreflightAssetList
-            title="eligible assets"
+            title="削除可能な素材"
             assets={result.eligibleAssets}
-            emptyMessage="eligible asset はありません。"
+            emptyMessage="削除可能な素材はありません。"
           />
           <PreflightAssetList
-            title="blocked assets"
+            title="安全確認で停止した素材"
             assets={result.blockedAssets}
-            emptyMessage="blocked asset はありません。"
+            emptyMessage="安全確認で停止した素材はありません。"
           />
 
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-950">
-            <p className="font-semibold">削除 confirm preview</p>
+            <p className="font-semibold">削除内容の最終確認へ進む</p>
             <p className="mt-1 text-sm">
-              以下は削除前preflightを通過した候補です。次の操作で最終confirmを表示します。
+              以下は削除前の最新確認を通過した候補です。次の操作で最終確認を表示します。
             </p>
             <div className="mt-3 max-w-full overflow-x-auto">
               {result.eligibleAssets.length > 0 ? (
@@ -690,7 +679,7 @@ function PreflightResultPanel({
                   ))}
                 </div>
               ) : (
-                <p className="text-sm">削除confirm preview対象はありません。</p>
+                <p className="text-sm">最終確認の対象はありません。</p>
               )}
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -701,10 +690,10 @@ function PreflightResultPanel({
                 disabled={!canPrepareDelete}
                 onClick={onPrepareDelete}
               >
-                preflight済み asset を物理削除
+                確認済み素材を物理削除
               </Button>
               <p className="text-xs leading-5">
-                confirm後もDELETE開始前と各DELETE直前にfresh再検証します。
+                最終確認後も削除開始前と各素材の削除直前に最新状態を再確認します。
               </p>
             </div>
           </div>
@@ -713,7 +702,7 @@ function PreflightResultPanel({
 
       {diagnostics.length > 0 ? (
         <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <p className="font-medium text-slate-900">preflight 診断</p>
+          <p className="font-medium text-slate-900">削除前確認の診断</p>
           <div className="mt-2 space-y-1 text-xs">
             {diagnostics.map((diagnostic, index) => (
               <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
@@ -767,10 +756,10 @@ function PreflightAssetSummary({
           {asset.assetName}
         </p>
         <Badge variant={asset.status === "eligible" ? "default" : "secondary"}>
-          {asset.status}
+          {getPreflightAssetStatusLabel(asset.status)}
         </Badge>
-        {getAssetTypeFromMimeType(asset.mimeType) === "video" ? (
-          <Badge variant="secondary">video</Badge>
+        {getAssetTypeFromMimeType(asset.mimeType) === "動画" ? (
+          <Badge variant="secondary">動画</Badge>
         ) : null}
       </div>
       <dl
@@ -778,36 +767,25 @@ function PreflightAssetSummary({
         style={preflightAssetSummaryGridStyle}
       >
         <SummaryRow
-          label="type"
+          label="種類"
           value={getAssetTypeFromMimeType(asset.mimeType)}
-          mono
         />
         <SummaryRow
-          label="mimeType"
-          value={formatNullableValue(asset.mimeType)}
-          mono
-        />
-        <SummaryRow
-          label="assetFileId"
-          value={asset.assetFileIdPart}
-          mono
-        />
-        <SummaryRow
-          label="size"
+          label="容量"
           value={formatNullableBytes(asset.sizeBytes)}
           mono
         />
         <SummaryRow
-          label="references"
+          label="参照数"
           value={`${asset.referenceSlideCount}`}
           mono
         />
         <SummaryRow
-          label="unsupported"
+          label="対象外の理由"
           value={getUnsupportedReasonLabel(asset.mimeType)}
         />
         <SummaryRow
-          label="blocked"
+          label="停止理由"
           value={
             asset.blockedReasons.length > 0
               ? asset.blockedReasons.map(getBlockedReasonLabel).join(", ")
@@ -855,17 +833,23 @@ function getStatusLabel(status: AssetCleanupPreviewStatus) {
     case "checking":
       return "検出中";
     case "ready":
-      return "preview更新済み";
+      return "候補を更新済み";
     case "blocked":
       return "開始不可";
     case "invalid":
-      return "project情報に問題あり";
+      return "プロジェクト情報に問題あり";
     case "error":
-      return "preview失敗";
+      return "候補の確認に失敗";
     case "idle":
     default:
       return "未実行";
   }
+}
+
+function getPreflightAssetStatusLabel(
+  status: DriveProjectUnusedAssetDeletePreflightAsset["status"],
+) {
+  return status === "eligible" ? "削除可能" : "安全確認で停止";
 }
 
 function getStatusBadgeVariant(status: AssetCleanupPreviewStatus) {
@@ -879,25 +863,25 @@ function getStatusBadgeVariant(status: AssetCleanupPreviewStatus) {
 function getBlockedReasonLabel(reason: string) {
   switch (reason) {
     case "notFound":
-      return "not found";
+      return "対象なし";
     case "metadataMismatch":
-      return "metadata mismatch";
+      return "素材情報が変更済み";
     case "notAppManagedAsset":
-      return "not app-managed asset";
+      return "アプリ管理素材ではない";
     case "wrongProject":
-      return "wrong project";
+      return "別のプロジェクトに属する";
     case "wrongParent":
-      return "wrong parent";
+      return "保存場所が異なる";
     case "unsupportedMimeType":
-      return "unsupported MIME";
+      return "未対応の素材形式";
     case "stillReferenced":
-      return "still referenced";
+      return "参照あり";
     case "trashed":
-      return "trashed";
+      return "ゴミ箱に移動済み";
     case "missingRequiredMetadata":
-      return "missing required metadata";
+      return "必要な素材情報が不足";
     default:
-      return reason;
+      return "要確認";
   }
 }
 
@@ -905,29 +889,25 @@ function formatNullableBytes(bytes: number | null) {
   return typeof bytes === "number" ? formatBytes(bytes) : "取得なし";
 }
 
-function formatNullableValue(value: string | null) {
-  return value && value.length > 0 ? value : "取得なし";
-}
-
 function getAssetTypeFromMimeType(mimeType: string | null) {
   if (!mimeType) {
-    return "unknown";
+    return "不明";
   }
 
   if (mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp") {
-    return "image";
+    return "画像";
   }
 
   if (mimeType.startsWith("video/")) {
-    return "video";
+    return "動画";
   }
 
-  return "unknown";
+  return "不明";
 }
 
 function getUnsupportedReasonLabel(mimeType: string | null) {
   if (!mimeType) {
-    return "missingMimeType";
+    return "素材形式を取得できない";
   }
 
   if (mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp") {
@@ -939,10 +919,10 @@ function getUnsupportedReasonLabel(mimeType: string | null) {
   }
 
   if (mimeType.startsWith("video/")) {
-    return "unsupportedVideoMimeType";
+    return "未対応の動画形式";
   }
 
-  return "unsupportedMimeType";
+  return "未対応の素材形式";
 }
 
 function formatBytes(bytes: number) {

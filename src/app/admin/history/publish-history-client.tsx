@@ -347,7 +347,7 @@ export function PublishHistoryClient() {
     if (nextOverview.historyStatus === "notConfigured") {
       setHistoryState("notConfigured");
       setHistoryMessage(
-        "このprojectには公開履歴がありません。初回公開後に履歴が表示されます。",
+        "このプロジェクトには公開履歴がありません。初回公開後に履歴が表示されます。",
       );
       return;
     }
@@ -358,7 +358,7 @@ export function PublishHistoryClient() {
     }
     setHistoryState("ready");
     setHistoryMessage(
-      `${nextOverview.items.length}件の公開履歴metadataを読み込みました。`,
+      `${nextOverview.items.length}件の公開履歴情報を読み込みました。`,
     );
   }
 
@@ -448,7 +448,7 @@ export function PublishHistoryClient() {
     setPreview(null);
     setPreviewState("loading");
     setPreviewMessage(
-      "Google Driveの最新状態からrollback影響を確認しています。",
+      "Google Driveの最新状態からロールバックの影響を確認しています。",
     );
 
     const result = await prepareProjectRollbackPreview(
@@ -524,7 +524,7 @@ export function PublishHistoryClient() {
     setExecutionReview(result.review);
     setExecutionState("prepared");
     setExecutionMessage(
-      "最新状態の再確認が完了しました。最終内容を確認してrollbackを実行してください。",
+      "最新状態の再確認が完了しました。最終内容を確認してロールバックを実行してください。",
     );
   }
 
@@ -545,7 +545,7 @@ export function PublishHistoryClient() {
     }
     rollbackActionInFlightRef.current = true;
     setExecutionState("executing");
-    setExecutionMessage("rollbackを実行し、Driveの反映結果を検証しています。");
+    setExecutionMessage("ロールバックを実行し、Driveへの反映結果を確認しています。");
     const result = await commitPreparedProjectRollback({
       projectId: selectedProjectId,
       targetRevisionId: selectedRevisionId,
@@ -569,8 +569,8 @@ export function PublishHistoryClient() {
     setRollbackOutcome({
       kind: warning ? "warning" : "success",
       message: warning
-        ? "rollback本体は成功しました。index mirrorは要確認です。自動的な巻き戻しは行っていません。"
-        : "rollbackが完了し、manifestとindex mirrorの再検証に成功しました。",
+        ? "ロールバック本体は成功しました。プロジェクト一覧の更新結果は要確認です。ロールバック本体は取り消していません。"
+        : "ロールバックが完了し、プロジェクト設定と一覧の再確認に成功しました。",
     });
     setExecutionState("idle");
     setExecutionReview(null);
@@ -590,7 +590,7 @@ export function PublishHistoryClient() {
         <CardHeader>
           <CardTitle>閲覧対象</CardTitle>
           <CardDescription className="text-slate-300">
-            公開履歴はproject単位です。project ID全文は表示しません。
+            公開履歴はプロジェクト単位です。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -602,7 +602,7 @@ export function PublishHistoryClient() {
           ) : null}
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
             <label className="grid gap-2 text-sm font-medium" htmlFor="history-project">
-              project
+              プロジェクト
               <select
                 id="history-project"
                 value={selectedProjectId ?? ""}
@@ -610,10 +610,10 @@ export function PublishHistoryClient() {
                 disabled={!isGoogleReady || isDriveOperationInFlight || driveProjects.length === 0 || rollbackBusy}
                 className="min-h-11 w-full rounded-xl border border-white/20 bg-slate-900 px-3 text-base text-slate-50 outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
               >
-                <option value="">projectを選択</option>
+                <option value="">プロジェクトを選択</option>
                 {driveProjects.map((project) => (
                   <option key={project.projectId} value={project.projectId}>
-                    {project.title} ({project.projectIdPart})
+                    {project.title}
                   </option>
                 ))}
               </select>
@@ -623,7 +623,7 @@ export function PublishHistoryClient() {
             </Button>
           </div>
           {driveProjects.length === 0 && projectStatus !== "checking" ? (
-            <p className="text-sm text-slate-400">閲覧できるprojectがありません。</p>
+            <p className="text-sm text-slate-400">閲覧できるプロジェクトがありません。</p>
           ) : null}
           {selectedProject ? (
             <p className="text-sm text-slate-300">選択中: {selectedProject.title}</p>
@@ -665,8 +665,8 @@ export function PublishHistoryClient() {
         >
           <p className="font-semibold">
             {rollbackOutcome.kind === "warning"
-              ? "rollback完了・index mirror要確認"
-              : "rollback完了"}
+              ? "ロールバック完了・プロジェクト一覧は要確認"
+              : "ロールバック完了"}
           </p>
           <p className="mt-2">{rollbackOutcome.message}</p>
         </div>
@@ -746,7 +746,7 @@ function PublicationStatusCard({
           <h2 id="current-publication-heading">現在の公開状態</h2>
         </CardTitle>
         <CardDescription className="text-slate-300">
-          現在のmanifest.jsonを再取得し、参照先revisionとの整合性を確認します。
+          現在のプロジェクト設定を再取得し、参照している公開版との整合性を確認します。
         </CardDescription>
       </CardHeader>
       <CardContent
@@ -773,7 +773,7 @@ function PublicationStatusCard({
             </Badge>
             <p className="mt-3 font-semibold">{message}</p>
             <p className="mt-2 text-sm">
-              自動修復や自動retryは行いません。状態を確認して手動で再読込してください。
+              自動修復や自動再試行は行いません。状態を確認して手動で再読込してください。
             </p>
           </div>
         ) : null}
@@ -782,7 +782,7 @@ function PublicationStatusCard({
         state !== "invalid" &&
         state !== "error" ? (
           <p className="text-sm text-slate-400">
-            projectを選択して公開情報を読み込んでください。
+            プロジェクトを選択して公開情報を読み込んでください。
           </p>
         ) : null}
         {!isLoading && publication ? (
@@ -840,18 +840,18 @@ function PublicationStatusCard({
                 }
               />
               <DetailField
-                label="revision一覧の表示範囲"
+                label="公開履歴の表示範囲"
                 value={
                   publication.currentRevisionId === null
                     ? "対象なし"
                     : publication.currentRevisionInList
-                      ? "current revisionを含む"
-                      : "current revisionは範囲外"
+                      ? "現在公開中の版を含む"
+                      : "現在公開中の版は一覧の範囲外"
                 }
               />
             </dl>
             <p className="text-xs leading-relaxed text-slate-400">
-              current以外には過去の公開版と未commitのrevisionが含まれる可能性があります。この画面では自動分類しません。
+              現在公開中以外には、過去の公開版と作成途中の公開版が含まれる可能性があります。この画面では自動分類しません。
             </p>
           </>
         ) : null}
@@ -873,17 +873,17 @@ function RevisionList(props: {
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
       <CardHeader>
-        <CardTitle>revision一覧</CardTitle>
-        <CardDescription className="text-slate-300">一覧ではmetadataだけを表示し、本文は選択時に取得します。</CardDescription>
+        <CardTitle>公開版一覧</CardTitle>
+        <CardDescription className="text-slate-300">一覧では公開日時と状態を表示し、内容は選択時に取得します。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {props.invalidMetadataCount > 0 || props.duplicateRevisionIdCount > 0 ? (
           <div role="status" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">
-            要確認metadata: {props.invalidMetadataCount}件 / 重複revision ID: {props.duplicateRevisionIdCount}件
+            確認が必要な公開版情報: {props.invalidMetadataCount}件 / 重複した公開版: {props.duplicateRevisionIdCount}件
           </div>
         ) : null}
         {props.ignoredFileCount > 0 ? (
-          <p className="text-xs text-slate-400">履歴対象外file: {props.ignoredFileCount}件</p>
+          <p className="text-xs text-slate-400">履歴対象外のファイル: {props.ignoredFileCount}件</p>
         ) : null}
         {props.items.map((item, index) => {
           const selected = props.selectedRevisionId === item.revisionId;
@@ -913,10 +913,7 @@ function RevisionList(props: {
               </div>
               <dl className="mt-3 grid gap-2 text-sm">
                 <div><dt className="text-slate-400">公開日時</dt><dd>{formatPublishedAt(item.publishedAt)}</dd></div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><dt className="text-slate-400">schema</dt><dd>{item.schemaVersion ?? "不明"}</dd></div>
-                  <div><dt className="text-slate-400">metadata更新</dt><dd>{formatPublishedAt(item.modifiedTime)}</dd></div>
-                </div>
+                <div><dt className="text-slate-400">履歴更新日時</dt><dd>{formatPublishedAt(item.modifiedTime)}</dd></div>
               </dl>
               <Button
                 type="button"
@@ -931,7 +928,7 @@ function RevisionList(props: {
             </article>
           );
         })}
-        {props.items.length === 0 ? <p className="text-sm text-slate-400">表示するrevisionはありません。</p> : null}
+        {props.items.length === 0 ? <p className="text-sm text-slate-400">表示する公開版はありません。</p> : null}
       </CardContent>
     </Card>
   );
@@ -962,13 +959,13 @@ function RevisionDetail(props: {
     <Card className="border-white/10 bg-white/5 text-slate-50">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle>revision詳細</CardTitle>
+          <CardTitle>公開版の詳細</CardTitle>
           {props.state !== "closed" ? <Button type="button" variant="outline" className="min-h-11" onClick={props.onClose} disabled={props.rollbackBusy}>閉じる</Button> : null}
         </div>
         <CardDescription className="text-slate-300">公開日時、操作、対象内容を確認できます。</CardDescription>
       </CardHeader>
       <CardContent>
-        {props.state === "closed" ? <p className="text-sm text-slate-400">一覧から有効なrevisionを選択してください。</p> : null}
+        {props.state === "closed" ? <p className="text-sm text-slate-400">一覧から確認できる公開版を選択してください。</p> : null}
         {props.state === "loading" ? <p role="status" aria-live="polite">{props.message}</p> : null}
         {props.state === "error" ? (
           <div role="alert" className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-100">
@@ -1040,57 +1037,56 @@ function ReadyRevisionDetail({
         </p>
         <p className="mt-1">
           {publicationMarker === "current"
-            ? "この検証済みrevisionが現在公開中です。"
+            ? "この確認済みの公開版が現在公開中です。"
             : publicationMarker === "needsInspection"
-              ? "manifestの参照先ですが、現在公開中とは断定できません。"
-              : "現在公開中のrevisionではありません。履歴上の位置づけは自動分類しません。"}
+              ? "プロジェクト設定の参照先ですが、現在公開中とは断定できません。"
+              : "現在公開中の版ではありません。履歴上の位置づけは自動分類しません。"}
         </p>
       </div>
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
         <DetailField label="公開日時" value={detail.publishedAt} />
         <DetailField label="操作" value={detail.operation} />
-        <DetailField label="schemaVersion" value={String(detail.schemaVersion)} />
-        <DetailField label="source manifest更新" value={detail.sourceManifestModifiedTime} />
-        <DetailField label="revisionとの整合性" value="確認済み" />
+        <DetailField label="元データの更新日時" value={detail.sourceManifestModifiedTime} />
+        <DetailField label="公開版との整合性" value="確認済み" />
       </dl>
       <div className="grid gap-3 sm:grid-cols-3">
-        <SummaryBox label="slides" value={detail.summary.slideCount} />
-        <SummaryBox label="assets" value={detail.summary.assetCount} />
-        <SummaryBox label="remoteOnly" value={detail.summary.remoteOnlyAssetCount} />
+        <SummaryBox label="スライド" value={detail.summary.slideCount} />
+        <SummaryBox label="素材" value={detail.summary.assetCount} />
+        <SummaryBox label="remoteOnly素材" value={detail.summary.remoteOnlyAssetCount} />
       </div>
       <section aria-labelledby="history-slides-heading">
-        <h3 id="history-slides-heading" className="text-lg font-semibold">slide一覧</h3>
+        <h3 id="history-slides-heading" className="text-lg font-semibold">スライド一覧</h3>
         <div className="mt-3 max-h-[32rem] space-y-3 overflow-y-auto pr-1">
           {detail.slides.map((slide) => (
             <article key={slide.slideId} className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm">
-              <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{slide.order}</Badge><span>{slide.type}</span>{slide.remoteOnly ? <Badge variant="secondary">remoteOnly</Badge> : null}</div>
+              <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{slide.order}</Badge><span>{formatMediaType(slide.type)}</span>{slide.remoteOnly ? <Badge variant="secondary">remoteOnly</Badge> : null}</div>
               <p className="mt-2 break-words font-medium">{slide.assetName}</p>
-              <p className="mt-2 break-words text-slate-300">caption: {slide.caption || "なし"}</p>
-              <p className="mt-1 text-slate-300">duration override: {slide.durationSeconds}秒</p>
+              <p className="mt-2 break-words text-slate-300">テロップ: {slide.caption || "なし"}</p>
+              <p className="mt-1 text-slate-300">表示時間: {slide.durationSeconds}秒</p>
             </article>
           ))}
-          {detail.slides.length === 0 ? <p className="text-sm text-slate-400">slideはありません。</p> : null}
+          {detail.slides.length === 0 ? <p className="text-sm text-slate-400">スライドはありません。</p> : null}
         </div>
       </section>
       <section aria-labelledby="history-assets-heading">
-        <h3 id="history-assets-heading" className="text-lg font-semibold">asset一覧</h3>
+        <h3 id="history-assets-heading" className="text-lg font-semibold">素材一覧</h3>
         <div className="mt-3 max-h-[28rem] space-y-3 overflow-y-auto pr-1">
           {detail.assets.map((asset, index) => (
             <article key={asset.assetId} className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm">
-              <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{asset.mimeType}</Badge>{asset.remoteOnly ? <Badge variant="secondary">remoteOnly</Badge> : null}</div>
+              <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{formatMediaType(asset.mimeType)}</Badge>{asset.remoteOnly ? <Badge variant="secondary">remoteOnly</Badge> : null}</div>
               <p className="mt-2 font-medium">素材 {index + 1}</p>
-              <dl className="mt-2 grid grid-cols-2 gap-2 text-slate-300"><div><dt className="text-slate-400">size</dt><dd>{asset.size}</dd></div><div><dt className="text-slate-400">更新日時</dt><dd>{asset.modifiedTime}</dd></div></dl>
+              <dl className="mt-2 grid grid-cols-2 gap-2 text-slate-300"><div><dt className="text-slate-400">容量</dt><dd>{asset.size}</dd></div><div><dt className="text-slate-400">更新日時</dt><dd>{asset.modifiedTime}</dd></div></dl>
             </article>
           ))}
-          {detail.assets.length === 0 ? <p className="text-sm text-slate-400">assetはありません。</p> : null}
+          {detail.assets.length === 0 ? <p className="text-sm text-slate-400">素材はありません。</p> : null}
         </div>
       </section>
       <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4">
         <p className="font-semibold text-sky-100">
-          rollbackの読み取り専用preview
+          ロールバックの影響確認
         </p>
         <p className="mt-2 text-sm text-slate-200">
-          ボタンを押した時点のGoogle Driveをfresh readし、影響だけを確認します。
+          ボタンを押した時点のGoogle Driveから最新状態を読み取り、影響だけを確認します。
         </p>
         <Button
           type="button"
@@ -1100,10 +1096,10 @@ function ReadyRevisionDetail({
           disabled={previewState === "loading" || rollbackBusy}
         >
           {previewState === "loading"
-            ? "rollback影響を確認中"
+            ? "ロールバックの影響を確認中"
             : previewState === "closed"
               ? "ロールバック影響を確認"
-              : "previewを再確認"}
+              : "影響を再確認"}
         </Button>
       </div>
     </div>
@@ -1133,15 +1129,15 @@ function RollbackPreviewPanel(props: {
     props.state === "loading"
       ? "確認中"
       : props.state === "ready"
-        ? "ready"
+        ? "実行可能"
         : props.state === "degraded"
-          ? "degraded・要確認"
+          ? "一部を確認できない・要確認"
           : props.state === "noChange"
             ? "変更なし"
             : props.state === "stale"
-              ? "stale・再確認が必要"
+              ? "状態が変更済み・再確認が必要"
               : props.state === "blocked"
-                ? "blocked"
+                ? "安全確認で停止"
                 : "読込エラー";
   const impact = props.preview?.manifestImpact;
   const confirmationsComplete =
@@ -1159,7 +1155,7 @@ function RollbackPreviewPanel(props: {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 id="rollback-preview-heading" className="text-lg font-semibold">
-            読み取り専用preview
+            読み取り専用の影響確認
           </h3>
           <p className="mt-1 text-sm text-slate-300">
             この画面ではDriveの内容を変更しません。
@@ -1172,7 +1168,7 @@ function RollbackPreviewPanel(props: {
           onClick={props.onClose}
           disabled={props.rollbackBusy}
         >
-          previewを閉じる
+          影響確認を閉じる
         </Button>
       </div>
 
@@ -1193,8 +1189,7 @@ function RollbackPreviewPanel(props: {
         </p>
         {props.state === "loading" ? (
           <p className="mt-2 text-sm">
-            current manifest、current revision、target revision、全参照asset
-            metadataを確認しています。
+            現在のプロジェクト設定、現在公開中の版、復元対象の公開版、すべての参照素材を確認しています。
           </p>
         ) : null}
       </div>
@@ -1208,7 +1203,7 @@ function RollbackPreviewPanel(props: {
             onClick={props.onRecheck}
             disabled={props.rollbackBusy}
           >
-            previewを再確認
+            影響を再確認
           </Button>
         </div>
       ) : null}
@@ -1231,11 +1226,11 @@ function RollbackPreviewPanel(props: {
               value={formatPublishedAt(props.preview.checkedAt)}
             />
             <DetailField
-              label="target公開日時"
+                label="復元対象の公開日時"
               value={formatPublishedAt(props.preview.targetPublishedAt)}
             />
             <DetailField
-              label="target操作"
+                label="復元対象の操作"
               value={formatPublishOperation(props.preview.targetOperation)}
             />
             <DetailField
@@ -1249,47 +1244,47 @@ function RollbackPreviewPanel(props: {
               id="rollback-manifest-impact-heading"
               className="font-semibold"
             >
-              manifest / slide impact
+              プロジェクト設定とスライドへの影響
             </h4>
             <dl className="mt-3 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
               <DetailField
-                label="現在のproject title"
+                label="現在のプロジェクト名"
                 value={impact.currentProjectTitle}
               />
               <DetailField
-                label="rollback後のproject title"
+                label="ロールバック後のプロジェクト名"
                 value={impact.rollbackProjectTitle}
               />
               <DetailField
-                label="title変更"
+                label="名前の変更"
                 value={impact.titleChanged ? "あり" : "なし"}
               />
               <DetailField
-                label="slide数"
+                label="スライド数"
                 value={`${impact.currentSlideCount} → ${impact.rollbackSlideCount}`}
               />
               <DetailField
-                label="unique asset数"
+                label="参照素材数"
                 value={`${impact.currentUniqueAssetCount} → ${impact.rollbackUniqueAssetCount}`}
               />
               <DetailField
-                label="slide追加 / 削除 / 内容変更"
+                label="スライド追加 / 削除 / 内容変更"
                 value={`${impact.addedSlideCount} / ${impact.removedSlideCount} / ${impact.changedSlideCount}`}
               />
               <DetailField
-                label="slide順変更"
+                label="スライド順変更"
                 value={impact.slideOrderChanged ? "あり" : "なし"}
               />
               <DetailField
-                label="rollback後 offlineEligible / remoteOnly"
+                label="ロールバック後の端末保存対象 / remoteOnly"
                 value={`${impact.rollbackOfflineEligibleAssetCount} / ${impact.rollbackRemoteOnlyAssetCount}`}
               />
               <DetailField
-                label="unavailable / contentChanged"
+                label="取得不可 / 内容変更"
                 value={`${impact.unavailableAssetCount} / ${impact.contentChangedAssetCount}`}
               />
               <DetailField
-                label="unverifiable / metadataChanged"
+                label="確認不可 / 素材情報変更"
                 value={`${impact.unverifiableAssetCount} / ${impact.metadataChangedAssetCount}`}
               />
             </dl>
@@ -1297,7 +1292,7 @@ function RollbackPreviewPanel(props: {
 
           <section aria-labelledby="rollback-assets-heading">
             <h4 id="rollback-assets-heading" className="font-semibold">
-              target asset検査
+              復元対象の素材確認
             </h4>
             <div className="mt-3 max-h-[28rem] space-y-3 overflow-y-auto pr-1">
               {props.preview.assets.map((asset) => (
@@ -1315,7 +1310,7 @@ function RollbackPreviewPanel(props: {
                       )}
                     </Badge>
                     <span className="break-all text-xs text-slate-400">
-                      {asset.mimeType}
+                      {formatMediaType(asset.mimeType)}
                     </span>
                   </div>
                   <p className="mt-2 break-words font-medium">
@@ -1329,14 +1324,14 @@ function RollbackPreviewPanel(props: {
                 </article>
               ))}
               {props.preview.assets.length === 0 ? (
-                <p className="text-sm text-slate-400">参照assetはありません。</p>
+                <p className="text-sm text-slate-400">参照素材はありません。</p>
               ) : null}
             </div>
           </section>
 
           <p className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
-            このpreviewは確認時点のsnapshotです。実行時には再度fresh
-            preflightが必要です。この結果をwrite planとして再利用しません。
+            この結果は確認時点の状態です。実行時には最新状態をもう一度確認し、
+            この確認結果をそのまま書き込みには使いません。
           </p>
 
           {props.state === "ready" ? (
@@ -1348,7 +1343,7 @@ function RollbackPreviewPanel(props: {
                 id="rollback-confirmations-heading"
                 className="font-semibold text-amber-100"
               >
-                rollback実行前の確認
+                ロールバック実行前の確認
               </h4>
               <div className="mt-3 space-y-3 text-sm text-amber-50">
                 <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-amber-300/20 p-3">
@@ -1365,7 +1360,7 @@ function RollbackPreviewPanel(props: {
                     }
                   />
                   <span>
-                    過去revisionは変更せず、新しいrollback revisionを作成することを理解しました。
+                    過去の公開版は変更せず、復元内容から新しいロールバック版を作成することを理解しました。
                   </span>
                 </label>
                 <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-amber-300/20 p-3">
@@ -1382,7 +1377,7 @@ function RollbackPreviewPanel(props: {
                     }
                   />
                   <span>
-                    Driveの公開版だけが更新され、offline利用には別途offline syncが必要です。
+                    Driveの公開版だけが更新され、端末利用には別途「端末へ同期」が必要です。
                   </span>
                 </label>
                 {props.preview.replacesUnpublishedChanges ? (
@@ -1402,7 +1397,7 @@ function RollbackPreviewPanel(props: {
                       }
                     />
                     <span>
-                      保存済みの未公開編集がrollback対象revisionの内容で置き換えられることを理解しました。
+                      保存済みの未公開編集が復元対象の公開版の内容で置き換えられることを理解しました。
                     </span>
                   </label>
                 ) : null}
@@ -1449,31 +1444,31 @@ function RollbackPreviewPanel(props: {
                 id="rollback-final-review-heading"
                 className="text-lg font-semibold text-rose-100"
               >
-                rollback最終確認
+                ロールバック最終確認
               </h4>
               <p className="mt-2 text-sm text-rose-50">
-                fresh preflight済みです。この操作は新しいrollback
-                revisionを作成し、current manifestとindex mirrorを更新します。
+                最新状態の確認が完了しています。この操作は新しいロールバック版を作成し、
+                現在のプロジェクト設定とプロジェクト一覧を更新します。
               </p>
               <dl className="mt-4 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
                 <DetailField
-                  label="target公開日時"
+                  label="復元対象の公開日時"
                   value={formatPublishedAt(
                     props.executionReview.targetPublishedAt,
                   )}
                 />
                 <DetailField
-                  label="target操作"
+                  label="復元対象の操作"
                   value={formatPublishOperation(
                     props.executionReview.targetOperation,
                   )}
                 />
                 <DetailField
-                  label="rollback後のtitle"
+                  label="ロールバック後の名前"
                   value={props.executionReview.rollbackProjectTitle}
                 />
                 <DetailField
-                  label="slides / assets / remoteOnly"
+                  label="スライド / 素材 / remoteOnly"
                   value={`${props.executionReview.rollbackSlideCount} / ${props.executionReview.rollbackAssetCount} / ${props.executionReview.rollbackRemoteOnlyAssetCount}`}
                 />
                 <DetailField
@@ -1483,8 +1478,8 @@ function RollbackPreviewPanel(props: {
                   )}
                 />
                 <DetailField
-                  label="offline sync"
-                  value="rollback後に別途必要"
+                  label="端末への同期"
+                  value="ロールバック後に別途必要"
                 />
               </dl>
               {props.executionReview.replacesUnpublishedChanges ? (
@@ -1514,24 +1509,30 @@ function formatRollbackAssetImpact(
 ) {
   switch (status) {
     case "unchanged":
-      return "unchanged";
+      return "変更なし";
     case "metadataChanged":
-      return "metadataChanged・要確認";
+      return "素材情報変更・要確認";
     case "contentChanged":
-      return "contentChanged・blocked";
+      return "内容変更・安全確認で停止";
     case "unverifiable":
-      return "unverifiable・要確認";
+      return "確認不可・要確認";
     case "unavailable":
-      return "unavailable・blocked";
+      return "取得不可・安全確認で停止";
   }
 }
 
 function formatRollbackOfflineDisposition(
   disposition: ProjectRollbackPreview["assets"][number]["offlineDisposition"],
 ) {
-  if (disposition === "offlineEligible") return "offlineEligible";
+  if (disposition === "offlineEligible") return "端末保存対象";
   if (disposition === "remoteOnly") return "remoteOnly";
-  return "offline利用不可";
+  return "端末保存対象外";
+}
+
+function formatMediaType(value: string) {
+  if (value === "image" || value.startsWith("image/")) return "画像";
+  if (value === "video" || value.startsWith("video/")) return "動画";
+  return "その他";
 }
 
 function DetailField({ label, value }: { label: string; value: string }) {

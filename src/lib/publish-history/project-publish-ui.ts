@@ -83,7 +83,7 @@ export type PublishPlanDisposition =
 export const PROJECT_PUBLISH_DRIVE_SUCCESS_MESSAGE =
   "Google Drive上の公開版を更新しました。";
 export const PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE =
-  "iPadへ反映するには通常のオフライン同期を実行してください。";
+  "iPadへ反映するには「端末へ同期」を実行してください。";
 
 export function buildProjectPublishReview(input: {
   projectId: string;
@@ -144,19 +144,19 @@ export function getProjectPublishAssetDiagnosticLabel(
   code: ProjectPublishAssetDiagnosticCode,
 ): string {
   const labels: Record<ProjectPublishAssetDiagnosticCode, string> = {
-    assetFileIdMismatch: "ファイル参照ID不一致",
-    assetMimeTypeMismatch: "MIME type不一致",
-    assetParentCountMismatch: "親folder件数不一致",
-    assetParentMismatch: "親folder不一致",
-    assetAppMismatch: "app識別情報不一致",
-    assetRoleMismatch: "role不一致",
-    assetSchemaVersionMismatch: "schema version不一致",
-    assetWorkspaceMismatch: "workspace識別情報不一致",
-    assetProjectMismatch: "project識別情報不一致",
-    assetIdMismatch: "asset識別情報不一致",
-    assetFileReferenceMismatch: "manifest file参照不一致",
+    assetFileIdMismatch: "素材ファイル参照不一致",
+    assetMimeTypeMismatch: "素材形式不一致",
+    assetParentCountMismatch: "保存場所の件数不一致",
+    assetParentMismatch: "保存場所不一致",
+    assetAppMismatch: "アプリ管理情報不一致",
+    assetRoleMismatch: "素材の管理種別不一致",
+    assetSchemaVersionMismatch: "保存形式のバージョン不一致",
+    assetWorkspaceMismatch: "Drive保存領域の情報不一致",
+    assetProjectMismatch: "プロジェクト情報不一致",
+    assetIdMismatch: "素材情報不一致",
+    assetFileReferenceMismatch: "プロジェクト設定の素材参照不一致",
     assetSizeMismatch: "ファイルサイズ不一致",
-    assetMediaTypeMismatch: "image/video分類不一致",
+    assetMediaTypeMismatch: "画像・動画分類不一致",
   };
   return labels[code];
 }

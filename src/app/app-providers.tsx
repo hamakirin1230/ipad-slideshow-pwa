@@ -469,37 +469,37 @@ const childRoles: DriveWorkspaceChildRole[] = [
 ];
 
 const driveCreateStepMessages = [
-  "workspace root folder を作成しています。",
-  "workspace.json を作成しています。",
-  "index.json を作成しています。",
-  "projects/ folder を作成しています。",
+  "Driveの保存領域を作成しています。",
+  "保存領域の設定を作成しています。",
+  "プロジェクト一覧を作成しています。",
+  "プロジェクトの保存場所を作成しています。",
 ];
 
 const projectCreateStepMessages = [
-  "作成前に index.json を再確認しています。",
-  "project folder を作成しています。",
-  "manifest.json を作成しています。",
-  "assets/ folder を作成しています。",
-  "index.json 更新直前に競合を確認しています。",
-  "index.json の更新内容を作成しています。",
-  "index.json を更新しています。",
-  "更新後の index.json を再確認しています。",
-  "作成したproject詳細を検証しています。",
+  "作成前にプロジェクト一覧を再確認しています。",
+  "プロジェクトの保存場所を作成しています。",
+  "プロジェクト設定を作成しています。",
+  "素材の保存場所を作成しています。",
+  "プロジェクト一覧の更新直前に競合を確認しています。",
+  "プロジェクト一覧の更新内容を作成しています。",
+  "プロジェクト一覧を更新しています。",
+  "更新後のプロジェクト一覧を再確認しています。",
+  "作成したプロジェクトを確認しています。",
 ];
 
 const createdRoleLabels: Record<DriveCreatedWorkspaceItemRole, string> = {
-  workspaceRoot: "workspace root folder",
-  workspace: "workspace.json",
-  index: "index.json",
-  projectsRoot: "projects/ folder",
+  workspaceRoot: "Driveの保存領域",
+  workspace: "保存領域の設定",
+  index: "プロジェクト一覧",
+  projectsRoot: "プロジェクトの保存場所",
 };
 
 const projectChangedItemRoleLabels: Record<DriveProjectChangedItemRole, string> =
   {
-    projectRoot: "project folder",
-    projectManifest: "manifest.json",
-    assetsRoot: "assets/ folder",
-    index: "index.json",
+    projectRoot: "プロジェクトの保存場所",
+    projectManifest: "プロジェクト設定",
+    assetsRoot: "素材の保存場所",
+    index: "プロジェクト一覧",
   };
 
 type AppContextValue = {
@@ -695,19 +695,19 @@ const googleStatusLabels: Record<GoogleConnectionStatus, string> = {
   missingClientId: "Google Client ID未設定",
   connecting: "Google接続中",
   connected: "Google接続済み",
-  scopeMissing: "drive.file の許可不足",
+  scopeMissing: "Google Driveへのアクセス許可不足",
   error: "Google認証エラー",
 };
 
 const driveStatusLabels: Record<DriveWorkspaceStatus, string> = {
   unchecked: "このセッションではDrive未確認",
   checking: "Drive確認中",
-  creating: "Driveワークスペース作成中",
-  notCreated: "Driveワークスペース未作成",
-  ready: "Driveワークスペース準備済み",
-  multipleCandidates: "Driveワークスペース候補が複数あり要確認",
-  invalidWorkspace: "Driveワークスペース構造に問題あり",
-  unsupportedVersion: "schemaVersion非対応",
+  creating: "Driveの保存領域を作成中",
+  notCreated: "Driveの保存領域は未作成",
+  ready: "Driveの保存領域を利用可能",
+  multipleCandidates: "Driveの保存領域が複数あり要確認",
+  invalidWorkspace: "Driveの保存領域に問題あり",
+  unsupportedVersion: "保存形式のバージョン非対応",
   authRequired: "Google再接続が必要",
   operationFailed: "Drive操作失敗",
 };
@@ -724,7 +724,7 @@ const projectStatusLabels: Record<ProjectStatus, string> = {
 
 const assetImportStatusLabels: Record<AssetImportStatus, string> = {
   idle: "素材追加待機中",
-  validatingLocalFiles: "local file確認中",
+  validatingLocalFiles: "端末のファイルを確認中",
   requestingPhotosPermission: "Photos権限確認中",
   openingPicker: "Photos Picker起動中",
   waitingForSelection: "素材選択待ち",
@@ -732,7 +732,7 @@ const assetImportStatusLabels: Record<AssetImportStatus, string> = {
   selected: "素材選択・検証済み",
   uploadingToDrive: "Drive保存中",
   savedToDrive: "Drive保存済み",
-  updatingManifest: "manifest更新中",
+  updatingManifest: "プロジェクトへ反映中",
   verifying: "素材追加結果確認中",
   completed: "素材追加完了",
   cancelled: "素材追加キャンセル",
@@ -741,38 +741,38 @@ const assetImportStatusLabels: Record<AssetImportStatus, string> = {
 };
 
 const offlineSyncStatusLabels: Record<OfflineSyncStatus, string> = {
-  idle: "offline sync 待機中",
-  syncing: "offline sync 実行中",
-  ready: "offline sync 完了",
+  idle: "端末への同期待ち",
+  syncing: "端末へ同期中",
+  ready: "端末への同期完了",
   stale: "今回の同期結果が古い",
-  failed: "offline sync 失敗",
-  cancelled: "offline sync 中止",
-  blocked: "offline sync 開始不可",
+  failed: "端末への同期失敗",
+  cancelled: "端末への同期中止",
+  blocked: "端末への同期を開始できない",
 };
 
 const initialDriveMessage =
-  "このセッションでは、まだDriveワークスペース確認を実行していません。";
+  "このセッションでは、まだDriveの保存領域を確認していません。";
 
 const initialProjectMessage =
-  "Driveワークスペース ready 後にプロジェクト状態を確認します。";
+  "Driveの保存領域を確認した後に、プロジェクト状態を確認します。";
 
 const initialAssetImportMessage =
-  "Drive project ready 後に素材追加の準備状態を確認できます。";
+  "Driveプロジェクトを確認した後に、素材を追加できます。";
 
 const initialOfflineSyncMessage =
-  "Drive project ready 後に offline sync を実行できます。";
+  "Driveプロジェクトを確認した後に、端末へ同期できます。";
 
 const initialSlideReorderMessage =
-  "Drive project ready 後にスライドの順番を変更できます。";
+  "Driveプロジェクトを確認した後に、スライドの順番を変更できます。";
 
 const initialSlideEditMessage =
-  "Drive project ready 後にスライド順変更、slide削除、slide複製を実行できます。";
+  "Driveプロジェクトを確認した後に、スライドの順番変更・削除・複製ができます。";
 
 const initialAssetCleanupPreviewMessage =
-  "Drive project ready 後に未使用asset cleanup previewを実行できます。";
+  "Driveプロジェクトを確認した後に、未使用素材の削除候補を確認できます。";
 
 const initialAssetCleanupDeletePreflightMessage =
-  "未使用assetを選択すると削除前preflightを実行できます。";
+  "未使用素材を選択すると削除前の最新確認を実行できます。";
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -1174,7 +1174,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           diagnostics: [
             "Google認証ライブラリの準備が完了していません。",
             "Drive保存: 未実行",
-            "manifest反映: 未実行",
+            "プロジェクト反映: 未実行",
           ],
         }),
       );
@@ -1197,7 +1197,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             diagnostics: [
               "Google Photosの利用許可または素材選択待ちが30分でタイムアウトしました。",
               "Drive保存: 未実行",
-              "manifest反映: 未実行",
+              "プロジェクト反映: 未実行",
             ],
           }),
         );
@@ -1234,7 +1234,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             diagnostics: [
               "Google Photosの利用許可要求を開始できませんでした。",
               "Drive保存: 未実行",
-              "manifest反映: 未実行",
+              "プロジェクト反映: 未実行",
             ],
           }),
         );
@@ -1276,7 +1276,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           diagnostics: [
             "Google Photosの利用許可がキャンセルされました。",
             "Drive保存: 未実行",
-            "manifest反映: 未実行",
+            "プロジェクト反映: 未実行",
           ],
         }),
       );
@@ -1291,7 +1291,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           diagnostics: [
             "Google Photosの利用許可でエラーが返されました。",
             "Drive保存: 未実行",
-            "manifest反映: 未実行",
+            "プロジェクト反映: 未実行",
           ],
         }),
       );
@@ -1306,7 +1306,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           diagnostics: [
             "Google Photos用の認証情報を受け取れませんでした。",
             "Drive保存: 未実行",
-            "manifest反映: 未実行",
+            "プロジェクト反映: 未実行",
           ],
         }),
       );
@@ -1321,7 +1321,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           diagnostics: [
             "Google Photos Pickerに必要なscopeを確認できませんでした。",
             "Drive保存: 未実行",
-            "manifest反映: 未実行",
+            "プロジェクト反映: 未実行",
           ],
         }),
       );
@@ -1354,7 +1354,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         diagnostics: [
           "Google Photosの利用許可が完了しませんでした。",
           "Drive保存: 未実行",
-          "manifest反映: 未実行",
+          "プロジェクト反映: 未実行",
         ],
       }),
     );
@@ -1368,7 +1368,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (isSlideEditInFlight) {
-      return "slide編集中のため、素材追加は開始できません。";
+      return "スライド編集中のため、素材追加は開始できません。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
@@ -1376,7 +1376,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "offline sync 実行中のため、素材追加は開始できません。";
+      return "端末への同期中のため、素材追加は開始できません。";
     }
 
     if (
@@ -1384,15 +1384,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
       (assetImportSelection?.driveSaved === true &&
         !assetImportSelection.manifestUpdated)
     ) {
-      return "Drive保存済みの素材がmanifest未反映、またはmanifest反映完了を確認できていません。Drive状態を再確認するまで、追加の素材追加は開始できません。";
+      return "Drive保存済みの素材がプロジェクトへ未反映、または反映完了を確認できていません。Drive状態を再確認するまで、追加の素材追加は開始できません。";
     }
 
     if (!canImportAssets) {
-      return "Drive project ready ではないため、素材追加は開始できません。";
+      return "Driveプロジェクトの確認が完了していないため、素材追加は開始できません。";
     }
 
     if (!workspaceReadyContext) {
-      return "Drive workspace ready 情報を確認できないため、素材追加は開始できません。";
+      return "Driveの保存領域を確認できないため、素材追加は開始できません。";
     }
 
     if (!projectDetails) {
@@ -1423,23 +1423,23 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function getOfflineSyncBlockedReason() {
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "offline sync 実行中です。";
+      return "端末への同期を実行中です。";
     }
 
     if (isSlideEditInFlight) {
-      return "slide編集中のため、offline sync は開始できません。";
+      return "スライド編集中のため、端末への同期は開始できません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
-      return "素材追加処理中のため、offline sync は開始できません。";
+      return "素材追加処理中のため、端末への同期は開始できません。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
-      return "Drive操作中のため、offline sync は開始できません。";
+      return "Drive操作中のため、端末への同期は開始できません。";
     }
 
     if (googleStatus !== "connected" || driveFileGranted !== true) {
-      return "Google接続と drive.file 許可が必要です。";
+      return "Google接続とGoogle Driveへのアクセス許可が必要です。";
     }
 
     if (!accessTokenRef.current) {
@@ -1447,11 +1447,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (driveStatus !== "ready" || !workspaceReadyContext) {
-      return "Drive workspace ready 情報が必要です。";
+      return "Driveの保存領域を確認してください。";
     }
 
     if (projectStatus !== "ready" || !driveProjectReadyContext) {
-      return "Drive project ready 情報が必要です。";
+      return "Driveプロジェクトを確認してください。";
     }
 
     return null;
@@ -1475,31 +1475,31 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function getSlideEditBlockedReason(options?: { allowSingleSlide?: boolean }) {
     if (isSlideEditInFlight) {
-      return "slide編集中です。";
+      return "スライド編集中です。";
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "offline sync 実行中のため、slide編集はできません。";
+      return "端末への同期中のため、スライド編集はできません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
-      return "素材追加処理中のため、slide編集はできません。";
+      return "素材追加処理中のため、スライド編集はできません。";
     }
 
     if (captionUpdateSlideId !== null) {
-      return "テロップ保存中のため、slide編集はできません。";
+      return "テロップ保存中のため、スライド編集はできません。";
     }
 
     if (durationUpdateSlideId !== null) {
-      return "表示時間保存中のため、slide編集はできません。";
+      return "表示時間保存中のため、スライド編集はできません。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
-      return "Drive操作中のため、slide編集はできません。";
+      return "Drive操作中のため、スライド編集はできません。";
     }
 
     if (googleStatus !== "connected" || driveFileGranted !== true) {
-      return "Google接続と drive.file 許可が必要です。";
+      return "Google接続とGoogle Driveへのアクセス許可が必要です。";
     }
 
     if (!accessTokenRef.current) {
@@ -1507,11 +1507,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (driveStatus !== "ready" || !workspaceReadyContext) {
-      return "Drive workspace ready 情報が必要です。";
+      return "Driveの保存領域を確認してください。";
     }
 
     if (projectStatus !== "ready" || !driveProjectReadyContext || !projectDetails) {
-      return "Drive project ready 情報が必要です。";
+      return "Driveプロジェクトを確認してください。";
     }
 
     if (options?.allowSingleSlide !== true && projectDetails.slides.length <= 0) {
@@ -1526,26 +1526,26 @@ export function AppProviders({ children }: { children: ReactNode }) {
       assetCleanupDeleteInFlightRef.current ||
       isAssetCleanupDeleteInFlight
     ) {
-      return "未使用assetを削除中です。";
+      return "未使用素材を削除中です。";
     }
 
     if (
       assetCleanupPreviewInFlightRef.current ||
       isAssetCleanupPreviewInFlight
     ) {
-      return "未使用asset cleanup previewを実行中です。";
+      return "未使用素材の削除候補を確認中です。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
-      return "Drive操作中のため、cleanup previewは開始できません。";
+      return "Drive操作中のため、未使用素材の確認は開始できません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
-      return "素材追加処理中のため、cleanup previewは開始できません。";
+      return "素材追加処理中のため、未使用素材の確認は開始できません。";
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "offline sync 実行中のため、cleanup previewは開始できません。";
+      return "端末への同期中のため、未使用素材の確認は開始できません。";
     }
 
     if (
@@ -1553,11 +1553,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       captionUpdateSlideId !== null ||
       durationUpdateSlideId !== null
     ) {
-      return "project編集処理中のため、cleanup previewは開始できません。";
+      return "プロジェクト編集中のため、未使用素材の確認は開始できません。";
     }
 
     if (googleStatus !== "connected" || driveFileGranted !== true) {
-      return "Google接続と drive.file 許可が必要です。";
+      return "Google接続とGoogle Driveへのアクセス許可が必要です。";
     }
 
     if (!accessTokenRef.current) {
@@ -1565,11 +1565,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (driveStatus !== "ready" || !workspaceReadyContext) {
-      return "Drive workspace ready 情報が必要です。";
+      return "Driveの保存領域を確認してください。";
     }
 
     if (projectStatus !== "ready" || !driveProjectReadyContext) {
-      return "Drive project ready 情報が必要です。";
+      return "Driveプロジェクトを確認してください。";
     }
 
     return null;
@@ -1580,11 +1580,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       assetCleanupDeletePreflightInFlightRef.current ||
       isAssetCleanupDeletePreflightInFlight
     ) {
-      return "未使用asset削除前preflightを実行中です。";
+      return "未使用素材の削除前確認を実行中です。";
     }
 
     if (assetCleanupPreviewInFlightRef.current || isAssetCleanupPreviewInFlight) {
-      return "cleanup preview実行中のため、削除前preflightは開始できません。";
+      return "未使用素材の確認中のため、削除前確認は開始できません。";
     }
 
     return getAssetCleanupPreviewBlockedReason();
@@ -1595,7 +1595,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       assetCleanupDeleteInFlightRef.current ||
       isAssetCleanupDeleteInFlight
     ) {
-      return "未使用assetを削除中です。";
+      return "未使用素材を削除中です。";
     }
 
     if (
@@ -1603,11 +1603,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       projectRollbackInFlightRef.current ||
       projectPublicationWriteInFlightRef.current
     ) {
-      return "公開またはrollback処理中のため、未使用assetを削除できません。";
+      return "公開またはロールバック処理中のため、未使用素材を削除できません。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
-      return "Drive操作中のため、未使用assetを削除できません。";
+      return "Drive操作中のため、未使用素材を削除できません。";
     }
 
     if (assetCleanupDeletePreflightResult) {
@@ -1624,7 +1624,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           }),
         )
       ) {
-        return "workspaceまたはprojectが削除前preflight時から変わりました。";
+        return "Driveの保存領域またはプロジェクトが削除前確認時から変わりました。";
       }
     }
 
@@ -1632,7 +1632,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       assetCleanupDeletePreflightInFlightRef.current ||
       isAssetCleanupDeletePreflightInFlight
     ) {
-      return "未使用asset削除前preflightを実行中です。";
+      return "未使用素材の削除前確認を実行中です。";
     }
 
     return getAssetCleanupPreviewBlockedReason();
@@ -2151,7 +2151,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSafeAssetImportDiagnostics([
         blockedReason,
         "Drive保存: 未実行",
-        "manifest反映: 未実行",
+        "プロジェクト反映: 未実行",
       ]);
       return;
     }
@@ -2166,7 +2166,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSafeAssetImportDiagnostics([
         "Photos Picker用の別ウィンドウを開けませんでした。",
         "Drive保存: 未実行",
-        "manifest反映: 未実行",
+        "プロジェクト反映: 未実行",
       ]);
       return;
     }
@@ -2230,7 +2230,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           diagnostics: [
             "Photos Picker用の別ウィンドウが選択画面を開く前に閉じられました。",
             "Drive保存: 未実行",
-            "manifest反映: 未実行",
+            "プロジェクト反映: 未実行",
           ],
         });
       }
@@ -2279,9 +2279,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
           status: "invalidProject",
           possibleCreatedAsset: null,
           diagnostics: [
-            "Drive保存前にworkspace/project ready情報を確認できませんでした。",
+            "Drive保存前に保存領域とプロジェクトの状態を確認できませんでした。",
             "Drive保存: 未実行",
-            "manifest反映: 未実行",
+            "プロジェクト反映: 未実行",
           ],
         });
       }
@@ -2342,7 +2342,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
           setAssetImportStatus("uploadingToDrive");
           setAssetImportMessage(
-            `Drive assets/ に順次保存しています。${index + 1} / ${pickedMediaItems.length}`,
+            `Driveへ素材を順次保存しています。${index + 1} / ${pickedMediaItems.length}`,
           );
           updateAssetImportBatchItem(clientItemId, { status: "uploading" });
 
@@ -2406,14 +2406,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
         finalDiagnostics = [
           ...batchDiagnostics,
           "Drive保存: 成功0件",
-          "manifest反映: 未実行",
+          "プロジェクト反映: 未実行",
         ];
         return;
       }
 
       setAssetImportStatus("updatingManifest");
       setAssetImportMessage(
-        `manifest.json に成功分 ${savedAssetsForManifest.length} 件をまとめて反映しています。`,
+        `プロジェクトへ成功分 ${savedAssetsForManifest.length} 件をまとめて反映しています。`,
       );
 
       const manifestAppendResult = await appendDriveProjectAssetsToManifest({
@@ -2453,15 +2453,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
       finalSelection = null;
       finalStatus = "completed";
       finalMessage =
-        "Drive保存、batch manifest反映、index.json updatedAt同期、更新後再検証が完了しました。";
+        "Drive保存、プロジェクトへの一括反映、一覧の更新、更新後の再確認が完了しました。";
       finalDiagnostics = [
         ...batchDiagnostics,
         ...manifestAppendResult.diagnostics,
         "Drive保存: 成功分完了",
-        "manifest反映: 成功分完了",
-        "index.json updatedAt同期: 完了",
+        "プロジェクト反映: 成功分完了",
+        "プロジェクト一覧の更新: 完了",
         "更新後再検証: 完了",
-        "テロップ変更を iPad 再生に反映するには、この project を offline sync してください。",
+        "テロップ変更をiPad再生に反映するには、このプロジェクトを端末へ同期してください。",
       ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
@@ -2490,28 +2490,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
         finalDiagnostics = [
           ...(error.diagnostics.length > 0
             ? error.diagnostics
-            : [
-                `Photos Picker API operation: ${error.operation}`,
-                `Photos Picker API status: ${error.status}`,
-              ]),
+            : ["Google Photosから素材を取得できませんでした。"]),
           "Drive保存: 未実行",
-          "manifest反映: 未実行",
+          "プロジェクト反映: 未実行",
         ];
       } else if (error instanceof DriveProjectAssetSaveError) {
         finalStatus = error.status === "invalidProject" ? "invalid" : "error";
         finalMessage = error.possibleCreatedAsset
-          ? "Drive保存結果の確認に失敗しました。Drive上にasset fileが作成済みの可能性があります。"
-          : "Drive assets/ への保存に失敗しました。";
+          ? "Drive保存結果の確認に失敗しました。Drive上に素材ファイルが作成済みの可能性があります。"
+          : "Driveへの素材保存に失敗しました。";
         finalDiagnostics = buildAssetImportDriveSaveFailureDiagnostics(error);
       } else if (error instanceof DriveProjectManifestAppendError) {
         finalStatus = "error";
         finalMessage =
-          "Drive保存後のmanifest反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
+          "Drive保存後のプロジェクト反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
         finalDiagnostics = buildAssetImportManifestAppendFailureDiagnostics(error);
       } else if (error instanceof DriveProjectManifestBatchAppendError) {
         finalStatus = "error";
         finalMessage =
-          "Drive保存後のbatch manifest反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
+          "Drive保存後のプロジェクトへの一括反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
         finalDiagnostics = buildAssetImportManifestBatchAppendFailureDiagnostics(
           error,
         );
@@ -2521,14 +2518,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
         finalDiagnostics = [
           "素材追加処理を中止しました。",
           "Drive保存: 未実行",
-          "manifest反映: 未実行",
+          "プロジェクト反映: 未実行",
         ];
       } else {
         finalStatus = "error";
         finalMessage = "素材追加処理に失敗しました。";
         finalDiagnostics = [
           "素材追加処理中に予期しないエラーが発生しました。",
-          "Drive保存やmanifest反映が途中まで進んだかは、この画面だけでは判断できません。",
+          "Drive保存やプロジェクトへの反映が途中まで進んだかは、この画面だけでは判断できません。",
           "Drive状態を再確認してください。",
         ];
       }
@@ -2580,7 +2577,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             });
             setProjectStatus("ready");
             setProjectMessage(
-              "manifest.jsonへの素材反映を更新後再検証済みの状態で反映しました。",
+              "プロジェクトへの素材反映を更新後に再確認しました。",
             );
           }
 
@@ -2624,7 +2621,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSafeAssetImportDiagnostics([
         blockedReason,
         "Drive保存: 未実行",
-        "manifest反映: 未実行",
+        "プロジェクト反映: 未実行",
       ]);
       return;
     }
@@ -2635,7 +2632,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSafeAssetImportDiagnostics([
         "Local file selection: 0件",
         "Drive保存: 未実行",
-        "manifest反映: 未実行",
+        "プロジェクト反映: 未実行",
       ]);
       return;
     }
@@ -2648,7 +2645,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSafeAssetImportDiagnostics([
         "Google接続を確認できません。Googleへ再接続してください。",
         "Drive保存: 未実行",
-        "manifest反映: 未実行",
+        "プロジェクト反映: 未実行",
       ]);
       return;
     }
@@ -2658,11 +2655,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!readyWorkspace || !readyProject) {
       setAssetImportStatus("invalid");
-      setAssetImportMessage("Drive project ready 情報を確認できませんでした。");
+      setAssetImportMessage("Driveプロジェクトの状態を確認できませんでした。");
       setSafeAssetImportDiagnostics([
-        "Drive保存前にworkspace/project ready情報を確認できませんでした。",
+        "Drive保存前に保存領域とプロジェクトの状態を確認できませんでした。",
         "Drive保存: 未実行",
-        "manifest反映: 未実行",
+        "プロジェクト反映: 未実行",
       ]);
       return;
     }
@@ -2764,7 +2761,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
           setAssetImportStatus("uploadingToDrive");
           setAssetImportMessage(
-            `Drive assets/ に動画ファイルを順次保存しています。${index + 1} / ${localItems.length}`,
+            `Driveへ動画ファイルを順次保存しています。${index + 1} / ${localItems.length}`,
           );
           updateAssetImportBatchItem(localItem.clientItemId, { status: "uploading" });
 
@@ -2830,14 +2827,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
         finalDiagnostics = [
           ...batchDiagnostics,
           "Drive保存: 成功0件",
-          "manifest反映: 未実行",
+          "プロジェクト反映: 未実行",
         ];
         return;
       }
 
       setAssetImportStatus("updatingManifest");
       setAssetImportMessage(
-        `manifest.json にlocal video成功分 ${savedAssetsForManifest.length} 件をまとめて反映しています。`,
+        `プロジェクトへ端末動画の成功分 ${savedAssetsForManifest.length} 件をまとめて反映しています。`,
       );
 
       const manifestAppendResult = await appendDriveProjectAssetsToManifest({
@@ -2876,15 +2873,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
       };
       finalStatus = "completed";
       finalMessage =
-        "local動画ファイルのDrive保存、batch manifest反映、index.json updatedAt同期、更新後再検証が完了しました。";
+        "端末の動画ファイルのDrive保存、プロジェクトへの一括反映、一覧の更新、更新後の再確認が完了しました。";
       finalDiagnostics = [
         ...batchDiagnostics,
         ...manifestAppendResult.diagnostics,
         "Drive保存: 完了",
-        "manifest反映: 完了",
-        "index.json updatedAt同期: 完了",
+        "プロジェクト反映: 完了",
+        "プロジェクト一覧の更新: 完了",
         "更新後再検証: 完了",
-        "offline保存対象のMP4/MOVを iPad 再生に反映するには、この project を offline sync してください。",
+        "端末保存対象のMP4/MOVをiPad再生に反映するには、このプロジェクトを端末へ同期してください。",
       ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
@@ -2894,13 +2891,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (error instanceof DriveProjectAssetSaveError) {
         finalStatus = error.status === "invalidProject" ? "invalid" : "error";
         finalMessage = error.possibleCreatedAsset
-          ? "Drive保存結果の確認に失敗しました。Drive上にasset fileが作成済みの可能性があります。"
-          : "Drive assets/ への保存に失敗しました。";
+          ? "Drive保存結果の確認に失敗しました。Drive上に素材ファイルが作成済みの可能性があります。"
+          : "Driveへの素材保存に失敗しました。";
         finalDiagnostics = buildAssetImportDriveSaveFailureDiagnostics(error);
       } else if (error instanceof DriveProjectManifestBatchAppendError) {
         finalStatus = "error";
         finalMessage =
-          "Drive保存後のbatch manifest反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
+          "Drive保存後のプロジェクトへの一括反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
         finalDiagnostics = buildAssetImportManifestBatchAppendFailureDiagnostics(
           error,
         );
@@ -2910,14 +2907,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
         finalDiagnostics = [
           "素材追加処理を中止しました。",
           "Drive保存: 未実行",
-          "manifest反映: 未実行",
+          "プロジェクト反映: 未実行",
         ];
       } else {
         finalStatus = "error";
         finalMessage = "local動画ファイル追加処理に失敗しました。";
         finalDiagnostics = [
           "local動画ファイル追加処理中に予期しないエラーが発生しました。",
-          "Drive保存やmanifest反映が途中まで進んだかは、この画面だけでは判断できません。",
+          "Drive保存やプロジェクトへの反映が途中まで進んだかは、この画面だけでは判断できません。",
           "Drive状態を再確認してください。",
         ];
       }
@@ -2958,7 +2955,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             });
             setProjectStatus("ready");
             setProjectMessage(
-              "manifest.jsonへのlocal video反映を更新後再検証済みの状態で反映しました。",
+              "プロジェクトへの端末動画の反映を更新後に再確認しました。",
             );
           }
 
@@ -3035,15 +3032,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
       wasDriveOrManifestPossiblyStarted
         ? [
             "ユーザー操作により素材追加を中止しました。",
-            "Drive asset file が作成済みの可能性があります。",
-            "manifest.json または index.json が更新済みの可能性があります。",
+            "Drive上に素材ファイルが作成済みの可能性があります。",
+            "プロジェクト設定またはプロジェクト一覧が更新済みの可能性があります。",
             "自動削除・自動修復は行いません。",
             "Drive状態を再確認してください。",
           ]
         : [
             "ユーザー操作により素材追加を中止しました。",
             "Drive保存: 未実行",
-            "manifest反映: 未実行",
+            "プロジェクト反映: 未実行",
           ],
     );
 
@@ -3061,16 +3058,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!runtime) {
       setOfflineSyncStatus("failed");
-      setOfflineSyncMessage("offline sync runtime を初期化できませんでした。");
+      setOfflineSyncMessage("端末への同期処理を準備できませんでした。");
       setSafeOfflineSyncDiagnostics([
-        "Drive offline staging sync runtime が初期化されていません。",
+        "端末への同期処理を準備できていません。",
       ]);
       return;
     }
 
     if (blockedReason) {
       setOfflineSyncStatus("blocked");
-      setOfflineSyncMessage("offline sync を開始できませんでした。");
+      setOfflineSyncMessage("端末への同期を開始できませんでした。");
       setSafeOfflineSyncDiagnostics([blockedReason]);
       return;
     }
@@ -3081,9 +3078,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!accessToken || !readyContext || !readyProject) {
       setOfflineSyncStatus("blocked");
-      setOfflineSyncMessage("offline sync に必要な ready 情報が不足しています。");
+      setOfflineSyncMessage("端末への同期に必要な確認済み情報が不足しています。");
       setSafeOfflineSyncDiagnostics([
-        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Google接続、Driveの保存領域、選択中プロジェクトのいずれかを確認できませんでした。",
         "Drive状態とプロジェクト状態を再確認してください。",
       ]);
       return;
@@ -3153,8 +3150,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setOfflineSyncMessage(OFFLINE_SYNC_CANCELLED_MESSAGE);
     setOfflineSyncProgress(null);
     setSafeOfflineSyncDiagnostics([
-      "ユーザー操作により offline sync を中止しました。",
-      "Drive fetch / staging write / promotion のどこまで進んだかは、この状態だけでは判断しません。",
+      "ユーザー操作により端末への同期を中止しました。",
+      "Driveからの取得、一時保存、端末保存データの更新のどこまで進んだかは、この状態だけでは判断しません。",
       "必要に応じて Drive状態とプロジェクト状態を再確認してください。",
     ]);
     setOfflineSyncLastResult(null);
@@ -3373,8 +3370,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSelectedProjectId(null);
       clearProjectReadyDetails();
       setProjectDiagnostics([
-        "Driveワークスペースの確認済み情報を取得できませんでした。",
-        "先にDrive状態を再確認し、ready になっていることを確認してください。",
+        "Driveの保存領域の確認済み情報を取得できませんでした。",
+        "先にDrive状態を再確認し、保存領域を利用できることを確認してください。",
       ]);
       return;
     }
@@ -3428,7 +3425,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (result.status === "invalid") {
         setProjectStatus("invalid");
         setProjectMessage(
-          "Drive上のプロジェクト情報に問題があります。このスライスでは自動修復しません。",
+          "Drive上のプロジェクト情報に問題があります。この画面では自動修復しません。",
         );
         setDriveProjects([]);
         setSelectedProjectId(null);
@@ -3461,7 +3458,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (detailResult.status === "invalid") {
         setProjectStatus("invalid");
         setProjectMessage(
-          "Drive上のプロジェクト詳細に問題があります。このスライスでは自動修復しません。",
+          "Drive上のプロジェクト詳細に問題があります。この画面では自動修復しません。",
         );
         setSelectedProjectId(selectedProject.projectId);
         clearProjectReadyDetails();
@@ -3476,7 +3473,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setProjectStatus("ready");
       setProjectMessage(
-        `index.json上の project ${result.projects.length}件を確認し、選択中projectの詳細を読み込みました。`,
+        `Drive上のプロジェクト${result.projects.length}件を確認し、選択中プロジェクトの詳細を読み込みました。`,
       );
       applyProjectReadyState(selectedProject, nextProjectDetails);
       setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
@@ -3498,7 +3495,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         error instanceof DriveApiError
           ? [
               "Drive上のプロジェクト詳細確認に失敗しました。",
-              `Drive API status: ${error.status}`,
+              "Google Driveから操作を完了できませんでした。",
             ]
           : ["Drive上のプロジェクト詳細確認に失敗しました。"],
       );
@@ -3521,7 +3518,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (!accessToken) {
       setProjectStatus("error");
       setProjectMessage(
-        "Google接続が必要です。もう一度Google接続を行ってからprojectを選択してください。",
+        "Google接続が必要です。もう一度Google接続を行ってからプロジェクトを選択してください。",
       );
       clearProjectReadyDetails();
       setProjectDiagnostics([]);
@@ -3533,8 +3530,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setProjectMessage(initialProjectMessage);
       clearProjectReadyDetails();
       setProjectDiagnostics([
-        "Driveワークスペースの確認済み情報を取得できませんでした。",
-        "先にDrive状態を再確認し、ready になっていることを確認してください。",
+        "Driveの保存領域の確認済み情報を取得できませんでした。",
+        "先にDrive状態を再確認し、保存領域を利用できることを確認してください。",
       ]);
       return;
     }
@@ -3545,7 +3542,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const readyContext = workspaceReadyContext;
 
     setProjectStatus("checking");
-    setProjectMessage("選択したprojectの詳細を確認しています。");
+    setProjectMessage("選択したプロジェクトの詳細を確認しています。");
     setSelectedProjectId(projectId);
     clearProjectReadyDetails();
     setProjectDiagnostics([]);
@@ -3589,7 +3586,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (result.status === "invalid") {
         setProjectStatus("invalid");
         setProjectMessage(
-          "Drive上のプロジェクト情報に問題があります。このスライスでは自動修復しません。",
+          "Drive上のプロジェクト情報に問題があります。この画面では自動修復しません。",
         );
         setDriveProjects([]);
         clearProjectReadyDetails();
@@ -3604,12 +3601,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       if (!selectedProject) {
         setProjectStatus("invalid");
-        setProjectMessage("選択したprojectを index.json 上で確認できませんでした。");
+        setProjectMessage("選択したプロジェクトをDriveの一覧で確認できませんでした。");
         setSelectedProjectId(null);
         clearProjectReadyDetails();
         setProjectDiagnostics([
           ...result.diagnostics,
-          `projectId ${projectId} は index.json.projects に登録されていません。`,
+          "選択したプロジェクトはDriveのプロジェクト一覧に登録されていません。",
         ]);
         return;
       }
@@ -3631,7 +3628,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (detailResult.status === "invalid") {
         setProjectStatus("invalid");
         setProjectMessage(
-          "選択したprojectのDrive上の詳細に問題があります。このスライスでは自動修復しません。",
+          "選択したプロジェクトのDrive上の詳細に問題があります。この画面では自動修復しません。",
         );
         setSelectedProjectId(projectId);
         clearProjectReadyDetails();
@@ -3643,7 +3640,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       setProjectStatus("ready");
-      setProjectMessage("選択したprojectの manifest / assets 詳細を読み込みました。");
+      setProjectMessage("選択したプロジェクトの設定と素材を読み込みました。");
       applyProjectReadyState(selectedProject, toProjectDetails(detailResult.details));
       setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
     } catch (error) {
@@ -3657,16 +3654,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setProjectStatus("error");
       setProjectMessage(
-        "project選択中にDrive確認へ失敗しました。通信状態を確認して再確認してください。",
+        "プロジェクト選択中にDrive確認へ失敗しました。通信状態を確認して再確認してください。",
       );
       clearProjectReadyDetails();
       setProjectDiagnostics(
         error instanceof DriveApiError
           ? [
-              "Drive上のproject詳細確認に失敗しました。",
-              `Drive API status: ${error.status}`,
+              "Drive上のプロジェクト詳細確認に失敗しました。",
+              "Google Driveから操作を完了できませんでした。",
             ]
-          : ["Drive上のproject詳細確認に失敗しました。"],
+          : ["Drive上のプロジェクト詳細確認に失敗しました。"],
       );
     } finally {
       if (requestId === driveOperationRequestIdRef.current) {
@@ -3709,14 +3706,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
       !readyProject
     ) {
       setProjectDiagnostics([
-        "選択中projectが ready ではないため、title変更を開始しませんでした。",
-        "先にDrive project状態を確認し、対象projectを選択してください。",
+        "選択中プロジェクトの確認が完了していないため、名前変更を開始しませんでした。",
+        "先にDriveプロジェクト状態を確認し、対象プロジェクトを選択してください。",
       ]);
       return;
     }
 
     if (title === readyProject.title) {
-      setProjectDiagnostics(["project title は変更されていません。"]);
+      setProjectDiagnostics(["プロジェクト名は変更されていません。"]);
       return;
     }
 
@@ -3725,7 +3722,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     driveOperationRequestIdRef.current = requestId;
 
     setProjectStatus("checking");
-    setProjectMessage("選択中projectのtitleを更新しています。");
+    setProjectMessage("選択中プロジェクトの名前を更新しています。");
     setProjectDiagnostics([]);
 
     try {
@@ -3749,7 +3746,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
       setProjectStatus("ready");
       setProjectMessage(
-        "選択中projectのtitleを manifest.json / index.json に反映し、再検証しました。",
+        "選択中プロジェクトの名前をプロジェクト設定と一覧へ反映し、再確認しました。",
       );
       applyProjectReadyState(result.project, toProjectDetails(result.details));
       setProjectDiagnostics(result.diagnostics);
@@ -3770,8 +3767,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setProjectStatus(error.status === "invalidProject" ? "invalid" : "error");
         setProjectMessage(
           error.status === "invalidProject"
-            ? "title変更前のDrive project情報に問題があります。このスライスでは自動修復しません。"
-            : "project title変更に失敗しました。",
+            ? "名前変更前のDriveプロジェクト情報に問題があります。自動修復は行いません。"
+            : "プロジェクト名の変更に失敗しました。",
         );
         setProjectDiagnostics(error.diagnostics);
         return;
@@ -3782,10 +3779,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       setProjectStatus("error");
-      setProjectMessage("project title変更に失敗しました。");
+      setProjectMessage("プロジェクト名の変更に失敗しました。");
       setProjectDiagnostics([
-        "project title変更中に予期しないエラーが発生しました。",
-        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "プロジェクト名の変更中に予期しないエラーが発生しました。",
+        "プロジェクト設定と一覧のどこまで更新されたかは、この画面だけでは判断できません。",
         "Drive状態を再確認してください。",
       ]);
     } finally {
@@ -3821,10 +3818,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       !readyProject
     ) {
       setCaptionUpdateMessage(
-        "選択中projectが ready ではないため、テロップ保存を開始しませんでした。",
+        "選択中プロジェクトの確認が完了していないため、テロップ保存を開始しませんでした。",
       );
       setCaptionUpdateDiagnostics([
-        "先にDrive project状態を確認し、対象projectを選択してください。",
+        "先にDriveプロジェクト状態を確認し、対象プロジェクトを選択してください。",
       ]);
       return;
     }
@@ -3857,11 +3854,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
       setProjectStatus("ready");
       setProjectMessage(
-        "選択中projectのテロップを manifest.json / index.json に反映し、再検証しました。",
+        "選択中プロジェクトのテロップをプロジェクト設定と一覧へ反映し、再確認しました。",
       );
       applyProjectReadyState(result.project, toProjectDetails(result.details));
       setCaptionUpdateMessage(
-        "テロップを保存しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+        "テロップを保存しました。iPad再生へ反映するには、このプロジェクトを端末へ同期してください。",
       );
       setCaptionUpdateDiagnostics(result.diagnostics);
     } catch (error) {
@@ -3881,7 +3878,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setProjectStatus(error.status === "invalidProject" ? "invalid" : "error");
         setCaptionUpdateMessage(
           error.status === "invalidProject"
-            ? "テロップ保存前のDrive project情報に問題があります。"
+            ? "テロップ保存前のDriveプロジェクト情報に問題があります。"
             : "テロップ保存に失敗しました。",
         );
         setCaptionUpdateDiagnostics(error.diagnostics);
@@ -3896,7 +3893,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setCaptionUpdateMessage("テロップ保存に失敗しました。");
       setCaptionUpdateDiagnostics([
         "テロップ保存中に予期しないエラーが発生しました。",
-        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "プロジェクト設定と一覧のどこまで更新されたかは、この画面だけでは判断できません。",
         "Drive状態を再確認してください。",
       ]);
     } finally {
@@ -3936,10 +3933,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       !readyProject
     ) {
       setDurationUpdateMessage(
-        "選択中projectが ready ではないため、表示時間保存を開始しませんでした。",
+        "選択中プロジェクトの確認が完了していないため、表示時間保存を開始しませんでした。",
       );
       setDurationUpdateDiagnostics([
-        "先にDrive project状態を確認し、対象projectを選択してください。",
+        "先にDriveプロジェクト状態を確認し、対象プロジェクトを選択してください。",
       ]);
       return;
     }
@@ -3972,11 +3969,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
       setProjectStatus("ready");
       setProjectMessage(
-        "選択中projectの表示時間を manifest.json / index.json に反映し、再検証しました。",
+        "選択中プロジェクトの表示時間をプロジェクト設定と一覧へ反映し、再確認しました。",
       );
       applyProjectReadyState(result.project, toProjectDetails(result.details));
       setDurationUpdateMessage(
-        "表示時間を保存しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+        "表示時間を保存しました。iPad再生へ反映するには、このプロジェクトを端末へ同期してください。",
       );
       setDurationUpdateDiagnostics(result.diagnostics);
     } catch (error) {
@@ -3996,7 +3993,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setProjectStatus(error.status === "invalidProject" ? "invalid" : "error");
         setDurationUpdateMessage(
           error.status === "invalidProject"
-            ? "表示時間保存前のDrive project情報に問題があります。"
+            ? "表示時間保存前のDriveプロジェクト情報に問題があります。"
             : "表示時間保存に失敗しました。",
         );
         setDurationUpdateDiagnostics(error.diagnostics);
@@ -4011,7 +4008,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setDurationUpdateMessage("表示時間保存に失敗しました。");
       setDurationUpdateDiagnostics([
         "表示時間保存中に予期しないエラーが発生しました。",
-        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "プロジェクト設定と一覧のどこまで更新されたかは、この画面だけでは判断できません。",
         "Drive状態を再確認してください。",
       ]);
     } finally {
@@ -4049,12 +4046,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSlideReorderStatus("invalid");
       setSlideReorderMessage("スライド順を変更できませんでした。");
       setSlideReorderDiagnostics([
-        "指定されたslideIdを選択中projectのslidesで確認できませんでした。",
+        "指定されたスライドを選択中プロジェクトで確認できませんでした。",
       ]);
       setSlideEditStatus("invalid");
       setSlideEditMessage("スライド順を変更できませんでした。");
       setSlideEditDiagnostics([
-        "指定されたslideIdを選択中projectのslidesで確認できませんでした。",
+        "指定されたスライドを選択中プロジェクトで確認できませんでした。",
       ]);
       return false;
     }
@@ -4064,15 +4061,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSlideReorderMessage("スライド順は変更されていません。");
       setSlideReorderDiagnostics([
         direction === "up"
-          ? "先頭のslideはこれ以上上へ移動できません。"
-          : "最後のslideはこれ以上下へ移動できません。",
+          ? "先頭のスライドはこれ以上上へ移動できません。"
+          : "最後のスライドはこれ以上下へ移動できません。",
       ]);
       setSlideEditStatus("invalid");
       setSlideEditMessage("スライド順は変更されていません。");
       setSlideEditDiagnostics([
         direction === "up"
-          ? "先頭のslideはこれ以上上へ移動できません。"
-          : "最後のslideはこれ以上下へ移動できません。",
+          ? "先頭のスライドはこれ以上上へ移動できません。"
+          : "最後のスライドはこれ以上下へ移動できません。",
       ]);
       return false;
     }
@@ -4112,14 +4109,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!accessToken || !readyWorkspace || !readyProject || !projectDetails) {
       const diagnostics = [
-        "accessToken / workspaceReadyContext / driveProjectReadyContext / projectDetails のいずれかを確認できませんでした。",
+        "Google接続、Driveの保存領域、選択中プロジェクトの確認済み情報が不足しています。",
         "Drive状態とプロジェクト状態を再確認してください。",
       ];
       setSlideReorderStatus("blocked");
-      setSlideReorderMessage("スライド順変更に必要な ready 情報が不足しています。");
+      setSlideReorderMessage("スライド順変更に必要な確認済み情報が不足しています。");
       setSlideReorderDiagnostics(diagnostics);
       setSlideEditStatus("blocked");
-      setSlideEditMessage("スライド順変更に必要な ready 情報が不足しています。");
+      setSlideEditMessage("スライド順変更に必要な確認済み情報が不足しています。");
       setSlideEditDiagnostics(diagnostics);
       return false;
     }
@@ -4157,23 +4154,23 @@ export function AppProviders({ children }: { children: ReactNode }) {
         project: result.project,
         details: result.details,
         projectMessage:
-          "選択中projectのスライド順を manifest.json / index.json に反映し、再検証しました。",
+          "選択中プロジェクトのスライド順をプロジェクト設定と一覧へ反映し、再確認しました。",
       });
       setSlideReorderStatus("completed");
       setSlideReorderMessage(
-        "スライドの順番を保存しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+        "スライドの順番を保存しました。iPad再生へ反映するには、このプロジェクトを端末へ同期してください。",
       );
       setSlideReorderDiagnostics([
         ...result.diagnostics,
-        "iPad再生への反映には、このprojectのoffline syncが必要です。",
+        "iPad再生への反映には、このプロジェクトの端末同期が必要です。",
       ]);
       setSlideEditStatus("completed");
       setSlideEditMessage(
-        "スライドの順番を保存しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+        "スライドの順番を保存しました。iPad再生へ反映するには、このプロジェクトを端末へ同期してください。",
       );
       setSlideEditDiagnostics([
         ...result.diagnostics,
-        "iPad再生への反映には、このprojectのoffline syncが必要です。",
+        "iPad再生への反映には、このプロジェクトの端末同期が必要です。",
       ]);
       return true;
     } catch (error) {
@@ -4196,7 +4193,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         );
         setSlideReorderMessage(
           error.status === "invalidProject"
-            ? "スライド順変更前のDrive project情報に問題があります。"
+            ? "スライド順変更前のDriveプロジェクト情報に問題があります。"
             : "スライド順変更に失敗しました。",
         );
         setSlideReorderDiagnostics(error.diagnostics);
@@ -4205,7 +4202,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         );
         setSlideEditMessage(
           error.status === "invalidProject"
-            ? "スライド順変更前のDrive project情報に問題があります。"
+            ? "スライド順変更前のDriveプロジェクト情報に問題があります。"
             : "スライド順変更に失敗しました。",
         );
         setSlideEditDiagnostics(error.diagnostics);
@@ -4221,14 +4218,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSlideReorderMessage("スライド順変更に失敗しました。");
       setSlideReorderDiagnostics([
         "スライド順変更中に予期しないエラーが発生しました。",
-        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "プロジェクト設定と一覧のどこまで更新されたかは、この画面だけでは判断できません。",
         "Drive状態を再確認してください。",
       ]);
       setSlideEditStatus("error");
       setSlideEditMessage("スライド順変更に失敗しました。");
       setSlideEditDiagnostics([
         "スライド順変更中に予期しないエラーが発生しました。",
-        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
+        "プロジェクト設定と一覧のどこまで更新されたかは、この画面だけでは判断できません。",
         "Drive状態を再確認してください。",
       ]);
       return false;
@@ -4252,16 +4249,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (blockedReason) {
       setSlideEditStatus("blocked");
-      setSlideEditMessage("選択したslideを削除できませんでした。");
+      setSlideEditMessage("選択したスライドを削除できませんでした。");
       setSlideEditDiagnostics([blockedReason]);
       return false;
     }
 
     if (!accessToken || !readyWorkspace || !readyProject) {
       setSlideEditStatus("blocked");
-      setSlideEditMessage("slide削除に必要な ready 情報が不足しています。");
+      setSlideEditMessage("スライド削除に必要な確認済み情報が不足しています。");
       setSlideEditDiagnostics([
-        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Google接続、Driveの保存領域、選択中プロジェクトの確認済み情報が不足しています。",
         "Drive状態とプロジェクト状態を再確認してください。",
       ]);
       return false;
@@ -4270,7 +4267,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveOperationInFlight(true);
     setSlideDeleteInFlightState(true);
     setSlideEditStatus("deleting");
-    setSlideEditMessage("選択したslideを削除しています。");
+    setSlideEditMessage("選択したスライドを削除しています。");
     const requestId = driveOperationRequestIdRef.current + 1;
     driveOperationRequestIdRef.current = requestId;
 
@@ -4294,16 +4291,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
         project: result.project,
         details: result.details,
         projectMessage:
-          "選択中projectのslide削除を manifest.json / index.json に反映し、再検証しました。",
+          "選択中プロジェクトのスライド削除をプロジェクト設定と一覧へ反映し、再確認しました。",
       });
       setSlideEditStatus("completed");
       setSlideEditMessage(
-        "選択したslideを削除しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+        "選択したスライドを削除しました。iPad再生へ反映するには、このプロジェクトを端末へ同期してください。",
       );
       setSlideEditDiagnostics([
         ...result.diagnostics,
-        "Drive assets/ の素材fileは削除していません。",
-        "iPad再生への反映には、このprojectのoffline syncが必要です。",
+        "Drive上の素材ファイルは削除していません。",
+        "iPad再生への反映には、このプロジェクトの端末同期が必要です。",
       ]);
       return true;
     } catch (error) {
@@ -4319,8 +4316,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
         );
         setSlideEditMessage(
           error.status === "invalidProject"
-            ? "slide削除前のDrive project情報に問題があります。"
-            : "slide削除に失敗しました。",
+            ? "スライド削除前のDriveプロジェクト情報に問題があります。"
+            : "スライド削除に失敗しました。",
         );
         setSlideEditDiagnostics(error.diagnostics);
         return false;
@@ -4332,11 +4329,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setProjectStatus("error");
       setSlideEditStatus("error");
-      setSlideEditMessage("slide削除に失敗しました。");
+      setSlideEditMessage("スライド削除に失敗しました。");
       setSlideEditDiagnostics([
-        "slide削除中に予期しないエラーが発生しました。",
-        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
-        "Drive assets/ の素材fileは削除していません。",
+        "スライド削除中に予期しないエラーが発生しました。",
+        "プロジェクト設定と一覧のどこまで更新されたかは、この画面だけでは判断できません。",
+        "Drive上の素材ファイルは削除していません。",
         "Drive状態を再確認してください。",
       ]);
       return false;
@@ -4360,25 +4357,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (blockedReason) {
       setSlideEditStatus("blocked");
-      setSlideEditMessage("slideを複製できませんでした。");
+      setSlideEditMessage("スライドを複製できませんでした。");
       setSlideEditDiagnostics([blockedReason]);
       return false;
     }
 
     if ((projectDetails?.slideCount ?? 0) >= ASSET_IMPORT_MAX_SLIDE_COUNT) {
       setSlideEditStatus("invalid");
-      setSlideEditMessage("slideを複製できませんでした。");
+      setSlideEditMessage("スライドを複製できませんでした。");
       setSlideEditDiagnostics([
-        `slide 数が上限の${ASSET_IMPORT_MAX_SLIDE_COUNT}件に達しているため、複製できません。`,
+        `スライド数が上限の${ASSET_IMPORT_MAX_SLIDE_COUNT}件に達しているため、複製できません。`,
       ]);
       return false;
     }
 
     if (!accessToken || !readyWorkspace || !readyProject) {
       setSlideEditStatus("blocked");
-      setSlideEditMessage("slide複製に必要な ready 情報が不足しています。");
+      setSlideEditMessage("スライド複製に必要な確認済み情報が不足しています。");
       setSlideEditDiagnostics([
-        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Google接続、Driveの保存領域、選択中プロジェクトの確認済み情報が不足しています。",
         "Drive状態とプロジェクト状態を再確認してください。",
       ]);
       return false;
@@ -4387,7 +4384,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveOperationInFlight(true);
     setSlideDuplicateInFlightState(true);
     setSlideEditStatus("duplicating");
-    setSlideEditMessage("slideを複製しています。");
+    setSlideEditMessage("スライドを複製しています。");
     const requestId = driveOperationRequestIdRef.current + 1;
     driveOperationRequestIdRef.current = requestId;
 
@@ -4411,17 +4408,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
         project: result.project,
         details: result.details,
         projectMessage:
-          "選択中projectのslide複製を manifest.json / index.json に反映し、再検証しました。",
+          "選択中プロジェクトのスライド複製をプロジェクト設定と一覧へ反映し、再確認しました。",
       });
       setSlideEditStatus("completed");
       setSlideEditMessage(
-        "slideを複製しました。iPad再生へ反映するには、このprojectをoffline syncしてください。",
+        "スライドを複製しました。iPad再生へ反映するには、このプロジェクトを端末へ同期してください。",
       );
       setSlideEditDiagnostics([
         ...result.diagnostics,
-        `新しいslideId: ${formatIdPart(result.duplicatedSlide.slideId)}`,
-        "Drive asset fileはコピーしていません。",
-        "iPad再生への反映には、このprojectのoffline syncが必要です。",
+        "新しいスライドをプロジェクトへ追加しました。",
+        "Drive上の素材ファイルはコピーしていません。",
+        "iPad再生への反映には、このプロジェクトの端末同期が必要です。",
       ]);
       return true;
     } catch (error) {
@@ -4437,8 +4434,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
         );
         setSlideEditMessage(
           error.status === "invalidProject"
-            ? "slide複製前のDrive project情報に問題があります。"
-            : "slide複製に失敗しました。",
+            ? "スライド複製前のDriveプロジェクト情報に問題があります。"
+            : "スライド複製に失敗しました。",
         );
         setSlideEditDiagnostics(error.diagnostics);
         return false;
@@ -4450,11 +4447,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setProjectStatus("error");
       setSlideEditStatus("error");
-      setSlideEditMessage("slide複製に失敗しました。");
+      setSlideEditMessage("スライド複製に失敗しました。");
       setSlideEditDiagnostics([
-        "slide複製中に予期しないエラーが発生しました。",
-        "manifest.json / index.json のどこまで更新されたかは、この画面だけでは判断できません。",
-        "Drive asset fileはコピーしていません。",
+        "スライド複製中に予期しないエラーが発生しました。",
+        "プロジェクト設定と一覧のどこまで更新されたかは、この画面だけでは判断できません。",
+        "Drive上の素材ファイルはコピーしていません。",
         "Drive状態を再確認してください。",
       ]);
       return false;
@@ -4478,7 +4475,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (blockedReason) {
       setAssetCleanupPreviewStatus("blocked");
-      setAssetCleanupPreviewMessage("未使用asset previewを開始できませんでした。");
+      setAssetCleanupPreviewMessage("未使用素材の確認を開始できませんでした。");
       setSafeAssetCleanupPreviewDiagnostics([blockedReason]);
       setAssetCleanupPreviewResult(null);
       return;
@@ -4487,10 +4484,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (!accessToken || !readyWorkspace || !readyProject) {
       setAssetCleanupPreviewStatus("blocked");
       setAssetCleanupPreviewMessage(
-        "未使用asset previewに必要な ready 情報が不足しています。",
+        "未使用素材の確認に必要な情報が不足しています。",
       );
       setSafeAssetCleanupPreviewDiagnostics([
-        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Google接続、Driveの保存領域、選択中プロジェクトの確認済み情報が不足しています。",
         "Drive状態とプロジェクト状態を再確認してください。",
       ]);
       setAssetCleanupPreviewResult(null);
@@ -4502,7 +4499,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveOperationInFlight(true);
     setAssetCleanupPreviewInFlightState(true);
     setAssetCleanupPreviewStatus("checking");
-    setAssetCleanupPreviewMessage("未使用asset previewを更新しています。");
+    setAssetCleanupPreviewMessage("未使用素材の削除候補を更新しています。");
     setAssetCleanupPreviewResult(null);
     const requestId = driveOperationRequestIdRef.current + 1;
     driveOperationRequestIdRef.current = requestId;
@@ -4521,7 +4518,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setAssetCleanupPreviewStatus("ready");
       setAssetCleanupPreviewMessage(
-        "未使用 asset preview を更新しました。Drive file は削除していません。",
+        "未使用素材の削除候補を更新しました。Drive上の素材は削除していません。",
       );
       setAssetCleanupPreviewResult(result);
       setSafeAssetCleanupPreviewDiagnostics(result.diagnostics);
@@ -4546,7 +4543,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
               ? "blocked"
               : "error",
         );
-        setAssetCleanupPreviewMessage("未使用 asset preview に失敗しました。");
+        setAssetCleanupPreviewMessage("未使用素材の確認に失敗しました。");
         setSafeAssetCleanupPreviewDiagnostics(error.diagnostics);
         setAssetCleanupPreviewResult(null);
         return;
@@ -4557,11 +4554,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       setAssetCleanupPreviewStatus("error");
-      setAssetCleanupPreviewMessage("未使用 asset preview に失敗しました。");
+      setAssetCleanupPreviewMessage("未使用素材の確認に失敗しました。");
       setSafeAssetCleanupPreviewDiagnostics([
-        "未使用asset preview中に予期しないエラーが発生しました。",
-        "manifest.json / index.json は更新していません。",
-        "Drive assets/ のfileは更新・削除していません。",
+        "未使用素材の確認中に予期しないエラーが発生しました。",
+        "プロジェクト設定と一覧は更新していません。",
+        "Drive上の素材ファイルは更新・削除していません。",
       ]);
       setAssetCleanupPreviewResult(null);
     } finally {
@@ -4585,10 +4582,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (assetFileIds.length === 0) {
       setAssetCleanupDeletePreflightStatus("blocked");
       setAssetCleanupDeletePreflightMessage(
-        "削除前preflight対象の未使用assetが選択されていません。",
+        "削除前確認の対象となる未使用素材が選択されていません。",
       );
       setSafeAssetCleanupDeletePreflightDiagnostics([
-        "未使用assetを1件以上選択してください。",
+        "未使用素材を1件以上選択してください。",
       ]);
       setAssetCleanupDeletePreflightResult(null);
       return;
@@ -4597,7 +4594,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (blockedReason) {
       setAssetCleanupDeletePreflightStatus("blocked");
       setAssetCleanupDeletePreflightMessage(
-        "未使用asset削除前preflightを開始できませんでした。",
+        "未使用素材の削除前確認を開始できませんでした。",
       );
       setSafeAssetCleanupDeletePreflightDiagnostics([blockedReason]);
       setAssetCleanupDeletePreflightResult(null);
@@ -4607,10 +4604,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (!accessToken || !readyWorkspace || !readyProject) {
       setAssetCleanupDeletePreflightStatus("blocked");
       setAssetCleanupDeletePreflightMessage(
-        "未使用asset削除前preflightに必要な ready 情報が不足しています。",
+        "未使用素材の削除前確認に必要な情報が不足しています。",
       );
       setSafeAssetCleanupDeletePreflightDiagnostics([
-        "accessToken / workspaceReadyContext / driveProjectReadyContext のいずれかを確認できませんでした。",
+        "Google接続、Driveの保存領域、選択中プロジェクトの確認済み情報が不足しています。",
         "Drive状態とプロジェクト状態を再確認してください。",
       ]);
       setAssetCleanupDeletePreflightResult(null);
@@ -4624,7 +4621,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setAssetCleanupDeletePreflightInFlightState(true);
     setAssetCleanupDeletePreflightStatus("checking");
     setAssetCleanupDeletePreflightMessage(
-      "fresh manifest と fresh metadata で削除前preflightを実行しています。",
+      "Driveの最新のプロジェクト設定と素材情報で削除前確認を実行しています。",
     );
     setAssetCleanupDeletePreflightResult(null);
     const requestId = driveOperationRequestIdRef.current + 1;
@@ -4646,7 +4643,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setAssetCleanupDeletePreflightStatus("ready");
       setAssetCleanupDeletePreflightMessage(
-        "削除前preflightが完了しました。この段階ではまだDrive fileは削除しません。",
+        "削除前確認が完了しました。この段階ではまだDrive上の素材は削除しません。",
       );
       setAssetCleanupDeletePreflightResult(result);
       assetCleanupDeletePreflightOwnerRef.current =
@@ -4667,7 +4664,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             : "error",
         );
         setAssetCleanupDeletePreflightMessage(
-          "未使用asset削除前preflightに失敗しました。",
+          "未使用素材の削除前確認に失敗しました。",
         );
         setSafeAssetCleanupDeletePreflightDiagnostics(error.diagnostics);
         setAssetCleanupDeletePreflightResult(null);
@@ -4680,12 +4677,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setAssetCleanupDeletePreflightStatus("error");
       setAssetCleanupDeletePreflightMessage(
-        "未使用asset削除前preflightに失敗しました。",
+        "未使用素材の削除前確認に失敗しました。",
       );
       setSafeAssetCleanupDeletePreflightDiagnostics([
-        "未使用asset削除前preflight中に予期しないエラーが発生しました。",
-        "Drive file は削除していません。",
-        "manifest.json / index.json は更新していません。",
+        "未使用素材の削除前確認中に予期しないエラーが発生しました。",
+        "Drive上の素材は削除していません。",
+        "プロジェクト設定と一覧は更新していません。",
       ]);
       setAssetCleanupDeletePreflightResult(null);
     } finally {
@@ -4711,9 +4708,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (blockedReason || !readyWorkspace || !readyProject) {
       setAssetCleanupDeleteStatus("blocked");
-      setAssetCleanupDeleteMessage("未使用assetの削除確認を開始できませんでした。");
+      setAssetCleanupDeleteMessage("未使用素材の削除確認を開始できませんでした。");
       setSafeAssetCleanupDeleteDiagnostics([
-        blockedReason ?? "Drive workspaceとprojectのready情報を確認してください。",
+        blockedReason ?? "Driveの保存領域とプロジェクトの状態を確認してください。",
       ]);
       return;
     }
@@ -4730,7 +4727,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!prepared.ok) {
       setAssetCleanupDeleteStatus("blocked");
-      setAssetCleanupDeleteMessage("削除前preflightの内容を使用できません。");
+      setAssetCleanupDeleteMessage("削除前確認の内容を使用できません。");
       setSafeAssetCleanupDeleteDiagnostics([
         getAssetCleanupDeletePreparationFailureMessage(prepared.reason),
       ]);
@@ -4759,7 +4756,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setAssetCleanupDeleteStatus("cancelled");
     setAssetCleanupDeleteMessage("削除をキャンセルしました");
     setSafeAssetCleanupDeleteDiagnostics([
-      "Google DriveへのDELETEは送信していません。",
+      "Google Driveへの削除要求は送信していません。",
     ]);
   }
 
@@ -4786,7 +4783,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setAssetCleanupDeleteStatus("blocked");
       setAssetCleanupDeleteMessage("削除直前の再検証で停止しました");
       setSafeAssetCleanupDeleteDiagnostics([
-        blockedReason ?? "削除confirmの対象またはownerが変わりました。",
+        blockedReason ?? "最終確認の対象または操作対象が変わりました。",
       ]);
       return;
     }
@@ -4794,7 +4791,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveOperationInFlight(true);
     setAssetCleanupDeleteInFlightState(true);
     setAssetCleanupDeleteStatus("deleting");
-    setAssetCleanupDeleteMessage("未使用assetを削除しています。");
+    setAssetCleanupDeleteMessage("未使用素材を削除しています。");
     setAssetCleanupDeleteResult(null);
     setAssetCleanupDeleteProgress({ current: 0, total: plan.assets.length });
     setSafeAssetCleanupDeleteDiagnostics([]);
@@ -4888,9 +4885,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       pendingAssetCleanupDeletePlanRef.current = null;
       setAssetCleanupDeleteReview(null);
       setAssetCleanupDeleteStatus("error");
-      setAssetCleanupDeleteMessage("未使用 asset の削除に失敗しました");
+      setAssetCleanupDeleteMessage("未使用素材の削除に失敗しました");
       setSafeAssetCleanupDeleteDiagnostics([
-        "削除処理中に予期しない失敗が発生しました。自動retryは行いません。",
+        "削除処理中に予期しない失敗が発生しました。自動再試行は行いません。",
       ]);
     } finally {
       if (
@@ -5035,14 +5032,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
       clearProjectReadyDetails();
       setProjectDiagnostics([
         "Driveワークスペースの確認済み情報を取得できませんでした。",
-        "先にDrive状態を再確認し、ready になっていることを確認してください。",
+        "先にDrive状態を再確認し、保存領域を利用できることを確認してください。",
       ]);
       return;
     }
 
     if (projectStatus !== "notCreated" && projectStatus !== "ready") {
       setProjectDiagnostics([
-        "index.json.projects が作成可能な状態として確認できていないため、作成を開始しませんでした。",
+        "Driveのプロジェクト一覧を安全に更新できる状態ではないため、作成を開始しませんでした。",
         "先にプロジェクト状態を再確認してください。",
       ]);
       return;
@@ -5092,7 +5089,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setProjectStatus("ready");
       setProjectMessage(
-        "新しいprojectを作成し、選択状態にしました。",
+        "新しいプロジェクトを作成し、選択状態にしました。",
       );
       applyProjectReadyState(result.project, toProjectDetails(result.details));
       setProjectDiagnostics(result.diagnostics);
@@ -5134,7 +5131,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           error.status === "notCreatable"
             ? "既存プロジェクト、または競合作成を検知したため作成を停止しました。"
             : error.status === "invalidWorkspace"
-              ? "Drive上のプロジェクト情報に問題があります。このスライスでは自動修復しません。"
+              ? "Drive上のプロジェクト情報に問題があります。この画面では自動修復しません。"
               : "プロジェクト作成に失敗しました。",
         );
         setProjectDiagnostics(buildProjectCreateFailureDiagnostics(error));
@@ -5641,7 +5638,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         ok: false,
         category: "error",
         code: "rollbackAlreadyRunning",
-        message: "公開またはrollback処理の完了後にもう一度操作してください。",
+        message: "公開またはロールバック処理の完了後にもう一度操作してください。",
       };
     }
     const accessToken = accessTokenRef.current;
@@ -5667,7 +5664,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         category: "stale",
         code: "stalePreview",
         message:
-          "実行可能なrollback previewがありません。最新状態でpreviewをやり直してください。",
+          "実行可能なロールバックの影響確認がありません。最新状態で影響確認をやり直してください。",
       };
     }
 
@@ -5739,7 +5736,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     ) {
       return buildProjectRollbackCommitFailure({
         code: "rollbackAlreadyRunning",
-        message: "公開またはrollback処理の完了を待ってください。",
+        message: "公開またはロールバック処理の完了を待ってください。",
         recoverability: "retryable",
       });
     }
@@ -5751,7 +5748,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return buildProjectRollbackCommitFailure({
         code: "preparedReviewNotFound",
         message:
-          "rollback実行前確認の内容を使用できません。previewからやり直してください。",
+          "ロールバック実行前確認の内容を使用できません。影響確認からやり直してください。",
         recoverability: "conflict",
       });
     }
@@ -5770,7 +5767,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return buildProjectRollbackCommitFailure({
         code: "rollbackNotReady",
         message:
-          "Google接続または選択中projectが変わりました。previewからやり直してください。",
+          "Google接続または選択中プロジェクトが変わりました。影響確認からやり直してください。",
         recoverability: "conflict",
       });
     }
@@ -5796,7 +5793,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         return buildProjectRollbackCommitFailure({
           code: "staleRollbackRequest",
           message:
-            "rollbackの反映状態を安全に確定できません。履歴と現在状態を確認してください。",
+            "ロールバックの反映状態を安全に確定できません。履歴と現在状態を確認してください。",
           recoverability: "requiresInspection",
         });
       }
@@ -6048,25 +6045,25 @@ function buildOfflineSyncResultMessage(
       return OFFLINE_SYNC_COMPLETED_MESSAGE;
 
     case "stale":
-      return "より新しいsync runが優先されたため、今回の結果はconfirmed storeへ反映していません。";
+      return "より新しい同期処理が優先されたため、今回の結果は端末保存データへ反映していません。";
 
     case "staleManifest":
       return OFFLINE_SYNC_STALE_MANIFEST_MESSAGE;
 
     case "driveFetchOrStagingWriteFailed":
-      return "Drive取得、または staging write に失敗しました。";
+      return "Driveからの取得、または端末への一時保存に失敗しました。";
 
     case "promotionFailed":
-      return "staging promotion に失敗しました。";
+      return "端末保存データの更新に失敗しました。以前の再生用データを維持しています。";
 
     case "orchestrationPreconditionFailed":
-      return "offline sync の前提条件を満たしていません。";
+      return "端末への同期の前提条件を満たしていません。";
 
     case "orchestrationUnexpectedFailure":
-      return "offline sync 中に予期しない失敗が発生しました。";
+      return "端末への同期中に予期しない失敗が発生しました。";
 
     case "syncAlreadyInFlight":
-      return "offline sync はすでに実行中です。";
+      return "端末への同期はすでに実行中です。";
 
     case "syncRuntimeCancelled":
       return OFFLINE_SYNC_CANCELLED_MESSAGE;
@@ -6082,30 +6079,30 @@ function buildOfflineSyncResultDiagnostics(
   switch (result.status) {
     case "ready":
       return [
-        `manifest slide count: ${result.manifestSlideCount}`,
-        `image sync candidate count: ${result.imageSyncCandidateCount}`,
-        `video sync candidate count: ${result.videoSyncCandidateCount}`,
-        `video Blob saved count: ${result.videoSyncedCount}`,
-        `video Blob not saved count: ${result.videoSkippedCount}`,
-        `remoteOnly video count: ${result.videoTooLargeSkippedCount}`,
-        `unsupported asset count: ${result.unsupportedAssetCount}`,
-        `offline staging slide count: ${result.offlineStagingSlideCount}`,
-        `slides: ${result.slideCount}`,
-        `assets: ${result.assetCount}`,
-        `staging written projects: ${result.stagingWrite.writtenProjects}`,
-        `staging written assets: ${result.stagingWrite.writtenAssets}`,
-        `staging written asset blobs: ${result.stagingWrite.writtenAssetBlobs}`,
-        `promoted projects: ${result.promotion.promotedProjects}`,
-        `promoted assets: ${result.promotion.promotedAssets}`,
-        `promoted asset blobs: ${result.promotion.promotedAssetBlobs}`,
-        "大容量videoはBlob未保存ですが、remoteOnly metadataとしてconfirmed storeに残り、オンライン時はstream再生対象になります。",
-        "Blob未保存はDrive削除、cleanup対象、sync失敗を意味しません。MP4/MOV以外の動画形式は未対応です。",
+        `プロジェクト設定内のスライド: ${result.manifestSlideCount}`,
+        `画像の同期対象: ${result.imageSyncCandidateCount}`,
+        `動画の同期対象: ${result.videoSyncCandidateCount}`,
+        `動画本体の保存済み件数: ${result.videoSyncedCount}`,
+        `動画本体の未保存件数: ${result.videoSkippedCount}`,
+        `remoteOnly動画: ${result.videoTooLargeSkippedCount}`,
+        `未対応素材: ${result.unsupportedAssetCount}`,
+        `同期対象スライド: ${result.offlineStagingSlideCount}`,
+        `保存したスライド: ${result.slideCount}`,
+        `保存した素材: ${result.assetCount}`,
+        `一時保存したプロジェクト: ${result.stagingWrite.writtenProjects}`,
+        `一時保存した素材情報: ${result.stagingWrite.writtenAssets}`,
+        `一時保存した素材本体: ${result.stagingWrite.writtenAssetBlobs}`,
+        `更新したプロジェクト: ${result.promotion.promotedProjects}`,
+        `更新した素材情報: ${result.promotion.promotedAssets}`,
+        `更新した素材本体: ${result.promotion.promotedAssetBlobs}`,
+        "大容量動画は本体を保存しませんが、remoteOnlyの再生情報を端末保存データに残し、オンライン時はDriveから再生します。",
+        "本体未保存はDrive削除、物理削除対象、同期失敗を意味しません。MP4/MOV以外の動画形式は未対応です。",
         result.publicationProvenance.message,
       ];
 
     case "stale":
       return [
-        "この syncRun は stale-sync-run として無視されました。",
+        "より新しい同期処理が優先されたため、今回の結果は反映しませんでした。",
       ];
 
     case "staleManifest":
@@ -6120,13 +6117,13 @@ function buildOfflineSyncResultDiagnostics(
       return ["確認済みデータへの切り替えに失敗しました。以前の再生用データを維持しています。"];
 
     case "orchestrationPreconditionFailed":
-      return ["offline syncの前提条件を確認してください。"];
+      return ["端末への同期の前提条件を確認してください。"];
 
     case "orchestrationUnexpectedFailure":
-      return ["offline sync中に予期しない失敗が発生しました。"];
+      return ["端末への同期中に予期しない失敗が発生しました。"];
 
     case "syncAlreadyInFlight":
-      return ["offline syncはすでに実行中です。"];
+      return ["端末への同期はすでに実行中です。"];
 
     case "syncRuntimeCancelled":
       return [OFFLINE_SYNC_CANCELLED_MESSAGE];
@@ -6189,7 +6186,7 @@ async function runDriveWorkspaceCheck(
       return {
         status: "multipleCandidates",
         message:
-          "Driveワークスペース候補が2件以上あります。このスライスでは自動選択・削除・修復は行いません。",
+          "Driveの保存領域が2件以上あります。この画面では自動選択・削除・修復は行いません。",
         candidates: summaries,
         diagnostics: [
           "Driveワークスペースroot候補が2件以上見つかりました。",
@@ -6212,7 +6209,7 @@ async function runDriveWorkspaceCheck(
       return {
         status: "invalidWorkspace",
         message:
-          "Driveワークスペース候補のmetadataに問題があります。このスライスでは自動修復は行いません。",
+          "Driveの保存領域の情報に問題があります。自動修復は行いません。",
         candidates: summaries,
         diagnostics: metadataResult.diagnostics,
       };
@@ -6242,7 +6239,7 @@ async function runDriveWorkspaceCheck(
       return {
         status: "invalidWorkspace",
         message:
-          "Driveワークスペース候補のJSON本文に問題があります。このスライスでは自動修復は行いません。",
+          "Driveの保存領域の設定に問題があります。この画面では自動修復は行いません。",
         candidates: summaries,
         diagnostics,
       };
@@ -6252,7 +6249,7 @@ async function runDriveWorkspaceCheck(
       return {
         status: "unsupportedVersion",
         message:
-          "Driveワークスペース候補のschemaVersionは、このPWAでは対応していません。",
+          "Driveの保存領域は、このPWAで対応していない保存形式です。",
         candidates: summaries,
         diagnostics,
       };
@@ -6261,7 +6258,7 @@ async function runDriveWorkspaceCheck(
     return {
       status: "ready",
       message:
-        "Driveワークスペース準備済みです。metadataとJSON本文の整合を確認しました。",
+        "Driveの保存領域を利用できます。設定内容の整合性を確認しました。",
       candidates: summaries,
       diagnostics,
       readyContext: {
@@ -6337,13 +6334,13 @@ function validateProjectTitleInput(title: string) {
   const diagnostics: string[] = [];
 
   if (title.length === 0) {
-    diagnostics.push("project title を入力してください。");
+    diagnostics.push("プロジェクト名を入力してください。");
     return diagnostics;
   }
 
   if ([...title].length > DRIVE_PROJECT_TITLE_MAX_LENGTH) {
     diagnostics.push(
-      `project title は ${DRIVE_PROJECT_TITLE_MAX_LENGTH} 文字以内で入力してください。`,
+      `プロジェクト名は ${DRIVE_PROJECT_TITLE_MAX_LENGTH} 文字以内で入力してください。`,
     );
   }
 
@@ -6390,7 +6387,7 @@ function formatIdPart(id: string | undefined) {
 function buildProjectCreateDriveRecheckDiagnostics() {
   return [
     "プロジェクト作成中に、App内のDrive確認済み情報が古くなった可能性があります。",
-    "Drive状態を再確認すると、index.json の最新状態を読み直します。",
+    "Drive状態を再確認すると、プロジェクト一覧の最新状態を読み直します。",
   ];
 }
 
@@ -6398,7 +6395,7 @@ function buildProjectCreateFailureDiagnostics(error: DriveProjectCreateError) {
   const diagnostics = [...error.diagnostics];
 
   if (error.projectId) {
-    diagnostics.push(`対象projectId: ${formatIdPart(error.projectId)}`);
+    diagnostics.push("作成対象のプロジェクトが一部作成された可能性があります。");
   }
 
   if (error.possibleChangedItems.length > 0) {
@@ -6522,7 +6519,7 @@ function buildLocalVideoOfflineScopeDiagnostics(item: LocalVideoAssetImportItem)
       "理由: MP4/MOVはoffline保存上限を超えるとremoteOnlyとして保持されます。",
     );
   } else {
-    diagnostics.push("offline保存: MP4/MOVは上限以下の場合にoffline sync対象です。");
+    diagnostics.push("端末保存: MP4/MOVは上限以下の場合に端末への同期対象です。");
   }
 
   return diagnostics;
@@ -6581,8 +6578,7 @@ function buildAssetImportDriveSaveFailureDiagnostics(
 
   if (error.possibleCreatedAsset) {
     diagnostics.push(
-      `作成済みの可能性: assetId ${error.possibleCreatedAsset.assetIdPart}`,
-      `作成済みの可能性: assetFileId ${error.possibleCreatedAsset.assetFileIdPart}`,
+      "Drive上に素材が作成済みの可能性があります。Drive状態を再確認してください。",
     );
   }
 
@@ -6594,13 +6590,12 @@ function buildAssetImportManifestAppendFailureDiagnostics(
 ) {
   const diagnostics = [
     ...error.diagnostics,
-    `対象assetId: ${error.savedAsset.assetIdPart}`,
-    `対象assetFileId: ${error.savedAsset.assetFileIdPart}`,
+    "Drive保存済みの素材をプロジェクトへ反映できませんでした。",
   ];
 
   if (error.possibleChangedItems.length > 0) {
     diagnostics.push(
-      "manifest反映中にDrive項目が更新された可能性があります。",
+      "プロジェクトへの反映中にDrive上の項目が更新された可能性があります。",
       ...error.possibleChangedItems.map(toProjectChangedItemDiagnostic),
     );
   }
@@ -6615,18 +6610,18 @@ function buildAssetImportManifestBatchAppendFailureDiagnostics(
 ) {
   const diagnostics = [
     ...error.diagnostics,
-    `manifest反映対象asset数: ${error.savedAssets.length}`,
+    `プロジェクト反映対象の素材数: ${error.savedAssets.length}`,
   ];
 
   if (error.possibleChangedItems.length > 0) {
     diagnostics.push(
-      "batch manifest反映中にDrive項目が更新された可能性があります。",
+      "プロジェクトへの一括反映中にDrive上の項目が更新された可能性があります。",
       ...error.possibleChangedItems.map(toProjectChangedItemDiagnostic),
     );
   }
 
   diagnostics.push(
-    "Drive保存済みだがmanifest未反映のassetが残っている可能性があります。",
+    "Drive保存済みですが、プロジェクトへ未反映の素材が残っている可能性があります。",
     "Drive状態を再確認してください。",
   );
 
@@ -6753,7 +6748,7 @@ export async function waitForPhotosPickerSelection(input: {
         diagnostics: [
           "Photos Pickerの選択待ちが30分でタイムアウトしました。",
           "Drive保存: 未実行",
-          "manifest反映: 未実行",
+          "プロジェクト反映: 未実行",
         ],
       });
     }
@@ -6765,7 +6760,7 @@ export async function waitForPhotosPickerSelection(input: {
         diagnostics: [
           "Photos Pickerの選択待ちがタイムアウトしました。",
           "Drive保存: 未実行",
-          "manifest反映: 未実行",
+          "プロジェクト反映: 未実行",
         ],
       });
     }
@@ -6882,15 +6877,15 @@ function getAssetCleanupDeletePreparationFailureMessage(
 ) {
   switch (reason) {
     case "preflightMissing":
-      return "削除前preflightを実行し直してください。";
+      return "削除前確認を実行し直してください。";
     case "selectionChanged":
-      return "選択内容がpreflight時から変わりました。削除前preflightを実行し直してください。";
+      return "選択内容が削除前確認時から変わりました。削除前確認を実行し直してください。";
     case "ownerChanged":
-      return "選択中のworkspaceまたはprojectが変わりました。cleanup previewから確認し直してください。";
+      return "選択中のDrive保存領域またはプロジェクトが変わりました。削除候補から確認し直してください。";
     case "eligibleAssetRequired":
-      return "削除可能な未使用assetがありません。";
+      return "削除可能な未使用素材がありません。";
     case "blockedAssetPresent":
-      return "blocked assetが含まれるため削除できません。";
+      return "安全確認で停止した素材が含まれるため削除できません。";
   }
 }
 
@@ -6899,13 +6894,13 @@ function getAssetCleanupDeleteResultMessage(
 ) {
   switch (status) {
     case "completed":
-      return "未使用 asset の削除が完了しました";
+      return "未使用素材の削除が完了しました";
     case "partialFailure":
-      return "一部の未使用 asset だけ削除されました";
+      return "一部の未使用素材だけ削除されました";
     case "blocked":
       return "削除直前の再検証で停止しました";
     case "failed":
-      return "未使用 asset の削除に失敗しました";
+      return "未使用素材の削除に失敗しました";
   }
 }
 
@@ -6913,18 +6908,18 @@ function buildAssetCleanupDeleteResultDiagnostics(
   result: DriveProjectUnusedAssetDeleteResult,
 ) {
   const diagnostics = [
-    `requested: ${result.requestedCount}件`,
-    `deleted: ${result.deletedCount}件`,
-    `failed: ${result.failedCount}件`,
-    `blocked: ${result.blockedCount}件`,
-    `not attempted: ${result.notAttemptedCount}件`,
-    "自動retryは行いません。",
+    `削除依頼: ${result.requestedCount}件`,
+    `削除済み: ${result.deletedCount}件`,
+    `失敗: ${result.failedCount}件`,
+    `安全確認で停止: ${result.blockedCount}件`,
+    `未実行: ${result.notAttemptedCount}件`,
+    "自動再試行は行いません。",
   ];
 
   if (result.status === "partialFailure") {
     diagnostics.push(
       "Drive上に一部削除済みの状態が残っています。",
-      "cleanup previewの再読込結果を確認してから、次の操作を手動で行ってください。",
+      "未使用素材の削除候補を再読込してから、次の操作を手動で行ってください。",
     );
   }
 
@@ -6993,7 +6988,7 @@ function buildWorkspaceCreateFailureDiagnostics(
 
 function buildPostCreateNotReadyDiagnostics(result: DriveWorkspaceCheckResult) {
   return [
-    "Driveワークスペース作成APIは完了しましたが、作成後確認で ready になりませんでした。",
+    "Driveの保存領域を作成しましたが、作成後の確認を完了できませんでした。",
     ...result.diagnostics,
     "Google Driveで「iPad Slideshow PWA Workspace」を確認してください。",
     "不要な場合は、そのフォルダごと手動で削除してください。",

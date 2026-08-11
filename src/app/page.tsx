@@ -22,7 +22,7 @@ const taskItems = [
     href: "/admin",
     title: "管理",
     description:
-      "projectの編集、公開、公開履歴、ロールバック、端末へのoffline syncを行います。",
+      "プロジェクトの編集、公開、公開履歴、ロールバック、端末への同期を行います。",
     badge: "編集 / 公開 / 同期",
     action: "管理画面を開く",
   },
@@ -30,7 +30,7 @@ const taskItems = [
     href: "/settings",
     title: "設定 / Google Drive接続",
     description:
-      "Google接続とDriveワークスペースの状態、この端末の保存準備を確認します。",
+      "Google接続とDriveの保存領域、この端末の保存準備を確認します。",
     badge: "Google / Drive",
     action: "設定を開く",
   },
@@ -51,7 +51,7 @@ export default function Home() {
               </h1>
               <p className="max-w-3xl text-base leading-7 text-slate-300">
                 iPadで安定して再生するためのスライドショーPWAです。
-                Google Drive上でprojectを管理し、明示的なoffline syncでこの端末の再生用データを更新します。
+                Google Drive上でプロジェクトを管理し、明示的な端末への同期で再生用データを更新します。
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -98,7 +98,7 @@ export default function Home() {
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
               <p className="font-semibold text-slate-50">変更をiPadへ反映する</p>
               <p className="mt-2 leading-6">
-                保存や公開だけでは再生用データは変わりません。管理画面で対象projectのoffline syncを明示的に実行してください。
+                保存や公開だけでは再生用データは変わりません。管理画面で対象プロジェクトの「端末へ同期」を明示的に実行してください。
               </p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4">

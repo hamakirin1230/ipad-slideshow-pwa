@@ -183,9 +183,9 @@ export function DriveProjectWorkspacePanel() {
     const slideIdsToDelete = Array.from(selectedSlideIds);
     const confirmed = window.confirm(
       [
-        `選択した${slideIdsToDelete.length}件の slide をこの project から削除します。`,
-        "Drive assets/ の素材ファイルは削除しません。",
-        "iPad再生に反映するには offline sync が必要です。",
+        `選択した${slideIdsToDelete.length}件のスライドをこのプロジェクトから削除します。`,
+        "Google Drive上の素材ファイルは削除しません。",
+        "iPad再生に反映するには端末への同期が必要です。",
       ].join("\n"),
     );
 
@@ -264,7 +264,7 @@ export function DriveProjectWorkspacePanel() {
         <Card className="bg-white text-slate-950">
           <CardHeader>
             <CardTitle>Driveプロジェクト数</CardTitle>
-            <CardDescription>index.json.projects で確認済みの件数</CardDescription>
+            <CardDescription>Driveで確認済みのプロジェクト件数</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{driveProjects.length}</p>
@@ -274,12 +274,12 @@ export function DriveProjectWorkspacePanel() {
         <Card className="bg-white text-slate-950">
           <CardHeader>
             <CardTitle>素材数</CardTitle>
-            <CardDescription>Drive assets/ 配下の素材管理</CardDescription>
+            <CardDescription>Driveに保存した素材</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{assetCount}</p>
             <p className="mt-2 text-sm text-slate-500">
-              manifest.json.slides が参照する検証済みasset数を表示します。
+              プロジェクト設定から参照されている素材数を表示します。
             </p>
           </CardContent>
         </Card>
@@ -287,12 +287,12 @@ export function DriveProjectWorkspacePanel() {
         <Card className="bg-white text-slate-950">
           <CardHeader>
             <CardTitle>本編スライド数</CardTitle>
-            <CardDescription>manifest.json.slides の編集対象</CardDescription>
+            <CardDescription>編集できるスライド</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{slideCount}</p>
             <p className="mt-2 text-sm text-slate-500">
-              manifest.json.slides の件数を表示します。各slideのテロップは下の一覧で編集できます。
+              本編のスライド件数です。各スライドのテロップは下の一覧で編集できます。
             </p>
           </CardContent>
         </Card>
@@ -303,19 +303,14 @@ export function DriveProjectWorkspacePanel() {
           <CardHeader>
             <CardTitle>選択中Driveプロジェクト</CardTitle>
             <CardDescription>
-              Drive上で検証済みの選択中projectを表示します。
+              Drive上で確認済みの選択中プロジェクトを表示します。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {projectSummary ? (
               <div className="rounded-xl border border-slate-200 p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="font-semibold">{projectSummary.title}</h2>
-                    <p className="mt-1 break-all text-sm text-slate-600">
-                      {projectSummary.manifestPath}
-                    </p>
-                  </div>
+                  <h2 className="font-semibold">{projectSummary.title}</h2>
                   <Badge
                     variant={projectStatus === "ready" ? "default" : "secondary"}
                   >
@@ -324,10 +319,6 @@ export function DriveProjectWorkspacePanel() {
                 </div>
 
                 <dl className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                  <div>
-                    <dt className="font-medium text-slate-900">識別コード</dt>
-                    <dd>{projectSummary.projectIdPart}</dd>
-                  </div>
                   <div>
                     <dt className="font-medium text-slate-900">作成日時</dt>
                     <dd>{projectSummary.createdAt}</dd>
@@ -352,8 +343,8 @@ export function DriveProjectWorkspacePanel() {
               </div>
             ) : (
               <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
-                Drive project はまだ表示できません。上のDriveプロジェクト状態で
-                ready になっていることを確認してください。
+                Driveプロジェクトはまだ表示できません。上のDriveプロジェクト状態で
+                確認が完了していることを確かめてください。
               </div>
             )}
           </CardContent>
@@ -363,7 +354,7 @@ export function DriveProjectWorkspacePanel() {
           <CardHeader>
             <CardTitle>素材管理</CardTitle>
             <CardDescription>
-              Google Photos Picker 連携後に、assets/ 配下へ保存する素材を扱います。
+              Google Photos Pickerや動画ファイルからDriveへ保存する素材を扱います。
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -381,7 +372,7 @@ export function DriveProjectWorkspacePanel() {
           <CardHeader>
             <CardTitle>本編スライド順</CardTitle>
             <CardDescription>
-              スライドの順番、テロップ、表示時間を編集します。反映にはoffline syncが必要です。
+              スライドの順番、テロップ、表示時間を編集します。再生への反映には端末への同期が必要です。
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -389,7 +380,7 @@ export function DriveProjectWorkspacePanel() {
               <p className="font-semibold text-slate-900">スライドの順番</p>
               <p className="mt-1">
                 この順番が /player の再生順になります。変更後、iPad再生に反映するには
-                offline sync を実行してください。
+                端末への同期を実行してください。
               </p>
               {slideReorderBlockedReason ? (
                 <p className="mt-2 text-xs text-slate-500">
@@ -404,11 +395,11 @@ export function DriveProjectWorkspacePanel() {
                     <p className="font-semibold text-slate-900">
                       {selectedCount > 0
                         ? `${selectedCount}件選択中`
-                        : "slideを選択して一括操作できます"}
+                        : "スライドを選択して一括操作できます"}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
-                      すべて削除すると、この project は再生対象 slide がない状態になります。
-                      Drive assets/ の素材ファイルは削除しません。
+                      すべて削除すると、このプロジェクトは再生対象のスライドがない状態になります。
+                      Google Drive上の素材ファイルは削除しません。
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -432,7 +423,7 @@ export function DriveProjectWorkspacePanel() {
                     >
                       {isSlideDeleteInFlight
                         ? "削除中"
-                        : "選択した slide を削除"}
+                        : "選択したスライドを削除"}
                     </Button>
                   </div>
                 </div>
@@ -465,7 +456,7 @@ export function DriveProjectWorkspacePanel() {
                         <p>選択</p>
                         <p>順番</p>
                         <p>プレビュー</p>
-                        <p>asset</p>
+                        <p>素材</p>
                         <p>並び替え</p>
                         <p>操作</p>
                         <p>編集</p>
@@ -493,7 +484,7 @@ export function DriveProjectWorkspacePanel() {
                                     }
                                     className="size-4 rounded border-slate-300"
                                   />
-                                  <span className="sr-only">slide を選択</span>
+                                  <span className="sr-only">スライドを選択</span>
                                 </label>
                                 <div className="space-y-2">
                                   <p className="font-medium">{index + 1}</p>
@@ -518,31 +509,32 @@ export function DriveProjectWorkspacePanel() {
                                           : "outline"
                                       }
                                     >
-                                      type: {getAssetTypeLabel(slide.type)}
+                                      種類: {getAssetTypeDisplayLabel(slide.type)}
                                     </Badge>
                                     {slide.unsupportedReason ? (
                                       <Badge variant="destructive">
-                                        {slide.unsupportedReason}
+                                        {getUnsupportedReasonDisplayLabel(
+                                          slide.unsupportedReason,
+                                        )}
                                       </Badge>
                                     ) : null}
                                   </div>
                                   <p className="mt-1 text-xs text-slate-500">
-                                    source: {slide.sourceMimeType} / createTime:{" "}
+                                    元の形式: {slide.sourceMimeType} / 作成日時:{" "}
                                     {slide.sourceCreateTime}
                                   </p>
                                   <p className="mt-1 text-xs text-slate-500">
-                                    slide: {slide.slideIdPart} /{" "}
-                                    管理上の表示秒数: {slide.durationSeconds}秒 /{" "}
+                                    表示時間: {slide.durationSeconds}秒 /{" "}
                                     {slide.mimeType}
                                   </p>
                                   <p className="mt-1 text-xs text-slate-500">
                                     動画の実時間:{" "}
-                                    {formatOptionalDurationMs(slide.durationMs)} / size:{" "}
+                                    {formatOptionalDurationMs(slide.durationMs)} / 容量:{" "}
                                     {formatOptionalBytes(slide.fileSize)}
                                   </p>
                                   {getAssetTypeLabel(slide.type) === "video" ? (
                                     <p className="mt-1 text-xs leading-5 text-slate-600">
-                                      大容量動画はoffline Blob保存せず、オンライン時にDriveからストリーミング再生します。offline sync後もmetadataとして再生対象に残ります。
+                                      大容量動画は本体を端末へ保存せず、オンライン時にDriveから再生します。端末への同期後もremoteOnlyの再生情報として残ります。
                                     </p>
                                   ) : null}
                                 </div>
@@ -604,13 +596,13 @@ export function DriveProjectWorkspacePanel() {
                   検証済みスライドはまだありません。
                 </p>
                 <p className="mt-2">
-                  manifest.json.slides に追加済みのスライドがここに表示されます。
+                  プロジェクトに追加済みのスライドがここに表示されます。
                   素材を追加すると、ここでテロップを編集できます。
                 </p>
               </div>
             )}
             <p className="mt-3 text-xs leading-5 text-slate-500">
-              スライド順、テロップ、表示時間の変更をiPad再生に反映するには、このprojectをoffline syncしてください。
+              スライド順、テロップ、表示時間の変更をiPad再生に反映するには、このプロジェクトを端末へ同期してください。
             </p>
             {slideEditMessage ? (
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -772,7 +764,7 @@ function SlideDurationEditor({
       <p className="mt-2 text-xs leading-5 text-slate-500">
         {assetType === "video"
           ? `動画は現在、再生終了で次へ進みます。この秒数は管理値として保存します。動画の実時間: ${formatOptionalDurationMs(durationMs)}`
-          : "画像slideの自動送り秒数として保存します。"}
+          : "画像スライドの自動送り秒数として保存します。"}
       </p>
       {isEmpty ? (
         <p className="mt-2 text-xs text-red-700">表示時間を入力してください。</p>
@@ -784,7 +776,7 @@ function SlideDurationEditor({
         </p>
       ) : null}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-slate-500">offline sync 後にiPad再生へ反映</p>
+        <p className="text-xs text-slate-500">端末への同期後にiPad再生へ反映</p>
         <Button
           type="button"
           size="sm"
@@ -887,8 +879,8 @@ function SlideSingleActions({
         disabled={isDisabled || isDuplicateLimitReached}
         title={
           isDuplicateLimitReached
-            ? "slide 数が上限の50件に達しているため、複製できません。"
-            : "slideを複製"
+            ? "スライド数が上限の50件に達しているため、複製できません。"
+            : "スライドを複製"
         }
         onClick={() => {
           void onDuplicate(slideId);
@@ -898,7 +890,7 @@ function SlideSingleActions({
       </Button>
       {isDuplicateLimitReached ? (
         <p className="text-xs leading-5 text-slate-500">
-          slide 数が上限の50件に達しているため、複製できません。
+          スライド数が上限の50件に達しているため、複製できません。
         </p>
       ) : null}
     </div>
@@ -1066,6 +1058,16 @@ function DriveSlidePreview({
 
 function getAssetTypeLabel(value: "image" | "video" | undefined) {
   return value ?? "image";
+}
+
+function getAssetTypeDisplayLabel(value: "image" | "video" | undefined) {
+  return getAssetTypeLabel(value) === "video" ? "動画" : "画像";
+}
+
+function getUnsupportedReasonDisplayLabel(reason: string) {
+  return reason === "unsupportedVideoMimeType"
+    ? "未対応の動画形式"
+    : "未対応の素材形式";
 }
 
 function parseSlideDurationSeconds(value: string) {

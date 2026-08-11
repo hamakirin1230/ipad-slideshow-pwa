@@ -32,7 +32,7 @@ describe("AppProviders unused asset delete ownership", () => {
 
   it("does not send DELETE when confirm is cancelled", () => {
     expect(cancelSource).toContain('setAssetCleanupDeleteStatus("cancelled")');
-    expect(cancelSource).toContain("Google DriveへのDELETEは送信していません");
+    expect(cancelSource).toContain("Google Driveへの削除要求は送信していません");
     expect(cancelSource).not.toContain("deleteDriveProjectAssetFile");
     expect(cancelSource).not.toContain("executeDriveProjectUnusedAssetDeletion");
   });

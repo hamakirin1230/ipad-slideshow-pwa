@@ -80,8 +80,8 @@ export function ProjectStatusPanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          Drive上の index.json.projects 一覧と、選択中 project の manifest.json /
-          assets/ の整合を確認します。project ready 後に素材追加と offline sync へ進めます。
+          Drive上のプロジェクト一覧と、選択中プロジェクトの設定・素材を確認します。
+          確認後に素材追加と端末への同期へ進めます。
         </CardDescription>
       </CardHeader>
 
@@ -95,7 +95,7 @@ export function ProjectStatusPanel() {
           <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
             <p className="font-semibold">Driveワークスペース確認が必要です</p>
             <p className="mt-2">
-              プロジェクト状態は、Driveワークスペースが ready の場合だけ確認します。
+              プロジェクト状態は、Driveの保存領域を利用できる場合だけ確認します。
               先に /settings でGoogle接続とDrive状態確認を行ってください。
             </p>
           </div>
@@ -104,9 +104,9 @@ export function ProjectStatusPanel() {
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="font-semibold text-slate-50">Drive project 一覧</p>
+              <p className="font-semibold text-slate-50">Driveプロジェクト一覧</p>
               <p className="mt-1 text-slate-400">
-                index.json.projects: {driveProjects.length}件
+                登録済み: {driveProjects.length}件
               </p>
             </div>
             {selectedProjectId ? (
@@ -133,31 +133,20 @@ export function ProjectStatusPanel() {
                     }
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold">{project.title}</p>
-                        <p className="mt-1 text-xs opacity-80">
-                          {project.projectIdPart}
-                        </p>
-                      </div>
+                      <p className="font-semibold">{project.title}</p>
                       {isSelected ? (
                         <Badge variant="secondary">選択中</Badge>
                       ) : null}
                     </div>
 
                     <dl className="mt-3 grid gap-2 text-xs">
-                      <div>
-                        <dt className="opacity-70">manifestPath</dt>
-                        <dd className="break-all font-medium">
-                          {project.manifestPath}
-                        </dd>
-                      </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <dt className="opacity-70">slides</dt>
+                          <dt className="opacity-70">スライド</dt>
                           <dd className="font-medium">{project.slideCount}</dd>
                         </div>
                         <div>
-                          <dt className="opacity-70">assets</dt>
+                          <dt className="opacity-70">素材</dt>
                           <dd className="font-medium">{project.assetCount}</dd>
                         </div>
                       </div>
@@ -174,7 +163,7 @@ export function ProjectStatusPanel() {
                       onClick={() => selectProject(project.projectId)}
                       disabled={isSelected || isDriveOperationInFlight}
                     >
-                      {isSelected ? "このprojectを選択中" : "このprojectを選択"}
+                      {isSelected ? "このプロジェクトを選択中" : "このプロジェクトを選択"}
                     </Button>
                   </div>
                 );
@@ -182,28 +171,18 @@ export function ProjectStatusPanel() {
             </div>
           ) : (
             <p className="mt-4 text-slate-400">
-              project はまだ登録されていません。新しいprojectを作成できます。
+              プロジェクトはまだ登録されていません。新しいプロジェクトを作成できます。
             </p>
           )}
         </div>
 
         {projectSummary ? (
           <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
-            <p className="font-semibold">選択中projectの登録</p>
+            <p className="font-semibold">選択中プロジェクト</p>
             <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-emerald-200/80">タイトル</dt>
                 <dd className="font-medium">{projectSummary.title}</dd>
-              </div>
-              <div>
-                <dt className="text-emerald-200/80">識別コード</dt>
-                <dd className="font-medium">{projectSummary.projectIdPart}</dd>
-              </div>
-              <div className="sm:col-span-2">
-                <dt className="text-emerald-200/80">manifestPath</dt>
-                <dd className="break-all font-medium">
-                  {projectSummary.manifestPath}
-                </dd>
               </div>
               <div>
                 <dt className="text-emerald-200/80">作成日時</dt>
@@ -278,10 +257,10 @@ export function ProjectStatusPanel() {
         </div>
 
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-          <p className="font-semibold">project確認後の流れ</p>
+          <p className="font-semibold">プロジェクト確認後の流れ</p>
           <p className="mt-2">
-            project を選択して ready になったら、素材管理で Google Photos Picker から写真を追加し、
-            offline sync でこの端末の IndexedDB confirmed store に選択中projectの再生用コピーを作成します。
+            プロジェクトを選択して確認が完了したら、素材管理でGoogle Photos Pickerから写真を追加し、
+            端末への同期で選択中プロジェクトの再生用コピーを作成します。
           </p>
         </div>
       </CardContent>
@@ -316,9 +295,9 @@ function CreateProjectTitleForm(input: {
       className="rounded-2xl border border-white/10 bg-black/30 p-4"
       onSubmit={handleSubmit}
     >
-      <p className="font-semibold text-slate-50">新しいprojectを作成</p>
+      <p className="font-semibold text-slate-50">新しいプロジェクトを作成</p>
       <label className="mt-3 block text-xs font-medium text-slate-400">
-        project title
+        プロジェクト名
         <input
           type="text"
           value={projectTitle}
@@ -332,7 +311,7 @@ function CreateProjectTitleForm(input: {
       <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
         <p>
           {projectTitleError ??
-            "作成時に manifest.json と index.json の両方へ保存します。"}
+            "作成した内容をDriveへ保存し、プロジェクト一覧へ反映します。"}
         </p>
         <p>
           {[...normalizedProjectTitle].length}/{DRIVE_PROJECT_TITLE_MAX_LENGTH}
@@ -380,9 +359,9 @@ function SelectedProjectTitleForm(input: {
       className="rounded-2xl border border-white/10 bg-black/30 p-4"
       onSubmit={handleSubmit}
     >
-      <p className="font-semibold text-slate-50">選択中projectのtitle変更</p>
+      <p className="font-semibold text-slate-50">選択中プロジェクトの名前を変更</p>
       <label className="mt-3 block text-xs font-medium text-slate-400">
-        project title
+        プロジェクト名
         <input
           type="text"
           value={projectTitle}
@@ -397,8 +376,8 @@ function SelectedProjectTitleForm(input: {
         <p>
           {input.hasProject
             ? projectTitleError ??
-              "変更後に manifest.json / index.json を再検証します。"
-            : "先にprojectを選択してください。"}
+              "変更後にプロジェクト設定と一覧を再確認します。"
+            : "先にプロジェクトを選択してください。"}
         </p>
         <p>
           {[...normalizedProjectTitle].length}/{DRIVE_PROJECT_TITLE_MAX_LENGTH}
@@ -410,7 +389,7 @@ function SelectedProjectTitleForm(input: {
         variant="secondary"
         disabled={!canSubmit}
       >
-        titleを変更
+        名前を変更
       </Button>
     </form>
   );
@@ -422,10 +401,10 @@ function getCreateProjectButtonLabel(projectStatus: string) {
   }
 
   if (projectStatus === "ready") {
-    return "新しいprojectを作成";
+    return "新しいプロジェクトを作成";
   }
 
-  return "新しいprojectを作成";
+  return "新しいプロジェクトを作成";
 }
 
 function getSuggestedProjectTitle(projectCount: number) {
@@ -444,11 +423,11 @@ function normalizeProjectTitleInput(value: string) {
 
 function getProjectTitleError(title: string) {
   if (title.length === 0) {
-    return "project title を入力してください。";
+    return "プロジェクト名を入力してください。";
   }
 
   if ([...title].length > DRIVE_PROJECT_TITLE_MAX_LENGTH) {
-    return `project title は ${DRIVE_PROJECT_TITLE_MAX_LENGTH} 文字以内で入力してください。`;
+    return `プロジェクト名は ${DRIVE_PROJECT_TITLE_MAX_LENGTH} 文字以内で入力してください。`;
   }
 
   return null;

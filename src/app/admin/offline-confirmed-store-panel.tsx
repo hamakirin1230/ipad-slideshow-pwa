@@ -234,18 +234,17 @@ export function OfflineConfirmedStorePanel() {
 
     const shouldClear = window.confirm(
       [
-        "Service Worker の app shell cache を削除します。",
+        "アプリ表示用キャッシュを削除します。",
         "",
         "削除対象:",
-        "・画面本体の cache",
-        "・manifest / icons / Next.js static chunks の cache",
+        "・画面本体とアプリの基本ファイル",
         "",
         "削除しないもの:",
-        "・IndexedDB の project / asset metadata / asset Blob",
-        "・Google Drive 上の workspace / project / manifest / assets",
+        "・端末内データベース（IndexedDB）のプロジェクト・素材・再生データ",
+        "・Google Drive上の保存領域・プロジェクト設定・素材",
         "",
         "削除後もオンラインなら画面は再取得できます。",
-        "オフライン起動確認をやり直す場合は、オンラインで各画面を一度開いて cache を作り直してください。",
+        "オフライン起動確認をやり直す場合は、オンラインで各画面を一度開いてキャッシュを作り直してください。",
         "",
         "削除しますか？",
       ].join("\n"),
@@ -285,15 +284,14 @@ export function OfflineConfirmedStorePanel() {
     <Card className="border-white/10 bg-white/5 text-slate-50">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
-          <CardTitle>confirmed offline store</CardTitle>
+          <CardTitle>端末保存データ</CardTitle>
           <Badge variant={state.status === "ready" ? "secondary" : "outline"}>
             {getStateLabel(state.status)}
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          offline sync 後に IndexedDB confirmed stores の project / assets /
-          asset blobs / sync state を確認します。
-          Blob本体は画面表示せず、metadata と件数だけを表示します。
+          端末への同期後に、プロジェクト・素材・再生データ・同期状態を確認します。
+          素材本体は画面表示せず、種類・件数・保存容量だけを表示します。
         </CardDescription>
       </CardHeader>
 
@@ -305,9 +303,7 @@ export function OfflineConfirmedStorePanel() {
           onClick={handleCheckConfirmedStore}
           disabled={isChecking || isClearingProject}
         >
-          {isChecking
-            ? "confirmed store を確認中"
-            : "confirmed store を確認"}
+          {isChecking ? "端末保存データを確認中" : "端末保存データを確認"}
         </Button>
 
         <OfflineStorageManagementView
@@ -319,8 +315,8 @@ export function OfflineConfirmedStorePanel() {
 
         {state.status === "idle" ? (
           <p className="text-sm text-slate-400">
-            offline sync 完了後に押すと、confirmed offline store の保存結果と
-            project ごとのローカル保存容量を確認できます。
+            端末への同期が完了した後に押すと、保存結果と
+            プロジェクトごとのローカル保存容量を確認できます。
           </p>
         ) : null}
 
@@ -342,7 +338,7 @@ export function OfflineConfirmedStorePanel() {
 
         {state.status === "error" ? (
           <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-red-100">
-            <p className="font-semibold">confirmed store を確認できませんでした。</p>
+            <p className="font-semibold">端末保存データを確認できませんでした。</p>
             <div className="mt-3 space-y-1">
               <p>{state.message}</p>
               <p>確認日時: {state.checkedAt}</p>
@@ -361,10 +357,9 @@ export function OfflineConfirmedStorePanel() {
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
           <p className="font-semibold">プロジェクト単位のローカル削除について</p>
           <p className="mt-2">
-            削除するのは、この端末の IndexedDB に保存された対象 project の
-            offline playback 用コピーだけです。Google Drive 上の workspace /
-            project / manifest / assets は削除しません。
-            Blob本体は画面表示せず、metadata・件数・保存容量だけを表示します。
+            削除するのは、この端末の端末内データベース（IndexedDB）に保存された対象プロジェクトの
+            再生用コピーだけです。Google Drive上の保存領域・プロジェクト設定・素材は削除しません。
+            素材本体は画面表示せず、種類・件数・保存容量だけを表示します。
           </p>
         </div>
       </CardContent>
@@ -399,9 +394,8 @@ function OfflineStorageManagementView({
         <div>
           <p className="font-semibold text-slate-50">端末ストレージ概要</p>
           <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-400">
-            ブラウザが報告する保存使用量と Service Worker の app shell cache
-            を確認します。IndexedDB の asset Blob 管理とは別の、PWA 起動用 cache
-            の状態です。
+            ブラウザが報告する保存使用量と、PWA起動に使うアプリ表示用キャッシュを確認します。
+            端末内データベース（IndexedDB）の再生データとは別に管理されます。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -424,16 +418,16 @@ function OfflineStorageManagementView({
             disabled={isBusy || !canClearAppShellCache}
           >
             {state.status === "clearingCache"
-              ? "cache 削除中"
-              : "app shell cache を削除"}
+              ? "キャッシュを削除中"
+              : "アプリ表示用キャッシュを削除"}
           </Button>
         </div>
       </div>
 
       {state.status === "idle" ? (
         <p className="mt-3 text-xs leading-5 text-slate-500">
-          Cache Storage の容量はブラウザが個別 bytes を返さないため、件数と
-          browser storage estimate を併記します。
+          アプリ表示用キャッシュの容量はブラウザから取得できないため、項目数と
+          端末全体のブラウザ保存使用量を併記します。
         </p>
       ) : null}
 
@@ -451,13 +445,13 @@ function OfflineStorageManagementView({
 
       {state.status === "cacheCleared" ? (
         <div className="mt-4 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
-          <p className="font-semibold">app shell cache を削除しました。</p>
+          <p className="font-semibold">アプリ表示用キャッシュを削除しました。</p>
           <dl className="mt-3 grid gap-1 text-xs sm:grid-cols-2">
             <SummaryRow
-              label="deleted"
+              label="削除結果"
               value={state.result.deleted ? "削除済み" : "対象なし"}
             />
-            <SummaryRow label="clearedAt" value={state.result.clearedAt} />
+            <SummaryRow label="削除日時" value={state.result.clearedAt} />
           </dl>
         </div>
       ) : null}
@@ -466,40 +460,40 @@ function OfflineStorageManagementView({
         <div className="mt-4 space-y-4">
           <div className="grid gap-3 md:grid-cols-4">
             <CountCard
-              label="storage usage"
+              label="ブラウザ保存使用量"
               value={formatBytes(snapshot.storageEstimate.usageBytes)}
             />
             <CountCard
-              label="storage quota"
+              label="ブラウザ保存上限"
               value={formatBytes(snapshot.storageEstimate.quotaBytes)}
             />
             <CountCard
-              label="usage ratio"
+              label="使用率"
               value={formatPercent(snapshot.storageEstimate.usageRatio)}
             />
             <CountCard
-              label="app cache entries"
+              label="アプリ表示用項目"
               value={snapshot.cacheStorage.appShellRequestCount}
             />
           </div>
 
           <div className="grid gap-3 lg:grid-cols-2">
             <div className="rounded-xl border border-white/10 p-3">
-              <p className="font-medium text-slate-50">browser storage</p>
+              <p className="font-medium text-slate-50">ブラウザ保存領域</p>
               <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
                 <SummaryRow
-                  label="estimate"
+                  label="容量確認"
                   value={snapshot.storageEstimate.supported ? "対応" : "未対応"}
                 />
                 <SummaryRow
-                  label="persistent"
+                  label="永続保存"
                   value={formatNullableBoolean(snapshot.storageEstimate.persisted)}
                 />
                 {Object.entries(snapshot.storageEstimate.usageDetails).map(
                   ([name, sizeBytes]) => (
                     <SummaryRow
                       key={name}
-                      label={`usage.${name}`}
+                      label={`内訳: ${name}`}
                       value={formatBytes(sizeBytes)}
                     />
                   ),
@@ -508,53 +502,38 @@ function OfflineStorageManagementView({
             </div>
 
             <div className="rounded-xl border border-white/10 p-3">
-              <p className="font-medium text-slate-50">Cache Storage</p>
+              <p className="font-medium text-slate-50">アプリ表示用キャッシュ</p>
               <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
                 <SummaryRow
-                  label="cache API"
+                  label="キャッシュ機能"
                   value={snapshot.cacheStorage.supported ? "対応" : "未対応"}
                 />
                 <SummaryRow
-                  label="cache count"
+                  label="キャッシュ数"
                   value={snapshot.cacheStorage.cacheNames.length}
                 />
                 <SummaryRow
-                  label="total entries"
+                  label="全項目数"
                   value={snapshot.cacheStorage.totalRequestCount}
                 />
                 <SummaryRow
-                  label="app shell cache"
+                  label="アプリ表示用キャッシュ"
                   value={
                     snapshot.cacheStorage.appShellCacheExists ? "あり" : "なし"
                   }
                 />
               </dl>
 
-              <div className="mt-3 rounded-lg border border-white/10 bg-black/30 p-3">
-                <p className="text-xs font-medium text-slate-200">
-                  {snapshot.cacheStorage.appShellCacheName}
-                </p>
-                {snapshot.cacheStorage.appShellSampleUrls.length > 0 ? (
-                  <div className="mt-2 space-y-1 text-xs text-slate-500">
-                    {snapshot.cacheStorage.appShellSampleUrls.map((url) => (
-                      <p key={url} className="break-all">
-                        {url}
-                      </p>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-xs text-slate-500">
-                    app shell cache の保存リクエストはまだ確認できません。
-                  </p>
-                )}
-              </div>
+              <p className="mt-3 text-xs text-slate-500">
+                保存されている個別URLや内部キャッシュ名は表示しません。
+              </p>
             </div>
           </div>
 
           <p className="text-xs leading-5 text-slate-500">
-            app shell cache を削除しても、IndexedDB に保存された project / asset
-            metadata / asset Blob は残ります。offline 再生用データを消す場合は、
-            project 単位のローカル削除を使います。
+            アプリ表示用キャッシュを削除しても、端末内データベース（IndexedDB）に保存された
+            プロジェクトと素材は残ります。再生用データを消す場合は、
+            プロジェクト単位のローカル削除を使います。
           </p>
         </div>
       ) : null}
@@ -573,18 +552,18 @@ function ClearLocalOfflineProjectDataResultView({
         プロジェクト単位のローカル保存データを削除しました。
       </p>
       <dl className="mt-3 grid gap-1 text-xs sm:grid-cols-2">
-        <SummaryRow label="clearedAt" value={result.clearedAt} />
-        <SummaryRow label="projects" value={result.deletedProjects} />
-        <SummaryRow label="assets" value={result.deletedAssets} />
-        <SummaryRow label="asset blobs" value={result.deletedAssetBlobs} />
-        <SummaryRow label="sync states" value={result.deletedSyncStates} />
+        <SummaryRow label="削除日時" value={result.clearedAt} />
+        <SummaryRow label="プロジェクト" value={result.deletedProjects} />
+        <SummaryRow label="素材情報" value={result.deletedAssets} />
+        <SummaryRow label="素材本体" value={result.deletedAssetBlobs} />
+        <SummaryRow label="同期状態" value={result.deletedSyncStates} />
         <SummaryRow
-          label="staging projects"
+          label="同期中の一時プロジェクト"
           value={result.deletedStagingProjects}
         />
-        <SummaryRow label="staging assets" value={result.deletedStagingAssets} />
+        <SummaryRow label="同期中の一時素材" value={result.deletedStagingAssets} />
         <SummaryRow
-          label="staging asset blobs"
+          label="同期中の一時素材本体"
           value={result.deletedStagingAssetBlobs}
         />
       </dl>
@@ -609,23 +588,23 @@ function ConfirmedStoreSnapshotView({
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-5">
-        <CountCard label="projects" value={snapshot.projectCount} />
-        <CountCard label="assets" value={snapshot.assetCount} />
-        <CountCard label="asset blobs" value={snapshot.assetBlobCount} />
-        <CountCard label="sync states" value={snapshot.syncStateCount} />
+        <CountCard label="プロジェクト" value={snapshot.projectCount} />
+        <CountCard label="素材情報" value={snapshot.assetCount} />
+        <CountCard label="素材本体" value={snapshot.assetBlobCount} />
+        <CountCard label="同期状態" value={snapshot.syncStateCount} />
         <CountCard
-          label="blob bytes"
+          label="素材本体の容量"
           value={formatBytes(totalAssetBlobSizeBytes)}
         />
       </div>
 
       <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100">
-        <p className="font-semibold">asset metadataとBlob本体</p>
+        <p className="font-semibold">素材情報と端末に保存した本体</p>
         <p className="mt-2 leading-6">
-          asset countとasset Blob countは一致しない場合があります。大容量videoは
-          remoteOnly metadataのみをconfirmed storeに保持し、Blob本体は保存しません。
-          この差は異常やsync失敗を意味せず、オンライン時はDrive streamingで
-          /playerの再生対象になります。
+          素材情報と保存した本体の件数は一致しない場合があります。大容量動画は
+          remoteOnlyの再生情報だけを端末保存データに保持し、本体は保存しません。
+          この差は異常や同期失敗を意味せず、オンライン時はDriveから
+          /playerで再生できます。
         </p>
       </div>
 
@@ -638,11 +617,11 @@ function ConfirmedStoreSnapshotView({
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
           <div className="flex flex-col gap-1">
             <p className="font-semibold text-slate-50">
-              project storage summary
+              プロジェクト別の保存容量
             </p>
             <p className="text-xs text-slate-500">
-              project ごとの asset metadata / asset Blob 件数、保存容量、最終同期状態です。
-              大容量videoではmetadataのみを保持するため、件数が一致しない場合があります。
+              プロジェクトごとの素材情報・保存本体の件数、保存容量、最終同期状態です。
+              大容量動画では再生情報だけを保持するため、件数が一致しない場合があります。
             </p>
           </div>
 
@@ -666,32 +645,32 @@ function ConfirmedStoreSnapshotView({
                         : "border-slate-500 text-slate-200"
                     }
                   >
-                    {summary.syncStatus}
+                    {formatSyncStatus(summary.syncStatus)}
                   </Badge>
                 </div>
 
                 <dl className="mt-3 grid gap-1 text-xs text-slate-400 sm:grid-cols-2 lg:grid-cols-3">
-                  <SummaryRow label="slides" value={summary.slideCount} />
-                  <SummaryRow label="assets" value={summary.assetCount} />
+                  <SummaryRow label="スライド" value={summary.slideCount} />
+                  <SummaryRow label="素材情報" value={summary.assetCount} />
                   <SummaryRow
-                    label="asset blobs"
+                    label="保存した素材本体"
                     value={summary.assetBlobCount}
                   />
                   <SummaryRow
-                    label="local blob size"
+                    label="端末保存容量"
                     value={formatBytes(summary.totalBlobSizeBytes)}
                   />
                   <SummaryRow
-                    label="source size"
+                    label="元データ容量"
                     value={
                       summary.sourceTotalSizeBytes === null
                         ? "未取得"
                         : formatBytes(summary.sourceTotalSizeBytes)
                     }
                   />
-                  <SummaryRow label="last synced" value={summary.lastSyncedAt} />
+                  <SummaryRow label="最終同期日時" value={summary.lastSyncedAt} />
                   <SummaryRow
-                    label="sourceUpdatedAt"
+                    label="Drive更新日時"
                     value={summary.sourceUpdatedAt}
                   />
                 </dl>
@@ -703,7 +682,7 @@ function ConfirmedStoreSnapshotView({
 
       {snapshot.projects.length > 0 ? (
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-          <p className="font-semibold text-slate-50">confirmed projects</p>
+          <p className="font-semibold text-slate-50">保存済みプロジェクト</p>
           <div className="mt-3 space-y-3">
             {snapshot.projects.map((project) => {
               const projectStorageSummary = buildProjectStorageSummary(
@@ -723,7 +702,7 @@ function ConfirmedStoreSnapshotView({
                     <div className="flex flex-wrap gap-2">
                       <Button asChild variant="secondary" className="min-h-11">
                         <Link href={createPlayerProjectHref(project.projectId)}>
-                          このprojectを再生
+                          このプロジェクトを再生
                         </Link>
                       </Button>
                       <Button
@@ -734,8 +713,8 @@ function ConfirmedStoreSnapshotView({
                         disabled={clearingProjectId !== null}
                       >
                         {clearingProjectId === project.projectId
-                          ? "このprojectを削除中"
-                          : "このprojectのローカル保存を削除"}
+                          ? "このプロジェクトを削除中"
+                          : "このプロジェクトのローカル保存を削除"}
                       </Button>
                     </div>
                   </div>
@@ -743,18 +722,18 @@ function ConfirmedStoreSnapshotView({
                     provenance={project.publicationProvenance}
                   />
                   <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
-                    <SummaryRow label="slides" value={project.slideCount} />
+                    <SummaryRow label="スライド" value={project.slideCount} />
                     <SummaryRow
-                      label="local blob size"
+                      label="端末保存容量"
                       value={formatBytes(projectStorageSummary.totalBlobSizeBytes)}
                     />
                     <SummaryRow
-                      label="asset blobs"
+                      label="保存した素材本体"
                       value={projectStorageSummary.assetBlobCount}
                     />
-                    <SummaryRow label="syncedAt" value={project.syncedAt} />
+                    <SummaryRow label="同期日時" value={project.syncedAt} />
                     <SummaryRow
-                      label="sourceUpdatedAt"
+                      label="Drive更新日時"
                       value={project.sourceUpdatedAt ?? "未取得"}
                     />
                   </dl>
@@ -767,7 +746,7 @@ function ConfirmedStoreSnapshotView({
 
       {snapshot.syncStates.length > 0 ? (
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-          <p className="font-semibold text-slate-50">offline sync states</p>
+          <p className="font-semibold text-slate-50">プロジェクト別の同期状態</p>
           <div className="mt-3 space-y-3">
             {snapshot.syncStates.map((syncState) => (
               <div
@@ -788,23 +767,23 @@ function ConfirmedStoreSnapshotView({
                         : "border-slate-500 text-slate-200"
                     }
                   >
-                    {syncState.status}
+                    {formatSyncStatus(syncState.status)}
                   </Badge>
                 </div>
                 <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
-                  <SummaryRow label="slides" value={syncState.slideCount} />
-                  <SummaryRow label="assets" value={syncState.assetCount} />
-                  <SummaryRow label="syncedAt" value={syncState.syncedAt ?? "未取得"} />
+                  <SummaryRow label="スライド" value={syncState.slideCount} />
+                  <SummaryRow label="素材" value={syncState.assetCount} />
+                  <SummaryRow label="同期日時" value={syncState.syncedAt ?? "未取得"} />
                   <SummaryRow
-                    label="sourceUpdatedAt"
+                    label="Drive更新日時"
                     value={syncState.sourceUpdatedAt ?? "未取得"}
                   />
                   <SummaryRow
-                    label="lastErrorCode"
-                    value={syncState.lastErrorCode ?? "なし"}
+                    label="直近の失敗"
+                    value={syncState.lastErrorCode ? "要確認" : "なし"}
                   />
                   <SummaryRow
-                    label="lastFailedAt"
+                    label="最終失敗日時"
                     value={syncState.lastFailedAt ?? "なし"}
                   />
                 </dl>
@@ -816,7 +795,7 @@ function ConfirmedStoreSnapshotView({
 
       {snapshot.assets.length > 0 ? (
         <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-          <p className="font-semibold text-slate-50">confirmed assets</p>
+          <p className="font-semibold text-slate-50">保存済み素材</p>
           <div className="mt-3 max-h-72 space-y-3 overflow-auto pr-1">
             {snapshot.assets.map((asset) => (
               <div
@@ -827,21 +806,27 @@ function ConfirmedStoreSnapshotView({
                   {asset.sourceName ?? "名称未設定"}
                 </p>
                 <dl className="mt-2 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
-                  <SummaryRow label="mimeType" value={asset.blobMimeType} />
                   <SummaryRow
-                    label="blobSize"
+                    label="種類"
+                    value={formatStoredAssetType(asset.blobMimeType)}
+                  />
+                  <SummaryRow
+                    label="端末保存容量"
                     value={formatBytes(asset.blobSizeBytes)}
                   />
                   <SummaryRow
-                    label="sourceSize"
+                    label="元データ容量"
                     value={
                       asset.sourceSizeBytes === undefined
                         ? "未取得"
                         : formatBytes(asset.sourceSizeBytes)
                     }
                   />
-                  <SummaryRow label="variant" value={asset.blobVariant} />
-                  <SummaryRow label="blobStatus" value={asset.blobStatus} />
+                  <SummaryRow
+                    label="保存形式"
+                    value={formatBlobVariant(asset.blobVariant)}
+                  />
+                  <SummaryRow label="本体の保存状態" value={formatBlobStatus(asset.blobStatus)} />
                 </dl>
               </div>
             ))}
@@ -856,7 +841,7 @@ function ConfirmedStoreSnapshotView({
           </p>
           <p className="mt-2 text-slate-300">
             要確認項目は{snapshot.diagnostics.length}
-            件です。offline syncを再実行して状態を確認してください。
+            件です。端末への同期を再実行して状態を確認してください。
           </p>
         </div>
       ) : null}
@@ -1011,22 +996,57 @@ function ConfirmedPublicationProvenance({
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline">{provenance.label}</Badge>
         {provenance.operation ? (
-          <span className="text-xs">operation: {provenance.operation}</span>
+          <span className="text-xs">公開操作: {formatPublicationOperation(provenance.operation)}</span>
         ) : null}
       </div>
       <p className="mt-2 text-sm leading-6">
         {sanitizeUserFacingDiagnostic(provenance.message)}
       </p>
       {provenance.publishedAt ? (
-        <p className="text-xs">publishedAt: {provenance.publishedAt}</p>
+        <p className="text-xs">公開日時: {provenance.publishedAt}</p>
       ) : null}
       {provenance.needsInspectionReason ? (
         <p className="text-xs">
-          reason: {sanitizeUserFacingDiagnostic(provenance.needsInspectionReason)}
+          確認理由: {sanitizeUserFacingDiagnostic(provenance.needsInspectionReason)}
         </p>
       ) : null}
     </div>
   );
+}
+
+function formatSyncStatus(status: string) {
+  switch (status) {
+    case "ready":
+      return "同期済み";
+    case "syncing":
+      return "同期中";
+    case "failed":
+      return "同期失敗";
+    case "corrupt":
+      return "データ不整合";
+    case "missing":
+      return "同期情報なし";
+    default:
+      return "要確認";
+  }
+}
+
+function formatBlobStatus(status: string) {
+  return status === "ready" ? "保存済み" : "本体未保存";
+}
+
+function formatBlobVariant(variant: string) {
+  return variant === "original" ? "元の形式" : "再生用に変換済み";
+}
+
+function formatStoredAssetType(mimeType: string) {
+  if (mimeType.startsWith("image/")) return "画像";
+  if (mimeType.startsWith("video/")) return "動画";
+  return "その他";
+}
+
+function formatPublicationOperation(operation: string) {
+  return operation === "publish" ? "公開" : operation === "rollback" ? "ロールバック" : "要確認";
 }
 
 function createPlayerProjectHref(projectId: string) {

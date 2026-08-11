@@ -1637,12 +1637,12 @@ export default function PlayerPage() {
     {
       title: "まず再読み込みします",
       description:
-        "一時的な IndexedDB 読み込み失敗であれば、再読み込みで復帰できます。",
+        "一時的な端末保存データの読み込み失敗であれば、再読み込みで復帰できます。",
     },
     {
       title: "直らない場合は管理画面で確認します",
       description:
-        "confirmed store の件数と診断を確認し、必要に応じて対象 project のローカル保存を削除してから offline sync を再実行してください。",
+        "端末保存データの件数と診断を確認し、必要に応じて対象プロジェクトのローカル保存を削除してから端末への同期を再実行してください。",
     },
   ];
 
@@ -1655,52 +1655,52 @@ export default function PlayerPage() {
               "この端末に再生用コピーがない状態では、オフラインのまま素材を取得できません。",
           },
           {
-            title: "管理画面で offline sync を実行します",
+            title: "管理画面で端末への同期を実行します",
             description:
-              "オンライン復帰後、Google接続、Drive状態、project状態を確認してから offline sync を実行してください。",
+              "オンライン復帰後、Google接続、Drive状態、プロジェクト状態を確認してから端末への同期を実行してください。",
           },
         ]
       : [
           {
-            title: "管理画面で offline sync を実行します",
+            title: "管理画面で端末への同期を実行します",
             description:
-              "初回利用時、または project 単位のローカル削除後は、この端末に再生用コピーを作り直す必要があります。",
+              "初回利用時、またはプロジェクト単位のローカル削除後は、この端末に再生用コピーを作り直す必要があります。",
           },
           {
             title: "削除後なら正常な状態です",
             description:
-              "ローカル保存を削除した直後にこの画面が表示されるのは正常です。Drive上の project や写真は削除されていません。",
+              "ローカル保存を削除した直後にこの画面が表示されるのは正常です。Drive上のプロジェクトや写真は削除されていません。",
           },
         ];
 
   const invalidSnapshotGuidance: PlayerGuidanceItem[] = [
     {
-      title: "管理画面で confirmed store を確認します",
+      title: "管理画面で端末保存データを確認します",
       description:
-        "project / assets / asset blobs / sync state の件数や参照関係に不一致があります。",
+        "プロジェクト・素材・保存した本体・同期状態の件数や参照関係に不一致があります。",
     },
     {
-      title: "対象 project のローカル保存を削除します",
+      title: "対象プロジェクトのローカル保存を削除します",
       description:
-        "端末内の壊れた再生用コピーだけを削除します。Google Drive 上の project / manifest / assets は削除されません。",
+        "端末内の壊れた再生用コピーだけを削除します。Google Drive上のプロジェクト設定と素材は削除されません。",
     },
     {
-      title: "online 状態で offline sync を再実行します",
+      title: "オンラインで端末への同期を再実行します",
       description:
-        "Drive から正しい snapshot と画像 Blob を取得し直し、confirmed store を作り直します。",
+        "Driveから正しい再生データを取得し直し、端末保存データを作り直します。",
     },
   ];
 
   const noSlidesGuidance: PlayerGuidanceItem[] = [
     {
-      title: "管理画面で project 状態を再確認します",
+      title: "管理画面でプロジェクト状態を再確認します",
       description:
-        "project は保存されていますが、再生対象の slide がありません。manifest の内容を確認してください。",
+        "プロジェクトは保存されていますが、再生対象のスライドがありません。プロジェクト設定を確認してください。",
     },
     {
       title: "必要なら写真を追加します",
       description:
-        "Google Photos Picker から素材を追加し、manifest 反映後に offline sync を実行してください。",
+        "Google Photos Pickerから素材を追加して保存し、端末への同期を実行してください。",
     },
   ];
 
@@ -1713,7 +1713,7 @@ export default function PlayerPage() {
     {
       title: "直らない場合はローカル保存を作り直します",
       description:
-        "管理画面で対象 project のローカル保存を削除し、online 状態で offline sync を再実行してください。",
+        "管理画面で対象プロジェクトのローカル保存を削除し、オンラインで端末への同期を再実行してください。",
     },
   ];
 
@@ -1786,8 +1786,8 @@ export default function PlayerPage() {
               </p>
               <p className="mt-3 text-sm leading-6 text-red-100/80">
                 このスライドが参照しているローカル保存写真を読み込めませんでした。
-                再読み込みで直らない場合は、管理画面でこの project のローカル保存を削除し、
-                online 状態で offline sync を再実行してください。
+                再読み込みで直らない場合は、管理画面でこのプロジェクトのローカル保存を削除し、
+                オンラインで端末への同期を再実行してください。
               </p>
               <div className="mt-4 rounded-xl border border-red-100/20 bg-black/30 p-4 text-left text-sm">
                 <p className="font-semibold text-red-50">次の操作</p>
@@ -1978,8 +1978,8 @@ export default function PlayerPage() {
                   variant="secondary"
                   size="icon"
                   className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
-                  aria-label="再生projectを選び直す"
-                  title="再生projectを選び直す"
+                  aria-label="再生プロジェクトを選び直す"
+                  title="再生プロジェクトを選び直す"
                   onClick={() => {
                     revealControls();
                     clearSelectedProject();
@@ -2235,7 +2235,7 @@ export default function PlayerPage() {
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
               この画面は、この端末に保存済みの再生用コピーだけを使います。
               Driveから直接読み込む画面ではないため、初回利用時やローカル削除後は管理画面で
-              offline sync を実行してください。
+              端末への同期を実行してください。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -2262,7 +2262,7 @@ export default function PlayerPage() {
           <PlayerStatusCard
             tone="neutral"
             title="このiPadの再生用コピーを確認しています"
-            description="端末内の IndexedDB confirmed store から、project / slides / asset Blob を読み込んでいます。"
+            description="端末保存データから、プロジェクト・スライド・素材を読み込んでいます。"
           />
         ) : null}
 
@@ -2272,7 +2272,7 @@ export default function PlayerPage() {
             title="このiPadの再生用コピーを読み込めませんでした"
             description={
               errorMessage ??
-              "IndexedDB の読み込み中に問題が発生しました。再読み込みで直らない場合は、管理画面で confirmed store を確認してください。"
+              "端末保存データの読み込み中に問題が発生しました。再読み込みで直らない場合は、管理画面で保存状態を確認してください。"
             }
             guidanceItems={loadErrorGuidance}
           >
@@ -2297,8 +2297,8 @@ export default function PlayerPage() {
             }
             description={
               isOnline === false
-                ? "現在オフラインのため、Drive から project や写真を取得できません。オンラインに戻してから offline sync を実行してください。"
-                : "初回利用、または project 単位のローカル削除後の状態です。管理画面で offline sync を実行すると、このiPadに再生用コピーを作成できます。"
+                ? "現在オフラインのため、Driveからプロジェクトや写真を取得できません。オンラインに戻してから端末への同期を実行してください。"
+                : "初回利用、またはプロジェクト単位のローカル削除後の状態です。管理画面で端末への同期を実行すると、このiPadに再生用コピーを作成できます。"
             }
             guidanceItems={emptySnapshotGuidance}
             diagnostics={snapshot.diagnostics}
@@ -2308,7 +2308,7 @@ export default function PlayerPage() {
                 再読み込み
               </Button>
               <Button asChild variant="secondary">
-                <Link href="/admin">管理画面で offline sync を実行</Link>
+                <Link href="/admin">管理画面で端末への同期を実行</Link>
               </Button>
             </PlayerActionRow>
           </PlayerStatusCard>
@@ -2328,7 +2328,7 @@ export default function PlayerPage() {
           <PlayerStatusCard
             tone="danger"
             title="このiPadの再生用コピーを修復する必要があります"
-            description="端末内の project / asset metadata / asset Blob / sync state の対応関係が崩れています。壊れたローカルコピーを削除してから、offline sync で作り直してください。"
+            description="端末内のプロジェクト・素材・同期状態の対応関係が崩れています。壊れたローカルコピーを削除してから、端末への同期で作り直してください。"
             guidanceItems={invalidSnapshotGuidance}
             diagnostics={snapshot.diagnostics}
           >
@@ -2347,7 +2347,7 @@ export default function PlayerPage() {
           <PlayerStatusCard
             tone="warning"
             title="再生できるスライドがありません"
-            description="project のローカル保存はありますが、本編スライドとして再生できる項目がありません。Drive 側の manifest や素材追加状態を確認してください。"
+            description="プロジェクトのローカル保存はありますが、本編スライドとして再生できる項目がありません。Drive側のプロジェクト設定や素材追加状態を確認してください。"
             guidanceItems={noSlidesGuidance}
           >
             <PlayerActionRow>
@@ -2391,8 +2391,8 @@ function ProjectSelectionCard({
   return (
     <PlayerStatusCard
       tone="neutral"
-      title="再生するprojectを選択してください"
-      description="このiPadには複数の offline playback 用 project が保存されています。本番再生に使う project を選ぶと、次回から同じ project を優先して開きます。"
+      title="再生するプロジェクトを選択してください"
+      description="このiPadには複数の再生用プロジェクトが保存されています。本番再生に使うプロジェクトを選ぶと、次回から同じプロジェクトを優先して開きます。"
       diagnostics={diagnostics}
     >
       <div className="space-y-3">
@@ -2402,14 +2402,9 @@ function ProjectSelectionCard({
             className="rounded-xl border border-white/10 bg-black/30 p-4"
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="font-semibold text-slate-50">
-                  {project.projectTitle ?? "名称未設定"}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {formatIdPart(project.projectId)}
-                </p>
-              </div>
+              <p className="font-semibold text-slate-50">
+                {project.projectTitle ?? "名称未設定"}
+              </p>
               <Button
                 type="button"
                 variant={
@@ -2418,8 +2413,8 @@ function ProjectSelectionCard({
                 onClick={() => onSelectProject(project.projectId)}
               >
                 {selectedProjectId === project.projectId
-                  ? "選択中のprojectを再読み込み"
-                  : "このprojectを再生"}
+                  ? "選択中のプロジェクトを再読み込み"
+                  : "このプロジェクトを再生"}
               </Button>
             </div>
 
@@ -2459,7 +2454,7 @@ function ProjectSelectionCard({
                 </dd>
               </div>
               <div>
-                <dt>asset blobs</dt>
+                <dt>保存した素材本体</dt>
                 <dd className="font-medium text-slate-200">
                   {project.assetBlobCount}
                 </dd>
@@ -3614,14 +3609,6 @@ function getPlayerStatusCardClassName(tone: PlayerStatusTone) {
     default:
       return "border-white/10 bg-white/5 text-slate-300";
   }
-}
-
-function formatIdPart(id: string | undefined) {
-  if (!id) {
-    return "未設定";
-  }
-
-  return `${id.slice(0, 8)}...`;
 }
 
 function buildOnlineVideoDiagnostics(input: {

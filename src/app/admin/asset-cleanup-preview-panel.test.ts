@@ -25,7 +25,7 @@ describe("asset cleanup destructive button", () => {
 
   it("keeps the destructive action conditional and explicit", () => {
     expect(source).toContain("canPrepareUnusedAssetDeletion");
-    expect(source).toContain("preflight済み asset を物理削除");
+    expect(source).toContain("確認済み素材を物理削除");
     expect(source).toContain("Google Driveから完全削除します");
     expect(source).toContain("取り消せません");
   });
@@ -44,7 +44,7 @@ describe("asset cleanup delete live status", () => {
     expect(source).toContain(
       'aria-live={role === "status" ? "polite" : undefined}',
     );
-    expect(source).toContain("未使用 asset を削除中");
+    expect(source).toContain("未使用素材を削除中");
   });
 
   it("does not render raw sensitive delete fields", () => {

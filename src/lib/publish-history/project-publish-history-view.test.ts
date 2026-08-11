@@ -135,7 +135,7 @@ describe("history formatters", () => {
     ["currentWithUnpublishedChanges", "現在公開中・未公開編集あり"],
     ["missingCurrentRevision", "現在の公開情報を確認できない"],
     ["inconsistent", "現在の公開情報を確認できない"],
-    ["noPublicationWithHistory", "publicationなし・履歴revisionあり"],
+    ["noPublicationWithHistory", "現在の公開情報なし・公開履歴あり"],
     ["unavailable", "現在の公開情報を確認できない"],
   ] as const)("formats publication status %s", (status, expected) => {
     expect(formatPublicationStatus(status)).toBe(expected);
@@ -181,8 +181,8 @@ describe("current revision markers", () => {
 
   it.each([
     ["current", "現在公開中"],
-    ["needsInspection", "manifest参照先・要確認"],
-    ["history", "履歴revision"],
+    ["needsInspection", "プロジェクト設定の参照先・要確認"],
+    ["history", "過去の公開版"],
   ] as const)("formats %s marker neutrally", (marker, expected) => {
     expect(formatRevisionPublicationMarker(marker)).toBe(expected);
   });

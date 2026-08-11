@@ -113,8 +113,8 @@ export function AssetImportPanel() {
       <div className="mt-4 border-t border-slate-200 pt-4">
         <p className="font-medium text-slate-900">動画ファイルから追加</p>
         <p className="mt-2 text-slate-500">
-          端末上のvideo/mp4またはMOVファイルをDrive assets/
-          へ保存してmanifest.jsonへ反映します。大容量動画はDrive保存とmanifest登録のみ行い、offline保存対象外としてskipされます。1回の上限は
+          端末上のMP4またはMOVファイルをDriveへ保存し、プロジェクト設定へ反映します。
+          大容量動画はDriveへの保存と登録だけを行い、端末への本体保存を省略します。1回の上限は
           {assetImportMaxBatchCount}件、1ファイル5GB以下です。
         </p>
       </div>
@@ -145,8 +145,8 @@ export function AssetImportPanel() {
               ? "素材追加完了サマリー"
               : assetImportBatchSummary.savedCount >
                   assetImportBatchSummary.manifestUpdatedCount
-                ? "Drive保存済み・manifest未反映の可能性があります"
-                : "素材追加batchサマリー"}
+                ? "Drive保存済み・プロジェクト未反映の可能性があります"
+                : "素材追加の結果"}
           </p>
           <p className="mt-2 text-sm opacity-80">
             成功 {assetImportBatchSummary.manifestUpdatedCount} 件 / Drive保存{" "}
@@ -164,7 +164,7 @@ export function AssetImportPanel() {
                   <div>
                     <p className="break-all font-medium">{item.filename}</p>
                     <p className="mt-1 text-xs opacity-70">
-                      {item.sourceMimeType} / createTime:{" "}
+                      {item.sourceMimeType} / 作成日時:{" "}
                       {formatOptionalValue(item.sourceCreateTime)}
                     </p>
                   </div>
@@ -173,29 +173,16 @@ export function AssetImportPanel() {
                   </Badge>
                 </div>
                 <dl className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
-                  <SummaryRow label="mediaItem" value={item.mediaItemIdPart} />
                   <SummaryRow
-                    label="download"
+                    label="取得容量"
                     value={
                       item.downloadedSizeBytes
                         ? formatBytes(item.downloadedSizeBytes)
                         : "未実行"
                     }
                   />
-                  {item.assetIdPart ? (
-                    <SummaryRow label="素材識別コード" value={item.assetIdPart} />
-                  ) : null}
-                  {item.assetFileIdPart ? (
-                    <SummaryRow
-                      label="assetFileId"
-                      value={item.assetFileIdPart}
-                    />
-                  ) : null}
-                  {item.slideIdPart ? (
-                    <SummaryRow label="slideId" value={item.slideIdPart} />
-                  ) : null}
                   {item.driveFilename ? (
-                    <SummaryRow label="Drive file" value={item.driveFilename} />
+                    <SummaryRow label="Drive保存名" value={item.driveFilename} />
                   ) : null}
                 </dl>
                 {item.errorMessage ? (
@@ -210,8 +197,8 @@ export function AssetImportPanel() {
       ) : null}
 
       <p className="mt-3 text-xs leading-5 text-slate-500">
-        テロップ変更や素材追加をiPad再生に反映するには、対象projectをoffline
-        syncしてください。途中失敗時もDrive上のassetは自動削除しません。
+        テロップ変更や素材追加をiPad再生に反映するには、対象プロジェクトを端末へ
+        同期してください。途中失敗時もDrive上の素材は自動削除しません。
       </p>
 
       {assetImportDiagnostics.length > 0 ? (
@@ -261,11 +248,11 @@ function getBatchItemStatusLabel(status: AssetImportBatchItemStatus) {
     case "savedToDrive":
       return "Drive保存済み";
     case "manifestUpdated":
-      return "manifest反映済み";
+      return "プロジェクト反映済み";
     case "failed":
       return "失敗";
     case "skipped":
-      return "skip";
+      return "省略";
     default:
       return status;
   }
@@ -284,7 +271,7 @@ function getStartAssetImportButtonLabel(assetImportStatus: AssetImportStatus) {
     case "selected":
       return "別の素材を選ぶ";
     case "savedToDrive":
-      return "manifest反映待ち";
+      return "プロジェクト反映待ち";
     case "cancelled":
       return "もう一度選択";
     case "invalid":

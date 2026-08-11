@@ -187,7 +187,7 @@ function ProjectPublishPanelSession() {
           </div>
           <CardDescription className="text-slate-300">
             公開すると、現在保存されている内容を公開履歴へ記録し、Google
-            Drive上の現在の公開版を切り替えます。iPadへの同期は自動では実行されません。
+            Drive上の現在の公開版を切り替えます。端末への同期は自動では実行されません。
           </CardDescription>
         </CardHeader>
 
@@ -197,7 +197,7 @@ function ProjectPublishPanelSession() {
               role="status"
               className="rounded-2xl border border-white/10 bg-black/30 p-4"
             >
-              Google接続とDrive projectの選択・確認が完了すると公開前確認を実行できます。
+              Google接続とDriveプロジェクトの選択・確認が完了すると公開前確認を実行できます。
             </div>
           ) : null}
 
@@ -314,10 +314,10 @@ function PublishReview({
           <Badge variant="secondary">{getProjectPublishModeLabel(review)}</Badge>
         </div>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-          <ReviewItem label="project表示名" value={review.projectTitle} />
+          <ReviewItem label="プロジェクト名" value={review.projectTitle} />
           <ReviewItem label="公開日時" value={review.publishedAt} />
-          <ReviewItem label="slide数" value={`${review.slideCount}件`} />
-          <ReviewItem label="asset数" value={`${review.assetCount}件`} />
+          <ReviewItem label="スライド数" value={`${review.slideCount}件`} />
+          <ReviewItem label="素材数" value={`${review.assetCount}件`} />
           <ReviewItem
             label="remoteOnly動画数"
             value={`${review.remoteOnlyAssetCount}件`}
@@ -345,7 +345,7 @@ function PublishReview({
           </ul>
         )}
         <p className="mt-3 text-slate-300">
-          公開後、iPadへの反映には通常のオフライン同期が別途必要です。
+          公開後、iPadへの反映には「端末へ同期」が別途必要です。
         </p>
       </div>
 
@@ -362,7 +362,7 @@ function PublishReview({
           htmlFor="project-publish-confirmation"
           className="cursor-pointer text-slate-100"
         >
-          公開後も、iPadへの反映にはオフライン同期が必要であることを確認しました。
+          公開後も、iPadへの反映には「端末へ同期」が必要であることを確認しました。
         </label>
       </div>
 
