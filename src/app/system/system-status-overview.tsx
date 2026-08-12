@@ -45,6 +45,9 @@ export function SystemStatusOverview() {
     offlineSyncStatus,
     offlineSyncStatusLabel,
     offlineSyncMessage,
+    isDriveOperationInFlight,
+    checkDriveWorkspace,
+    checkProject,
   } = useAppState();
   const [deviceState, setDeviceState] = useState<DeviceStatusState>({
     status: "idle",
@@ -57,6 +60,12 @@ export function SystemStatusOverview() {
     offlineSyncStatus,
     deviceStatus: deviceState.status,
   });
+  const canCheckDriveWorkspace =
+    googleStatus === "connected" && !isDriveOperationInFlight;
+  const canCheckProject =
+    driveStatus === "ready" &&
+    projectStatus !== "checking" &&
+    !isDriveOperationInFlight;
 
   async function handleCheckDeviceStatus() {
     setDeviceState({ status: "checking" });
@@ -91,10 +100,14 @@ export function SystemStatusOverview() {
               }
               aria-hidden="true"
             >
-              {health.tone === "neutral" ? (
+              {health.label === "問題なし" ? (
                 <Check className="size-5" />
               ) : (
-                <AlertTriangle className="size-5" />
+                health.tone === "neutral" ? (
+                  <RefreshCw className="size-5" />
+                ) : (
+                  <AlertTriangle className="size-5" />
+                )
               )}
             </span>
             <div>
@@ -136,6 +149,11 @@ export function SystemStatusOverview() {
         {driveDiagnostics.length > 0 ? (
           <DiagnosticList items={driveDiagnostics} />
         ) : null}
+        <SectionAction
+          label={driveStatus === "checking" ? "再確認中" : "再確認"}
+          onClick={checkDriveWorkspace}
+          disabled={!canCheckDriveWorkspace}
+        />
         <UtilityLink href="/settings">接続と保存領域を設定する</UtilityLink>
       </StatusSection>
 
@@ -159,6 +177,11 @@ export function SystemStatusOverview() {
         {projectDiagnostics.length > 0 ? (
           <DiagnosticList items={projectDiagnostics} />
         ) : null}
+        <SectionAction
+          label={projectStatus === "checking" ? "再確認中" : "再確認"}
+          onClick={checkProject}
+          disabled={!canCheckProject}
+        />
         <UtilityLink href="/admin">プロジェクトを管理する</UtilityLink>
       </StatusSection>
 
@@ -167,7 +190,7 @@ export function SystemStatusOverview() {
           label="端末内データベース（IndexedDB）"
           status={getDeviceDatabaseStatus(deviceState)}
           description={getDeviceDatabaseDescription(deviceState)}
-          tone={deviceState.status === "error" ? "danger" : deviceState.status === "ready" ? "neutral" : "attention"}
+          tone={deviceState.status === "error" ? "danger" : "neutral"}
         />
         <StatusRow
           label="端末の再生データ"
@@ -308,6 +331,26 @@ function UtilityLink({ href, children }: { href: string; children: ReactNode }) 
   );
 }
 
+function SectionAction({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
+  return (
+    <div className="py-3">
+      <dt className="sr-only">再確認操作</dt>
+      <dd>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11 border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
+          onClick={onClick}
+          disabled={disabled}
+        >
+          <RefreshCw className="size-4" aria-hidden="true" />
+          {label}
+        </Button>
+      </dd>
+    </div>
+  );
+}
+
 function getSystemHealth(input: {
   googleStatus: string;
   driveStatus: string;
@@ -316,7 +359,7 @@ function getSystemHealth(input: {
   deviceStatus: DeviceStatusState["status"];
 }) {
   const hasError =
-    ["error", "scopeMissing", "missingClientId"].includes(input.googleStatus) ||
+    input.googleStatus === "error" ||
     ["invalidWorkspace", "unsupportedVersion", "operationFailed"].includes(input.driveStatus) ||
     ["invalid", "error"].includes(input.projectStatus) ||
     ["failed", "stale", "blocked"].includes(input.offlineSyncStatus) ||
@@ -327,6 +370,19 @@ function getSystemHealth(input: {
       tone: "danger" as const,
       label: "確認が必要",
       message: "対応が必要な項目があります。下の状態を確認してください。",
+    };
+  }
+
+  const needsAction =
+    ["scopeMissing", "missingClientId"].includes(input.googleStatus) ||
+    ["notCreated", "multipleCandidates", "authRequired"].includes(input.driveStatus) ||
+    input.projectStatus === "notCreated";
+
+  if (needsAction) {
+    return {
+      tone: "attention" as const,
+      label: "対応が必要",
+      message: "利用を始めるために必要な項目があります。下の案内を確認してください。",
     };
   }
 
@@ -343,30 +399,32 @@ function getSystemHealth(input: {
         message: "接続と端末データを利用できます。",
       }
     : {
-        tone: "attention" as const,
-        label: "確認が必要",
-        message: "未確認の項目があります。必要な項目だけ確認してください。",
+        tone: "neutral" as const,
+        label: "準備中 / 一部未確認",
+        message: "未確認の項目は異常ではありません。必要なときに確認できます。",
       };
 }
 
 function getGoogleTone(status: string): StatusTone {
-  if (["error", "scopeMissing", "missingClientId"].includes(status)) return "danger";
-  return status === "connected" ? "neutral" : "attention";
+  if (status === "error") return "danger";
+  if (["scopeMissing", "missingClientId"].includes(status)) return "attention";
+  return "neutral";
 }
 
 function getDriveTone(status: string): StatusTone {
   if (["invalidWorkspace", "unsupportedVersion", "operationFailed"].includes(status)) return "danger";
-  return status === "ready" ? "neutral" : "attention";
+  if (["notCreated", "multipleCandidates", "authRequired"].includes(status)) return "attention";
+  return "neutral";
 }
 
 function getProjectTone(status: string): StatusTone {
   if (["invalid", "error"].includes(status)) return "danger";
-  return status === "ready" ? "neutral" : "attention";
+  return status === "notCreated" ? "attention" : "neutral";
 }
 
 function getOfflineSyncTone(status: string): StatusTone {
   if (["failed", "stale", "blocked"].includes(status)) return "danger";
-  return status === "ready" ? "neutral" : "attention";
+  return "neutral";
 }
 
 function getDeviceDatabaseStatus(state: DeviceStatusState) {

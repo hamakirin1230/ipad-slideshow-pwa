@@ -5,7 +5,7 @@ import { Activity, Home, LayoutDashboard, Play, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const primaryNavigation = [
-  { href: "/", label: "Home", icon: Home },
+  { href: "/", label: "ホーム", icon: Home },
   { href: "/admin", label: "管理", icon: LayoutDashboard },
   { href: "/player", label: "再生", icon: Play },
   { href: "/system", label: "システム", icon: Activity },
@@ -21,7 +21,7 @@ export function AppNavigation({ pathname }: { pathname: string }) {
         <Link
           href="/"
           className="flex min-h-11 items-center justify-center rounded-xl text-xs font-bold tracking-[0.18em] text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
-          aria-label="スライドショー Home"
+          aria-label="スライドショー ホーム"
         >
           SS
         </Link>

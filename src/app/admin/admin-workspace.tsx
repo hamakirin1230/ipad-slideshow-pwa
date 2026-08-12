@@ -1,0 +1,228 @@
+"use client";
+
+import Link from "next/link";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
+import { Play, Shuffle } from "lucide-react";
+import { useAppState } from "@/app/app-providers";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { DriveProjectWorkspacePanel } from "./drive-project-workspace-panel";
+import { OfflineConfirmedStorePanel } from "./offline-confirmed-store-panel";
+import { OfflineSyncPanel } from "./offline-sync-panel";
+import { ProjectPublishPanel } from "./project-publish-panel";
+import { ProjectStatusPanel } from "./project-status-panel";
+
+const workspaceTabs = [
+  { id: "project", label: "プロジェクト" },
+  { id: "edit", label: "編集" },
+  { id: "publish", label: "公開" },
+  { id: "device", label: "端末" },
+] as const;
+
+type WorkspaceTab = (typeof workspaceTabs)[number]["id"];
+
+export function AdminWorkspace() {
+  const { projectSummary, projectDetails } = useAppState();
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("project");
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const slideCount =
+    projectDetails?.slideCount ?? projectSummary?.slideCount ?? 0;
+  const assetCount =
+    projectDetails?.assetCount ?? projectSummary?.assetCount ?? 0;
+
+  useEffect(() => {
+    function selectHashTab() {
+      const hashTab = window.location.hash.slice(1);
+      if (isWorkspaceTab(hashTab)) setActiveTab(hashTab);
+    }
+
+    selectHashTab();
+    window.addEventListener("hashchange", selectHashTab);
+    return () => window.removeEventListener("hashchange", selectHashTab);
+  }, []);
+
+  function selectTab(tab: WorkspaceTab, focus = false) {
+    setActiveTab(tab);
+    window.history.replaceState(null, "", `#${tab}`);
+    if (focus) {
+      tabRefs.current[workspaceTabs.findIndex((item) => item.id === tab)]?.focus();
+    }
+  }
+
+  function handleTabKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) {
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % workspaceTabs.length;
+    if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + workspaceTabs.length) % workspaceTabs.length;
+    }
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = workspaceTabs.length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    selectTab(workspaceTabs[nextIndex].id, true);
+  }
+
+  return (
+    <main className="min-h-svh bg-slate-950 px-4 py-5 text-slate-50 sm:px-7 sm:py-7 lg:px-10">
+      <div className="mx-auto w-full max-w-[90rem]">
+        <header className="flex flex-col gap-5 border-b border-white/8 pb-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold tracking-[0.18em] text-slate-500">
+              管理
+            </p>
+            {projectSummary ? (
+              <>
+                <h1 className="mt-2 truncate text-2xl font-semibold tracking-tight sm:text-3xl">
+                  {projectSummary.title}
+                </h1>
+                <p className="mt-2 text-sm text-slate-400">
+                  スライド {slideCount}件 <span aria-hidden="true">·</span>{" "}
+                  素材 {assetCount}件
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+                  プロジェクトを選択
+                </h1>
+                <p className="mt-2 text-sm text-slate-400">
+                  編集する作品を選ぶか、新しく作成してください。
+                </p>
+              </>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
+              onClick={() => selectTab("project")}
+            >
+              <Shuffle className="size-4" aria-hidden="true" />
+              {projectSummary ? "作品を切り替える" : "プロジェクトを選択"}
+            </Button>
+            <Button
+              asChild
+              className="min-h-11 bg-sky-300 text-slate-950 hover:bg-sky-200"
+            >
+              <Link href="/player">
+                <Play className="size-4 fill-current" aria-hidden="true" />
+                再生
+              </Link>
+            </Button>
+          </div>
+        </header>
+
+        <div className="sticky top-0 z-30 -mx-4 border-b border-white/8 bg-slate-950/95 px-4 py-3 backdrop-blur-xl sm:-mx-7 sm:px-7 lg:-mx-10 lg:px-10">
+          <div
+            role="tablist"
+            aria-label="制作ワークスペース"
+            className="mx-auto grid max-w-[90rem] grid-cols-4 gap-1 rounded-xl bg-white/[0.035] p-1"
+          >
+            {workspaceTabs.map((tab, index) => {
+              const selected = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  ref={(element) => {
+                    tabRefs.current[index] = element;
+                  }}
+                  id={`admin-${tab.id}-tab`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={tab.id}
+                  tabIndex={selected ? 0 : -1}
+                  className={cn(
+                    "relative min-h-11 min-w-0 rounded-lg px-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300",
+                    selected
+                      ? "bg-white/10 text-white"
+                      : "text-slate-400 hover:bg-white/5 hover:text-slate-100",
+                  )}
+                  onClick={() => selectTab(tab.id)}
+                  onKeyDown={(event) => handleTabKeyDown(event, index)}
+                >
+                  {tab.label}
+                  {selected ? (
+                    <span
+                      className="absolute inset-x-3 -bottom-1 h-0.5 rounded-full bg-sky-300"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="pt-7 sm:pt-9">
+          <WorkspacePane id="project" activeTab={activeTab}>
+            <ProjectStatusPanel />
+          </WorkspacePane>
+          <WorkspacePane id="edit" activeTab={activeTab}>
+            <DriveProjectWorkspacePanel />
+          </WorkspacePane>
+          <WorkspacePane id="publish" activeTab={activeTab}>
+            <ProjectPublishPanel />
+          </WorkspacePane>
+          <WorkspacePane id="device" activeTab={activeTab}>
+            <div className="space-y-8">
+              <div>
+                <p className="text-xs font-semibold tracking-[0.16em] text-slate-500">
+                  このiPad
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold">
+                  最新の内容を再生できる状態にする
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+                  公開とは別に、選択中の作品をこの端末へ明示的に同期します。
+                </p>
+              </div>
+              <OfflineSyncPanel />
+              <div className="border-t border-white/8 pt-8">
+                <OfflineConfirmedStorePanel />
+              </div>
+            </div>
+          </WorkspacePane>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function WorkspacePane({
+  id,
+  activeTab,
+  children,
+}: {
+  id: WorkspaceTab;
+  activeTab: WorkspaceTab;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      role="tabpanel"
+      aria-labelledby={`admin-${id}-tab`}
+      tabIndex={0}
+      hidden={activeTab !== id}
+      className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+    >
+      {children}
+    </section>
+  );
+}
+
+function isWorkspaceTab(value: string): value is WorkspaceTab {
+  return workspaceTabs.some((tab) => tab.id === value);
+}

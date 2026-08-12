@@ -16,10 +16,7 @@ import { buildOfflineSyncStaleView } from "@/app/admin/offline-sync-stale-view";
 
 export function OfflineSyncPanel() {
   const {
-    driveStatusLabel,
-    projectStatusLabel,
     offlineSyncStatus,
-    offlineSyncStatusLabel,
     offlineSyncMessage,
     offlineSyncProgress,
     offlineSyncDiagnostics,
@@ -48,21 +45,9 @@ export function OfflineSyncPanel() {
   );
 
   return (
-    <Card className="border-white/10 bg-white/5 text-slate-50">
+    <Card className="border-white/10 bg-white/[0.035] text-slate-50">
       <CardHeader>
-        <div className="flex flex-wrap items-center gap-2">
-          <CardTitle>端末へ同期</CardTitle>
-          <Badge
-            variant={offlineSyncStatus === "ready" ? "secondary" : "outline"}
-            className={
-              offlineSyncStatus === "ready"
-                ? undefined
-                : "border-slate-500 text-slate-200"
-            }
-          >
-            {offlineSyncStatusLabel}
-          </Badge>
-        </div>
+        <CardTitle>端末へ同期</CardTitle>
         <CardDescription className="text-slate-300">
           選択中のDriveプロジェクトから再生データを取得し、検証後にこの端末の保存データを更新します。
           公開やDriveへの保存とは別の明示操作です。
@@ -70,30 +55,6 @@ export function OfflineSyncPanel() {
       </CardHeader>
 
       <CardContent className="space-y-4 text-sm text-slate-300">
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <p className="font-semibold text-slate-50">端末への同期状態</p>
-            <p className="mt-2">{offlineSyncMessage}</p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <p className="font-semibold text-slate-50">開始条件</p>
-            <p className="mt-2">
-              Driveの保存領域と選択中プロジェクトの確認が完了した場合だけ実行できます。
-            </p>
-            <dl className="mt-3 grid gap-1 text-xs text-slate-400 sm:grid-cols-2">
-              <div>
-                <dt>Driveの保存領域</dt>
-                <dd className="font-medium text-slate-200">{driveStatusLabel}</dd>
-              </div>
-              <div>
-                <dt>選択中プロジェクト</dt>
-                <dd className="font-medium text-slate-200">{projectStatusLabel}</dd>
-              </div>
-            </dl>
-          </div>
-        </div>
-
         <div className="flex flex-wrap gap-3">
           <Button
             type="button"

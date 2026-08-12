@@ -49,7 +49,6 @@ type SlideListState = {
 export function DriveProjectWorkspacePanel() {
   const {
     projectStatus,
-    driveProjects,
     projectSummary,
     projectDetails,
     fetchProjectSlidePreviewBlob,
@@ -78,8 +77,6 @@ export function DriveProjectWorkspacePanel() {
 
   const readyProjectDetails = projectStatus === "ready" ? projectDetails : null;
   const projectId = projectSummary?.projectId ?? null;
-  const assetCount =
-    readyProjectDetails?.assetCount ?? projectSummary?.assetCount ?? 0;
   const slideCount =
      readyProjectDetails?.slideCount ?? projectSummary?.slideCount ?? 0;
   const slides = useMemo(
@@ -259,102 +256,28 @@ export function DriveProjectWorkspacePanel() {
   }
 
   return (
-    <div className="space-y-4">
-      <section className="grid gap-4 md:grid-cols-3">
-        <Card className="bg-white text-slate-950">
-          <CardHeader>
-            <CardTitle>Driveプロジェクト数</CardTitle>
-            <CardDescription>Driveで確認済みのプロジェクト件数</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{driveProjects.length}</p>
-          </CardContent>
-        </Card>
+    <div className="space-y-8">
+      <div>
+        <p className="text-xs font-semibold tracking-[0.16em] text-slate-500">編集</p>
+        <h2 className="mt-2 text-2xl font-semibold text-slate-50">素材とスライドを組み立てる</h2>
+      </div>
 
-        <Card className="bg-white text-slate-950">
-          <CardHeader>
-            <CardTitle>素材数</CardTitle>
-            <CardDescription>Driveに保存した素材</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{assetCount}</p>
-            <p className="mt-2 text-sm text-slate-500">
-              プロジェクト設定から参照されている素材数を表示します。
-            </p>
-          </CardContent>
-        </Card>
+      {!projectSummary ? (
+        <div className="rounded-xl border border-amber-400/25 bg-amber-400/8 p-5 text-amber-100">
+          <p className="font-semibold">編集するプロジェクトを選択してください</p>
+          <p className="mt-1 text-sm leading-6">作品を選択すると、素材の追加とスライド編集を始められます。</p>
+          <a href="#project" className="mt-3 inline-flex min-h-11 items-center font-medium underline decoration-amber-300/40 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200">
+            プロジェクトを選択
+          </a>
+        </div>
+      ) : null}
 
+      <section aria-labelledby="asset-import-heading">
         <Card className="bg-white text-slate-950">
           <CardHeader>
-            <CardTitle>本編スライド数</CardTitle>
-            <CardDescription>編集できるスライド</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{slideCount}</p>
-            <p className="mt-2 text-sm text-slate-500">
-              本編のスライド件数です。各スライドのテロップは下の一覧で編集できます。
-            </p>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <Card className="bg-white text-slate-950">
-          <CardHeader>
-            <CardTitle>選択中Driveプロジェクト</CardTitle>
+            <CardTitle><h3 id="asset-import-heading">素材を追加</h3></CardTitle>
             <CardDescription>
-              Drive上で確認済みの選択中プロジェクトを表示します。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {projectSummary ? (
-              <div className="rounded-xl border border-slate-200 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <h2 className="font-semibold">{projectSummary.title}</h2>
-                  <Badge
-                    variant={projectStatus === "ready" ? "default" : "secondary"}
-                  >
-                    {projectStatus === "ready" ? "Drive確認済み" : "確認待ち"}
-                  </Badge>
-                </div>
-
-                <dl className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                  <div>
-                    <dt className="font-medium text-slate-900">作成日時</dt>
-                    <dd>{projectSummary.createdAt}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-slate-900">更新日時</dt>
-                    <dd>{projectSummary.updatedAt}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-slate-900">素材数</dt>
-                    <dd>{assetCount}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-slate-900">本編スライド数</dt>
-                    <dd>{slideCount}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-slate-900">スライド編集</dt>
-                    <dd>順番、テロップ、表示時間の編集に対応</dd>
-                  </div>
-                </dl>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
-                Driveプロジェクトはまだ表示できません。上のDriveプロジェクト状態で
-                確認が完了していることを確かめてください。
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white text-slate-950">
-          <CardHeader>
-            <CardTitle>素材管理</CardTitle>
-            <CardDescription>
-              Google Photos Pickerや動画ファイルからDriveへ保存する素材を扱います。
+              写真または動画を選び、この作品へ追加します。
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -363,14 +286,14 @@ export function DriveProjectWorkspacePanel() {
         </Card>
       </section>
 
-      <section>
+      <section aria-label="素材の整理" className="border-t border-white/8 pt-8">
         <AssetCleanupPreviewPanel />
       </section>
 
-      <section>
+      <section aria-labelledby="slide-editor-heading" className="border-t border-white/8 pt-8">
         <Card className="bg-white text-slate-950">
           <CardHeader>
-            <CardTitle>本編スライド順</CardTitle>
+            <CardTitle><h3 id="slide-editor-heading">スライド</h3></CardTitle>
             <CardDescription>
               スライドの順番、テロップ、表示時間を編集します。再生への反映には端末への同期が必要です。
             </CardDescription>

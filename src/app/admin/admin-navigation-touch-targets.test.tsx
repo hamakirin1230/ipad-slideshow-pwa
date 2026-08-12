@@ -1,104 +1,92 @@
 import { readFileSync } from "node:fs";
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
-import AdminPage from "./page";
-
-vi.mock("./project-status-panel", () => ({
-  ProjectStatusPanel: () => <div data-panel="project-status" />,
-}));
-
-vi.mock("./drive-project-workspace-panel", () => ({
-  DriveProjectWorkspacePanel: () => <div data-panel="workspace" />,
-}));
-
-vi.mock("./project-publish-panel", () => ({
-  ProjectPublishPanel: () => <div data-panel="publish" />,
-}));
-
-vi.mock("./offline-sync-panel", () => ({
-  OfflineSyncPanel: () => <div data-panel="offline-sync" />,
-}));
-
-vi.mock("./offline-confirmed-store-panel", () => ({
-  OfflineConfirmedStorePanel: () => <div data-panel="confirmed-store" />,
-}));
+import { describe, expect, it } from "vitest";
 
 const source = {
+  page: read("./page.tsx"),
+  workspace: read("./admin-workspace.tsx"),
   project: read("./project-status-panel.tsx"),
   import: read("./asset-import-panel.tsx"),
-  workspace: read("./drive-project-workspace-panel.tsx"),
+  edit: read("./drive-project-workspace-panel.tsx"),
   cleanup: read("./asset-cleanup-preview-panel.tsx"),
+  publish: read("./project-publish-panel.tsx"),
   offlineSync: read("./offline-sync-panel.tsx"),
   confirmedStore: read("./offline-confirmed-store-panel.tsx"),
+  system: read("../system/system-status-overview.tsx"),
   driveSettings: read("../settings/drive-settings-panel.tsx"),
   offlineDb: read("../settings/offline-db-check-panel.tsx"),
 };
 
-describe("admin section navigation", () => {
-  const markup = renderToStaticMarkup(<AdminPage />);
-
-  it("renders four descriptive section anchors and matching labelled sections", () => {
-    expect(markup).toContain('aria-label="管理画面の主要セクション"');
+describe("admin creative workspace", () => {
+  it("keeps the page thin and provides four accessible workspace tabs", () => {
+    expect(source.page).toContain("<AdminWorkspace />");
+    expect(source.workspace).toContain('role="tablist"');
+    expect(source.workspace).toContain('role="tab"');
+    expect(source.workspace).toContain("aria-selected={selected}");
+    expect(source.workspace).toContain("aria-controls={tab.id}");
+    expect(source.workspace).toContain("tabIndex={selected ? 0 : -1}");
+    expect(source.workspace).toContain("min-h-11");
 
     for (const [id, label] of [
       ["project", "プロジェクト"],
       ["edit", "編集"],
       ["publish", "公開"],
-      ["device", "端末同期・保存"],
-    ] as const) {
-      expect(markup).toContain(`href="#${id}"`);
-      expect(markup).toContain(`id="${id}"`);
-      expect(markup).toContain(`aria-labelledby="admin-${id}-heading"`);
-      expect(markup).toContain(label);
+      ["device", "端末"],
+    ]) {
+      expect(source.workspace).toContain(`{ id: "${id}", label: "${label}" }`);
     }
   });
 
-  it("keeps navigation targets touch-sized and ordered by the task flow", () => {
-    const links = markup.match(/<a[^>]*href="#[^"]+"[^>]*>/g) ?? [];
-
-    expect(links).toHaveLength(4);
-    for (const link of links) {
-      expect(link).toContain("min-h-11");
-      expect(link).toContain("min-w-0");
-    }
-
-    expect(markup.indexOf('id="project"')).toBeLessThan(
-      markup.indexOf('id="edit"'),
-    );
-    expect(markup.indexOf('id="edit"')).toBeLessThan(
-      markup.indexOf('id="publish"'),
-    );
-    expect(markup.indexOf('id="publish"')).toBeLessThan(
-      markup.indexOf('id="device"'),
-    );
+  it("removes the old anchor dashboard while preserving deep-link hashes", () => {
+    expect(source.workspace).not.toContain("作業セクション");
+    expect(source.workspace).not.toContain("AdminSectionLink");
+    expect(source.workspace).toContain("window.location.hash.slice(1)");
+    expect(source.workspace).toContain("window.history.replaceState");
   });
 
-  it("keeps existing panels in the section matching their operation", () => {
-    expect(markup).not.toContain('data-panel="drive-status"');
-    expect(sectionMarkup(markup, "project", "edit")).toContain(
-      'data-panel="project-status"',
-    );
-    expect(sectionMarkup(markup, "edit", "publish")).toContain(
-      'data-panel="workspace"',
-    );
-    expect(sectionMarkup(markup, "publish", "device")).toContain(
-      'data-panel="publish"',
-    );
-    expect(sectionMarkup(markup, "device")).toContain(
-      'data-panel="offline-sync"',
-    );
-    expect(sectionMarkup(markup, "device")).toContain(
-      'data-panel="confirmed-store"',
-    );
+  it("keeps every existing pane mounted and hides only inactive panels", () => {
+    expect(source.workspace).toContain("hidden={activeTab !== id}");
+    expect(source.workspace).toContain('role="tabpanel"');
+    for (const panel of [
+      "<ProjectStatusPanel />",
+      "<DriveProjectWorkspacePanel />",
+      "<ProjectPublishPanel />",
+      "<OfflineSyncPanel />",
+      "<OfflineConfirmedStorePanel />",
+    ]) {
+      expect(source.workspace).toContain(panel);
+    }
+  });
+
+  it("supports tab keyboard navigation", () => {
+    for (const key of ["ArrowLeft", "ArrowRight", "Home", "End"]) {
+      expect(source.workspace).toContain(`event.key === "${key}"`);
+    }
+  });
+
+  it("moves status diagnostics and recheck controls out of project management", () => {
+    expect(source.project).not.toMatch(/projectStatusLabel|projectDiagnostics|状態メッセージ|確認後の流れ/);
+    expect(source.project).not.toContain("onClick={checkDriveWorkspace}");
+    expect(source.project).not.toContain("onClick={checkProject}");
+    expect(source.system).toContain("driveDiagnostics");
+    expect(source.system).toContain("projectDiagnostics");
+    expect(source.system).toContain("onClick={checkDriveWorkspace}");
+    expect(source.system).toContain("onClick={checkProject}");
+  });
+
+  it("removes editing dashboard counts and duplicated ready context", () => {
+    expect(source.edit).not.toMatch(/Driveプロジェクト数|選択中Driveプロジェクト|Drive確認済み/);
+    expect(source.workspace).toContain("スライド {slideCount}件");
+    expect(source.workspace).toContain("素材 {assetCount}件");
   });
 });
 
 describe("admin and settings touch target contracts", () => {
   it.each([
     [source.project, "selectProject(project.projectId)", "disabled={isSelected || isDriveOperationInFlight}"],
-    [source.project, "onClick={checkDriveWorkspace}", "disabled={!canCheckDriveWorkspace}"],
+    [source.system, "onClick={checkDriveWorkspace}", "disabled={!canCheckDriveWorkspace}"],
+    [source.system, "onClick={checkProject}", "disabled={!canCheckProject}"],
     [source.import, "onClick={startAssetImport}", "disabled={!canStartAssetImport}"],
-    [source.workspace, "onClick={handleDeleteSelectedSlides}", "disabled={!canDeleteSelectedSlides}"],
+    [source.edit, "onClick={handleDeleteSelectedSlides}", "disabled={!canDeleteSelectedSlides}"],
     [source.cleanup, "onClick={previewUnusedProjectAssets}", "isAssetCleanupPreviewInFlight"],
     [source.offlineSync, "onClick={startOfflineSync}", "disabled={!canStartOfflineSync || isOfflineSyncInFlight}"],
     [source.confirmedStore, "onClick={handleCheckConfirmedStore}", "disabled={isChecking || isClearingProject}"],
@@ -109,7 +97,6 @@ describe("admin and settings touch target contracts", () => {
     "keeps a major action touch-sized without replacing its handler or disabled guard",
     (componentSource, handler, disabledGuard) => {
       const button = openingButton(componentSource, handler);
-
       expect(button).toContain("min-h-11");
       expect(button).toContain(handler);
       expect(button).toContain(disabledGuard);
@@ -120,22 +107,11 @@ describe("admin and settings touch target contracts", () => {
 function openingButton(componentSource: string, handler: string) {
   const handlerIndex = componentSource.indexOf(handler);
   expect(handlerIndex).toBeGreaterThanOrEqual(0);
-
   const start = componentSource.lastIndexOf("<Button", handlerIndex);
   const end = componentSource.indexOf(">", handlerIndex);
   expect(start).toBeGreaterThanOrEqual(0);
   expect(end).toBeGreaterThan(handlerIndex);
-
   return componentSource.slice(start, end + 1);
-}
-
-function sectionMarkup(markup: string, id: string, nextId?: string) {
-  const start = markup.indexOf(`<section id="${id}"`);
-  const end = nextId
-    ? markup.indexOf(`<section id="${nextId}"`, start)
-    : markup.length;
-
-  return markup.slice(start, end);
 }
 
 function read(relativePath: string) {

@@ -175,15 +175,18 @@ function ProjectPublishPanelSession() {
 
   return (
     <section aria-labelledby="project-publish-heading">
-      <Card className="border-sky-400/30 bg-sky-400/5 text-slate-50">
+      <Card className="border-white/10 bg-white/[0.035] text-slate-50">
         <CardHeader>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle>
               <h2 id="project-publish-heading">公開</h2>
             </CardTitle>
-            <Badge variant="outline" className="border-sky-400/50 text-sky-100">
-              明示操作
-            </Badge>
+            <Button asChild variant="ghost" className="min-h-11 text-slate-300 hover:bg-white/8 hover:text-white">
+              <Link href="/admin/history">
+                <History className="size-4" aria-hidden="true" />
+                公開履歴
+              </Link>
+            </Button>
           </div>
           <CardDescription className="text-slate-300">
             公開すると、現在保存されている内容を公開履歴へ記録し、Google
@@ -275,12 +278,6 @@ function ProjectPublishPanelSession() {
                   キャンセル
                 </Button>
               ) : null}
-              <Button asChild variant="secondary" className="min-h-11">
-                <Link href="/admin/history">
-                  <History className="size-4" aria-hidden="true" />
-                  公開履歴を見る
-                </Link>
-              </Button>
             </div>
           ) : null}
         </CardContent>
@@ -398,12 +395,6 @@ function PublishReview({
           onClick={onCancel}
         >
           確認を取り消す
-        </Button>
-        <Button asChild variant="secondary" className="min-h-11">
-          <Link href="/admin/history">
-            <History className="size-4" aria-hidden="true" />
-            公開履歴を見る
-          </Link>
         </Button>
       </div>
     </div>

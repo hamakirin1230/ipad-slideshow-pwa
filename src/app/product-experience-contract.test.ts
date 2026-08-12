@@ -12,6 +12,7 @@ const navigationSource = read("../components/app-navigation.tsx");
 const systemPageSource = read("./system/page.tsx");
 const systemOverviewSource = read("./system/system-status-overview.tsx");
 const adminSource = read("./admin/page.tsx");
+const adminWorkspaceSource = read("./admin/admin-workspace.tsx");
 const playerSource = read("./player/page.tsx");
 
 describe("focused product experience contract", () => {
@@ -25,7 +26,7 @@ describe("focused product experience contract", () => {
 
   it("provides four primary navigation destinations with active-route semantics", () => {
     for (const [href, label] of [
-      ["/", "Home"],
+      ["/", "ホーム"],
       ["/admin", "管理"],
       ["/player", "再生"],
       ["/system", "システム"],
@@ -72,10 +73,13 @@ describe("focused product experience contract", () => {
 
     expect(systemOverviewSource).toContain("未公開の変更あり");
     expect(systemOverviewSource).toContain("この端末の再生データは現在の公開内容と一致しています");
+    expect(systemOverviewSource).toContain('label: "準備中 / 一部未確認"');
+    expect(systemOverviewSource).toContain('input.googleStatus === "error"');
   });
 
   it("removes always-visible Drive status summaries from task screens", () => {
     expect(adminSource).not.toContain("DriveStatusSummary");
+    expect(adminWorkspaceSource).not.toContain("DriveStatusSummary");
     expect(playerSource).not.toContain("DriveStatusSummary");
   });
 });
