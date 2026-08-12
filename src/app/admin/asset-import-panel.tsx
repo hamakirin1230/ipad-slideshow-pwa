@@ -3,11 +3,13 @@
 import { useRef, type ChangeEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ProductDisclosure } from "@/components/product-disclosure";
 import {
   useAppState,
   type AssetImportBatchItemStatus,
   type AssetImportStatus,
 } from "@/app/app-providers";
+import { formatUiDateTime } from "@/lib/ui-format";
 
 export function AssetImportPanel() {
   const {
@@ -19,7 +21,6 @@ export function AssetImportPanel() {
     assetImportBatchSummary,
     remainingSlideSlots,
     assetImportMaxBatchCount,
-    canImportAssets,
     canStartAssetImport,
     assetImportBlockedReason,
     isAssetImportInFlight,
@@ -43,16 +44,16 @@ export function AssetImportPanel() {
     event.currentTarget.value = "";
   }
 
-  return (
-    <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="font-semibold text-slate-900">素材追加準備状態</p>
-        <Badge variant={canImportAssets ? "secondary" : "outline"}>
-          {assetImportStatusLabel}
-        </Badge>
-      </div>
+  const showOperationMessage =
+    isAssetImportInFlight ||
+    assetImportBatch.length > 0 ||
+    ["invalid", "error", "cancelled"].includes(assetImportStatus);
 
-      <p className="mt-3">{assetImportMessage}</p>
+  return (
+    <div className="text-sm text-slate-600">
+      <h4 className="font-semibold text-slate-900">素材を追加</h4>
+
+      {showOperationMessage ? <p className="mt-3">{assetImportMessage}</p> : null}
 
       <div className="mt-4 flex flex-wrap gap-3">
         <Button
@@ -86,7 +87,7 @@ export function AssetImportPanel() {
           onClick={openLocalVideoFilePicker}
           disabled={!canStartAssetImport}
         >
-          動画ファイルを選ぶ
+          動画を選ぶ
         </Button>
 
         {isAssetImportInFlight ? (
@@ -105,28 +106,22 @@ export function AssetImportPanel() {
         <p className="mt-3 text-slate-500">{assetImportBlockedReason}</p>
       ) : null}
 
-      <p className="mt-3 text-slate-500">
-        Google Photos Pickerは写真追加が主目的です。video/mp4またはMOVは、Google
-        Photos Pickerではなく「動画ファイルから追加」を推奨します。
-      </p>
-
-      <div className="mt-4 border-t border-slate-200 pt-4">
-        <p className="font-medium text-slate-900">動画ファイルから追加</p>
-        <p className="mt-2 text-slate-500">
-          端末上のMP4またはMOVファイルをDriveへ保存し、プロジェクト設定へ反映します。
-          大容量動画はDriveへの保存と登録だけを行い、端末への本体保存を省略します。1回の上限は
-          {assetImportMaxBatchCount}件、1ファイル5GB以下です。
-        </p>
-      </div>
-
-      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-        <SummaryPill label="追加可能" value={`${remainingSlideSlots}件`} />
-        <SummaryPill label="1回の上限" value={`${assetImportMaxBatchCount}件`} />
-        <SummaryPill
-          label="今回の選択"
-          value={`${assetImportBatchSummary.selectedCount}件`}
-        />
-      </div>
+      <ProductDisclosure label="素材追加の詳細" tone="light" className="mt-4">
+        <div className="space-y-2">
+          <p>写真はGoogle Photosから、動画はこの端末のファイルから選びます。</p>
+          <p>対応する動画はMP4またはMOV、1ファイル5GB以下です。大容量動画は本体をこのiPadへ保存せず、オンライン時に再生します。</p>
+          <p>追加できるスライドは残り{remainingSlideSlots}件、1回に{assetImportMaxBatchCount}件までです。</p>
+          <p>途中で失敗しても、Google Driveへ保存済みの素材は自動削除しません。</p>
+          <p className="text-xs">現在の状態: {assetImportStatusLabel}</p>
+          {assetImportDiagnostics.length > 0 ? (
+            <div className="space-y-1 text-xs">
+              {assetImportDiagnostics.map((diagnostic, index) => (
+                <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </ProductDisclosure>
 
       {assetImportBatch.length > 0 ? (
         <div
@@ -164,8 +159,7 @@ export function AssetImportPanel() {
                   <div>
                     <p className="break-all font-medium">{item.filename}</p>
                     <p className="mt-1 text-xs opacity-70">
-                      {item.sourceMimeType} / 作成日時:{" "}
-                      {formatOptionalValue(item.sourceCreateTime)}
+                      作成日時: {item.sourceCreateTime ? formatUiDateTime(item.sourceCreateTime) : "取得なし"}
                     </p>
                   </div>
                   <Badge variant={getBatchItemBadgeVariant(item.status)}>
@@ -196,32 +190,7 @@ export function AssetImportPanel() {
         </div>
       ) : null}
 
-      <p className="mt-3 text-xs leading-5 text-slate-500">
-        テロップ変更や素材追加をiPad再生に反映するには、対象プロジェクトを端末へ
-        同期してください。途中失敗時もDrive上の素材は自動削除しません。
-      </p>
-
-      {assetImportDiagnostics.length > 0 ? (
-        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <p className="font-medium text-slate-900">素材追加診断</p>
-          <div className="mt-2 space-y-1">
-            {assetImportDiagnostics.map((diagnostic, index) => (
-              <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       <p className="sr-only">現在の素材追加状態: {assetImportStatus}</p>
-    </div>
-  );
-}
-
-function SummaryPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 font-semibold text-slate-900">{value}</p>
     </div>
   );
 }
@@ -290,7 +259,7 @@ function getStartAssetImportButtonLabel(assetImportStatus: AssetImportStatus) {
     case "completed":
     case "idle":
     default:
-      return "素材を追加";
+      return "写真を選ぶ";
   }
 }
 
@@ -308,8 +277,4 @@ function formatBytes(bytes: number) {
   }
 
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB (${bytes} bytes)`;
-}
-
-function formatOptionalValue(value: string | null) {
-  return value ?? "取得なし";
 }

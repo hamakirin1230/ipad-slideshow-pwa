@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Activity, Home, LayoutDashboard, Play, Settings2 } from "lucide-react";
+import { Home, LifeBuoy, Pencil, Play, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const primaryNavigation = [
   { href: "/", label: "ホーム", icon: Home },
-  { href: "/admin", label: "管理", icon: LayoutDashboard },
+  { href: "/admin", label: "つくる", icon: Pencil },
   { href: "/player", label: "再生", icon: Play },
-  { href: "/system", label: "システム", icon: Activity },
+  { href: "/system", label: "サポート", icon: LifeBuoy },
 ] as const;
 
 export function AppNavigation({ pathname }: { pathname: string }) {

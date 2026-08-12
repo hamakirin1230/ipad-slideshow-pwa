@@ -83,7 +83,7 @@ export type PublishPlanDisposition =
 export const PROJECT_PUBLISH_DRIVE_SUCCESS_MESSAGE =
   "Google Drive上の公開版を更新しました。";
 export const PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE =
-  "iPadへ反映するには「端末へ同期」を実行してください。";
+  "このiPadへ反映するには「このiPadに保存」を実行してください。";
 
 export function buildProjectPublishReview(input: {
   projectId: string;

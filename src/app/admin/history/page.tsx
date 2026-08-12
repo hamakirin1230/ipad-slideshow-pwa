@@ -23,7 +23,7 @@ export default function PublishHistoryPage() {
           </div>
           <div className="flex flex-wrap gap-3">
             <Button asChild variant="secondary" className="min-h-11">
-              <Link href="/admin">管理画面へ戻る</Link>
+              <Link href="/admin">つくるへ戻る</Link>
             </Button>
             <Button
               asChild

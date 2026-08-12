@@ -27,9 +27,9 @@ describe("focused product experience contract", () => {
   it("provides four primary navigation destinations with active-route semantics", () => {
     for (const [href, label] of [
       ["/", "ホーム"],
-      ["/admin", "管理"],
+      ["/admin", "つくる"],
       ["/player", "再生"],
-      ["/system", "システム"],
+      ["/system", "サポート"],
     ]) {
       expect(navigationSource).toContain(`href: "${href}"`);
       expect(navigationSource).toContain(`label: "${label}"`);
@@ -44,7 +44,7 @@ describe("focused product experience contract", () => {
   it("turns Home into a simple launch surface", () => {
     expect(homeSource).toContain("再生する");
     expect(homeSource).toContain("編集する");
-    expect(homeSource).toContain("接続・端末の状態を見る");
+    expect(homeSource).toContain("サポート");
     expect(homeSource).not.toMatch(/Vercel|IndexedDB|offline-first|Drive workspace/);
     expect(homeSource).not.toContain("taskItems");
     expect(homeSource).not.toContain("<Card");
@@ -52,13 +52,16 @@ describe("focused product experience contract", () => {
 
   it("groups quiet system status without rendering internal identifiers", () => {
     for (const category of [
-      "Google / Drive",
-      "プロジェクト",
-      "端末データ",
-      "同期 / 公開整合性",
+      "Google Drive",
+      "作品",
+      "このiPad",
+      "公開・同期",
     ]) {
       expect(systemOverviewSource).toContain(`title="${category}"`);
     }
+
+    expect(systemOverviewSource).toContain("<ProductDisclosure");
+    expect(systemOverviewSource).toContain('tone="neutral"');
 
     for (const internalPresentation of [
       ">{project.projectId}<",

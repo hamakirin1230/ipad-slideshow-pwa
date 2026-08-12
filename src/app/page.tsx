@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, ArrowRight, Pencil, Play, Settings2 } from "lucide-react";
+import { ArrowRight, LifeBuoy, Pencil, Play, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
@@ -61,8 +61,8 @@ export default function Home() {
             href="/system"
             className="flex min-h-11 items-center gap-2 rounded-lg px-1 text-slate-400 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
           >
-            <Activity className="size-4" aria-hidden="true" />
-            接続・端末の状態を見る
+            <LifeBuoy className="size-4" aria-hidden="true" />
+            サポート
           </Link>
         </div>
       </div>

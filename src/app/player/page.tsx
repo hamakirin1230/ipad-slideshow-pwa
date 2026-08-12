@@ -1639,9 +1639,9 @@ export default function PlayerPage() {
         "一時的な端末保存データの読み込み失敗であれば、再読み込みで復帰できます。",
     },
     {
-      title: "直らない場合は管理画面で確認します",
+      title: "直らない場合は「つくる」で確認します",
       description:
-        "端末保存データの件数と診断を確認し、必要に応じて対象プロジェクトのローカル保存を削除してから端末への同期を再実行してください。",
+        "このiPadの保存データを確認し、必要に応じて対象作品のローカル保存を削除してから「このiPadに保存」をもう一度実行してください。",
     },
   ];
 
@@ -1654,14 +1654,14 @@ export default function PlayerPage() {
               "この端末に再生用コピーがない状態では、オフラインのまま素材を取得できません。",
           },
           {
-            title: "管理画面で端末への同期を実行します",
+            title: "「つくる」でこのiPadへの保存を実行します",
             description:
-              "オンライン復帰後、Google接続、Drive状態、プロジェクト状態を確認してから端末への同期を実行してください。",
+              "オンライン復帰後、Google Driveへの接続と作品の状態を確認してから「このiPadに保存」を実行してください。",
           },
         ]
       : [
           {
-            title: "管理画面で端末への同期を実行します",
+            title: "「つくる」でこのiPadへの保存を実行します",
             description:
               "初回利用時、またはプロジェクト単位のローカル削除後は、この端末に再生用コピーを作り直す必要があります。",
           },
@@ -1674,7 +1674,7 @@ export default function PlayerPage() {
 
   const invalidSnapshotGuidance: PlayerGuidanceItem[] = [
     {
-      title: "管理画面で端末保存データを確認します",
+      title: "「つくる」でこのiPadの保存データを確認します",
       description:
         "プロジェクト・素材・保存した本体・同期状態の件数や参照関係に不一致があります。",
     },
@@ -1684,7 +1684,7 @@ export default function PlayerPage() {
         "端末内の壊れた再生用コピーだけを削除します。Google Drive上のプロジェクト設定と素材は削除されません。",
     },
     {
-      title: "オンラインで端末への同期を再実行します",
+      title: "オンラインでこのiPadへの保存をもう一度実行します",
       description:
         "Driveから正しい再生データを取得し直し、端末保存データを作り直します。",
     },
@@ -1692,14 +1692,14 @@ export default function PlayerPage() {
 
   const noSlidesGuidance: PlayerGuidanceItem[] = [
     {
-      title: "管理画面でプロジェクト状態を再確認します",
+      title: "「つくる」で作品の状態を再確認します",
       description:
         "プロジェクトは保存されていますが、再生対象のスライドがありません。プロジェクト設定を確認してください。",
     },
     {
       title: "必要なら写真を追加します",
       description:
-        "Google Photos Pickerから素材を追加して保存し、端末への同期を実行してください。",
+        "「つくる」で写真や動画を追加し、このiPadへの保存を実行してください。",
     },
   ];
 
@@ -1712,7 +1712,7 @@ export default function PlayerPage() {
     {
       title: "直らない場合はローカル保存を作り直します",
       description:
-        "管理画面で対象プロジェクトのローカル保存を削除し、オンラインで端末への同期を再実行してください。",
+        "「つくる」で対象作品のローカル保存を削除し、オンラインでこのiPadへの保存を再実行してください。",
     },
   ];
 
@@ -1785,8 +1785,8 @@ export default function PlayerPage() {
               </p>
               <p className="mt-3 text-sm leading-6 text-red-100/80">
                 このスライドが参照しているローカル保存写真を読み込めませんでした。
-                再読み込みで直らない場合は、管理画面でこのプロジェクトのローカル保存を削除し、
-                オンラインで端末への同期を再実行してください。
+                再読み込みで直らない場合は、「つくる」でこの作品のローカル保存を削除し、
+                オンラインでこのiPadへの保存をもう一度実行してください。
               </p>
               <div className="mt-4 rounded-xl border border-red-100/20 bg-black/30 p-4 text-left text-sm">
                 <p className="font-semibold text-red-50">次の操作</p>
@@ -2045,8 +2045,8 @@ export default function PlayerPage() {
                 variant="secondary"
                 size="icon"
                 className="rounded-full border border-white/15 bg-black/45 text-slate-50 hover:bg-white/20"
-                aria-label="管理画面へ"
-                title="管理画面へ"
+                aria-label="つくるへ"
+                title="つくるへ"
               >
                 <Link href="/admin">
                   <Settings />
@@ -2233,8 +2233,8 @@ export default function PlayerPage() {
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
               この画面は、この端末に保存済みの再生用コピーだけを使います。
-              Driveから直接読み込む画面ではないため、初回利用時やローカル削除後は管理画面で
-              端末への同期を実行してください。
+              Google Driveから直接読み込む画面ではないため、初回利用時やローカル削除後は「つくる」で
+              「このiPadに保存」を実行してください。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -2247,7 +2247,7 @@ export default function PlayerPage() {
               {isSnapshotLoading ? "読み込み中" : "再読み込み"}
             </Button>
             <Button asChild variant="secondary">
-              <Link href="/admin">管理画面へ</Link>
+              <Link href="/admin">つくるへ</Link>
             </Button>
             <Button asChild variant="secondary">
               <Link href="/">トップへ戻る</Link>
@@ -2269,7 +2269,7 @@ export default function PlayerPage() {
             title="このiPadの再生用コピーを読み込めませんでした"
             description={
               errorMessage ??
-              "端末保存データの読み込み中に問題が発生しました。再読み込みで直らない場合は、管理画面で保存状態を確認してください。"
+              "このiPadの保存データを読み込めませんでした。再読み込みで直らない場合は、「つくる」で保存状態を確認してください。"
             }
             guidanceItems={loadErrorGuidance}
           >
@@ -2278,7 +2278,7 @@ export default function PlayerPage() {
                 もう一度読み込む
               </Button>
               <Button asChild variant="secondary">
-                <Link href="/admin">管理画面で確認する</Link>
+                <Link href="/admin">つくるで確認する</Link>
               </Button>
             </PlayerActionRow>
           </PlayerStatusCard>
@@ -2294,8 +2294,8 @@ export default function PlayerPage() {
             }
             description={
               isOnline === false
-                ? "現在オフラインのため、Driveからプロジェクトや写真を取得できません。オンラインに戻してから端末への同期を実行してください。"
-                : "初回利用、またはプロジェクト単位のローカル削除後の状態です。管理画面で端末への同期を実行すると、このiPadに再生用コピーを作成できます。"
+                ? "現在オフラインのため、Google Driveから作品や写真を取得できません。オンラインに戻してから「このiPadに保存」を実行してください。"
+                : "初回利用、または作品のローカル削除後の状態です。「つくる」でこのiPadへの保存を実行すると、再生できるようになります。"
             }
             guidanceItems={emptySnapshotGuidance}
             diagnostics={snapshot.diagnostics}
@@ -2305,7 +2305,7 @@ export default function PlayerPage() {
                 再読み込み
               </Button>
               <Button asChild variant="secondary">
-                <Link href="/admin">管理画面で端末への同期を実行</Link>
+                <Link href="/admin">このiPadに保存する</Link>
               </Button>
             </PlayerActionRow>
           </PlayerStatusCard>
@@ -2325,7 +2325,7 @@ export default function PlayerPage() {
           <PlayerStatusCard
             tone="danger"
             title="このiPadの再生用コピーを修復する必要があります"
-            description="端末内のプロジェクト・素材・同期状態の対応関係が崩れています。壊れたローカルコピーを削除してから、端末への同期で作り直してください。"
+            description="このiPad内の作品・素材・保存状態の対応関係が崩れています。壊れたローカルコピーを削除してから「このiPadに保存」で作り直してください。"
             guidanceItems={invalidSnapshotGuidance}
             diagnostics={snapshot.diagnostics}
           >
@@ -2334,7 +2334,7 @@ export default function PlayerPage() {
                 再読み込み
               </Button>
               <Button asChild variant="secondary">
-                <Link href="/admin">管理画面で修復する</Link>
+                <Link href="/admin">つくるで修復する</Link>
               </Button>
             </PlayerActionRow>
           </PlayerStatusCard>
@@ -2352,7 +2352,7 @@ export default function PlayerPage() {
                 再読み込み
               </Button>
               <Button asChild variant="secondary">
-                <Link href="/admin">管理画面へ</Link>
+                <Link href="/admin">つくるへ</Link>
               </Button>
             </PlayerActionRow>
           </PlayerStatusCard>

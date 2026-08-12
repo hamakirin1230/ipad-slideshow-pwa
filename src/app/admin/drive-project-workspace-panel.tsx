@@ -20,6 +20,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ProductAlertDialog } from "@/components/product-alert-dialog";
+import { ProductDisclosure } from "@/components/product-disclosure";
 import {
   Card,
   CardContent,
@@ -32,6 +34,7 @@ import {
   DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS,
   DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS,
 } from "@/lib/google-drive";
+import { formatUiDateTime } from "@/lib/ui-format";
 import { AssetCleanupPreviewPanel } from "./asset-cleanup-preview-panel";
 import { AssetImportPanel } from "./asset-import-panel";
 
@@ -78,7 +81,7 @@ export function DriveProjectWorkspacePanel() {
   const readyProjectDetails = projectStatus === "ready" ? projectDetails : null;
   const projectId = projectSummary?.projectId ?? null;
   const slideCount =
-     readyProjectDetails?.slideCount ?? projectSummary?.slideCount ?? 0;
+    readyProjectDetails?.slideCount ?? projectSummary?.slideCount ?? null;
   const slides = useMemo(
     () => readyProjectDetails?.slides ?? [],
     [readyProjectDetails?.slides],
@@ -92,6 +95,8 @@ export function DriveProjectWorkspacePanel() {
     activeDragSlideId: null,
   }));
   const slideListStateRef = useRef(slideListState);
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+  const [pendingDeleteSlideIds, setPendingDeleteSlideIds] = useState<string[] | null>(null);
 
   const { orderedSlideIds, selectedSlideIds, activeDragSlideId } = slideListState;
   const selectedCount = selectedSlideIds.size;
@@ -172,24 +177,18 @@ export function DriveProjectWorkspacePanel() {
     }));
   }
 
-  async function handleDeleteSelectedSlides() {
+  function handleDeleteSelectedSlides() {
     if (!canDeleteSelectedSlides) {
       return;
     }
 
-    const slideIdsToDelete = Array.from(selectedSlideIds);
-    const confirmed = window.confirm(
-      [
-        `選択した${slideIdsToDelete.length}件のスライドをこのプロジェクトから削除します。`,
-        "Google Drive上の素材ファイルは削除しません。",
-        "iPad再生に反映するには端末への同期が必要です。",
-      ].join("\n"),
-    );
+    setPendingDeleteSlideIds(Array.from(selectedSlideIds));
+  }
 
-    if (!confirmed) {
-      return;
-    }
-
+  async function confirmDeleteSelectedSlides() {
+    const slideIdsToDelete = pendingDeleteSlideIds;
+    if (!slideIdsToDelete || !canDeleteSelectedSlides) return;
+    setPendingDeleteSlideIds(null);
     const ok = await deleteProjectSlides(slideIdsToDelete);
 
     if (ok) {
@@ -258,19 +257,26 @@ export function DriveProjectWorkspacePanel() {
   return (
     <div className="space-y-8">
       <div>
-        <p className="text-xs font-semibold tracking-[0.16em] text-slate-500">編集</p>
-        <h2 className="mt-2 text-2xl font-semibold text-slate-50">素材とスライドを組み立てる</h2>
+        <h2 className="mt-2 text-2xl font-semibold text-slate-50">スライドをつくる</h2>
       </div>
 
       {!projectSummary ? (
         <div className="rounded-xl border border-amber-400/25 bg-amber-400/8 p-5 text-amber-100">
-          <p className="font-semibold">編集するプロジェクトを選択してください</p>
+          <p className="font-semibold">編集する作品を選択してください</p>
           <p className="mt-1 text-sm leading-6">作品を選択すると、素材の追加とスライド編集を始められます。</p>
           <a href="#project" className="mt-3 inline-flex min-h-11 items-center font-medium underline decoration-amber-300/40 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200">
-            プロジェクトを選択
+            作品を選択
           </a>
         </div>
       ) : null}
+
+      <ProductDisclosure label="使い方を見る">
+        <div className="space-y-2">
+          <p>写真や動画を追加し、スライドをドラッグして並び替えます。</p>
+          <p>変更を再生に反映するには、あとで「このiPad」から保存してください。公開は別の操作です。</p>
+          <p>大容量動画は本体をこのiPadへ保存せず、オンライン時に再生します。対応形式や上限は素材追加の詳細で確認できます。</p>
+        </div>
+      </ProductDisclosure>
 
       <section aria-labelledby="asset-import-heading">
         <Card className="bg-white text-slate-950">
@@ -287,7 +293,9 @@ export function DriveProjectWorkspacePanel() {
       </section>
 
       <section aria-label="素材の整理" className="border-t border-white/8 pt-8">
-        <AssetCleanupPreviewPanel />
+        <ProductDisclosure label="使っていない素材を整理">
+          <AssetCleanupPreviewPanel />
+        </ProductDisclosure>
       </section>
 
       <section aria-labelledby="slide-editor-heading" className="border-t border-white/8 pt-8">
@@ -295,22 +303,13 @@ export function DriveProjectWorkspacePanel() {
           <CardHeader>
             <CardTitle><h3 id="slide-editor-heading">スライド</h3></CardTitle>
             <CardDescription>
-              スライドの順番、テロップ、表示時間を編集します。再生への反映には端末への同期が必要です。
+              ドラッグして並び替え
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              <p className="font-semibold text-slate-900">スライドの順番</p>
-              <p className="mt-1">
-                この順番が /player の再生順になります。変更後、iPad再生に反映するには
-                端末への同期を実行してください。
-              </p>
-              {slideReorderBlockedReason ? (
-                <p className="mt-2 text-xs text-slate-500">
-                  現在の状態: {slideReorderBlockedReason}
-                </p>
-              ) : null}
-            </div>
+            {slideReorderBlockedReason ? (
+              <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{slideReorderBlockedReason}</p>
+            ) : null}
             {slides.length > 0 ? (
               <div className="space-y-3">
                 <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between">
@@ -337,6 +336,7 @@ export function DriveProjectWorkspacePanel() {
                       選択解除
                     </Button>
                     <Button
+                      ref={deleteTriggerRef}
                       type="button"
                       size="sm"
                       variant="destructive"
@@ -375,7 +375,7 @@ export function DriveProjectWorkspacePanel() {
                     strategy={verticalListSortingStrategy}
                   >
                     <div className="overflow-hidden rounded-xl border border-slate-200">
-                      <div className="grid gap-3 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]">
+                      <div className="grid gap-3 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]">
                         <p>選択</p>
                         <p>順番</p>
                         <p>プレビュー</p>
@@ -443,13 +443,12 @@ export function DriveProjectWorkspacePanel() {
                                     ) : null}
                                   </div>
                                   <p className="mt-1 text-xs text-slate-500">
-                                    元の形式: {slide.sourceMimeType} / 作成日時:{" "}
-                                    {slide.sourceCreateTime}
+                                    作成日時:{" "}
+                                    {slide.sourceCreateTime
+                                      ? formatUiDateTime(slide.sourceCreateTime)
+                                      : "取得なし"}
                                   </p>
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    表示時間: {slide.durationSeconds}秒 /{" "}
-                                    {slide.mimeType}
-                                  </p>
+                                  <p className="mt-1 text-xs text-slate-500">表示時間: {slide.durationSeconds}秒</p>
                                   <p className="mt-1 text-xs text-slate-500">
                                     動画の実時間:{" "}
                                     {formatOptionalDurationMs(slide.durationMs)} / 容量:{" "}
@@ -457,7 +456,7 @@ export function DriveProjectWorkspacePanel() {
                                   </p>
                                   {getAssetTypeLabel(slide.type) === "video" ? (
                                     <p className="mt-1 text-xs leading-5 text-slate-600">
-                                      大容量動画は本体を端末へ保存せず、オンライン時にDriveから再生します。端末への同期後もremoteOnlyの再生情報として残ります。
+                                      大容量動画は本体をこのiPadへ保存せず、オンライン時に再生します。
                                     </p>
                                   ) : null}
                                 </div>
@@ -476,6 +475,7 @@ export function DriveProjectWorkspacePanel() {
                                   isDisabled={areSlideActionsDisabled}
                                   isDuplicating={isSlideDuplicateInFlight}
                                   isDuplicateLimitReached={
+                                    slideCount !== null &&
                                     slideCount >= PROJECT_SLIDE_MAX_COUNT
                                   }
                                   onDuplicate={duplicateProjectSlide}
@@ -525,7 +525,7 @@ export function DriveProjectWorkspacePanel() {
               </div>
             )}
             <p className="mt-3 text-xs leading-5 text-slate-500">
-              スライド順、テロップ、表示時間の変更をiPad再生に反映するには、このプロジェクトを端末へ同期してください。
+              スライド順、テロップ、表示時間の変更を再生に反映するには、この作品をこのiPadに保存してください。
             </p>
             {slideEditMessage ? (
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -578,6 +578,17 @@ export function DriveProjectWorkspacePanel() {
           </CardContent>
         </Card>
       </section>
+
+      {pendingDeleteSlideIds ? (
+        <ProductAlertDialog
+          title="選択したスライドを削除しますか？"
+          description={`選択した${pendingDeleteSlideIds.length}件のスライドをこの作品から削除します。\nGoogle Drive上の素材ファイルは削除しません。\nこのiPadへの反映には、保存をもう一度実行してください。`}
+          confirmLabel="スライドを削除"
+          triggerRef={deleteTriggerRef}
+          onCancel={() => setPendingDeleteSlideIds(null)}
+          onConfirm={confirmDeleteSelectedSlides}
+        />
+      ) : null}
     </div>
   );
 }
@@ -629,8 +640,8 @@ function SortableSlideRow({
       style={style}
       className={
         isDragging
-          ? "grid gap-3 bg-white px-4 py-3 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 lg:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
-          : "grid gap-3 bg-white px-4 py-3 text-sm lg:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
+          ? "grid gap-3 bg-white px-4 py-3 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
+          : "grid gap-3 bg-white px-4 py-3 text-sm xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
       }
     >
       {children({ dragHandle })}
@@ -699,7 +710,7 @@ function SlideDurationEditor({
         </p>
       ) : null}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-slate-500">端末への同期後にiPad再生へ反映</p>
+        <p className="text-xs text-slate-500">このiPadへの保存後に再生へ反映</p>
         <Button
           type="button"
           size="sm"

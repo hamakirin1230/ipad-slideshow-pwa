@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ProductAlertDialog } from "@/components/product-alert-dialog";
 import {
   Card,
   CardContent,
@@ -32,6 +33,7 @@ import {
   getUserFacingOperationFailureMessage,
   sanitizeUserFacingDiagnostic,
 } from "@/lib/user-facing-diagnostics";
+import { formatUiDateTime } from "@/lib/ui-format";
 
 type OfflineConfirmedStorePanelState =
   | {
@@ -119,6 +121,12 @@ export function OfflineConfirmedStorePanel() {
     useState<OfflineStorageManagementState>({
       status: "idle",
     });
+  const [pendingConfirmation, setPendingConfirmation] = useState<
+    | { kind: "project"; project: OfflineConfirmedProjectSummary }
+    | { kind: "cache"; snapshot: OfflineStorageManagementSnapshot | null }
+    | null
+  >(null);
+  const destructiveTriggerRef = useRef<HTMLButtonElement>(null);
 
   const isChecking = state.status === "checking";
   const isClearingProject = clearState.status === "clearing";
@@ -149,17 +157,7 @@ export function OfflineConfirmedStorePanel() {
     }
   }
 
-  async function handleClearLocalOfflineProject(
-    project: OfflineConfirmedProjectSummary,
-  ) {
-    const shouldClear = window.confirm(
-      buildLocalOfflineProjectClearConfirmation(project),
-    );
-
-    if (!shouldClear) {
-      return;
-    }
-
+  async function clearLocalOfflineProject(project: OfflineConfirmedProjectSummary) {
     setClearState({
       status: "clearing",
       projectId: project.projectId,
@@ -225,38 +223,28 @@ export function OfflineConfirmedStorePanel() {
     }
   }
 
-  async function handleClearAppShellCache() {
-    const currentSnapshot =
+  function requestClearLocalOfflineProject(
+    project: OfflineConfirmedProjectSummary,
+    trigger: HTMLButtonElement,
+  ) {
+    destructiveTriggerRef.current = trigger;
+    setPendingConfirmation({ kind: "project", project });
+  }
+
+  function requestClearAppShellCache(trigger: HTMLButtonElement) {
+    const snapshot =
       storageManagementState.status === "ready" ||
       storageManagementState.status === "cacheCleared"
         ? storageManagementState.snapshot
         : null;
+    destructiveTriggerRef.current = trigger;
+    setPendingConfirmation({ kind: "cache", snapshot });
+  }
 
-    const shouldClear = window.confirm(
-      [
-        "アプリ表示用キャッシュを削除します。",
-        "",
-        "削除対象:",
-        "・画面本体とアプリの基本ファイル",
-        "",
-        "削除しないもの:",
-        "・端末内データベース（IndexedDB）のプロジェクト・素材・再生データ",
-        "・Google Drive上の保存領域・プロジェクト設定・素材",
-        "",
-        "削除後もオンラインなら画面は再取得できます。",
-        "オフライン起動確認をやり直す場合は、オンラインで各画面を一度開いてキャッシュを作り直してください。",
-        "",
-        "削除しますか？",
-      ].join("\n"),
-    );
-
-    if (!shouldClear) {
-      return;
-    }
-
+  async function performClearAppShellCache(snapshot: OfflineStorageManagementSnapshot | null) {
     setStorageManagementState({
       status: "clearingCache",
-      snapshot: currentSnapshot,
+      snapshot,
     });
 
     try {
@@ -280,6 +268,17 @@ export function OfflineConfirmedStorePanel() {
     }
   }
 
+  function confirmPendingClear() {
+    const pending = pendingConfirmation;
+    if (!pending) return;
+    setPendingConfirmation(null);
+    if (pending.kind === "project") {
+      void clearLocalOfflineProject(pending.project);
+    } else {
+      void performClearAppShellCache(pending.snapshot);
+    }
+  }
+
   return (
     <Card className="border-white/10 bg-white/5 text-slate-50">
       <CardHeader>
@@ -290,7 +289,7 @@ export function OfflineConfirmedStorePanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          端末への同期後に、プロジェクト・素材・再生データ・同期状態を確認します。
+          このiPadへの保存後に、作品・素材・再生データ・保存状態を確認します。
           素材本体は画面表示せず、種類・件数・保存容量だけを表示します。
         </CardDescription>
       </CardHeader>
@@ -310,13 +309,13 @@ export function OfflineConfirmedStorePanel() {
           state={storageManagementState}
           isBusy={isCheckingStorage || isClearingCache || isClearingProject}
           onCheck={handleCheckStorageManagement}
-          onClearAppShellCache={handleClearAppShellCache}
+          onClearAppShellCache={requestClearAppShellCache}
         />
 
         {state.status === "idle" ? (
           <p className="text-sm text-slate-400">
-            端末への同期が完了した後に押すと、保存結果と
-            プロジェクトごとのローカル保存容量を確認できます。
+            このiPadへの保存が完了した後に押すと、保存結果と
+            作品ごとのローカル保存容量を確認できます。
           </p>
         ) : null}
 
@@ -331,7 +330,7 @@ export function OfflineConfirmedStorePanel() {
             </p>
             <div className="mt-3 space-y-1">
               <p>{clearState.message}</p>
-              <p>失敗日時: {clearState.failedAt}</p>
+              <p>失敗日時: {formatUiDateTime(clearState.failedAt)}</p>
             </div>
           </div>
         ) : null}
@@ -341,7 +340,7 @@ export function OfflineConfirmedStorePanel() {
             <p className="font-semibold">端末保存データを確認できませんでした。</p>
             <div className="mt-3 space-y-1">
               <p>{state.message}</p>
-              <p>確認日時: {state.checkedAt}</p>
+              <p>確認日時: {formatUiDateTime(state.checkedAt)}</p>
             </div>
           </div>
         ) : null}
@@ -350,7 +349,7 @@ export function OfflineConfirmedStorePanel() {
           <ConfirmedStoreSnapshotView
             snapshot={state.snapshot}
             clearingProjectId={clearingProjectId}
-            onClearProject={handleClearLocalOfflineProject}
+            onClearProject={requestClearLocalOfflineProject}
           />
         ) : null}
 
@@ -363,6 +362,18 @@ export function OfflineConfirmedStorePanel() {
           </p>
         </div>
       </CardContent>
+      {pendingConfirmation ? (
+        <ProductAlertDialog
+          title={pendingConfirmation.kind === "project" ? "このiPadの保存データを削除しますか？" : "アプリの基本ファイルを削除しますか？"}
+          description={pendingConfirmation.kind === "project"
+            ? buildLocalOfflineProjectClearConfirmation(pendingConfirmation.project)
+            : "画面本体とアプリの基本ファイルを削除します。\nこのiPadの作品・素材・再生データと、Google Drive上のデータは削除しません。\nオンラインなら画面を再取得できます。"}
+          confirmLabel="削除する"
+          triggerRef={destructiveTriggerRef}
+          onCancel={() => setPendingConfirmation(null)}
+          onConfirm={confirmPendingClear}
+        />
+      ) : null}
     </Card>
   );
 }
@@ -376,7 +387,7 @@ function OfflineStorageManagementView({
   state: OfflineStorageManagementState;
   isBusy: boolean;
   onCheck: () => void;
-  onClearAppShellCache: () => void;
+  onClearAppShellCache: (trigger: HTMLButtonElement) => void;
 }) {
   const snapshot =
     state.status === "ready" ||
@@ -414,7 +425,7 @@ function OfflineStorageManagementView({
             type="button"
             variant="destructive"
             className="min-h-11"
-            onClick={onClearAppShellCache}
+            onClick={(event) => onClearAppShellCache(event.currentTarget)}
             disabled={isBusy || !canClearAppShellCache}
           >
             {state.status === "clearingCache"
@@ -438,7 +449,7 @@ function OfflineStorageManagementView({
           </p>
           <div className="mt-3 space-y-1 text-xs">
             <p>{state.message}</p>
-            <p>失敗日時: {state.failedAt}</p>
+            <p>失敗日時: {formatUiDateTime(state.failedAt)}</p>
           </div>
         </div>
       ) : null}
@@ -451,7 +462,7 @@ function OfflineStorageManagementView({
               label="削除結果"
               value={state.result.deleted ? "削除済み" : "対象なし"}
             />
-            <SummaryRow label="削除日時" value={state.result.clearedAt} />
+            <SummaryRow label="削除日時" value={formatUiDateTime(state.result.clearedAt)} />
           </dl>
         </div>
       ) : null}
@@ -552,7 +563,7 @@ function ClearLocalOfflineProjectDataResultView({
         プロジェクト単位のローカル保存データを削除しました。
       </p>
       <dl className="mt-3 grid gap-1 text-xs sm:grid-cols-2">
-        <SummaryRow label="削除日時" value={result.clearedAt} />
+        <SummaryRow label="削除日時" value={formatUiDateTime(result.clearedAt)} />
         <SummaryRow label="プロジェクト" value={result.deletedProjects} />
         <SummaryRow label="素材情報" value={result.deletedAssets} />
         <SummaryRow label="素材本体" value={result.deletedAssetBlobs} />
@@ -578,7 +589,7 @@ function ConfirmedStoreSnapshotView({
 }: {
   snapshot: OfflineConfirmedStoreSnapshot;
   clearingProjectId: string | null;
-  onClearProject: (project: OfflineConfirmedProjectSummary) => void;
+  onClearProject: (project: OfflineConfirmedProjectSummary, trigger: HTMLButtonElement) => void;
 }) {
   const totalAssetBlobSizeBytes = getTotalAssetBlobSizeBytes(snapshot);
   const projectStorageSummaries = snapshot.projects.map((project) =>
@@ -602,15 +613,14 @@ function ConfirmedStoreSnapshotView({
         <p className="font-semibold">素材情報と端末に保存した本体</p>
         <p className="mt-2 leading-6">
           素材情報と保存した本体の件数は一致しない場合があります。大容量動画は
-          remoteOnlyの再生情報だけを端末保存データに保持し、本体は保存しません。
-          この差は異常や同期失敗を意味せず、オンライン時はDriveから
-          /playerで再生できます。
+          オンライン再生用の情報だけをこのiPadに保持し、本体は保存しません。
+          この差は異常や同期失敗を意味せず、オンライン時はGoogle Driveから再生できます。
         </p>
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
         <p className="font-semibold text-slate-50">確認日時</p>
-        <p className="mt-2 text-slate-300">{snapshot.checkedAt}</p>
+        <p className="mt-2 text-slate-300">{formatUiDateTime(snapshot.checkedAt)}</p>
       </div>
 
       {projectStorageSummaries.length > 0 ? (
@@ -668,10 +678,10 @@ function ConfirmedStoreSnapshotView({
                         : formatBytes(summary.sourceTotalSizeBytes)
                     }
                   />
-                  <SummaryRow label="最終同期日時" value={summary.lastSyncedAt} />
+                  <SummaryRow label="最終同期日時" value={formatUiDateTime(summary.lastSyncedAt)} />
                   <SummaryRow
                     label="Drive更新日時"
-                    value={summary.sourceUpdatedAt}
+                    value={formatUiDateTime(summary.sourceUpdatedAt)}
                   />
                 </dl>
               </div>
@@ -709,7 +719,7 @@ function ConfirmedStoreSnapshotView({
                         type="button"
                         variant="destructive"
                         className="min-h-11"
-                        onClick={() => onClearProject(project)}
+                        onClick={(event) => onClearProject(project, event.currentTarget)}
                         disabled={clearingProjectId !== null}
                       >
                         {clearingProjectId === project.projectId
@@ -841,7 +851,7 @@ function ConfirmedStoreSnapshotView({
           </p>
           <p className="mt-2 text-slate-300">
             要確認項目は{snapshot.diagnostics.length}
-            件です。端末への同期を再実行して状態を確認してください。
+            件です。このiPadへの保存をもう一度実行して状態を確認してください。
           </p>
         </div>
       ) : null}

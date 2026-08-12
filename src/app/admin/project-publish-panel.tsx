@@ -5,12 +5,14 @@ import {
   CheckCircle2,
   History,
   LoaderCircle,
+  Play,
   RefreshCw,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAppState } from "@/app/app-providers";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ProductDisclosure } from "@/components/product-disclosure";
 import {
   Card,
   CardContent,
@@ -32,6 +34,7 @@ import {
   type SanitizedPublishSuccess,
 } from "@/lib/publish-history/project-publish-ui";
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
+import { formatUiDateTime } from "@/lib/ui-format";
 
 type PublishUiState =
   | { status: "idle" }
@@ -177,20 +180,11 @@ function ProjectPublishPanelSession() {
     <section aria-labelledby="project-publish-heading">
       <Card className="border-white/10 bg-white/[0.035] text-slate-50">
         <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle>
-              <h2 id="project-publish-heading">公開</h2>
-            </CardTitle>
-            <Button asChild variant="ghost" className="min-h-11 text-slate-300 hover:bg-white/8 hover:text-white">
-              <Link href="/admin/history">
-                <History className="size-4" aria-hidden="true" />
-                公開履歴
-              </Link>
-            </Button>
-          </div>
+          <CardTitle>
+            <h2 id="project-publish-heading">公開</h2>
+          </CardTitle>
           <CardDescription className="text-slate-300">
-            公開すると、現在保存されている内容を公開履歴へ記録し、Google
-            Drive上の現在の公開版を切り替えます。端末への同期は自動では実行されません。
+            今の内容を公開版にします
           </CardDescription>
         </CardHeader>
 
@@ -247,7 +241,7 @@ function ProjectPublishPanelSession() {
           ) : null}
 
           {uiState.status === "idle" || uiState.status === "preflighting" ? (
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="grid gap-3 sm:grid-cols-3">
               <Button
                 type="button"
                 className="min-h-11"
@@ -266,7 +260,7 @@ function ProjectPublishPanelSession() {
                 ) : (
                   <RefreshCw className="size-4" aria-hidden="true" />
                 )}
-                公開前確認
+                公開前に確認
               </Button>
               {uiState.status === "preflighting" ? (
                 <Button
@@ -278,8 +272,29 @@ function ProjectPublishPanelSession() {
                   キャンセル
                 </Button>
               ) : null}
+              {uiState.status === "idle" ? (
+                <>
+                  <Button asChild variant="outline" className="min-h-11 border-white/15 bg-white/5 text-slate-100">
+                    <Link href="/player">
+                      <Play className="size-4" aria-hidden="true" />
+                      このiPadの作品を再生
+                    </Link>
+                  </Button>
+                  <Button asChild variant="ghost" className="min-h-11 text-slate-300 hover:bg-white/8 hover:text-white">
+                    <Link href="/admin/history">
+                      <History className="size-4" aria-hidden="true" />
+                      公開履歴
+                    </Link>
+                  </Button>
+                </>
+              ) : null}
             </div>
           ) : null}
+
+          <ProductDisclosure label="公開について">
+            <p>公開すると、現在保存されている内容を公開履歴へ記録し、Google Drive上の公開版を切り替えます。</p>
+            <p className="mt-2">このiPadへの保存は自動では行われません。「このiPad」から別に実行してください。</p>
+          </ProductDisclosure>
         </CardContent>
       </Card>
     </section>
@@ -311,12 +326,12 @@ function PublishReview({
           <Badge variant="secondary">{getProjectPublishModeLabel(review)}</Badge>
         </div>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-          <ReviewItem label="プロジェクト名" value={review.projectTitle} />
-          <ReviewItem label="公開日時" value={review.publishedAt} />
+          <ReviewItem label="作品名" value={review.projectTitle} />
+          <ReviewItem label="公開日時" value={formatUiDateTime(review.publishedAt)} />
           <ReviewItem label="スライド数" value={`${review.slideCount}件`} />
           <ReviewItem label="素材数" value={`${review.assetCount}件`} />
           <ReviewItem
-            label="remoteOnly動画数"
+            label="オンライン再生のみの動画"
             value={`${review.remoteOnlyAssetCount}件`}
           />
           <ReviewItem
@@ -342,7 +357,7 @@ function PublishReview({
           </ul>
         )}
         <p className="mt-3 text-slate-300">
-          公開後、iPadへの反映には「端末へ同期」が別途必要です。
+          公開後、このiPadへの反映には「このiPadに保存」が別途必要です。
         </p>
       </div>
 
@@ -359,7 +374,7 @@ function PublishReview({
           htmlFor="project-publish-confirmation"
           className="cursor-pointer text-slate-100"
         >
-          公開後も、iPadへの反映には「端末へ同期」が必要であることを確認しました。
+          公開後も、このiPadへの反映には「このiPadに保存」が必要であることを確認しました。
         </label>
       </div>
 
@@ -428,7 +443,10 @@ function PublishSuccess({
         <p className="mt-2">{PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE}</p>
       </div>
       <dl className="grid gap-3 sm:grid-cols-2">
-        <ReviewItem label="公開日時" value={result.publishedAt} />
+        <ReviewItem
+          label="公開日時"
+          value={formatUiDateTime(result.publishedAt)}
+        />
         <ReviewItem
           label="公開履歴"
           value={getRevisionPreparationLabel(result.revisionStatus)}

@@ -10,7 +10,9 @@ import {
 } from "react";
 import { Play, Shuffle } from "lucide-react";
 import { useAppState } from "@/app/app-providers";
+import { ProductDisclosure } from "@/components/product-disclosure";
 import { Button } from "@/components/ui/button";
+import { formatUiCount } from "@/lib/ui-format";
 import { cn } from "@/lib/utils";
 import { DriveProjectWorkspacePanel } from "./drive-project-workspace-panel";
 import { OfflineConfirmedStorePanel } from "./offline-confirmed-store-panel";
@@ -19,10 +21,10 @@ import { ProjectPublishPanel } from "./project-publish-panel";
 import { ProjectStatusPanel } from "./project-status-panel";
 
 const workspaceTabs = [
-  { id: "project", label: "プロジェクト" },
-  { id: "edit", label: "編集" },
+  { id: "project", label: "作品" },
+  { id: "edit", label: "スライド" },
   { id: "publish", label: "公開" },
-  { id: "device", label: "端末" },
+  { id: "device", label: "このiPad" },
 ] as const;
 
 type WorkspaceTab = (typeof workspaceTabs)[number]["id"];
@@ -32,9 +34,9 @@ export function AdminWorkspace() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("project");
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const slideCount =
-    projectDetails?.slideCount ?? projectSummary?.slideCount ?? 0;
+    projectDetails?.slideCount ?? projectSummary?.slideCount ?? null;
   const assetCount =
-    projectDetails?.assetCount ?? projectSummary?.assetCount ?? 0;
+    projectDetails?.assetCount ?? projectSummary?.assetCount ?? null;
 
   useEffect(() => {
     function selectHashTab() {
@@ -78,7 +80,7 @@ export function AdminWorkspace() {
         <header className="flex flex-col gap-5 border-b border-white/8 pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold tracking-[0.18em] text-slate-500">
-              管理
+              つくる
             </p>
             {projectSummary ? (
               <>
@@ -86,14 +88,14 @@ export function AdminWorkspace() {
                   {projectSummary.title}
                 </h1>
                 <p className="mt-2 text-sm text-slate-400">
-                  スライド {slideCount}件 <span aria-hidden="true">·</span>{" "}
-                  素材 {assetCount}件
+                  スライド {formatUiCount(slideCount)} <span aria-hidden="true">·</span>{" "}
+                  素材 {formatUiCount(assetCount)}
                 </p>
               </>
             ) : (
               <>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-                  プロジェクトを選択
+                  作品を選択
                 </h1>
                 <p className="mt-2 text-sm text-slate-400">
                   編集する作品を選ぶか、新しく作成してください。
@@ -109,7 +111,7 @@ export function AdminWorkspace() {
               onClick={() => selectTab("project")}
             >
               <Shuffle className="size-4" aria-hidden="true" />
-              {projectSummary ? "作品を切り替える" : "プロジェクトを選択"}
+              {projectSummary ? "作品を切り替える" : "作品を選択"}
             </Button>
             <Button
               asChild
@@ -178,20 +180,17 @@ export function AdminWorkspace() {
           <WorkspacePane id="device" activeTab={activeTab}>
             <div className="space-y-8">
               <div>
-                <p className="text-xs font-semibold tracking-[0.16em] text-slate-500">
-                  このiPad
-                </p>
                 <h2 className="mt-2 text-2xl font-semibold">
-                  最新の内容を再生できる状態にする
+                  このiPadで再生できるようにする
                 </h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                  公開とは別に、選択中の作品をこの端末へ明示的に同期します。
-                </p>
               </div>
               <OfflineSyncPanel />
-              <div className="border-t border-white/8 pt-8">
+              <ProductDisclosure label="このiPadの保存データを管理">
+                <p className="mb-5">
+                  公開とは別に、選択中の作品をこのiPadへ明示的に保存します。
+                </p>
                 <OfflineConfirmedStorePanel />
-              </div>
+              </ProductDisclosure>
             </div>
           </WorkspacePane>
         </div>

@@ -32,7 +32,7 @@ describe("/admin/history rollback preview UI contract", () => {
       "ロールバック最終確認",
       "この内容へロールバック",
       "過去の公開版は変更せず、復元内容から新しいロールバック版を作成",
-      "Driveの公開版だけが更新され、端末利用には別途「端末へ同期」が必要",
+      "Google Driveの公開版だけが更新され、このiPadへの保存は別途必要",
       "保存済みの未公開編集",
     ]) {
       expect(source).toContain(required);

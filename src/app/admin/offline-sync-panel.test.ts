@@ -36,13 +36,13 @@ describe("offline sync stale view", () => {
       "Drive上の内容が同期中に変更されました。再度同期してください",
     );
     expect(view.retentionMessage).toContain(
-      "今回の結果は端末保存データへ反映していません",
+      "今回の結果はこのiPadの保存データへ反映していません",
     );
     expect(view.retentionMessage).toContain(
-      "以前の端末保存データと同期状態を維持しています",
+      "以前の保存データと状態を維持しています",
     );
     expect(view.retentionMessage).toContain("自動再試行は行いません");
-    expect(view.retentionMessage).toContain("手動で再実行してください");
+    expect(view.retentionMessage).toContain("手動でもう一度実行してください");
     expect(serialized).not.toContain("新しい処理が優先された");
     expect(serialized).not.toContain("より新しいsync run");
   });
@@ -50,12 +50,12 @@ describe("offline sync stale view", () => {
   it("explains stale sync runs as superseded by a newer run", () => {
     const view = buildOfflineSyncStaleView("stale");
 
-    expect(view.message).toContain("より新しい同期処理が優先された");
+    expect(view.message).toContain("より新しい保存処理が優先された");
     expect(view.message).toContain(
-      "今回の結果は端末保存データへ反映していません",
+      "今回の結果はこのiPadへ反映していません",
     );
     expect(view.retentionMessage).toContain(
-      "以前の端末保存データを維持しています",
+      "以前の保存データを維持しています",
     );
   });
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, Check, ChevronRight, RefreshCw } from "lucide-react";
 import { useAppState } from "@/app/app-providers";
 import { Button } from "@/components/ui/button";
+import { ProductDisclosure } from "@/components/product-disclosure";
 import {
   readOfflineConfirmedStoreSnapshot,
   type OfflineConfirmedStoreSnapshot,
@@ -15,6 +16,7 @@ import {
   type OfflineStorageManagementSnapshot,
 } from "@/lib/offline-storage-management";
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
+import { formatUiCount } from "@/lib/ui-format";
 
 type DeviceStatusState =
   | { status: "idle" }
@@ -133,7 +135,7 @@ export function SystemStatusOverview() {
         </Button>
       </section>
 
-      <StatusSection title="Google / Drive">
+      <StatusSection title="Google Drive">
         <StatusRow
           label="Google"
           status={googleStatusLabel}
@@ -157,19 +159,19 @@ export function SystemStatusOverview() {
         <UtilityLink href="/settings">接続と保存領域を設定する</UtilityLink>
       </StatusSection>
 
-      <StatusSection title="プロジェクト">
+      <StatusSection title="作品">
         <StatusRow
-          label="選択中プロジェクト"
+          label="選択中の作品"
           status={projectSummary ? projectSummary.title : "未選択"}
           description={
             projectSummary
-              ? `スライド ${projectSummary.slideCount}件・素材 ${projectSummary.assetCount}件`
-              : "管理画面で編集するプロジェクトを選択してください。"
+              ? `スライド ${formatUiCount(projectSummary.slideCount)}・素材 ${formatUiCount(projectSummary.assetCount)}`
+              : "「つくる」で編集する作品を選択してください。"
           }
           tone={projectSummary ? "neutral" : "attention"}
         />
         <StatusRow
-          label="プロジェクトの状態"
+          label="作品の状態"
           status={projectStatusLabel}
           description={sanitizeUserFacingDiagnostic(projectMessage)}
           tone={getProjectTone(projectStatus)}
@@ -182,10 +184,10 @@ export function SystemStatusOverview() {
           onClick={checkProject}
           disabled={!canCheckProject}
         />
-        <UtilityLink href="/admin">プロジェクトを管理する</UtilityLink>
+        <UtilityLink href="/admin">作品を選ぶ</UtilityLink>
       </StatusSection>
 
-      <StatusSection title="端末データ">
+      <StatusSection title="このiPad">
         <StatusRow
           label="端末内データベース（IndexedDB）"
           status={getDeviceDatabaseStatus(deviceState)}
@@ -212,7 +214,7 @@ export function SystemStatusOverview() {
         />
       </StatusSection>
 
-      <StatusSection title="同期 / 公開整合性">
+      <StatusSection title="公開・同期">
         <StatusRow
           label="直近の端末同期"
           status={offlineSyncStatusLabel}
@@ -237,7 +239,7 @@ export function SystemStatusOverview() {
             label="公開内容との一致"
             status="未確認"
             description="端末状態を確認すると、保存済みプロジェクトの公開状態を表示します。"
-            tone="attention"
+            tone="neutral"
           />
         )}
       </StatusSection>
@@ -247,16 +249,10 @@ export function SystemStatusOverview() {
 
 function StatusSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section aria-labelledby={`system-${toSectionId(title)}`}>
-      <h2
-        id={`system-${toSectionId(title)}`}
-        className="text-lg font-semibold text-slate-100"
-      >
-        {title}
-      </h2>
-      <dl className="mt-4 divide-y divide-white/8 border-y border-white/8">
-        {children}
-      </dl>
+    <section aria-label={title}>
+      <ProductDisclosure label={title}>
+        <dl className="divide-y divide-white/8 border-y border-white/8">{children}</dl>
+      </ProductDisclosure>
     </section>
   );
 }
@@ -493,25 +489,25 @@ function getPublicationCopy(status: OfflinePublicationProvenanceViewStatus): {
     case "unpublishedChanges":
       return {
         label: "未公開の変更あり",
-        message: "公開後に編集した内容がこの端末へ同期されています。",
+        message: "公開後に編集した内容がこのiPadに保存されています。",
         tone: "attention",
       };
     case "unpublished":
       return {
         label: "未公開",
-        message: "まだ公開していない内容がこの端末へ同期されています。",
+        message: "まだ公開していない内容がこのiPadに保存されています。",
         tone: "attention",
       };
     case "needsInspection":
       return {
         label: "確認が必要",
-        message: "公開内容との一致を確認できません。端末への同期を再実行してください。",
+        message: "公開内容との一致を確認できません。このiPadへの保存をもう一度実行してください。",
         tone: "danger",
       };
     case "legacyUnknown":
       return {
-        label: "再同期を推奨",
-        message: "以前の形式で保存されています。端末への同期で状態を更新できます。",
+        label: "再保存を推奨",
+        message: "以前の形式で保存されています。このiPadへの保存で状態を更新できます。",
         tone: "attention",
       };
   }
@@ -527,14 +523,4 @@ function formatBytes(value: number) {
     unitIndex += 1;
   }
   return `${amount.toFixed(1)} ${units[unitIndex]}`;
-}
-
-function toSectionId(title: string) {
-  return title === "Google / Drive"
-    ? "google-drive"
-    : title === "プロジェクト"
-      ? "project"
-      : title === "端末データ"
-        ? "device"
-        : "sync-publication";
 }

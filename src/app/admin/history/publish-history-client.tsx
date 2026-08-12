@@ -1377,7 +1377,7 @@ function RollbackPreviewPanel(props: {
                     }
                   />
                   <span>
-                    Driveの公開版だけが更新され、端末利用には別途「端末へ同期」が必要です。
+                    Google Driveの公開版だけが更新され、このiPadへの保存は別途必要です。
                   </span>
                 </label>
                 {props.preview.replacesUnpublishedChanges ? (
@@ -1478,7 +1478,7 @@ function RollbackPreviewPanel(props: {
                   )}
                 />
                 <DetailField
-                  label="端末への同期"
+                  label="このiPadへの保存"
                   value="ロールバック後に別途必要"
                 />
               </dl>

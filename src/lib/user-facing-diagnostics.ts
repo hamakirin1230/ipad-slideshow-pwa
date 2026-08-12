@@ -61,7 +61,7 @@ export function buildLocalOfflineProjectClearConfirmation(project: {
     "・同期状態と一時データ",
     "",
     "Google Drive上のプロジェクトと素材は削除しません。",
-    "削除後にこのプロジェクトを再生するには、管理画面で端末への同期を再実行してください。",
+    "削除後にこの作品を再生するには、「つくる」の「このiPad」から保存をもう一度実行してください。",
     "",
     "削除しますか？",
   ].join("\n");

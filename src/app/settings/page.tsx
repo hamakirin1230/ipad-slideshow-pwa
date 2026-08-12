@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity } from "lucide-react";
+import { LifeBuoy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DriveSettingsPanel } from "./drive-settings-panel";
 
@@ -17,8 +17,8 @@ export default function SettingsPage() {
           </div>
           <Button asChild variant="outline" className="min-h-11 gap-2 border-white/15 bg-white/5">
             <Link href="/system">
-              <Activity className="size-4" aria-hidden="true" />
-              接続・端末の状態を見る
+              <LifeBuoy className="size-4" aria-hidden="true" />
+              接続で困ったとき
             </Link>
           </Button>
         </div>

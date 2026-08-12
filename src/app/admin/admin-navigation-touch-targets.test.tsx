@@ -27,10 +27,10 @@ describe("admin creative workspace", () => {
     expect(source.workspace).toContain("min-h-11");
 
     for (const [id, label] of [
-      ["project", "プロジェクト"],
-      ["edit", "編集"],
+      ["project", "作品"],
+      ["edit", "スライド"],
       ["publish", "公開"],
-      ["device", "端末"],
+      ["device", "このiPad"],
     ]) {
       expect(source.workspace).toContain(`{ id: "${id}", label: "${label}" }`);
     }
@@ -63,8 +63,9 @@ describe("admin creative workspace", () => {
     }
   });
 
-  it("moves status diagnostics and recheck controls out of project management", () => {
-    expect(source.project).not.toMatch(/projectStatusLabel|projectDiagnostics|状態メッセージ|確認後の流れ/);
+  it("keeps project diagnostics collapsed and recheck controls in support", () => {
+    expect(source.project).toContain('<ProductDisclosure label="詳しい状態を見る">');
+    expect(source.project).toContain("projectDiagnostics");
     expect(source.project).not.toContain("onClick={checkDriveWorkspace}");
     expect(source.project).not.toContain("onClick={checkProject}");
     expect(source.system).toContain("driveDiagnostics");
@@ -75,14 +76,13 @@ describe("admin creative workspace", () => {
 
   it("removes editing dashboard counts and duplicated ready context", () => {
     expect(source.edit).not.toMatch(/Driveプロジェクト数|選択中Driveプロジェクト|Drive確認済み/);
-    expect(source.workspace).toContain("スライド {slideCount}件");
-    expect(source.workspace).toContain("素材 {assetCount}件");
+    expect(source.workspace).toContain("formatUiCount(slideCount)");
+    expect(source.workspace).toContain("formatUiCount(assetCount)");
   });
 });
 
 describe("admin and settings touch target contracts", () => {
   it.each([
-    [source.project, "selectProject(project.projectId)", "disabled={isSelected || isDriveOperationInFlight}"],
     [source.system, "onClick={checkDriveWorkspace}", "disabled={!canCheckDriveWorkspace}"],
     [source.system, "onClick={checkProject}", "disabled={!canCheckProject}"],
     [source.import, "onClick={startAssetImport}", "disabled={!canStartAssetImport}"],
@@ -102,6 +102,14 @@ describe("admin and settings touch target contracts", () => {
       expect(button).toContain(disabledGuard);
     },
   );
+
+  it("keeps each whole project card touch-sized and selection guarded", () => {
+    expect(source.project).toContain('aria-pressed={isSelected}');
+    expect(source.project).toContain("min-h-11 w-full rounded-xl");
+    expect(source.project).toContain("if (!isSelected) onSelect(project.projectId)");
+    expect(source.project).toContain("disabled={disabled}");
+    expect(source.project).toContain("onSelect={selectProject}");
+  });
 });
 
 function openingButton(componentSource: string, handler: string) {

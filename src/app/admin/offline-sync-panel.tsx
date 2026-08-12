@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ProductDisclosure } from "@/components/product-disclosure";
 import {
   Card,
   CardContent,
@@ -47,10 +48,9 @@ export function OfflineSyncPanel() {
   return (
     <Card className="border-white/10 bg-white/[0.035] text-slate-50">
       <CardHeader>
-        <CardTitle>端末へ同期</CardTitle>
+        <CardTitle>このiPadに保存</CardTitle>
         <CardDescription className="text-slate-300">
-          選択中のDriveプロジェクトから再生データを取得し、検証後にこの端末の保存データを更新します。
-          公開やDriveへの保存とは別の明示操作です。
+          選択中の作品を、このiPadで再生できるようにします。
         </CardDescription>
       </CardHeader>
 
@@ -66,20 +66,21 @@ export function OfflineSyncPanel() {
             {startButtonLabel}
           </Button>
 
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-11"
-            onClick={cancelOfflineSync}
-            disabled={!canCancelOfflineSync}
-          >
-            端末への同期を中止
-          </Button>
+          {canCancelOfflineSync ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={cancelOfflineSync}
+            >
+              保存を中止
+            </Button>
+          ) : null}
         </div>
 
         {showBlockedReason ? (
           <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-            <p className="font-semibold">端末への同期を開始できません</p>
+            <p className="font-semibold">このiPadへの保存を開始できません</p>
             <p className="mt-2">{offlineSyncBlockedReason}</p>
           </div>
         ) : null}
@@ -90,7 +91,7 @@ export function OfflineSyncPanel() {
             role="status"
             aria-live="polite"
           >
-            <p className="font-semibold">同期中</p>
+            <p className="font-semibold">保存中</p>
             <p className="mt-2">{progressView?.message ?? offlineSyncMessage}</p>
             {progressView?.countLabel &&
             offlineSyncProgress?.phase !== "assetSaving" ? (
@@ -102,7 +103,7 @@ export function OfflineSyncPanel() {
                   className="h-2 w-full accent-sky-400"
                   max={100}
                   value={progressView.percent}
-                  aria-label="端末への同期進捗"
+                  aria-label="このiPadへの保存進捗"
                 />
                 <p className="mt-1 text-xs">{progressView.percent}%</p>
               </div>
@@ -112,9 +113,9 @@ export function OfflineSyncPanel() {
 
         {offlineSyncStatus === "ready" ? (
           <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
-            <p className="font-semibold">同期完了</p>
+            <p className="font-semibold">このiPadへの保存が完了しました</p>
             <p className="mt-2">
-              Driveからの取得、内容の検証、端末保存データの更新が完了しました。
+              選択中の作品をこのiPadへ保存しました。
             </p>
           </div>
         ) : null}
@@ -149,11 +150,10 @@ export function OfflineSyncPanel() {
 
         {offlineSyncStatus === "failed" ? (
           <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-red-100">
-            <p className="font-semibold">端末への同期に失敗しました</p>
+            <p className="font-semibold">このiPadへの保存に失敗しました</p>
             <p className="mt-2 leading-6">
-              現在の端末保存データは自動削除していません。上部の
-              「Driveワークスペース状態」と「Driveプロジェクト状態」の確認が完了していることを
-              確認し、原因を解消してから手動で再実行してください。
+              現在の保存データは削除していません。Google Driveへの接続と作品を確認し、
+              原因を解消してからもう一度実行してください。
             </p>
           </div>
         ) : null}
@@ -189,25 +189,31 @@ export function OfflineSyncPanel() {
           </div>
         ) : null}
 
-        {offlineSyncLastResult ? (
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <p className="font-semibold text-slate-50">最後の実行結果</p>
-            <dl className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
-              <div>
-                <dt>結果</dt>
-                <dd className="font-medium text-slate-200">
-                  {offlineSyncLastResult.ok ? "成功" : "未完了"}
-                </dd>
+        {offlineSyncLastResult ||
+        skipVisibility ||
+        offlineSyncDiagnostics.length > 0 ? (
+          <ProductDisclosure label="詳しい保存状態を見る">
+            {offlineSyncLastResult ? (
+              <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                <p className="font-semibold text-slate-50">最後の実行結果</p>
+                <dl className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+                  <div>
+                    <dt>結果</dt>
+                    <dd className="font-medium text-slate-200">
+                      {offlineSyncLastResult.ok ? "成功" : "未完了"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>状態</dt>
+                    <dd className="font-medium text-slate-200">
+                      {getOfflineSyncResultStatusLabel(
+                        offlineSyncLastResult.status,
+                      )}
+                    </dd>
+                  </div>
+                </dl>
               </div>
-              <div>
-                <dt>状態</dt>
-                <dd className="font-medium text-slate-200">
-                  {getOfflineSyncResultStatusLabel(offlineSyncLastResult.status)}
-                </dd>
-              </div>
-            </dl>
-          </div>
-        ) : null}
+            ) : null}
 
         {skipVisibility ? (
           <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100">
@@ -218,10 +224,9 @@ export function OfflineSyncPanel() {
               </Badge>
             </div>
             <p className="mt-2 leading-6">
-              大容量動画は端末内データベースに本体を保存しません。ただしremoteOnlyの
-              再生情報は端末保存データに残り、オンライン時はDriveから
-              /playerで再生できます。本体未保存はDrive削除、物理削除対象、
-              同期失敗を意味しません。
+              大容量動画はこのiPadに本体を保存しません。ただしオンライン再生用の
+              情報は保存され、オンライン時はGoogle Driveから再生できます。
+              本体が未保存でも、Google Driveからの削除や保存失敗を意味しません。
             </p>
             <dl className="mt-3 grid gap-2 text-xs text-sky-100 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
               <SyncCount
@@ -229,7 +234,7 @@ export function OfflineSyncPanel() {
                 value={skipVisibility.manifestSlideCount}
               />
               <SyncCount
-                label="image Blob保存対象"
+                label="画像の保存対象"
                 value={skipVisibility.imageSyncCandidateCount}
               />
               <SyncCount
@@ -237,15 +242,15 @@ export function OfflineSyncPanel() {
                 value={skipVisibility.videoSyncCandidateCount}
               />
               <SyncCount
-                label="video Blob保存済み"
+                label="動画本体を保存済み"
                 value={skipVisibility.videoSyncedCount}
               />
               <SyncCount
-                label="video Blob未保存"
+                label="動画本体は未保存"
                 value={skipVisibility.videoSkippedCount}
               />
               <SyncCount
-                label="remoteOnly動画"
+                label="オンライン再生のみの動画"
                 value={skipVisibility.remoteOnlyVideoCount}
               />
               <SyncCount
@@ -253,7 +258,7 @@ export function OfflineSyncPanel() {
                 value={skipVisibility.unsupportedAssetCount}
               />
               <SyncCount
-                label="同期対象スライド"
+                label="保存対象スライド"
                 value={skipVisibility.offlineStagingSlideCount}
               />
             </dl>
@@ -275,6 +280,8 @@ export function OfflineSyncPanel() {
               ))}
             </div>
           </div>
+        ) : null}
+          </ProductDisclosure>
         ) : null}
       </CardContent>
     </Card>
@@ -316,18 +323,18 @@ function getOfflineSyncStartButtonLabel({
   offlineSyncStatus: OfflineSyncStatus;
 }) {
   if (isOfflineSyncInFlight) {
-    return "端末へ同期中";
+    return "このiPadに保存中";
   }
 
   if (offlineSyncStatus === "stale") {
-    return "最新内容を同期";
+    return "最新の内容を保存";
   }
 
   if (offlineSyncStatus === "failed" || offlineSyncStatus === "cancelled") {
-    return "端末への同期を再実行";
+    return "このiPadにもう一度保存";
   }
 
-  return "端末へ同期";
+  return "このiPadに保存";
 }
 
 function getOfflineSyncVideoSkipVisibility(

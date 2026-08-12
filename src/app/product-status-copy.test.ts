@@ -40,7 +40,7 @@ describe("production task copy", () => {
     expect(settingsSource).toContain("<DriveSettingsPanel />");
     expect(settingsSource).not.toContain("<OfflineDbCheckPanel />");
     expect(settingsSource).toContain('href="/system"');
-    expect(settingsSource).toContain("接続・端末の状態を見る");
+    expect(settingsSource).toContain("接続で困ったとき");
     expect(settingsSource).not.toContain("futureItems");
     expect(settingsSource).not.toContain("notImplementedItems");
     expect(settingsSource).not.toContain("まだ未実装");
@@ -50,10 +50,10 @@ describe("production task copy", () => {
   it("describes a ready Drive workspace without claiming offline sync happened", () => {
     expect(driveSettingsSource).not.toContain("オフライン再生未対応");
     expect(driveSettingsSource).toContain(
-      "保存や公開だけでは、この端末の再生用データは更新されません。",
+      "作品の編集、公開、このiPadへの保存は「つくる」から明示的に実行します。",
     );
-    expect(driveSettingsSource).toContain(
-      "remoteOnly動画は動画本体を端末に保存せず",
+    expect(terminologyUiSource).toContain(
+      "オンライン再生用の情報だけをこのiPadに保持し、本体は保存しません。",
     );
   });
 
@@ -91,7 +91,7 @@ describe("production task copy", () => {
       "端末保存データ",
       "公開前確認",
       "確認済み素材を物理削除",
-      "remoteOnly動画",
+      "オンライン再生のみの動画",
     ]) {
       expect(terminologyUiSource).toContain(productionCopy);
     }
