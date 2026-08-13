@@ -35,6 +35,15 @@ function isSameOriginGetRequest(request) {
   return url.origin === self.location.origin;
 }
 
+function isPublicOrServerRoute(url) {
+  return (
+    url.pathname === "/share" ||
+    url.pathname.startsWith("/share/") ||
+    url.pathname === "/api" ||
+    url.pathname.startsWith("/api/")
+  );
+}
+
 function nowMs() {
   return Date.now();
 }
@@ -721,6 +730,10 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (!isSameOriginGetRequest(request)) {
+    return;
+  }
+
+  if (isPublicOrServerRoute(url)) {
     return;
   }
 

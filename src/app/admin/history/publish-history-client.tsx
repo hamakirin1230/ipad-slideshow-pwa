@@ -98,6 +98,7 @@ export function PublishHistoryClient() {
     prepareProjectRollbackPreview,
     prepareProjectRollbackExecutionReview,
     commitPreparedProjectRollback,
+    retryPendingPublicActivation,
     cancelPreparedProjectRollback,
     isProjectRollbackInFlight,
   } = useAppState();
@@ -129,7 +130,11 @@ export function PublishHistoryClient() {
   const [rollbackOutcome, setRollbackOutcome] = useState<{
     kind: "success" | "warning";
     message: string;
+    publicShareUrl: string | null;
+    canRetryPublicActivation: boolean;
+    indexStatus: "mirrored" | "alreadyMirrored" | "warning" | null;
   } | null>(null);
+  const [activationRetryInFlight, setActivationRetryInFlight] = useState(false);
   const listSequenceRef = useRef(0);
   const detailSequenceRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
@@ -565,12 +570,21 @@ export function PublishHistoryClient() {
       }
       return;
     }
-    const warning = result.result.indexStatus === "warning";
+    const publicActivationFailed =
+      result.result.publicActivationStatus === "activationFailed";
+    const warning =
+      result.result.indexStatus === "warning" || publicActivationFailed;
     setRollbackOutcome({
       kind: warning ? "warning" : "success",
-      message: warning
+      message: publicActivationFailed
+        ? result.result.publicActivationMessage ??
+          "公開URLの更新を完了できませんでした。"
+        : result.result.indexStatus === "warning"
         ? "ロールバック本体は成功しました。プロジェクト一覧の更新結果は要確認です。ロールバック本体は取り消していません。"
         : "ロールバックが完了し、プロジェクト設定と一覧の再確認に成功しました。",
+      publicShareUrl: result.result.publicShareUrl,
+      canRetryPublicActivation: publicActivationFailed,
+      indexStatus: result.result.indexStatus,
     });
     setExecutionState("idle");
     setExecutionReview(null);
@@ -582,6 +596,32 @@ export function PublishHistoryClient() {
       loadedProjectIdRef.current = selectedProjectId;
       void loadHistoryOverview(selectedProjectId);
     }
+  }
+
+  async function retryRollbackPublicActivation(input?: {
+    projectId: string;
+    revisionId: string;
+  }) {
+    if (
+      activationRetryInFlight ||
+      (!input && !rollbackOutcome?.canRetryPublicActivation)
+    ) {
+      return;
+    }
+    setActivationRetryInFlight(true);
+    const result = await retryPendingPublicActivation(input);
+    setActivationRetryInFlight(false);
+    if (!result.ok || !result.publicShareUrl) return;
+    const indexWarning = rollbackOutcome?.indexStatus === "warning";
+    setRollbackOutcome({
+      kind: indexWarning ? "warning" : "success",
+      message: indexWarning
+        ? "ロールバック本体は成功しました。プロジェクト一覧の更新結果は要確認です。ロールバック本体は取り消していません。"
+        : "ロールバック後の公開URLを更新しました。同じ公開URLでロールバック版を表示します。",
+      publicShareUrl: result.publicShareUrl,
+      canRetryPublicActivation: false,
+      indexStatus: rollbackOutcome?.indexStatus ?? null,
+    });
   }
 
   return (
@@ -635,6 +675,16 @@ export function PublishHistoryClient() {
         state={historyState}
         publication={overview?.publication ?? null}
         message={historyMessage}
+        activationRetryInFlight={activationRetryInFlight}
+        onRefreshPublicUrl={
+          selectedProjectId && overview?.publication.currentRevisionId
+            ? () =>
+                void retryRollbackPublicActivation({
+                  projectId: selectedProjectId,
+                  revisionId: overview.publication.currentRevisionId as string,
+                })
+            : undefined
+        }
       />
 
       <div
@@ -664,11 +714,36 @@ export function PublishHistoryClient() {
           }
         >
           <p className="font-semibold">
-            {rollbackOutcome.kind === "warning"
-              ? "ロールバック完了・プロジェクト一覧は要確認"
+            {rollbackOutcome.canRetryPublicActivation
+              ? "Driveへのロールバック完了・公開URLは未更新"
+              : rollbackOutcome.kind === "warning"
+                ? "ロールバック完了・プロジェクト一覧は要確認"
               : "ロールバック完了"}
           </p>
           <p className="mt-2">{rollbackOutcome.message}</p>
+          {rollbackOutcome.publicShareUrl ? (
+            <a
+              className="mt-3 inline-flex min-h-11 items-center rounded-xl bg-white/10 px-4 font-medium hover:bg-white/15"
+              href={rollbackOutcome.publicShareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              公開ページを開く
+            </a>
+          ) : null}
+          {rollbackOutcome.canRetryPublicActivation ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="mt-3 min-h-11"
+              disabled={activationRetryInFlight}
+              onClick={() => void retryRollbackPublicActivation()}
+            >
+              {activationRetryInFlight
+                ? "公開URLを更新中"
+                : "公開URLの更新を再試行"}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
@@ -713,10 +788,14 @@ function PublicationStatusCard({
   state,
   publication,
   message,
+  activationRetryInFlight,
+  onRefreshPublicUrl,
 }: {
   state: HistoryViewState;
   publication: ProjectPublicationOverview | null;
   message: string;
+  activationRetryInFlight: boolean;
+  onRefreshPublicUrl?: () => void;
 }) {
   const isLoading = state === "loading";
   const isUnavailable =
@@ -850,6 +929,19 @@ function PublicationStatusCard({
                 }
               />
             </dl>
+            {isCurrent && onRefreshPublicUrl ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-11"
+                disabled={activationRetryInFlight}
+                onClick={onRefreshPublicUrl}
+              >
+                {activationRetryInFlight
+                  ? "公開URLを更新中"
+                  : "公開URLを現在の公開版へ更新"}
+              </Button>
+            ) : null}
             <p className="text-xs leading-relaxed text-slate-400">
               現在公開中以外には、過去の公開版と作成途中の公開版が含まれる可能性があります。この画面では自動分類しません。
             </p>
@@ -1377,7 +1469,7 @@ function RollbackPreviewPanel(props: {
                     }
                   />
                   <span>
-                    Google Driveの公開版だけが更新され、このiPadへの保存は別途必要です。
+                    Google Driveの公開版と公開URLが更新され、このiPadへの保存は別途必要です。
                   </span>
                 </label>
                 {props.preview.replacesUnpublishedChanges ? (

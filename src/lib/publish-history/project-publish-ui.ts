@@ -57,6 +57,9 @@ export type SanitizedPublishSuccess = {
   manifestStatus: "committed" | "alreadyCommitted";
   refreshStatus: "refreshed" | "refreshFailed";
   refreshMessage: string | null;
+  publicShareUrl: string | null;
+  publicActivationStatus: "activated" | "activationFailed";
+  publicActivationMessage: string | null;
 };
 
 export type SanitizedPublishError = {
@@ -282,6 +285,8 @@ export function buildSanitizedPublishSuccess(input: {
   workflow: Extract<ProjectPublishWorkflowResult, { ok: true }>;
   publishedAt: string;
   refreshed: boolean;
+  publicShareUrl: string | null;
+  publicActivationStatus: SanitizedPublishSuccess["publicActivationStatus"];
 }): SanitizedPublishSuccess {
   return {
     revisionId: input.workflow.revisionId,
@@ -292,5 +297,11 @@ export function buildSanitizedPublishSuccess(input: {
     refreshMessage: input.refreshed
       ? null
       : "公開は完了しましたが、画面の最新状態を再取得できませんでした。画面を再読込してください。",
+    publicShareUrl: input.publicShareUrl,
+    publicActivationStatus: input.publicActivationStatus,
+    publicActivationMessage:
+      input.publicActivationStatus === "activated"
+        ? null
+        : "Driveの公開版は更新されましたが、公開URLの更新を完了できませんでした。",
   };
 }

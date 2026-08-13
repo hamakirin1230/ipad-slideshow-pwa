@@ -65,6 +65,8 @@ describe("rollback UI sanitizers", () => {
         warning: null,
       },
       refreshed: true,
+      publicShareUrl: "https://example.com/share/opaque",
+      publicActivationStatus: "activated",
     });
     expect(success).toEqual({
       revisionId: "rev_20260728T020000000Z_33333333",
@@ -73,6 +75,9 @@ describe("rollback UI sanitizers", () => {
       indexStatus: "mirrored",
       warning: null,
       refreshed: true,
+      publicShareUrl: "https://example.com/share/opaque",
+      publicActivationStatus: "activated",
+      publicActivationMessage: null,
     });
     const warning = buildSanitizedRollbackSuccess({
       workflow: {
@@ -84,11 +89,16 @@ describe("rollback UI sanitizers", () => {
         warning: "index mirrorは要確認です。",
       },
       refreshed: false,
+      publicShareUrl: null,
+      publicActivationStatus: "activationFailed",
     });
     expect(warning).toMatchObject({
       indexStatus: "warning",
       warning: "index mirrorは要確認です。",
       refreshed: false,
+      publicActivationStatus: "activationFailed",
+      publicActivationMessage:
+        "ロールバックはDriveへ反映されましたが、公開URLの更新を完了できませんでした。",
     });
   });
 

@@ -9,13 +9,20 @@ Status: Current authoritative guidance
 
 - 正式なhosting / deployment先はVercel Productionのみ
 - package managerは`pnpm@10.34.4`
-- localとVercelのbrowser buildに必要なアプリ固有の環境変数は`NEXT_PUBLIC_GOOGLE_CLIENT_ID`のみ
+- browser buildに必要なアプリ固有の環境変数は`NEXT_PUBLIC_GOOGLE_CLIENT_ID`
+- server runtimeには`BLOB_READ_WRITE_TOKEN`と`PUBLIC_SHARE_SECRET`が必要
 
 ## Browser-build environment
 
 `NEXT_PUBLIC_GOOGLE_CLIENT_ID`には、Google OAuthのWeb application client IDを設定します。`NEXT_PUBLIC_`変数はbrowser bundleに含まれるため、この値はserver secretではありません。ただし、repositoryの`.env.example`には実運用値を置かず、変数名と空のplaceholderだけを置きます。
 
 このアプリはClient SecretとAPI keyを使用しません。access tokenも環境変数へ置きません。access tokenはlocalStorage / IndexedDB / Cookie / docs / logsへ保存しません。
+
+## Server-only environment
+
+`BLOB_READ_WRITE_TOKEN`はVercel Blobへのimmutable public artifact作成、activation追加、resolver処理だけに使用します。`PUBLIC_SHARE_SECRET`はapp project ID、revision ID、asset identityから公開用のopaque IDをHMAC導出するために使用します。どちらも`NEXT_PUBLIC_`を付けず、browser bundleへ含めません。
+
+Google access tokenは管理画面からpublication server routeへの`Authorization` headerと、Google Drive APIへの`Authorization` headerでのみ一時利用します。query string、Cookie、React state、Context value、localStorage、IndexedDB、server logへ保存しません。server routeはraw Google API errorをclientへ返しません。
 
 local developmentでは実値を`.env.local`などのignore対象ファイルへ置き、Gitへcommitしません。VercelではProject Environment Variablesに設定し、Production / Previewそれぞれで使用するoriginをGoogle OAuthのAuthorized JavaScript originsと一致させます。acceptance用に追加したtemporary Preview originはacceptance終了後に削除します。実Client IDや登録済みorigin一覧はdocsへ記録しません。
 
@@ -45,6 +52,6 @@ header変更後のPreviewで、次との互換性をまだacceptanceしていな
 - Google Photos Picker
 - Blob URL
 - Service Worker
-- Next.js static exportが生成するscript
+- Next.js standard deploymentが生成するscript
 
 CSP、Cross-Origin-Opener-Policy、Cross-Origin-Embedder-PolicyはOAuth popup、外部script、worker等へ影響し得ます。security hardeningを行う場合は別commitとし、変更後のPreviewでOAuth / Drive / Photos / PWA / Service WorkerをacceptanceしてからProductionへ反映します。

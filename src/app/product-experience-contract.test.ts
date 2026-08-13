@@ -6,6 +6,7 @@ function read(relativePath: string) {
 }
 
 const layoutSource = read("./layout.tsx");
+const routeShellSource = read("./app-route-shell.tsx");
 const homeSource = read("./page.tsx");
 const appShellSource = read("../components/app-shell.tsx");
 const navigationSource = read("../components/app-navigation.tsx");
@@ -18,7 +19,8 @@ const playerSource = read("./player/page.tsx");
 describe("focused product experience contract", () => {
   it("adds the system route and wraps regular pages in the shared app shell", () => {
     expect(existsSync(new URL("./system/page.tsx", import.meta.url))).toBe(true);
-    expect(layoutSource).toContain("<AppShell>{children}</AppShell>");
+    expect(layoutSource).toContain("<AppRouteShell>{children}</AppRouteShell>");
+    expect(routeShellSource).toContain("<AppShell>{children}</AppShell>");
     expect(appShellSource).toContain('pathname === "/player"');
     expect(appShellSource).toContain("pb-[calc(5.5rem+env(safe-area-inset-bottom))]");
     expect(systemPageSource).toContain("<SystemStatusOverview />");

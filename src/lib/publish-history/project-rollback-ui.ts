@@ -17,6 +17,9 @@ export type CommitPreparedProjectRollbackResult =
         indexStatus: "mirrored" | "alreadyMirrored" | "warning";
         warning: string | null;
         refreshed: boolean;
+        publicShareUrl: string | null;
+        publicActivationStatus: "activated" | "activationFailed";
+        publicActivationMessage: string | null;
       };
     }
   | {
@@ -63,6 +66,8 @@ export function pendingProjectRollbackOwnerMatches(
 export function buildSanitizedRollbackSuccess(input: {
   workflow: Extract<ProjectRollbackWorkflowResult, { ok: true }>;
   refreshed: boolean;
+  publicShareUrl: string | null;
+  publicActivationStatus: "activated" | "activationFailed";
 }): Extract<CommitPreparedProjectRollbackResult, { ok: true }>["result"] {
   return {
     revisionId: input.workflow.revisionId,
@@ -71,6 +76,12 @@ export function buildSanitizedRollbackSuccess(input: {
     indexStatus: input.workflow.indexStatus,
     warning: input.workflow.warning,
     refreshed: input.refreshed,
+    publicShareUrl: input.publicShareUrl,
+    publicActivationStatus: input.publicActivationStatus,
+    publicActivationMessage:
+      input.publicActivationStatus === "activated"
+        ? null
+        : "ロールバックはDriveへ反映されましたが、公開URLの更新を完了できませんでした。",
   };
 }
 

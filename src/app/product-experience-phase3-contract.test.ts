@@ -73,13 +73,15 @@ describe("beginner-first product experience", () => {
     expect(source.system).toContain('tone="neutral"');
   });
 
-  it("keeps publish and device actions clear without fabricating a public URL", () => {
+  it("shows the activated public URL while keeping device save separate", () => {
     expect(source.publish).toContain("今の内容を公開版にします");
     expect(source.publish).toContain("公開前に確認");
     expect(source.publish).toContain("このiPadの作品を再生");
     expect(source.publish).toContain("公開履歴");
     expect(source.publish).toContain("formatUiDateTime(result.publishedAt)");
-    expect(source.publish).not.toMatch(/公開URL|共有URL/);
+    expect(source.publish).toContain("公開URL");
+    expect(source.publish).toContain("公開ページを開く");
+    expect(source.publish).toContain("result.publicShareUrl");
     expect(source.device).toContain("このiPadに保存");
     expect(source.device).not.toContain("/player");
     for (const productSurface of [

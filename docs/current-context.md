@@ -59,6 +59,8 @@ production App Routerに存在する主要route:
 /admin
 /admin/history
 /player
+/share/{opaqueShareId}
+/api/publication/*
 ```
 
 `/auth-test`と`/visual-check/*`はproduction App Routerから撤去済みで、現行routeではない。
@@ -68,6 +70,10 @@ production App Routerに存在する主要route:
 - rollbackは過去revisionへpointerを戻さず、過去内容から新しいrollback revisionを作る
 - save / publish / rollbackだけではoffline dataを更新せず、端末反映には明示的offline syncが必要
 - publication writeのin-flight guardは同一tab内の直列化であり、既知のmulti-tab raceは未解決
+- 公開はDrive privateを維持したまま、Vercel Blobへ第三者閲覧用のimmutable artifactを追加する
+- 公開URLは`/share/{opaqueShareId}`で作品ごとに安定し、再公開・rollback後も同じURLを使う
+- public asset準備後にのみDrive publish / rollbackを開始し、fresh read-backで`manifest.publication.currentRevisionId`が一致した後だけimmutable activationを追加する
+- Drive commit後にactivationだけ失敗した場合、以前の公開URL内容を維持して明示的な手動再試行を案内する
 - temporary publication acceptance fault harnessは専用branchで実装後に完全撤去され、production sourceには存在しない
 
 ## 現在の到達点
@@ -124,6 +130,8 @@ MP4/MOV remoteOnly Drive streaming（50 MiB超〜5GB以下）
 Vercel production / 実iPadで約3GB MOVのremoteOnly Drive streaming再生
 Service Worker app shell cache
 iPad実機 offline shell / player recovery確認
+Vercel Blob第三者公開artifact / opaque share URL / readonly public viewer
+Next.js standard deploymentのserver route
 ```
 
 ## 保存先の整理
@@ -192,15 +200,30 @@ ipad-slideshow-pwa-app-shell-v1
 /_next/static/...
 ```
 
+### Vercel Blob
+
+第三者向け公開コピー。Google Drive file自体の共有権限は変更しない。
+
+```text
+shares/{opaqueShareId}/assets/{opaqueAssetId}.{ext}
+shares/{opaqueShareId}/revisions/{opaquePublicRevisionId}/manifest.json
+shares/{opaqueShareId}/activations/{sortableTimestamp}-{nonce}.json
+```
+
+asset identityはDrive metadataの変更検知情報を含むserver-side HMACで導出し、同一内容と確認できる場合だけ再利用する。公開manifestには作品名、slide順、caption、duration、media kind、MIME、public Blob asset URLだけを含め、Drive ID、app project ID、revision ID、operation ID、hash、checksum、access token、raw API URLを含めない。
+
 ## 重要な実装境界
 
 - Drive API呼び出しはProvider内部操作から行う
+- publication server routeはaccess tokenを`Authorization` headerでだけ受け、request処理中に限ってDrive authorizationを確認する
 - access tokenをContextやUIへ公開しない
 - Blob本体をReact stateへ載せない
 - Drive raw responseやraw snapshotをUI stateへ載せない
 - offline sync resultはlightweight summaryだけUIへ返す
 - confirmed store inspectionでもBlob本体は画面表示しない
 - `/player/` はconfirmed storeからoffline-firstで読む
+- `/share/*`はGoogle OAuth、AppProviders、Drive API、管理navigationに依存しないreadonly viewer
+- `/share/*`、`/api/*`、public Blob mediaはService Worker app-shell cacheへ保存しない
 - `/player/` はconfirmed store内のslide順をそのまま再生順として使う
 - Drive上の画像順の正は`manifest.json.slides[]`の配列順
 - Photos Pickerから追加したslideは現在の`manifest.json.slides[]`末尾へ、選択順のままappendする
@@ -242,6 +265,8 @@ Google Photos Picker video cap: 50 MB（変更なし）
 - 5GB超とsize不明は再生対象外とし、Drive fileの自動削除・rename・修復を行わない
 - remoteOnly sessionはactual MIMEをService Workerへ渡し、Range / Content-Rangeはsafe Numberで扱う
 - MOVはiPad/WebKitのnative playbackへ渡し、codec/containerをclient-side transcodeしない
+- 第三者公開ではDrive downloadの`ReadableStream`をVercel Blob multipart client uploadへ直接渡し、`response.blob()`で大容量video全体をmemoryへ載せない
+- 第三者公開のexactly 5GB境界は実機・実データacceptance済みとは扱わない
 - codec非対応またはmedia errorでは安全な一般案内を表示し、手動retry / previous / nextを維持する
 - MP4/MOVはunused asset physical deleteの対象外で、画像だけの削除policyを維持する
 - schema、IndexedDB version、publication provenance、publish / rollback authorityは変更しない

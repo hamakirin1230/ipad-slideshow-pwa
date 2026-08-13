@@ -69,6 +69,11 @@ import {
 import { executePreparedProjectPublish } from "@/lib/publish-history/project-publish-workflow";
 import type { ProjectPublishWritePlan } from "@/lib/publish-history/project-publish-write-plan";
 import {
+  activatePreparedPublicPublication,
+  preparePublicPublicationArtifact,
+  toAbsolutePublicShareUrl,
+} from "@/lib/publication/public-publication-client";
+import {
   DRIVE_PROJECT_TITLE_MAX_LENGTH,
   DriveApiError,
   DriveProjectAssetSaveError,
@@ -428,6 +433,12 @@ type PendingProjectRollback = {
   plan: ProjectRollbackWritePlan;
 };
 
+type PendingPublicActivation = {
+  projectId: string;
+  revisionId: string;
+  manifestFileId: string;
+};
+
 type DriveWorkspaceCheckResult = {
   status: DriveWorkspaceCheckStatus;
   message: string;
@@ -634,6 +645,13 @@ type AppContextValue = {
     projectId: string;
     revisionId: string;
   }) => Promise<CommitPreparedProjectPublishResult>;
+  retryPendingPublicActivation: (input?: {
+    projectId: string;
+    revisionId?: string;
+  }) => Promise<{
+    ok: boolean;
+    publicShareUrl: string | null;
+  }>;
   cancelPreparedProjectPublish: () => void;
   isProjectPublishInFlight: boolean;
   isProjectRollbackInFlight: boolean;
@@ -799,6 +817,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const projectPublishRequestSequenceRef = useRef(0);
   const projectPublishInFlightRef = useRef(false);
   const projectPublicationWriteInFlightRef = useRef(false);
+  const pendingPublicActivationRef =
+    useRef<PendingPublicActivation | null>(null);
   const projectRollbackPreviewGuardRef =
     useRef<ProjectRollbackPreviewGuard | null>(null);
   const pendingProjectRollbackRef = useRef<PendingProjectRollback | null>(null);
@@ -998,6 +1018,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       projectPublishAbortRef.current = null;
       projectPublishInFlightRef.current = false;
       projectPublicationWriteInFlightRef.current = false;
+      pendingPublicActivationRef.current = null;
       projectRollbackRequestSequenceRef.current += 1;
       projectRollbackPreviewGuardRef.current = null;
       pendingProjectRollbackRef.current = null;
@@ -5435,6 +5456,41 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setIsProjectPublishInFlight(true);
 
     try {
+      pendingPublicActivationRef.current = null;
+      const publicPreparation = await preparePublicPublicationArtifact({
+        accessToken,
+        manifestFileId: project.manifestFileId,
+        revision: pending.plan.revisionFile.body,
+        signal: controller.signal,
+      });
+      if (
+        requestSequence !== projectPublishRequestSequenceRef.current ||
+        accessTokenRef.current !== accessToken
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: "stalePublishRequest",
+            message:
+              "公開対象が変更されました。選択中プロジェクトの状態を確認してください。",
+            recoverability: "requiresInspection",
+            canRetry: false,
+          },
+        };
+      }
+      if (!publicPreparation.ok) {
+        return {
+          ok: false,
+          error: {
+            code: "publicPreparationFailed",
+            message:
+              "公開ページ用の素材を準備できませんでした。Google Driveの公開版は変更していません。",
+            recoverability: "retryable",
+            canRetry: true,
+          },
+        };
+      }
+
       const workflowResult = await executePreparedProjectPublish({
         accessToken,
         plan: pending.plan,
@@ -5466,6 +5522,24 @@ export function AppProviders({ children }: { children: ReactNode }) {
         return { ok: false, error };
       }
 
+      const publicActivation = await activatePreparedPublicPublication({
+        accessToken,
+        manifestFileId: project.manifestFileId,
+        projectId: input.projectId,
+        revisionId: input.revisionId,
+        signal: controller.signal,
+      });
+      const publicShareUrl = publicActivation.ok
+        ? toAbsolutePublicShareUrl(publicActivation.sharePath)
+        : null;
+      if (!publicActivation.ok || !publicShareUrl) {
+        pendingPublicActivationRef.current = {
+          projectId: input.projectId,
+          revisionId: input.revisionId,
+          manifestFileId: project.manifestFileId,
+        };
+      }
+
       pendingProjectPublishRef.current = null;
       let refreshed = false;
       try {
@@ -5495,6 +5569,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
           workflow: workflowResult,
           publishedAt: pending.plan.revisionFile.body.publishedAt,
           refreshed,
+          publicShareUrl,
+          publicActivationStatus:
+            publicActivation.ok && publicShareUrl
+              ? "activated"
+              : "activationFailed",
         }),
       };
     } finally {
@@ -5504,6 +5583,61 @@ export function AppProviders({ children }: { children: ReactNode }) {
         projectPublicationWriteInFlightRef.current = false;
         setIsProjectPublishInFlight(false);
       }
+    }
+  }
+
+  async function retryPendingPublicActivation(input?: {
+    projectId: string;
+    revisionId?: string;
+  }): Promise<{
+    ok: boolean;
+    publicShareUrl: string | null;
+  }> {
+    const readyProject = driveProjectReadyContext;
+    const pending =
+      input && readyProject?.projectId === input.projectId
+        ? {
+            projectId: input.projectId,
+            revisionId: input.revisionId,
+            manifestFileId: readyProject.manifestFileId,
+          }
+        : pendingPublicActivationRef.current ??
+          (readyProject && selectedProjectId === readyProject.projectId
+            ? {
+                projectId: readyProject.projectId,
+                revisionId: undefined,
+                manifestFileId: readyProject.manifestFileId,
+              }
+            : null);
+    const accessToken = accessTokenRef.current;
+    if (
+      !pending ||
+      !accessToken ||
+      projectPublicationWriteInFlightRef.current ||
+      selectedProjectId !== pending.projectId
+    ) {
+      return { ok: false, publicShareUrl: null };
+    }
+    const controller = new AbortController();
+    projectPublicationWriteInFlightRef.current = true;
+    try {
+      const result = await activatePreparedPublicPublication({
+        accessToken,
+        manifestFileId: pending.manifestFileId,
+        projectId: pending.projectId,
+        revisionId: pending.revisionId,
+        signal: controller.signal,
+      });
+      const publicShareUrl = result.ok
+        ? toAbsolutePublicShareUrl(result.sharePath)
+        : null;
+      if (!result.ok || !publicShareUrl) {
+        return { ok: false, publicShareUrl: null };
+      }
+      pendingPublicActivationRef.current = null;
+      return { ok: true, publicShareUrl };
+    } finally {
+      projectPublicationWriteInFlightRef.current = false;
     }
   }
 
@@ -5819,6 +5953,33 @@ export function AppProviders({ children }: { children: ReactNode }) {
     projectPublicationWriteInFlightRef.current = true;
     setIsProjectRollbackInFlight(true);
     try {
+      pendingPublicActivationRef.current = null;
+      const publicPreparation = await preparePublicPublicationArtifact({
+        accessToken,
+        manifestFileId: project.manifestFileId,
+        revision: pending.plan.revisionFile.body,
+        signal: controller.signal,
+      });
+      if (!publicPreparation.ok) {
+        return buildProjectRollbackCommitFailure({
+          code: "publicPreparationFailed",
+          message:
+            "公開ページ用の素材を準備できませんでした。Google Driveのロールバックは開始していません。",
+          recoverability: "retryable",
+        });
+      }
+      if (
+        requestSequence !== projectRollbackRequestSequenceRef.current ||
+        accessTokenRef.current !== accessToken
+      ) {
+        return buildProjectRollbackCommitFailure({
+          code: "staleRollbackRequest",
+          message:
+            "対象が変更されました。最新状態で影響確認をやり直してください。",
+          recoverability: "conflict",
+        });
+      }
+
       const workflow = await executePreparedProjectRollback({
         accessToken,
         projectsRootFolderId: workspace.projectsRootFolderId,
@@ -5842,6 +6003,24 @@ export function AppProviders({ children }: { children: ReactNode }) {
           pendingProjectRollbackRef.current = null;
         }
         return buildProjectRollbackCommitFailure(workflow);
+      }
+
+      const publicActivation = await activatePreparedPublicPublication({
+        accessToken,
+        manifestFileId: project.manifestFileId,
+        projectId: input.projectId,
+        revisionId: input.revisionId,
+        signal: controller.signal,
+      });
+      const publicShareUrl = publicActivation.ok
+        ? toAbsolutePublicShareUrl(publicActivation.sharePath)
+        : null;
+      if (!publicActivation.ok || !publicShareUrl) {
+        pendingPublicActivationRef.current = {
+          projectId: input.projectId,
+          revisionId: input.revisionId,
+          manifestFileId: project.manifestFileId,
+        };
       }
 
       pendingProjectRollbackRef.current = null;
@@ -5874,7 +6053,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
       return {
         ok: true,
-        result: buildSanitizedRollbackSuccess({ workflow, refreshed }),
+        result: buildSanitizedRollbackSuccess({
+          workflow,
+          refreshed,
+          publicShareUrl,
+          publicActivationStatus:
+            publicActivation.ok && publicShareUrl
+              ? "activated"
+              : "activationFailed",
+        }),
       };
     } finally {
       if (requestSequence === projectRollbackRequestSequenceRef.current) {
@@ -5987,6 +6174,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     cancelPreparedProjectRollback,
     prepareProjectPublishReview,
     commitPreparedProjectPublish,
+    retryPendingPublicActivation,
     cancelPreparedProjectPublish,
     isProjectPublishInFlight,
     isProjectRollbackInFlight,

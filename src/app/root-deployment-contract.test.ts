@@ -21,14 +21,14 @@ const serviceWorkerRegistrationSource = readFileSync(
 );
 
 describe("root deployment contract", () => {
-  it("keeps a root static export without a hosting-specific base path", () => {
+  it("keeps a root standard deployment without a hosting-specific base path", () => {
     expect(nextConfig).toMatchObject({
-      output: "export",
       trailingSlash: true,
       images: {
         unoptimized: true,
       },
     });
+    expect(nextConfig).not.toHaveProperty("output");
     expect(nextConfig).not.toHaveProperty("basePath");
     expect(nextConfigSource).not.toContain("GITHUB_PAGES");
     expect(nextConfigSource).not.toContain("/ipad-slideshow-pwa");

@@ -1,8 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { AppProviders } from "./app-providers";
-import { ServiceWorkerRegistration } from "./service-worker-registration";
-import { AppShell } from "@/components/app-shell";
+import { AppRouteShell } from "./app-route-shell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -66,10 +64,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <ServiceWorkerRegistration />
-        <AppProviders>
-          <AppShell>{children}</AppShell>
-        </AppProviders>
+        <AppRouteShell>{children}</AppRouteShell>
       </body>
     </html>
   );

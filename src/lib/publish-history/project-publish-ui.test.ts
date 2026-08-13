@@ -737,6 +737,8 @@ describe("workflow error and success labels", () => {
       },
       publishedAt: PUBLISHED_AT,
       refreshed: true,
+      publicShareUrl: "https://example.com/share/opaque",
+      publicActivationStatus: "activated",
     });
     expect(result).toMatchObject({
       refreshStatus: "refreshed",
@@ -755,6 +757,8 @@ describe("workflow error and success labels", () => {
       },
       publishedAt: PUBLISHED_AT,
       refreshed: false,
+      publicShareUrl: null,
+      publicActivationStatus: "activationFailed",
     });
     expect(result.refreshStatus).toBe("refreshFailed");
     expect(result.refreshMessage).toContain("公開は完了");

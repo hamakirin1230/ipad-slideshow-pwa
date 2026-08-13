@@ -3,6 +3,8 @@
 import Link from "next/link";
 import {
   CheckCircle2,
+  Copy,
+  ExternalLink,
   History,
   LoaderCircle,
   Play,
@@ -75,10 +77,12 @@ function ProjectPublishPanelSession() {
     isProjectPublishInFlight,
     prepareProjectPublishReview,
     commitPreparedProjectPublish,
+    retryPendingPublicActivation,
     cancelPreparedProjectPublish,
   } = useAppState();
   const [uiState, setUiState] = useState<PublishUiState>({ status: "idle" });
   const [confirmed, setConfirmed] = useState(false);
+  const [activationRetryInFlight, setActivationRetryInFlight] = useState(false);
   const requestSequenceRef = useRef(0);
   const actionInFlightRef = useRef(false);
   const cancelRef = useRef(cancelPreparedProjectPublish);
@@ -180,6 +184,23 @@ function ProjectPublishPanelSession() {
     setUiState({ status: "idle" });
   }
 
+  async function retryPublicActivation() {
+    if (activationRetryInFlight || uiState.status !== "success") return;
+    setActivationRetryInFlight(true);
+    const result = await retryPendingPublicActivation();
+    setActivationRetryInFlight(false);
+    if (!result.ok || !result.publicShareUrl) return;
+    setUiState({
+      status: "success",
+      result: {
+        ...uiState.result,
+        publicShareUrl: result.publicShareUrl,
+        publicActivationStatus: "activated",
+        publicActivationMessage: null,
+      },
+    });
+  }
+
   return (
     <section aria-labelledby="project-publish-heading">
       <Card className="border-white/10 bg-white/[0.035] text-slate-50">
@@ -226,7 +247,12 @@ function ProjectPublishPanelSession() {
           ) : null}
 
           {uiState.status === "success" ? (
-            <PublishSuccess result={uiState.result} onNewReview={startReview} />
+            <PublishSuccess
+              result={uiState.result}
+              activationRetryInFlight={activationRetryInFlight}
+              onRetryActivation={() => void retryPublicActivation()}
+              onNewReview={startReview}
+            />
           ) : null}
 
           {uiState.status === "error" ? (
@@ -308,7 +334,7 @@ function ProjectPublishPanelSession() {
           ) : null}
 
           <ProductDisclosure label="公開について">
-            <p>公開すると、現在保存されている内容を公開履歴へ記録し、Google Drive上の公開版を切り替えます。</p>
+            <p>公開すると、現在保存されている内容を公開履歴へ記録し、Google Drive上の公開版と第三者向け公開ページを切り替えます。</p>
             <p className="mt-2">このiPadへの保存は自動では行われません。「このiPad」から別に実行してください。</p>
           </ProductDisclosure>
         </CardContent>
@@ -400,7 +426,7 @@ function PublishReview({
           className="flex min-h-11 items-center gap-3 text-sky-100"
         >
           <LoaderCircle className="size-5 animate-spin" aria-hidden="true" />
-          公開履歴を準備し、Google Drive上の公開版を切り替えています。
+          公開ページ用の素材と履歴を準備し、公開版を切り替えています。
         </div>
       ) : null}
 
@@ -443,21 +469,119 @@ function ReviewItem({ label, value }: { label: string; value: string }) {
 
 function PublishSuccess({
   result,
+  activationRetryInFlight,
+  onRetryActivation,
   onNewReview,
 }: {
   result: SanitizedPublishSuccess;
+  activationRetryInFlight: boolean;
+  onRetryActivation: () => void;
   onNewReview: () => void;
 }) {
+  const publicUrlRef = useRef<HTMLInputElement | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "manual">(
+    "idle",
+  );
+
+  async function copyPublicUrl() {
+    if (!result.publicShareUrl) return;
+    try {
+      await navigator.clipboard.writeText(result.publicShareUrl);
+      setCopyStatus("copied");
+    } catch {
+      publicUrlRef.current?.focus();
+      publicUrlRef.current?.select();
+      setCopyStatus("manual");
+    }
+  }
+
   return (
     <div
       role="status"
-      className="space-y-4 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100"
+      className={`space-y-4 rounded-2xl border p-4 ${
+        result.publicActivationStatus === "activated"
+          ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+          : "border-amber-400/30 bg-amber-400/10 text-amber-100"
+      }`}
     >
       <div>
-        <h3 className="font-semibold">公開が完了しました。</h3>
+        <h3 className="font-semibold">
+          {result.publicActivationStatus === "activated"
+            ? "公開が完了しました。"
+            : "Google Driveの公開版を更新しました。"}
+        </h3>
         <p className="mt-2">{PROJECT_PUBLISH_DRIVE_SUCCESS_MESSAGE}</p>
         <p className="mt-2">{PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE}</p>
       </div>
+      {result.publicShareUrl ? (
+        <div className="space-y-3 rounded-xl border border-white/15 bg-black/20 p-3">
+          <label
+            htmlFor="public-share-url"
+            className="block text-sm font-semibold"
+          >
+            公開URL
+          </label>
+          <input
+            ref={publicUrlRef}
+            id="public-share-url"
+            type="text"
+            readOnly
+            value={result.publicShareUrl}
+            className="min-h-11 w-full rounded-lg border border-white/20 bg-slate-950 px-3 text-sm text-slate-100"
+            onFocus={(event) => event.currentTarget.select()}
+          />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-11"
+              onClick={() => void copyPublicUrl()}
+            >
+              <Copy className="size-4" aria-hidden="true" />
+              コピー
+            </Button>
+            <Button asChild variant="secondary" className="min-h-11">
+              <a
+                href={result.publicShareUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="size-4" aria-hidden="true" />
+                公開ページを開く
+              </a>
+            </Button>
+          </div>
+          {copyStatus !== "idle" ? (
+            <p className="text-sm" aria-live="polite">
+              {copyStatus === "copied"
+                ? "公開URLをコピーしました。"
+                : "URLを選択しました。手動でコピーしてください。"}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {result.publicActivationMessage ? (
+        <div className="space-y-3 rounded-xl border border-amber-300/30 bg-black/20 p-3">
+          <p>{result.publicActivationMessage}</p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11"
+            disabled={activationRetryInFlight}
+            onClick={onRetryActivation}
+          >
+            {activationRetryInFlight ? (
+              <LoaderCircle
+                className="size-4 animate-spin"
+                aria-hidden="true"
+              />
+            ) : (
+              <RefreshCw className="size-4" aria-hidden="true" />
+            )}
+            公開URLの更新を再試行
+          </Button>
+        </div>
+      ) : null}
       <dl className="grid gap-3 sm:grid-cols-2">
         <ReviewItem
           label="公開日時"

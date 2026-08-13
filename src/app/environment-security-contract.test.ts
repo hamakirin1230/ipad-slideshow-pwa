@@ -16,7 +16,7 @@ const currentContext = readRepoFile("docs/current-context.md");
 const environmentSecurity = readRepoFile("docs/environment-security.md");
 
 describe("runtime environment documentation contract", () => {
-  it("provides a credential-free environment template with only the required variable", () => {
+  it("provides a credential-free environment template with required variables", () => {
     expect(existsSync(repoUrl(".env.example"))).toBe(true);
 
     const assignments = envExample
@@ -24,7 +24,11 @@ describe("runtime environment documentation contract", () => {
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith("#"));
 
-    expect(assignments).toEqual(["NEXT_PUBLIC_GOOGLE_CLIENT_ID="]);
+    expect(assignments).toEqual([
+      "NEXT_PUBLIC_GOOGLE_CLIENT_ID=",
+      "BLOB_READ_WRITE_TOKEN=",
+      "PUBLIC_SHARE_SECRET=",
+    ]);
     expect(envExample).not.toMatch(/CLIENT_SECRET|API_KEY|ACCESS_TOKEN|BEARER/i);
   });
 
@@ -46,6 +50,8 @@ describe("runtime environment documentation contract", () => {
     expect(environmentSecurity).toContain("Vercel Productionのみ");
     expect(environmentSecurity).toContain("pnpm@10.34.4");
     expect(environmentSecurity).toContain("NEXT_PUBLIC_GOOGLE_CLIENT_ID");
+    expect(environmentSecurity).toContain("BLOB_READ_WRITE_TOKEN");
+    expect(environmentSecurity).toContain("PUBLIC_SHARE_SECRET");
     expect(environmentSecurity).toContain("VercelではProject Environment Variables");
     expect(environmentSecurity).toContain("Authorized JavaScript origins");
   });
