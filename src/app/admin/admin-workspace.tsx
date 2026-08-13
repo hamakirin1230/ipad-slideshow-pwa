@@ -12,6 +12,7 @@ import { Play, Shuffle } from "lucide-react";
 import { useAppState } from "@/app/app-providers";
 import { ProductDisclosure } from "@/components/product-disclosure";
 import { Button } from "@/components/ui/button";
+import { createPlayerProjectLinkHref } from "@/lib/player-route";
 import { formatUiCount } from "@/lib/ui-format";
 import { cn } from "@/lib/utils";
 import { DriveProjectWorkspacePanel } from "./drive-project-workspace-panel";
@@ -37,6 +38,9 @@ export function AdminWorkspace() {
     projectDetails?.slideCount ?? projectSummary?.slideCount ?? null;
   const assetCount =
     projectDetails?.assetCount ?? projectSummary?.assetCount ?? null;
+  const playerHref = projectSummary
+    ? createPlayerProjectLinkHref(projectSummary.projectId)
+    : null;
 
   useEffect(() => {
     function selectHashTab() {
@@ -113,15 +117,26 @@ export function AdminWorkspace() {
               <Shuffle className="size-4" aria-hidden="true" />
               {projectSummary ? "作品を切り替える" : "作品を選択"}
             </Button>
-            <Button
-              asChild
-              className="min-h-11 bg-sky-300 text-slate-950 hover:bg-sky-200"
-            >
-              <Link href="/player">
+            {playerHref ? (
+              <Button
+                asChild
+                className="min-h-11 bg-sky-300 text-slate-950 hover:bg-sky-200"
+              >
+                <Link href={playerHref}>
+                  <Play className="size-4 fill-current" aria-hidden="true" />
+                  再生
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                className="min-h-11 bg-sky-300 text-slate-950"
+                disabled
+              >
                 <Play className="size-4 fill-current" aria-hidden="true" />
                 再生
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </header>
 

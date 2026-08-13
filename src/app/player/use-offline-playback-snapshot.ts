@@ -158,13 +158,27 @@ async function loadOfflinePlaybackSnapshot(
 
 function readInitialPlaybackProjectId() {
   const urlProjectId = readUrlPlaybackProjectId();
+  const storedProjectId = readStoredPlaybackProjectId();
+  const selectedProjectId = resolveInitialPlaybackProjectId({
+    urlProjectId,
+    storedProjectId,
+  });
 
-  if (urlProjectId) {
-    writeStoredPlaybackProjectId(urlProjectId);
-    return urlProjectId;
+  if (selectedProjectId && selectedProjectId === urlProjectId) {
+    writeStoredPlaybackProjectId(selectedProjectId);
   }
 
-  return readStoredPlaybackProjectId();
+  return selectedProjectId;
+}
+
+export function resolveInitialPlaybackProjectId(input: {
+  urlProjectId: string | null;
+  storedProjectId: string | null;
+}) {
+  return (
+    normalizePlaybackProjectId(input.urlProjectId) ??
+    normalizePlaybackProjectId(input.storedProjectId)
+  );
 }
 
 function readUrlPlaybackProjectId() {
@@ -213,4 +227,9 @@ function clearStoredPlaybackProjectId() {
   } catch {
     // Clearing the last selected project is best-effort only.
   }
+}
+
+function normalizePlaybackProjectId(projectId: string | null) {
+  const normalizedProjectId = projectId?.trim() ?? "";
+  return normalizedProjectId.length === 0 ? null : normalizedProjectId;
 }

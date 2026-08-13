@@ -191,6 +191,69 @@ describe("offline playback publication provenance", () => {
   });
 });
 
+describe("explicit offline playback project selection", () => {
+  const OTHER_PROJECT_ID = "33333333-3333-4333-8333-333333333333";
+
+  function projectFor(projectId: string, projectTitle: string): OfflineProject {
+    return {
+      ...project(),
+      projectId,
+      projectTitle,
+      sourceManifestFileId: `manifest-${projectId}`,
+    };
+  }
+
+  function stateFor(projectId: string): OfflineSyncState {
+    return {
+      ...state(),
+      projectId,
+      manifestFileId: `manifest-${projectId}`,
+    };
+  }
+
+  it("selects the explicitly requested project when it is confirmed", () => {
+    const snapshot = buildOfflinePlaybackSnapshot({
+      checkedAt,
+      selectedProjectId: OTHER_PROJECT_ID,
+      projects: [
+        projectFor(PROJECT_ID, "Previous"),
+        projectFor(OTHER_PROJECT_ID, "Selected"),
+      ],
+      assets: [],
+      assetBlobs: [],
+      syncStates: [stateFor(PROJECT_ID), stateFor(OTHER_PROJECT_ID)],
+    });
+
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status !== "ready") return;
+    expect(snapshot.projectId).toBe(OTHER_PROJECT_ID);
+    expect(snapshot.projectTitle).toBe("Selected");
+  });
+
+  it("does not fall back to another confirmed project when the request is unavailable", () => {
+    const requestedProjectId = "44444444-4444-4444-8444-444444444444";
+    const snapshot = buildOfflinePlaybackSnapshot({
+      checkedAt,
+      selectedProjectId: requestedProjectId,
+      projects: [
+        projectFor(PROJECT_ID, "Previous"),
+        projectFor(OTHER_PROJECT_ID, "Other"),
+      ],
+      assets: [],
+      assetBlobs: [],
+      syncStates: [stateFor(PROJECT_ID), stateFor(OTHER_PROJECT_ID)],
+    });
+
+    expect(snapshot.status).toBe("projectSelectionRequired");
+    if (snapshot.status !== "projectSelectionRequired") return;
+    expect(snapshot.selectedProjectId).toBe(requestedProjectId);
+    expect(snapshot.availableProjects.map((item) => item.projectId)).toEqual([
+      PROJECT_ID,
+      OTHER_PROJECT_ID,
+    ]);
+  });
+});
+
 describe("offline playback MP4/MOV availability", () => {
   function videoProject(): OfflineProject {
     return {

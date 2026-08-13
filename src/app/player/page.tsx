@@ -374,8 +374,16 @@ export default function PlayerPage() {
   const playerRootRef = useRef<HTMLElement | null>(null);
 
   const readySnapshot = snapshot?.status === "ready" ? snapshot : null;
+  const unavailableProjectSnapshot =
+    snapshot?.status === "projectSelectionRequired" &&
+    snapshot.selectedProjectId !== undefined
+      ? snapshot
+      : null;
   const projectSelectionSnapshot =
-    snapshot?.status === "projectSelectionRequired" ? snapshot : null;
+    snapshot?.status === "projectSelectionRequired" &&
+    snapshot.selectedProjectId === undefined
+      ? snapshot
+      : null;
   const slideCount = readySnapshot?.slides.length ?? 0;
   const isProductionMode = presentationMode === "production";
   const isInteractionLocked = interactionLock === "locked";
@@ -2306,6 +2314,22 @@ export default function PlayerPage() {
               </Button>
               <Button asChild variant="secondary">
                 <Link href="/admin">このiPadに保存する</Link>
+              </Button>
+            </PlayerActionRow>
+          </PlayerStatusCard>
+        ) : null}
+
+        {unavailableProjectSnapshot ? (
+          <PlayerStatusCard
+            tone="warning"
+            title="この作品はまだこのiPadに保存されていません"
+            description="選択した作品の再生用コピーが見つからないため、別の保存済み作品は再生していません。「つくる」の「このiPad」から保存してください。"
+          >
+            <PlayerActionRow>
+              <Button asChild variant="secondary">
+                <Link href={{ pathname: "/admin", hash: "device" }}>
+                  このiPadに保存する
+                </Link>
               </Button>
             </PlayerActionRow>
           </PlayerStatusCard>

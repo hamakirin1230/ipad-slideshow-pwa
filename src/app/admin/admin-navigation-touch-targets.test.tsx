@@ -12,6 +12,7 @@ const source = {
   offlineSync: read("./offline-sync-panel.tsx"),
   confirmedStore: read("./offline-confirmed-store-panel.tsx"),
   system: read("../system/system-status-overview.tsx"),
+  player: read("../player/page.tsx"),
   driveSettings: read("../settings/drive-settings-panel.tsx"),
   offlineDb: read("../settings/offline-db-check-panel.tsx"),
 };
@@ -78,6 +79,30 @@ describe("admin creative workspace", () => {
     expect(source.edit).not.toMatch(/Driveプロジェクト数|選択中Driveプロジェクト|Drive確認済み/);
     expect(source.workspace).toContain("formatUiCount(slideCount)");
     expect(source.workspace).toContain("formatUiCount(assetCount)");
+  });
+
+  it("passes the selected app project to Player without an implicit fallback link", () => {
+    expect(source.workspace).toContain(
+      "createPlayerProjectLinkHref(projectSummary.projectId)",
+    );
+    expect(source.publish).toContain(
+      "createPlayerProjectLinkHref(selectedProjectId)",
+    );
+    expect(source.workspace).not.toContain('<Link href="/player">');
+    expect(source.publish).not.toContain('<Link href="/player">');
+  });
+
+  it("guides an unavailable requested project back to this iPad storage", () => {
+    expect(source.player).toContain(
+      "この作品はまだこのiPadに保存されていません",
+    );
+    expect(source.player).toContain("unavailableProjectSnapshot");
+    expect(source.player).toContain(
+      '<Link href={{ pathname: "/admin", hash: "device" }}>',
+    );
+    expect(source.player).not.toContain(
+      "unavailableProjectSnapshot.diagnostics",
+    );
   });
 });
 

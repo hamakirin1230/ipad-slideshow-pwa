@@ -33,6 +33,7 @@ import {
   type SanitizedPublishError,
   type SanitizedPublishSuccess,
 } from "@/lib/publish-history/project-publish-ui";
+import { createPlayerProjectLinkHref } from "@/lib/player-route";
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 import { formatUiDateTime } from "@/lib/ui-format";
 
@@ -88,6 +89,9 @@ function ProjectPublishPanelSession() {
     projectStatus === "ready" &&
     selectedProjectId !== null &&
     projectSummary !== null;
+  const playerHref = selectedProjectId
+    ? createPlayerProjectLinkHref(selectedProjectId)
+    : null;
 
   useEffect(() => {
     return () => {
@@ -274,12 +278,24 @@ function ProjectPublishPanelSession() {
               ) : null}
               {uiState.status === "idle" ? (
                 <>
-                  <Button asChild variant="outline" className="min-h-11 border-white/15 bg-white/5 text-slate-100">
-                    <Link href="/player">
+                  {playerHref ? (
+                    <Button asChild variant="outline" className="min-h-11 border-white/15 bg-white/5 text-slate-100">
+                      <Link href={playerHref}>
+                        <Play className="size-4" aria-hidden="true" />
+                        このiPadの作品を再生
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11 border-white/15 bg-white/5 text-slate-100"
+                      disabled
+                    >
                       <Play className="size-4" aria-hidden="true" />
                       このiPadの作品を再生
-                    </Link>
-                  </Button>
+                    </Button>
+                  )}
                   <Button asChild variant="ghost" className="min-h-11 text-slate-300 hover:bg-white/8 hover:text-white">
                     <Link href="/admin/history">
                       <History className="size-4" aria-hidden="true" />
