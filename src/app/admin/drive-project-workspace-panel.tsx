@@ -375,7 +375,7 @@ export function DriveProjectWorkspacePanel() {
                     strategy={verticalListSortingStrategy}
                   >
                     <div className="overflow-hidden rounded-xl border border-slate-200">
-                      <div className="grid gap-3 bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]">
+                      <div className="grid gap-2 bg-slate-100 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]">
                         <p>選択</p>
                         <p>順番</p>
                         <p>プレビュー</p>
@@ -454,11 +454,6 @@ export function DriveProjectWorkspacePanel() {
                                     {formatOptionalDurationMs(slide.durationMs)} / 容量:{" "}
                                     {formatOptionalBytes(slide.fileSize)}
                                   </p>
-                                  {getAssetTypeLabel(slide.type) === "video" ? (
-                                    <p className="mt-1 text-xs leading-5 text-slate-600">
-                                      大容量動画は本体をこのiPadへ保存せず、オンライン時に再生します。
-                                    </p>
-                                  ) : null}
                                 </div>
                                 <SlideReorderControls
                                   slideId={slide.slideId}
@@ -480,13 +475,11 @@ export function DriveProjectWorkspacePanel() {
                                   }
                                   onDuplicate={duplicateProjectSlide}
                                 />
-                                <div className="space-y-3">
+                                <div className="space-y-2">
                                   <SlideDurationEditor
                                     key={`${slide.slideId}:${slide.durationSeconds}:${slide.durationMs ?? "none"}`}
                                     slideId={slide.slideId}
                                     durationSeconds={slide.durationSeconds}
-                                    assetType={getAssetTypeLabel(slide.type)}
-                                    durationMs={slide.durationMs}
                                     isSaving={
                                       durationUpdateSlideId === slide.slideId
                                     }
@@ -640,8 +633,8 @@ function SortableSlideRow({
       style={style}
       className={
         isDragging
-          ? "grid gap-3 bg-white px-4 py-3 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
-          : "grid gap-3 bg-white px-4 py-3 text-sm xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
+          ? "grid gap-2 bg-white px-3 py-2 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
+          : "grid gap-2 bg-white px-3 py-2 text-sm xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
       }
     >
       {children({ dragHandle })}
@@ -652,16 +645,12 @@ function SortableSlideRow({
 function SlideDurationEditor({
   slideId,
   durationSeconds,
-  assetType,
-  durationMs,
   isSaving,
   isDisabled,
   onSave,
 }: {
   slideId: string;
   durationSeconds: number;
-  assetType: "image" | "video";
-  durationMs?: number;
   isSaving: boolean;
   isDisabled: boolean;
   onSave: (slideId: string, durationSeconds: number) => void;
@@ -677,12 +666,8 @@ function SlideDurationEditor({
   const isInvalid = !isEmpty && !hasValidDuration;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="font-medium text-slate-900">表示時間</p>
-        {hasUnsavedChange ? <Badge variant="outline">未保存</Badge> : null}
-      </div>
-      <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
         <input
           type="number"
           min={DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS}
@@ -690,27 +675,11 @@ function SlideDurationEditor({
           step={1}
           value={draftDurationSeconds}
           onChange={(event) => setDraftDurationSeconds(event.target.value)}
-          className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+          className="min-h-11 w-20 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
           aria-label="スライドの表示時間"
         />
-        <span>秒</span>
-      </label>
-      <p className="mt-2 text-xs leading-5 text-slate-500">
-        {assetType === "video"
-          ? `動画は現在、再生終了で次へ進みます。この秒数は管理値として保存します。動画の実時間: ${formatOptionalDurationMs(durationMs)}`
-          : "画像スライドの自動送り秒数として保存します。"}
-      </p>
-      {isEmpty ? (
-        <p className="mt-2 text-xs text-red-700">表示時間を入力してください。</p>
-      ) : null}
-      {isInvalid ? (
-        <p className="mt-2 text-xs text-red-700">
-          表示時間は {DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS}〜
-          {DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS} 秒の整数で入力してください。
-        </p>
-      ) : null}
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-slate-500">このiPadへの保存後に再生へ反映</p>
+        <span className="text-sm text-slate-700">秒</span>
+        {hasUnsavedChange ? <Badge variant="outline">未保存</Badge> : null}
         <Button
           type="button"
           size="sm"
@@ -731,6 +700,15 @@ function SlideDurationEditor({
           {isSaving ? "保存中" : "保存"}
         </Button>
       </div>
+      {isEmpty ? (
+        <p className="mt-1 text-xs text-red-700">表示時間を入力してください。</p>
+      ) : null}
+      {isInvalid ? (
+        <p className="mt-1 text-xs text-red-700">
+          表示時間は {DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS}〜
+          {DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS} 秒の整数で入力してください。
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -756,36 +734,32 @@ function SlideCaptionEditor({
   const isTooLong = captionLength > SLIDE_CAPTION_MAX_LENGTH;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="font-medium text-slate-900">テロップ</p>
-        {hasUnsavedChange ? (
-          <Badge variant={isTooLong ? "destructive" : "outline"}>未保存</Badge>
-        ) : null}
-      </div>
+    <div className="flex flex-wrap items-center gap-2">
       <textarea
         value={draftCaption}
         onChange={(event) => setDraftCaption(event.target.value)}
         maxLength={SLIDE_CAPTION_MAX_LENGTH + 20}
-        rows={3}
-        className="mt-2 min-h-20 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+        rows={1}
+        aria-label="テロップ"
+        className="min-h-11 min-w-0 flex-1 resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
         placeholder="テロップを入力"
       />
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <p className={isTooLong ? "text-xs text-red-700" : "text-xs text-slate-500"}>
-          {captionLength} / {SLIDE_CAPTION_MAX_LENGTH} 文字
-        </p>
-        <Button
-          type="button"
-          size="sm"
-          className="min-h-11"
-          variant={hasUnsavedChange ? "default" : "secondary"}
-          disabled={!hasUnsavedChange || isSaving || isDisabled || isTooLong}
-          onClick={() => onSave(slideId, normalizedDraftCaption)}
-        >
-          {isSaving ? "保存中" : "保存"}
-        </Button>
-      </div>
+      <p className={isTooLong ? "text-xs text-red-700" : "text-xs text-slate-500"}>
+        {captionLength} / {SLIDE_CAPTION_MAX_LENGTH} 文字
+      </p>
+      {hasUnsavedChange ? (
+        <Badge variant={isTooLong ? "destructive" : "outline"}>未保存</Badge>
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        className="min-h-11"
+        variant={hasUnsavedChange ? "default" : "secondary"}
+        disabled={!hasUnsavedChange || isSaving || isDisabled || isTooLong}
+        onClick={() => onSave(slideId, normalizedDraftCaption)}
+      >
+        {isSaving ? "保存中" : "保存"}
+      </Button>
     </div>
   );
 }
@@ -954,7 +928,7 @@ function DriveSlidePreview({
 
   if (assetType !== "image") {
     return (
-      <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-2 text-center text-xs text-amber-800">
+      <div className="flex h-14 w-20 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-2 text-center text-xs text-amber-800">
         動画素材
       </div>
     );
@@ -962,7 +936,7 @@ function DriveSlidePreview({
 
   if (previewState.status === "loading") {
     return (
-      <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-500">
+      <div className="flex h-14 w-20 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-500">
         読み込み中
       </div>
     );
@@ -970,7 +944,7 @@ function DriveSlidePreview({
 
   if (previewState.status === "error") {
     return (
-      <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-2 text-center text-xs text-amber-800">
+      <div className="flex h-14 w-20 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-2 text-center text-xs text-amber-800">
         プレビュー取得失敗
       </div>
     );
@@ -982,7 +956,7 @@ function DriveSlidePreview({
       <img
         src={previewState.objectUrl}
         alt={`${assetName} のプレビュー`}
-        className="h-16 w-24 rounded-lg border border-slate-200 object-cover"
+        className="h-14 w-20 rounded-lg border border-slate-200 object-cover"
         loading="lazy"
         decoding="async"
       />
