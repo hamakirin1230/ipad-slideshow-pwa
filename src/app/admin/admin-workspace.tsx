@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { DriveProjectWorkspacePanel } from "./drive-project-workspace-panel";
 import { OfflineConfirmedStorePanel } from "./offline-confirmed-store-panel";
 import { OfflineSyncPanel } from "./offline-sync-panel";
+import { GooglePhotosExportPanel } from "./google-photos-export-panel";
 import { ProjectPublishPanel } from "./project-publish-panel";
 import { ProjectStatusPanel } from "./project-status-panel";
 
@@ -190,7 +191,10 @@ export function AdminWorkspace() {
             <DriveProjectWorkspacePanel />
           </WorkspacePane>
           <WorkspacePane id="publish" activeTab={activeTab}>
-            <ProjectPublishPanel />
+            <div className="space-y-8">
+              <GooglePhotosExportPanel />
+              <ProjectPublishPanel />
+            </div>
           </WorkspacePane>
           <WorkspacePane id="device" activeTab={activeTab}>
             <div className="space-y-8">

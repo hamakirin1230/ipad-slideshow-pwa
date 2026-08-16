@@ -76,6 +76,7 @@ describe("current documentation contract", () => {
     expect(operations).toContain("manifest.publication.currentRevisionId");
     expect(operations).toContain("新しいrollback revision");
     expect(operations).toContain("明示的offline sync");
+    expect(operations).toContain("Googleフォトへ書き出すはDrive publish");
     expect(operations).toContain("multi-tab raceは未解決");
     expect(operations).toContain("production sourceには存在しない");
   });

@@ -19,7 +19,7 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 - 本番中に止まらないことを最優先にする
 - 最終的にオフラインのiPadだけでスライドショーを本番再生できるようにする
 - Vercel productionを現在の本番運用対象にする
-- Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`のみ
+- Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`のみ。Googleフォトへ書き出すときは`photoslibrary.appendonly`をその操作の開始時だけ追加要求する
 - access tokenは保存しない、表示しない、console出力しない
 - access tokenはlocalStorage / IndexedDB / Cookie / docs / logsに出さない
 - Client Secretは作らない、使わない
@@ -67,6 +67,7 @@ production App Routerに存在する主要route:
 - publish / rollbackはimmutable revisionを作成し、current published revisionは`manifest.publication.currentRevisionId`をauthorityとする
 - rollbackは過去revisionへpointerを戻さず、過去内容から新しいrollback revisionを作る
 - save / publish / rollbackだけではoffline dataを更新せず、端末反映には明示的offline syncが必要
+- Googleフォトへ書き出すはDrive publish / このiPadに保存とは別操作であり、Drive publicationとoffline storeは変更しない
 - publication writeのin-flight guardは同一tab内の直列化であり、既知のmulti-tab raceは未解決
 - temporary publication acceptance fault harnessは専用branchで実装後に完全撤去され、production sourceには存在しない
 

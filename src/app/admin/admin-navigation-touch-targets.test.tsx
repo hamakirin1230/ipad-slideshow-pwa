@@ -50,6 +50,7 @@ describe("admin creative workspace", () => {
     for (const panel of [
       "<ProjectStatusPanel />",
       "<DriveProjectWorkspacePanel />",
+      "<GooglePhotosExportPanel />",
       "<ProjectPublishPanel />",
       "<OfflineSyncPanel />",
       "<OfflineConfirmedStorePanel />",

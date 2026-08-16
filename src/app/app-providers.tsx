@@ -22,6 +22,17 @@ import {
   hasGrantedDriveFileScope,
 } from "@/lib/google-auth";
 import {
+  GOOGLE_PHOTOS_EXPORT_SCOPE,
+  tokenResponseGrantsPhotosLibraryAppendonly,
+} from "@/lib/google-photos-export/authorization";
+import {
+  createGooglePhotosExportAuthorizationError,
+  prepareGooglePhotosExportReviewInDrive,
+  toGooglePhotosExportReviewResult,
+  type PrepareGooglePhotosExportReviewResult,
+} from "@/lib/google-photos-export/workflow";
+import type { GooglePhotosExportPlan } from "@/lib/google-photos-export/contract";
+import {
   listProjectPublishRevisions,
   loadProjectPublishRevision,
   type ListProjectPublishRevisionsResult,
@@ -178,6 +189,7 @@ const GOOGLE_DRIVE_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 const ASSET_IMPORT_MAX_BATCH_COUNT = 10;
 const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
+const PHOTOS_EXPORT_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
 const OFFLINE_SYNC_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -443,7 +455,7 @@ type PendingPhotosTokenRequest = {
   reject: (error: unknown) => void;
 };
 
-type TokenRequestKind = "drive" | "photos" | null;
+type TokenRequestKind = "drive" | "photos" | "photosExport" | null;
 
 type PhotosTokenRequestFailureStatus = "cancelled" | "error";
 
@@ -636,6 +648,11 @@ type AppContextValue = {
   }) => Promise<CommitPreparedProjectPublishResult>;
   cancelPreparedProjectPublish: () => void;
   isProjectPublishInFlight: boolean;
+  prepareGooglePhotosExportReview: (
+    projectId: string,
+  ) => Promise<PrepareGooglePhotosExportReviewResult>;
+  cancelPreparedGooglePhotosExport: () => void;
+  isGooglePhotosExportInFlight: boolean;
   isProjectRollbackInFlight: boolean;
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
@@ -808,6 +825,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   const pendingPhotosTokenRequestRef =
     useRef<PendingPhotosTokenRequest | null>(null);
+  const photosExportAccessTokenRef = useRef<string | null>(null);
+  const pendingPhotosExportTokenRequestRef =
+    useRef<PendingPhotosTokenRequest | null>(null);
+  const pendingGooglePhotosExportRef = useRef<GooglePhotosExportPlan | null>(
+    null,
+  );
+  const googlePhotosExportAbortRef = useRef<AbortController | null>(null);
+  const googlePhotosExportRequestSequenceRef = useRef(0);
+  const googlePhotosExportInFlightRef = useRef(false);
   const currentAssetImportAccessTokenRef = useRef<string | null>(null);
   const currentAssetImportSessionIdRef = useRef<string | null>(null);
   const assetImportAbortRef = useRef<AbortController | null>(null);
@@ -873,6 +899,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [isProjectPublishInFlight, setIsProjectPublishInFlight] =
     useState(false);
   const [isProjectRollbackInFlight, setIsProjectRollbackInFlight] =
+    useState(false);
+  const [isGooglePhotosExportInFlight, setIsGooglePhotosExportInFlight] =
     useState(false);
 
   const [assetImportStatus, setAssetImportStatus] =
@@ -1361,6 +1389,172 @@ export function AppProviders({ children }: { children: ReactNode }) {
     );
 
     return true;
+  }
+
+  function requestPhotosExportAccessToken(requestId: number) {
+    const existingToken = photosExportAccessTokenRef.current;
+    if (existingToken) {
+      return Promise.resolve(existingToken);
+    }
+
+    const tokenClient = tokenClientRef.current;
+    if (!tokenClient) {
+      return Promise.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Google token client was not ready.",
+          diagnostics: ["Google認証ライブラリの準備が完了していません。"],
+        }),
+      );
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        const pendingRequest = pendingPhotosExportTokenRequestRef.current;
+        if (!pendingRequest || pendingRequest.requestId !== requestId) {
+          return;
+        }
+        pendingPhotosExportTokenRequestRef.current = null;
+        tokenRequestKindRef.current = null;
+        reject(
+          new PhotosTokenRequestError({
+            status: "cancelled",
+            message: "Photos export token request timed out.",
+            diagnostics: ["Googleフォトへの書き出し許可待ちがタイムアウトしました。"],
+          }),
+        );
+      }, PHOTOS_EXPORT_TOKEN_REQUEST_TIMEOUT_MS);
+
+      pendingPhotosExportTokenRequestRef.current = {
+        requestId,
+        timeoutId,
+        resolve,
+        reject,
+      };
+      tokenRequestKindRef.current = "photosExport";
+
+      try {
+        tokenClient.requestAccessToken({
+          scope: GOOGLE_PHOTOS_EXPORT_SCOPE,
+          include_granted_scopes: true,
+          prompt: "consent",
+        });
+      } catch {
+        const pendingRequest = pendingPhotosExportTokenRequestRef.current;
+        if (pendingRequest?.requestId === requestId) {
+          clearTimeout(pendingRequest.timeoutId);
+          pendingPhotosExportTokenRequestRef.current = null;
+        }
+        tokenRequestKindRef.current = null;
+        reject(
+          new PhotosTokenRequestError({
+            status: "error",
+            message: "Photos export token request could not be started.",
+            diagnostics: ["Googleフォトへの書き出し許可要求を開始できませんでした。"],
+          }),
+        );
+      }
+    });
+  }
+
+  function handlePhotosExportTokenResponse(tokenResponse: GoogleTokenResponse) {
+    const pendingRequest = pendingPhotosExportTokenRequestRef.current;
+    if (!pendingRequest) {
+      if (tokenRequestKindRef.current === "photosExport") {
+        tokenRequestKindRef.current = null;
+        return true;
+      }
+      return false;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingPhotosExportTokenRequestRef.current = null;
+    tokenRequestKindRef.current = null;
+
+    if (tokenResponse.error === "access_denied") {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos export permission was cancelled.",
+          diagnostics: ["Googleフォトへの書き出し許可がキャンセルされました。"],
+        }),
+      );
+      return true;
+    }
+
+    if (tokenResponse.error || !tokenResponse.access_token) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos export token request returned an error.",
+          diagnostics: ["Googleフォトへの書き出し許可でエラーが返されました。"],
+        }),
+      );
+      return true;
+    }
+
+    if (!tokenResponseGrantsPhotosLibraryAppendonly(tokenResponse)) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos Library appendonly scope was not granted.",
+          diagnostics: ["Googleフォトへの書き出しに必要な許可を確認できませんでした。"],
+        }),
+      );
+      return true;
+    }
+
+    photosExportAccessTokenRef.current = tokenResponse.access_token;
+    pendingRequest.resolve(tokenResponse.access_token);
+    return true;
+  }
+
+  function handlePhotosExportTokenErrorCallback() {
+    const pendingRequest = pendingPhotosExportTokenRequestRef.current;
+    if (!pendingRequest) {
+      if (tokenRequestKindRef.current === "photosExport") {
+        tokenRequestKindRef.current = null;
+        return true;
+      }
+      return false;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingPhotosExportTokenRequestRef.current = null;
+    tokenRequestKindRef.current = null;
+    pendingRequest.reject(
+      new PhotosTokenRequestError({
+        status: "cancelled",
+        message: "Photos export permission did not complete.",
+        diagnostics: ["Googleフォトへの書き出し許可が完了しませんでした。"],
+      }),
+    );
+    return true;
+  }
+
+  function discardPendingGooglePhotosExport() {
+    googlePhotosExportRequestSequenceRef.current += 1;
+    googlePhotosExportAbortRef.current?.abort();
+    googlePhotosExportAbortRef.current = null;
+    pendingGooglePhotosExportRef.current = null;
+    googlePhotosExportInFlightRef.current = false;
+    setIsGooglePhotosExportInFlight(false);
+  }
+
+  function clearPhotosExportAuthorization() {
+    const pendingRequest = pendingPhotosExportTokenRequestRef.current;
+    if (pendingRequest) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingPhotosExportTokenRequestRef.current = null;
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos export permission was cleared.",
+          diagnostics: ["Googleフォトへの書き出し許可を破棄しました。"],
+        }),
+      );
+    }
+    photosExportAccessTokenRef.current = null;
   }
 
   function getAssetImportBlockedReason() {
@@ -1956,6 +2150,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       prompt: "select_account",
       include_granted_scopes: false,
       callback: (tokenResponse) => {
+        if (handlePhotosExportTokenResponse(tokenResponse)) {
+          return;
+        }
+
         if (handlePhotosTokenResponse(tokenResponse)) {
           return;
         }
@@ -2011,6 +2209,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
         resetDriveState();
       },
       error_callback: (error) => {
+        if (handlePhotosExportTokenErrorCallback()) {
+          return;
+        }
+
         if (handlePhotosTokenErrorCallback()) {
           return;
         }
@@ -2103,6 +2305,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
+    clearPhotosExportAuthorization();
+    discardPendingGooglePhotosExport();
     setDriveFileGranted(null);
     abortDriveOperation();
     resetDriveState();
@@ -2121,6 +2325,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
+    clearPhotosExportAuthorization();
+    discardPendingGooglePhotosExport();
     setDriveFileGranted(null);
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
     setGoogleMessage(
@@ -5511,6 +5717,89 @@ export function AppProviders({ children }: { children: ReactNode }) {
     discardPendingProjectPublish();
   }
 
+  async function prepareGooglePhotosExportReview(
+    projectId: string,
+  ): Promise<PrepareGooglePhotosExportReviewResult> {
+    const accessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+    if (
+      !accessToken ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      !workspace ||
+      !project ||
+      project.projectId !== projectId
+    ) {
+      return {
+        ok: false,
+        error: {
+          kind: "drivePreflightFailed",
+          message:
+            "書き出し前確認の準備ができていません。Google接続と選択中の作品を確認してください。",
+        },
+      };
+    }
+
+    discardPendingGooglePhotosExport();
+    const requestSequence = googlePhotosExportRequestSequenceRef.current;
+    const controller = new AbortController();
+    googlePhotosExportAbortRef.current = controller;
+    googlePhotosExportInFlightRef.current = true;
+    setIsGooglePhotosExportInFlight(true);
+
+    try {
+      const source = await prepareGooglePhotosExportReviewInDrive({
+        accessToken,
+        selectedProjectId: projectId,
+        workspaceId: workspace.workspaceId,
+        projectsRootFolderId: workspace.projectsRootFolderId,
+        project,
+        signal: controller.signal,
+      });
+      if (
+        requestSequence !== googlePhotosExportRequestSequenceRef.current ||
+        accessTokenRef.current !== accessToken
+      ) {
+        return createGooglePhotosExportAuthorizationError("aborted");
+      }
+      if (!source.ok) {
+        return source;
+      }
+
+      try {
+        await requestPhotosExportAccessToken(requestSequence);
+      } catch (error) {
+        if (error instanceof PhotosTokenRequestError && error.status === "cancelled") {
+          return createGooglePhotosExportAuthorizationError("authorizationDenied");
+        }
+        return createGooglePhotosExportAuthorizationError("authorizationRequired");
+      }
+
+      if (
+        requestSequence !== googlePhotosExportRequestSequenceRef.current ||
+        accessTokenRef.current !== accessToken
+      ) {
+        return createGooglePhotosExportAuthorizationError("aborted");
+      }
+
+      pendingGooglePhotosExportRef.current = source.plan;
+      return toGooglePhotosExportReviewResult(source);
+    } finally {
+      if (requestSequence === googlePhotosExportRequestSequenceRef.current) {
+        googlePhotosExportAbortRef.current = null;
+        googlePhotosExportInFlightRef.current = false;
+        setIsGooglePhotosExportInFlight(false);
+      }
+    }
+  }
+
+  function cancelPreparedGooglePhotosExport() {
+    discardPendingGooglePhotosExport();
+  }
+
   async function listProjectPublishRevisionsForProject(
     projectId: string,
     signal: AbortSignal,
@@ -5989,6 +6278,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     commitPreparedProjectPublish,
     cancelPreparedProjectPublish,
     isProjectPublishInFlight,
+    prepareGooglePhotosExportReview,
+    cancelPreparedGooglePhotosExport,
+    isGooglePhotosExportInFlight,
     isProjectRollbackInFlight,
     createProject,
     updateSelectedProjectTitle,

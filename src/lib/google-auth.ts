@@ -5,6 +5,8 @@ export const DRIVE_AND_PHOTOS_PICKER_SCOPES = [
   DRIVE_FILE_SCOPE,
   PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
 ].join(" ");
+export const PHOTOS_LIBRARY_APPENDONLY_SCOPE =
+  "https://www.googleapis.com/auth/photoslibrary.appendonly";
 
 export type GoogleConnectionStatus =
   | "scriptLoading"
@@ -91,6 +93,17 @@ export function hasGrantedDriveFileAndPhotosPickerScopes(
       tokenResponse,
       DRIVE_FILE_SCOPE,
       PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
+    ) ?? false
+  );
+}
+
+export function hasGrantedPhotosLibraryAppendonlyScope(
+  tokenResponse: GoogleTokenResponse,
+) {
+  return (
+    window.google?.accounts?.oauth2?.hasGrantedAllScopes(
+      tokenResponse,
+      PHOTOS_LIBRARY_APPENDONLY_SCOPE,
     ) ?? false
   );
 }
