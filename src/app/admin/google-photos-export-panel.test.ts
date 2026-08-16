@@ -18,6 +18,20 @@ describe("google photos export review UI", () => {
     expect(source.panel).not.toMatch(/公開URL|共有URL|共有リンク/);
   });
 
+  it("shows progress and a Photos open link without calling it a share URL", () => {
+    expect(source.panel).toContain("全体:");
+    expect(source.panel).toContain("現在のスライド:");
+    expect(source.panel).toContain("アップロード:");
+    expect(source.panel).toContain("中止");
+    expect(source.panel).toContain("Googleフォトへの書き出しが完了しました");
+    expect(source.panel).toContain("Googleフォトで開く");
+    expect(source.panel).toContain("result.productUrl");
+    expect(source.panel).toContain(
+      "共有する場合はGoogleフォトでアルバムを開き、Googleフォトの共有機能からリンクを作成してください。",
+    );
+    expect(source.panel).not.toContain("共有リンク");
+  });
+
   it("requires the album confirmation checkbox before export", () => {
     expect(source.panel).toContain(
       "Googleフォトに新しいアルバムを作成することを確認しました",

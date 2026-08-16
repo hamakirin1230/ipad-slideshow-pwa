@@ -27,11 +27,18 @@ import {
 } from "@/lib/google-photos-export/authorization";
 import {
   createGooglePhotosExportAuthorizationError,
+  executeGooglePhotosExportWithAdapter,
   prepareGooglePhotosExportReviewInDrive,
   toGooglePhotosExportReviewResult,
+  type CommitGooglePhotosExportResult,
   type PrepareGooglePhotosExportReviewResult,
 } from "@/lib/google-photos-export/workflow";
-import type { GooglePhotosExportPlan } from "@/lib/google-photos-export/contract";
+import type {
+  GooglePhotosExportPlan,
+  GooglePhotosExportProgress,
+  GooglePhotosExportRuntime,
+  SanitizedGooglePhotosExportSuccess,
+} from "@/lib/google-photos-export/contract";
 import {
   listProjectPublishRevisions,
   loadProjectPublishRevision,
@@ -651,8 +658,13 @@ type AppContextValue = {
   prepareGooglePhotosExportReview: (
     projectId: string,
   ) => Promise<PrepareGooglePhotosExportReviewResult>;
+  commitPreparedGooglePhotosExport: () => Promise<CommitGooglePhotosExportResult>;
   cancelPreparedGooglePhotosExport: () => void;
+  abortGooglePhotosExport: () => void;
   isGooglePhotosExportInFlight: boolean;
+  googlePhotosExportProgress: GooglePhotosExportProgress | null;
+  googlePhotosExportResult: SanitizedGooglePhotosExportSuccess | null;
+  canResumeGooglePhotosExport: boolean;
   isProjectRollbackInFlight: boolean;
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
@@ -831,6 +843,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const pendingGooglePhotosExportRef = useRef<GooglePhotosExportPlan | null>(
     null,
   );
+  const googlePhotosExportRuntimeRef = useRef<GooglePhotosExportRuntime | null>(
+    null,
+  );
   const googlePhotosExportAbortRef = useRef<AbortController | null>(null);
   const googlePhotosExportRequestSequenceRef = useRef(0);
   const googlePhotosExportInFlightRef = useRef(false);
@@ -901,6 +916,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [isProjectRollbackInFlight, setIsProjectRollbackInFlight] =
     useState(false);
   const [isGooglePhotosExportInFlight, setIsGooglePhotosExportInFlight] =
+    useState(false);
+  const [googlePhotosExportProgress, setGooglePhotosExportProgress] =
+    useState<GooglePhotosExportProgress | null>(null);
+  const [googlePhotosExportResult, setGooglePhotosExportResult] =
+    useState<SanitizedGooglePhotosExportSuccess | null>(null);
+  const [canResumeGooglePhotosExport, setCanResumeGooglePhotosExport] =
     useState(false);
 
   const [assetImportStatus, setAssetImportStatus] =
@@ -1537,8 +1558,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
     googlePhotosExportAbortRef.current?.abort();
     googlePhotosExportAbortRef.current = null;
     pendingGooglePhotosExportRef.current = null;
+    googlePhotosExportRuntimeRef.current = null;
     googlePhotosExportInFlightRef.current = false;
     setIsGooglePhotosExportInFlight(false);
+    setGooglePhotosExportProgress(null);
+    setCanResumeGooglePhotosExport(false);
   }
 
   function clearPhotosExportAuthorization() {
@@ -5786,6 +5810,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       pendingGooglePhotosExportRef.current = source.plan;
+      googlePhotosExportRuntimeRef.current = {
+        plan: source.plan,
+        uploadTokens: [],
+        currentUpload: null,
+      };
+      setGooglePhotosExportResult(null);
+      setCanResumeGooglePhotosExport(false);
       return toGooglePhotosExportReviewResult(source);
     } finally {
       if (requestSequence === googlePhotosExportRequestSequenceRef.current) {
@@ -5798,6 +5829,91 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function cancelPreparedGooglePhotosExport() {
     discardPendingGooglePhotosExport();
+  }
+
+  function abortGooglePhotosExport() {
+    googlePhotosExportAbortRef.current?.abort();
+  }
+
+  async function commitPreparedGooglePhotosExport(): Promise<CommitGooglePhotosExportResult> {
+    const driveAccessToken = accessTokenRef.current;
+    const photosAccessToken = photosExportAccessTokenRef.current;
+    const plan = pendingGooglePhotosExportRef.current;
+    const runtime = googlePhotosExportRuntimeRef.current;
+    const project = driveProjectReadyContext;
+    if (!photosAccessToken) {
+      return {
+        ok: false,
+        error: {
+          kind: "authorizationRequired",
+          message: "Googleフォトへの書き出し許可が必要です。",
+        },
+        canResume: false,
+      };
+    }
+    if (
+      !driveAccessToken ||
+      !plan ||
+      !runtime ||
+      !project ||
+      project.projectId !== plan.projectId
+    ) {
+      return {
+        ok: false,
+        error: {
+          kind: "drivePreflightFailed",
+          message: "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+        },
+        canResume: false,
+      };
+    }
+
+    const requestSequence = googlePhotosExportRequestSequenceRef.current;
+    const controller = new AbortController();
+    googlePhotosExportAbortRef.current = controller;
+    googlePhotosExportInFlightRef.current = true;
+    setIsGooglePhotosExportInFlight(true);
+    setCanResumeGooglePhotosExport(false);
+    setGooglePhotosExportResult(null);
+
+    try {
+      const result = await executeGooglePhotosExportWithAdapter({
+        driveAccessToken,
+        photosAccessToken,
+        runtime,
+        signal: controller.signal,
+        onProgress: setGooglePhotosExportProgress,
+        onRuntime: (next) => {
+          googlePhotosExportRuntimeRef.current = next;
+        },
+      });
+      if (requestSequence !== googlePhotosExportRequestSequenceRef.current) {
+        return {
+          ok: false,
+          error: {
+            kind: "aborted",
+            message: "Googleフォトへの書き出しを中止しました。",
+          },
+          canResume: false,
+        };
+      }
+      if (result.ok) {
+        pendingGooglePhotosExportRef.current = null;
+        googlePhotosExportRuntimeRef.current = null;
+        setGooglePhotosExportProgress(null);
+        setGooglePhotosExportResult(result.result);
+        setCanResumeGooglePhotosExport(false);
+        return result;
+      }
+      setCanResumeGooglePhotosExport(result.canResume);
+      return result;
+    } finally {
+      if (requestSequence === googlePhotosExportRequestSequenceRef.current) {
+        googlePhotosExportAbortRef.current = null;
+        googlePhotosExportInFlightRef.current = false;
+        setIsGooglePhotosExportInFlight(false);
+      }
+    }
   }
 
   async function listProjectPublishRevisionsForProject(
@@ -6279,8 +6395,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
     cancelPreparedProjectPublish,
     isProjectPublishInFlight,
     prepareGooglePhotosExportReview,
+    commitPreparedGooglePhotosExport,
     cancelPreparedGooglePhotosExport,
+    abortGooglePhotosExport,
     isGooglePhotosExportInFlight,
+    googlePhotosExportProgress,
+    googlePhotosExportResult,
+    canResumeGooglePhotosExport,
     isProjectRollbackInFlight,
     createProject,
     updateSelectedProjectTitle,

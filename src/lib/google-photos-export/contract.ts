@@ -77,6 +77,32 @@ export type GooglePhotosExportReview = {
   albumTitle: string;
 };
 
+export type GooglePhotosExportProgress = {
+  phase: "uploading" | "creatingMedia" | "creatingAlbum" | "addingToAlbum";
+  currentSlide: number;
+  totalSlides: number;
+  mediaKind: GooglePhotosExportMediaKind;
+  uploadedBytes: number;
+  fileBytes: number;
+};
+
+export type SanitizedGooglePhotosExportSuccess = {
+  albumTitle: string;
+  mediaItemCount: number;
+  completedAt: string;
+  productUrl: string | null;
+};
+
+export type GooglePhotosExportRuntime = {
+  plan: GooglePhotosExportPlan;
+  uploadTokens: string[];
+  currentUpload: {
+    slideIndex: number;
+    sessionUrl: string;
+    offset: number;
+  } | null;
+};
+
 export function isGooglePhotosLibraryUploadableMimeType(value: string) {
   return (GOOGLE_PHOTOS_LIBRARY_UPLOADABLE_MIME_TYPES as readonly string[]).includes(
     value,

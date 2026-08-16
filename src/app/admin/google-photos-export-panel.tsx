@@ -13,17 +13,24 @@ import {
 } from "@/components/ui/card";
 import {
   formatGooglePhotosExportBytes,
+  type GooglePhotosExportProgress,
   type GooglePhotosExportReview,
   type SanitizedGooglePhotosExportError,
+  type SanitizedGooglePhotosExportSuccess,
 } from "@/lib/google-photos-export/contract";
+import { formatUiDateTime } from "@/lib/ui-format";
 
 type ExportUiState =
   | { status: "idle" }
   | { status: "preparing" }
   | { status: "review"; review: GooglePhotosExportReview }
+  | { status: "exporting"; review: GooglePhotosExportReview }
+  | { status: "success"; result: SanitizedGooglePhotosExportSuccess }
   | {
       status: "error";
       error: SanitizedGooglePhotosExportError;
+      review?: GooglePhotosExportReview;
+      canResume?: boolean;
     };
 
 export function GooglePhotosExportPanel() {
@@ -45,8 +52,13 @@ function GooglePhotosExportPanelSession() {
     selectedProjectId,
     projectSummary,
     isGooglePhotosExportInFlight,
+    googlePhotosExportProgress,
+    googlePhotosExportResult,
+    canResumeGooglePhotosExport,
     prepareGooglePhotosExportReview,
+    commitPreparedGooglePhotosExport,
     cancelPreparedGooglePhotosExport,
+    abortGooglePhotosExport,
   } = useAppState();
   const [uiState, setUiState] = useState<ExportUiState>({ status: "idle" });
   const [confirmed, setConfirmed] = useState(false);
@@ -91,6 +103,31 @@ function GooglePhotosExportPanelSession() {
         ? { status: "review", review: result.review }
         : { status: "error", error: result.error },
     );
+  }
+
+  async function exportToPhotos(review: GooglePhotosExportReview) {
+    if (actionInFlightRef.current || !confirmed) return;
+
+    const requestSequence = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestSequence;
+    actionInFlightRef.current = true;
+    setUiState({ status: "exporting", review });
+
+    const result = await commitPreparedGooglePhotosExport();
+    if (requestSequence !== requestSequenceRef.current) return;
+
+    actionInFlightRef.current = false;
+    if (result.ok) {
+      setConfirmed(false);
+      setUiState({ status: "success", result: result.result });
+      return;
+    }
+    setUiState({
+      status: "error",
+      error: result.error,
+      review,
+      canResume: result.canResume,
+    });
   }
 
   function cancelReview() {
@@ -139,20 +176,49 @@ function GooglePhotosExportPanelSession() {
               confirmed={confirmed}
               disabled={isGooglePhotosExportInFlight}
               onConfirmedChange={setConfirmed}
+              onExport={() => void exportToPhotos(uiState.review)}
               onCancel={cancelReview}
             />
           ) : null}
 
+          {uiState.status === "exporting" ? (
+            <ExportProgress
+              review={uiState.review}
+              progress={googlePhotosExportProgress}
+              onAbort={abortGooglePhotosExport}
+            />
+          ) : null}
+
+          {uiState.status === "success" ? (
+            <ExportSuccess
+              result={googlePhotosExportResult ?? uiState.result}
+              onReset={cancelReview}
+            />
+          ) : null}
+
           {uiState.status === "error" ? (
-            <div
-              role="alert"
-              className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-100"
-            >
-              <p className="font-medium">{uiState.error.message}</p>
+            <div className="space-y-3">
+              <div
+                role="alert"
+                className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-100"
+              >
+                <p className="font-medium">{uiState.error.message}</p>
+              </div>
+              {uiState.canResume && uiState.review && canResumeGooglePhotosExport ? (
+                <Button
+                  type="button"
+                  className="min-h-11"
+                  disabled={isGooglePhotosExportInFlight}
+                  onClick={() => void exportToPhotos(uiState.review!)}
+                >
+                  再開
+                </Button>
+              ) : null}
             </div>
           ) : null}
 
-          {uiState.status === "idle" || uiState.status === "error" ? (
+          {uiState.status === "idle" ||
+          (uiState.status === "error" && !uiState.review) ? (
             <Button
               type="button"
               className="min-h-11"
@@ -173,12 +239,14 @@ function ExportReview({
   confirmed,
   disabled,
   onConfirmedChange,
+  onExport,
   onCancel,
 }: {
   review: GooglePhotosExportReview;
   confirmed: boolean;
   disabled: boolean;
   onConfirmedChange: (value: boolean) => void;
+  onExport: () => void;
   onCancel: () => void;
 }) {
   return (
@@ -222,6 +290,7 @@ function ExportReview({
           type="button"
           className="min-h-11"
           disabled={!confirmed || disabled}
+          onClick={onExport}
         >
           Googleフォトへ書き出す
         </Button>
@@ -235,6 +304,80 @@ function ExportReview({
           やめる
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ExportProgress({
+  review,
+  progress,
+  onAbort,
+}: {
+  review: GooglePhotosExportReview;
+  progress: GooglePhotosExportProgress | null;
+  onAbort: () => void;
+}) {
+  const currentSlide = progress?.currentSlide ?? 1;
+  const totalSlides = progress?.totalSlides ?? review.slideCount;
+  const mediaKind = progress?.mediaKind === "video" ? "動画" : "写真";
+
+  return (
+    <div
+      aria-live="polite"
+      className="space-y-3 rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100"
+    >
+      <p className="font-medium">
+        全体: {currentSlide} / {totalSlides}
+      </p>
+      <p>現在のスライド: {currentSlide}（{mediaKind}）</p>
+      <p>
+        アップロード:{" "}
+        {formatGooglePhotosExportBytes(progress?.uploadedBytes ?? 0)} /{" "}
+        {formatGooglePhotosExportBytes(progress?.fileBytes ?? 0)}
+      </p>
+      <Button
+        type="button"
+        variant="secondary"
+        className="min-h-11"
+        onClick={onAbort}
+      >
+        中止
+      </Button>
+    </div>
+  );
+}
+
+function ExportSuccess({
+  result,
+  onReset,
+}: {
+  result: SanitizedGooglePhotosExportSuccess;
+  onReset: () => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-50">
+      <p className="font-medium">Googleフォトへの書き出しが完了しました</p>
+      <dl className="grid gap-2 sm:grid-cols-2">
+        <ReviewItem label="アルバム" value={result.albumTitle} />
+        <ReviewItem label="件数" value={`${result.mediaItemCount}件`} />
+        <ReviewItem label="完了日時" value={formatUiDateTime(result.completedAt)} />
+      </dl>
+      {result.productUrl ? (
+        <a
+          href={result.productUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-h-11 items-center font-medium underline decoration-emerald-200/50 underline-offset-4"
+        >
+          Googleフォトで開く
+        </a>
+      ) : null}
+      <p className="text-sm text-emerald-100/90">
+        共有する場合はGoogleフォトでアルバムを開き、Googleフォトの共有機能からリンクを作成してください。
+      </p>
+      <Button type="button" variant="secondary" className="min-h-11" onClick={onReset}>
+        閉じる
+      </Button>
     </div>
   );
 }

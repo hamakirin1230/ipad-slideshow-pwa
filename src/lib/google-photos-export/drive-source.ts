@@ -200,12 +200,13 @@ async function buildPlanFromManifest(input: {
 
     const sizeBytes = metadata.sizeBytes ?? slide.fileSize ?? null;
     if (
+      typeof sizeBytes !== "number" ||
       !isGooglePhotosExportFileSizeAllowed({
         mimeType: slide.mimeType,
         sizeBytes,
       })
     ) {
-      return sizeBytes !== null &&
+      return typeof sizeBytes === "number" &&
         sizeBytes > 0 &&
         slide.mimeType.startsWith("video/")
         ? fail("unsupportedMedia")
