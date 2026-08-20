@@ -38,6 +38,7 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/admin/` drag handle表示を「≡」のみへ簡略化し、aria-label / titleは維持
 - `/player/` のcaptionテロップ下帯をiPad PWAでも残るように背景指定を強化
 - Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
+- `/admin/` から選択中projectをGoogle Photosの新規albumへ書き出せる。画像captionはexport画像にburn-inし、動画は元動画をstream uploadしてcaption burn-inしない。Preview上の実Google PhotosでJPEG画像caption burn-inを確認済み。Production acceptanceは未実施
 - `/admin/` で選択中projectのunused Drive asset cleanup preview / readiness / preflight / confirm previewを表示
 - cleanup preview / preflight / confirm previewはread-onlyで、Drive file、Player snapshot、IndexedDBを変更しない
 - fresh preflight、明示confirm、順次DELETE、partial failure停止を経た未参照app-managed JPEG / PNG / WebPの物理削除と、実Google Driveでの動作確認
@@ -77,7 +78,7 @@ https://ipad-slideshow-pwa.vercel.app/
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete
+- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、Google Photos新規album書き出し、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete
 - `/admin/history` project別公開履歴一覧、current公開状態と未公開編集表示、revision詳細、rollback影響確認、fresh preflightを経たverified rollback実行
 - `/player` 画像／Blob保存済み動画のoffline-first再生、remoteOnly動画のonline Drive streaming、remote video手動retry、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
 
@@ -87,6 +88,9 @@ https://ipad-slideshow-pwa.vercel.app/
 - access tokenは保存しない、表示しない、console出力しない
 - access tokenはProvider内部のメモリ上にだけ保持する
 - Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`
+- Google Photos export開始時だけ専用token clientで`https://www.googleapis.com/auth/photoslibrary.appendonly`を要求し、`include_granted_scopes`はfalseにする
+- Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作であり、source Drive素材を更新しない
+- Google Photos exportは自動retryしない
 - Client SecretとAPIキーは作らない、使わない
 - Drive上のworkspace / project / manifest / assetsをsource of truthにする
 - slide再生順はDrive `manifest.json.slides[]` の配列順をsource of truthにする
@@ -169,11 +173,14 @@ GitHub ActionsはCI専用です。正式な本番deploymentはVercelで行い、
 
 ## 次の作業候補
 
-1. publication writeのupdate応答不明、current競合、index warningを、承認済みplanに従って専用disposable workspaceと一時的なPreview-only harnessで実Google Drive確認する
-2. MOVのexactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後のmanual retry実機経路を確認する
+1. Google Photos exportをProductionへ反映した後のProduction acceptance。Preview画像caption burn-inは完了、Productionは未実施
+2. publication writeのupdate応答不明、current競合、index warningを、承認済みplanに従って専用disposable workspaceと一時的なPreview-only harnessで実Google Drive確認する
+3. MOVのexactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後のmanual retry実機経路を確認する
 
 ## 最新ハンドオフ
 
+- `docs/handoffs/2026-08-20-google-photos-export-handoff.md`
+- `docs/acceptance/google-photos-export-acceptance.md`
 - `docs/handoffs/2026-08-08-mov-video-5gb-handoff.md`
 - `docs/handoffs/2026-08-05-unused-asset-delete-execution-handoff.md`
 - `docs/handoffs/2026-07-31-offline-publication-provenance-handoff.md`

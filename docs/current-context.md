@@ -1,8 +1,8 @@
 # iPad用スライドショーPWA 現在の引き継ぎ
 
-Date: 2026-08-12
+Date: 2026-08-21
 
-このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-12時点の実装・運用状態を正とします。
+このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-21時点の実装・運用状態を正とします。
 
 docs全体のCurrent / Historical分類は[`docs/README.md`](README.md)を参照してください。
 runtime environmentとVercel security headerの現行契約は[`environment-security.md`](environment-security.md)を参照してください。
@@ -11,7 +11,21 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 
 ## Product-ready finalization status
 
-2026-08-12、`finalization/product-ready`をmainへmergeし、Vercel Production反映後の実iPad smoke checkを完了した。ProductionのHome、Settings / Google接続、Admin、Historyのrollback preview、Player playback、existing installed PWAはOK。PWA new installは未確認のまま保持する。product-ready finalization Production acceptanceは完了しており、remaining exclusionsは[`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md)を参照する。
+2026-08-12、`finalization/product-ready`をmainへmergeし、Vercel Production反映後の実iPad smoke checkを完了した。ProductionのHome、Settings / Google接続、Admin、Historyのrollback preview、Player playback、existing installed PWAはOK。PWA new installは未確認のまま保持する。product-ready finalization Production acceptanceは完了しており、過去のaccepted evidenceとして保持する。remaining exclusionsは[`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md)を参照する。
+
+## Google Photos export
+
+2026-08-21時点で、`feature/google-photos-export`上にGoogle Photosへの新規album書き出しを実装済み。Preview上の実Google Photosで、JPEG 2枚のcaption burn-in（v1 / v2）を確認した。Productionへは未反映であり、Production acceptanceは未実施である。段階別evidenceは[`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md)を参照する。
+
+- Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作
+- 画像captionはexport用画像へburn-inする
+- 動画captionはburn-inしない
+- 動画はDrive range streamのままresumable uploadし、Canvasへ入れない
+- export失敗でもDrive publication / offline store / Playerを変更しない
+- 通常OAuthは`https://www.googleapis.com/auth/drive.file`
+- Google Photos export開始時だけ`https://www.googleapis.com/auth/photoslibrary.appendonly`を専用token clientで要求する
+- `include_granted_scopes`はfalse
+- access tokenは非永続で、Drive用とPhotos export用を別refに保持する
 
 ## 最重要方針
 
@@ -19,7 +33,7 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 - 本番中に止まらないことを最優先にする
 - 最終的にオフラインのiPadだけでスライドショーを本番再生できるようにする
 - Vercel productionを現在の本番運用対象にする
-- Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`のみ。Googleフォトへ書き出すときは`photoslibrary.appendonly`をその操作の開始時だけ追加要求する
+- Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`のみ。Googleフォトへ書き出すときは専用token clientで`photoslibrary.appendonly`だけをその操作の開始時に要求し、`include_granted_scopes`はfalseにする
 - access tokenは保存しない、表示しない、console出力しない
 - access tokenはlocalStorage / IndexedDB / Cookie / docs / logsに出さない
 - Client Secretは作らない、使わない
@@ -67,7 +81,9 @@ production App Routerに存在する主要route:
 - publish / rollbackはimmutable revisionを作成し、current published revisionは`manifest.publication.currentRevisionId`をauthorityとする
 - rollbackは過去revisionへpointerを戻さず、過去内容から新しいrollback revisionを作る
 - save / publish / rollbackだけではoffline dataを更新せず、端末反映には明示的offline syncが必要
-- Googleフォトへ書き出すはDrive publish / このiPadに保存とは別操作であり、Drive publicationとoffline storeは変更しない
+- Googleフォトへ書き出すはDrive publish / offline sync / このiPadに保存とは別操作であり、Drive publicationとoffline storeは変更しない
+- Googleフォトへ書き出す画像captionはexport用画像へburn-inし、動画captionはburn-inしない
+- Googleフォトへ書き出す動画はDrive range streamのままuploadし、Canvasへ入れない
 - publication writeのin-flight guardは同一tab内の直列化であり、既知のmulti-tab raceは未解決
 - temporary publication acceptance fault harnessは専用branchで実装後に完全撤去され、production sourceには存在しない
 
@@ -112,6 +128,8 @@ confirmed store promotion
 /admin drag handle compact display
 /admin unused Drive asset cleanup preview
 /admin unused Drive asset explicit physical delete
+/admin Google Photos新規album書き出し（画像caption burn-in。動画はstream upload）
+Preview上の実Google PhotosでJPEG 2枚のcaption burn-in v1 / v2を確認（Production acceptanceは未実施）
 unused Drive asset physical deleteの実Google Drive動作確認（未参照app-managed JPEG / PNG / WebPのみ。MP4/MOVは対象外）
 明示的publish / immutable revision / rollback impact preview / fresh preflight / verified rollback
 manifest.publication.currentRevisionId authorityと、新しいrollback revision作成
@@ -400,10 +418,12 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. publication write異常系の実Google Drive acceptance
+1. Google Photos exportのmain merge後Production acceptance
+   Preview画像caption burn-inは完了。Production反映後の再確認は未実施
+2. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
-2. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
+3. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
 ```
 
 publication write異常系の詳細計画は`docs/acceptance/publication-write-abnormal-acceptance-plan.md`を参照。Gate 0承認後にtemporary harnessを専用branchで実装したが、その後完全撤去済みでmainへmergeしていない。repository docsに実Google DriveでA/B/Cを完了した結果記録はない。
@@ -413,6 +433,8 @@ publication write異常系の詳細計画は`docs/acceptance/publication-write-a
 読む順:
 
 ```text
+docs/handoffs/2026-08-20-google-photos-export-handoff.md
+docs/acceptance/google-photos-export-acceptance.md
 docs/handoffs/2026-08-08-mov-video-5gb-handoff.md
 docs/handoffs/2026-08-05-unused-asset-delete-execution-handoff.md
 docs/handoffs/2026-07-31-offline-publication-provenance-handoff.md

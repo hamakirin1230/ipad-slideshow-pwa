@@ -5,7 +5,7 @@
 ## まず読む文書
 
 1. [`../README.md`](../README.md) — 製品の現在地、主要機能、ローカル検証方法
-2. [`current-context.md`](current-context.md) — 2026-08-12時点の最新作業引き継ぎと実装境界
+2. [`current-context.md`](current-context.md) — 2026-08-21時点の最新作業引き継ぎと実装境界
 3. [`environment-security.md`](environment-security.md) — runtime environmentとVercel security headerの現行契約
 4. [`release-rollback.md`](release-rollback.md) — Vercel productionのrelease / rollback運用
 
@@ -36,6 +36,7 @@ HistoricalとCurrentが衝突する場合はCurrentを優先します。dated ha
 
 ## Acceptance / evidence
 
+- [`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md) — 2026-08-21 Google Photos exportのPreview / 実Google Photos画像caption acceptance。Production acceptanceは未実施
 - [`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md) — 2026-08-12 finalization merge前 / Production acceptanceと未確認項目
 - [`acceptance/publication-write-abnormal-acceptance-plan.md`](acceptance/publication-write-abnormal-acceptance-plan.md) — publication write異常系の承認済み試験計画。temporary harnessの履歴を含むが、実Google DriveでのA/B/C完了記録はない
 - [`verification/`](verification/) — 各時点の検証記録

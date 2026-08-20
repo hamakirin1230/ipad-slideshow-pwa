@@ -15,6 +15,9 @@ const abnormalAcceptancePlan = readRepoFile(
 const finalizationAcceptance = readRepoFile(
   "docs/acceptance/product-ready-finalization-acceptance.md",
 );
+const googlePhotosExportAcceptance = readRepoFile(
+  "docs/acceptance/google-photos-export-acceptance.md",
+);
 const authoritativeDocs = [
   rootReadme,
   docsIndex,
@@ -47,6 +50,9 @@ describe("current documentation contract", () => {
     );
     expect(acceptanceEvidence).toContain(
       "acceptance/product-ready-finalization-acceptance.md",
+    );
+    expect(acceptanceEvidence).toContain(
+      "acceptance/google-photos-export-acceptance.md",
     );
   });
 
@@ -157,5 +163,25 @@ describe("current documentation contract", () => {
     expect(currentContext).not.toContain(
       "次の操作はmain mergeと、正式なVercel Production deployment後のProduction smoke check",
     );
+  });
+
+  it("records Google Photos export Preview acceptance without claiming Production", () => {
+    expect(googlePhotosExportAcceptance).toContain(
+      "Preview / real Google Photos image-caption acceptance passed.",
+    );
+    expect(googlePhotosExportAcceptance).toContain(
+      "Production acceptance not yet performed.",
+    );
+    expect(googlePhotosExportAcceptance).toContain("photo-1-burned-v1");
+    expect(googlePhotosExportAcceptance).toContain("photo-1-burned-v2");
+    expect(googlePhotosExportAcceptance).toContain("未実施");
+    expect(googlePhotosExportAcceptance).not.toContain(
+      "Production acceptance passed",
+    );
+    expect(currentContext).toContain("Production acceptanceは未実施");
+    expect(currentContext).toContain("photoslibrary.appendonly");
+    expect(currentContext).toContain("include_granted_scopes");
+    expect(rootReadme).toContain("画像captionはexport画像にburn-in");
+    expect(rootReadme).toContain("Production acceptanceは未実施");
   });
 });
