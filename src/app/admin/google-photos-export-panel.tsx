@@ -122,10 +122,13 @@ function GooglePhotosExportPanelSession() {
       setUiState({ status: "success", result: result.result });
       return;
     }
+    if (result.error.kind === "sourceChanged") {
+      setConfirmed(false);
+    }
     setUiState({
       status: "error",
       error: result.error,
-      review,
+      review: result.error.kind === "sourceChanged" ? undefined : review,
       canResume: result.canResume,
     });
   }

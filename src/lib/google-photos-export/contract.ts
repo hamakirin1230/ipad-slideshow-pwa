@@ -37,6 +37,7 @@ export type GooglePhotosExportErrorKind =
   | "drivePreflightFailed"
   | "unsupportedMedia"
   | "duplicateSlidesUnsupported"
+  | "sourceChanged"
   | "uploadFailed"
   | "mediaCreatePartial"
   | "albumCreateFailed"
@@ -170,6 +171,36 @@ export function buildGooglePhotosExportFileName(input: {
   return fitExportFileName(candidate, extension, fallback);
 }
 
+export function googlePhotosExportSourceMatchesPreparedPlan(
+  prepared: GooglePhotosExportPlan,
+  fresh: GooglePhotosExportPlan,
+) {
+  if (prepared.projectId !== fresh.projectId) {
+    return false;
+  }
+  if (prepared.projectTitle !== fresh.projectTitle) {
+    return false;
+  }
+  if (prepared.items.length !== fresh.items.length) {
+    return false;
+  }
+
+  return prepared.items.every((item, index) => {
+    const other = fresh.items[index];
+    return (
+      other !== undefined &&
+      item.slideIndex === other.slideIndex &&
+      item.slideId === other.slideId &&
+      item.assetFileId === other.assetFileId &&
+      item.mediaKind === other.mediaKind &&
+      item.mimeType === other.mimeType &&
+      item.sizeBytes === other.sizeBytes &&
+      item.description === other.description &&
+      item.fileName === other.fileName
+    );
+  });
+}
+
 export function buildGooglePhotosExportReview(
   plan: GooglePhotosExportPlan,
 ): GooglePhotosExportReview {
@@ -225,6 +256,8 @@ export const GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES: Record<
     "Googleフォトへ書き出せない形式のスライドがあるため、書き出しを開始しません。",
   duplicateSlidesUnsupported:
     "同じ写真または動画を複数のスライドで使用しているため、現在のGoogleフォト書き出しでは順番を正確に再現できません。重複しているスライドを整理してから、もう一度お試しください。",
+  sourceChanged:
+    "書き出し前の確認後に作品が変更されました。最新の内容を確認するため、もう一度『書き出し前に確認』を実行してください。",
   uploadFailed: "Googleフォトへのアップロードに失敗しました。",
   mediaCreatePartial:
     "一部のスライドをGoogleフォトへ追加できませんでした。新しいアルバムは作成していません。",

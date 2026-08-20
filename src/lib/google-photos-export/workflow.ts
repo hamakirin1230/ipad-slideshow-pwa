@@ -2,6 +2,7 @@ import { readDriveFileMetadata, readDriveTextFile } from "../google-drive";
 import {
   buildGooglePhotosExportReview,
   createSanitizedGooglePhotosExportError,
+  googlePhotosExportSourceMatchesPreparedPlan,
   type GooglePhotosExportProgress,
   type GooglePhotosExportRuntime,
   type SanitizedGooglePhotosExportError,
@@ -113,6 +114,11 @@ export type GooglePhotosExportWriteAdapter = {
   library: GooglePhotosLibraryAdapter;
 };
 
+export type GooglePhotosExportCommitAdapters = {
+  source?: GooglePhotosExportSourceAdapter;
+  write?: GooglePhotosExportWriteAdapter;
+};
+
 const defaultWriteAdapter: GooglePhotosExportWriteAdapter = {
   openDriveAssetStream: openDriveProjectAssetStream,
   resumable: {
@@ -126,6 +132,65 @@ const defaultWriteAdapter: GooglePhotosExportWriteAdapter = {
     batchAddMediaItems: batchAddGooglePhotosMediaItems,
   },
 };
+
+export async function commitGooglePhotosExportAfterFreshValidation(
+  input: {
+    driveAccessToken: string;
+    photosAccessToken: string;
+    selectedProjectId: string;
+    workspaceId: string;
+    projectsRootFolderId: string;
+    project: Parameters<
+      typeof prepareGooglePhotosExportSourceWithAdapter
+    >[0]["project"];
+    runtime: GooglePhotosExportRuntime;
+    now?: Date;
+    signal: AbortSignal;
+    onProgress: (progress: GooglePhotosExportProgress) => void;
+    onRuntime: (runtime: GooglePhotosExportRuntime) => void;
+  },
+  adapters: GooglePhotosExportCommitAdapters = {},
+): Promise<CommitGooglePhotosExportResult> {
+  const sourceAdapter = adapters.source ?? defaultAdapter;
+  const writeAdapter = adapters.write ?? defaultWriteAdapter;
+
+  const fresh = await prepareGooglePhotosExportReviewWithAdapter(
+    {
+      accessToken: input.driveAccessToken,
+      selectedProjectId: input.selectedProjectId,
+      workspaceId: input.workspaceId,
+      projectsRootFolderId: input.projectsRootFolderId,
+      project: input.project,
+      signal: input.signal,
+    },
+    sourceAdapter,
+  );
+  if (!fresh.ok) {
+    return { ...fresh, canResume: false };
+  }
+  if (
+    !googlePhotosExportSourceMatchesPreparedPlan(input.runtime.plan, fresh.plan)
+  ) {
+    return {
+      ok: false,
+      error: createSanitizedGooglePhotosExportError("sourceChanged"),
+      canResume: false,
+    };
+  }
+
+  return executeGooglePhotosExportWithAdapter(
+    {
+      driveAccessToken: input.driveAccessToken,
+      photosAccessToken: input.photosAccessToken,
+      runtime: input.runtime,
+      now: input.now,
+      signal: input.signal,
+      onProgress: input.onProgress,
+      onRuntime: input.onRuntime,
+    },
+    writeAdapter,
+  );
+}
 
 export async function executeGooglePhotosExportWithAdapter(
   input: {

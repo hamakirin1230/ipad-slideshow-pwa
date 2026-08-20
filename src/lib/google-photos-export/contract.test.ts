@@ -9,6 +9,7 @@ import {
   GOOGLE_PHOTOS_EXPORT_MIME_TYPES,
   GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES,
   GOOGLE_PHOTOS_LIBRARY_UPLOADABLE_MIME_TYPES,
+  googlePhotosExportSourceMatchesPreparedPlan,
   isGooglePhotosExportFileSizeAllowed,
   isGooglePhotosExportMimeType,
   toGooglePhotosDescription,
@@ -124,6 +125,47 @@ describe("google photos export contract", () => {
     expect([...truncated].length).toBe(255);
     expect(truncated.startsWith("あ")).toBe(true);
     expect(truncated).not.toMatch(/asset|fileId|checksum/i);
+  });
+
+  it("compares export source semantics without using albumTitle", () => {
+    const prepared = buildPlan();
+    const fresh = {
+      ...prepared,
+      albumTitle: "別の確認時刻のアルバム名",
+    };
+    expect(googlePhotosExportSourceMatchesPreparedPlan(prepared, fresh)).toBe(
+      true,
+    );
+    expect(
+      googlePhotosExportSourceMatchesPreparedPlan(prepared, {
+        ...fresh,
+        items: prepared.items.map((item, index) =>
+          index === 0 ? { ...item, description: "夕方" } : item,
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      googlePhotosExportSourceMatchesPreparedPlan(prepared, {
+        ...fresh,
+        items: [prepared.items[1]!, prepared.items[0]!, prepared.items[2]!].map(
+          (item, slideIndex) => ({ ...item, slideIndex }),
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      googlePhotosExportSourceMatchesPreparedPlan(prepared, {
+        ...fresh,
+        items: prepared.items.map((item, index) =>
+          index === 0 ? { ...item, assetFileId: "asset-file-changed" } : item,
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      googlePhotosExportSourceMatchesPreparedPlan(prepared, {
+        ...fresh,
+        projectTitle: "冬の記録",
+      }),
+    ).toBe(false);
   });
 });
 

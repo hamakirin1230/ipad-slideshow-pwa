@@ -47,6 +47,17 @@ describe("google photos export review UI", () => {
     expect(source.panel).toContain("このiPadに保存");
   });
 
+  it("asks the user to review again after the export source changes", () => {
+    expect(source.panel).toContain('result.error.kind === "sourceChanged"');
+    expect(source.providers).toContain(
+      "commitGooglePhotosExportAfterFreshValidation",
+    );
+    expect(source.providers).not.toContain(
+      "executeGooglePhotosExportWithAdapter({",
+    );
+    expect(source.providers).toContain('result.error.kind === "sourceChanged"');
+  });
+
   it("does not persist or display Photos or Drive tokens", () => {
     expect(source.panel).not.toContain("accessToken");
     expect(source.panel).not.toContain("photosExportAccessTokenRef");

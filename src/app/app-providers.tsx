@@ -27,7 +27,7 @@ import {
 } from "@/lib/google-photos-export/authorization";
 import {
   createGooglePhotosExportAuthorizationError,
-  executeGooglePhotosExportWithAdapter,
+  commitGooglePhotosExportAfterFreshValidation,
   prepareGooglePhotosExportReviewInDrive,
   toGooglePhotosExportReviewResult,
   type CommitGooglePhotosExportResult,
@@ -5840,6 +5840,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const photosAccessToken = photosExportAccessTokenRef.current;
     const plan = pendingGooglePhotosExportRef.current;
     const runtime = googlePhotosExportRuntimeRef.current;
+    const workspace = workspaceReadyContext;
     const project = driveProjectReadyContext;
     if (!photosAccessToken) {
       return {
@@ -5855,6 +5856,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       !driveAccessToken ||
       !plan ||
       !runtime ||
+      !workspace ||
       !project ||
       project.projectId !== plan.projectId
     ) {
@@ -5877,9 +5879,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setGooglePhotosExportResult(null);
 
     try {
-      const result = await executeGooglePhotosExportWithAdapter({
+      const result = await commitGooglePhotosExportAfterFreshValidation({
         driveAccessToken,
         photosAccessToken,
+        selectedProjectId: plan.projectId,
+        workspaceId: workspace.workspaceId,
+        projectsRootFolderId: workspace.projectsRootFolderId,
+        project,
         runtime,
         signal: controller.signal,
         onProgress: setGooglePhotosExportProgress,
@@ -5902,6 +5908,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
         googlePhotosExportRuntimeRef.current = null;
         setGooglePhotosExportProgress(null);
         setGooglePhotosExportResult(result.result);
+        setCanResumeGooglePhotosExport(false);
+        return result;
+      }
+      if (result.error.kind === "sourceChanged") {
+        pendingGooglePhotosExportRef.current = null;
+        googlePhotosExportRuntimeRef.current = null;
+        setGooglePhotosExportProgress(null);
         setCanResumeGooglePhotosExport(false);
         return result;
       }
