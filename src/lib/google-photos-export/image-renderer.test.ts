@@ -1,11 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildGooglePhotosRenderedExportFileName,
+  canBrowserEncodeWebp,
+  GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE,
   isGooglePhotosRenderedImageWithinUploadLimit,
   planGooglePhotosImageRender,
+  resetGooglePhotosWebpEncodeSupportCache,
+  resolveGooglePhotosExportOutputMime,
   resolveGooglePhotosRenderedImageMime,
 } from "./image-renderer";
 import { GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES } from "./contract";
+
+afterEach(() => {
+  resetGooglePhotosWebpEncodeSupportCache();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("google photos image render policy", () => {
   it("keeps JPEG sources as rendered JPEG", () => {
@@ -38,13 +48,37 @@ describe("google photos image render policy", () => {
     ).toBe(false);
   });
 
-  it("renders WebP when the browser can encode it", () => {
-    expect(
-      resolveGooglePhotosRenderedImageMime({
-        sourceMimeType: "image/webp",
-        canEncodeWebp: true,
+  it("does not probe WebP when rendering JPEG", async () => {
+    const detectWebpSupport = vi.fn(async () => true);
+    await expect(
+      resolveGooglePhotosExportOutputMime({
+        sourceMimeType: "image/jpeg",
+        detectWebpSupport,
       }),
-    ).toBe("image/webp");
+    ).resolves.toBe("image/jpeg");
+    expect(detectWebpSupport).not.toHaveBeenCalled();
+  });
+
+  it("does not probe WebP when rendering PNG", async () => {
+    const detectWebpSupport = vi.fn(async () => true);
+    await expect(
+      resolveGooglePhotosExportOutputMime({
+        sourceMimeType: "image/png",
+        detectWebpSupport,
+      }),
+    ).resolves.toBe("image/png");
+    expect(detectWebpSupport).not.toHaveBeenCalled();
+  });
+
+  it("renders WebP when the tiny probe reports support", async () => {
+    const detectWebpSupport = vi.fn(async () => true);
+    await expect(
+      resolveGooglePhotosExportOutputMime({
+        sourceMimeType: "image/webp",
+        detectWebpSupport,
+      }),
+    ).resolves.toBe("image/webp");
+    expect(detectWebpSupport).toHaveBeenCalledTimes(1);
     expect(
       buildGooglePhotosRenderedExportFileName({
         sourceFileName: "photo.webp",
@@ -54,13 +88,15 @@ describe("google photos image render policy", () => {
     ).toBe("photo.webp");
   });
 
-  it("falls back from WebP to PNG and updates the filename extension", () => {
-    expect(
-      resolveGooglePhotosRenderedImageMime({
+  it("falls back from WebP to PNG and updates the filename extension", async () => {
+    const detectWebpSupport = vi.fn(async () => false);
+    await expect(
+      resolveGooglePhotosExportOutputMime({
         sourceMimeType: "image/webp",
-        canEncodeWebp: false,
+        detectWebpSupport,
       }),
-    ).toBe("image/png");
+    ).resolves.toBe("image/png");
+    expect(detectWebpSupport).toHaveBeenCalledTimes(1);
     expect(
       buildGooglePhotosRenderedExportFileName({
         sourceFileName: "photo.webp",
@@ -68,6 +104,38 @@ describe("google photos image render policy", () => {
         slideIndex: 0,
       }),
     ).toBe("photo.png");
+  });
+
+  it("probes WebP with a tiny canvas toBlob instead of a full-size data URL", async () => {
+    const probed: Array<{ width: number; height: number; type?: string }> = [];
+    vi.stubGlobal("document", {
+      createElement(tag: string) {
+        expect(tag).toBe("canvas");
+        const canvas = {
+          width: 0,
+          height: 0,
+          toBlob(
+            callback: (blob: Blob | null) => void,
+            type?: string,
+          ) {
+            probed.push({ width: canvas.width, height: canvas.height, type });
+            callback(new Blob([new Uint8Array([1])], { type: "image/webp" }));
+          },
+        };
+        return canvas;
+      },
+    });
+
+    await expect(canBrowserEncodeWebp()).resolves.toBe(true);
+    await expect(canBrowserEncodeWebp()).resolves.toBe(true);
+    expect(probed).toEqual([
+      {
+        width: GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE,
+        height: GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE,
+        type: "image/webp",
+      },
+    ]);
+    expect(GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE).toBeLessThanOrEqual(2);
   });
 
   it("does not put internal IDs into rendered file names", () => {

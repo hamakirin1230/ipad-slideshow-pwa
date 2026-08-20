@@ -58,4 +58,33 @@ describe("google photos export safety contract", () => {
     expect(workflow).toContain('item.mediaKind === "video"');
     expect(renderer).not.toContain("video/mp4");
   });
+
+  it("does not encode full-size images as base64 data URLs", () => {
+    const renderer =
+      files.find((file) => file.name === "image-renderer.ts")?.source ?? "";
+    const workflow =
+      files.find((file) => file.name === "workflow.ts")?.source ?? "";
+    const layout =
+      files.find((file) => file.name === "caption-layout.ts")?.source ?? "";
+    for (const source of [renderer, workflow, layout]) {
+      expect(source).not.toContain("toDataURL");
+      expect(source).not.toContain("FileReader");
+      expect(source).not.toContain("readAsDataURL");
+    }
+    expect(renderer).not.toContain(".arrayBuffer(");
+    expect(renderer).toContain("GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE");
+    expect(renderer).toContain('canvas.toBlob');
+  });
+
+  it("does not silently truncate burned-in captions", () => {
+    const layout =
+      files.find((file) => file.name === "caption-layout.ts")?.source ?? "";
+    const renderer =
+      files.find((file) => file.name === "image-renderer.ts")?.source ?? "";
+    expect(layout).not.toContain("packCaptionLines");
+    expect(layout).not.toContain("ellipsis");
+    expect(layout).toContain("doesNotFit");
+    expect(layout).toContain("GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE");
+    expect(renderer).toContain('layout.kind === "doesNotFit"');
+  });
 });

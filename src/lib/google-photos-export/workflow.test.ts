@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES,
   GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES,
   type GooglePhotosExportPlan,
   type GooglePhotosExportRuntime,
 } from "./contract";
+import { measureCaptionLayout } from "./caption-layout";
 import { GooglePhotosImageRenderError } from "./image-renderer";
 import {
   executeGooglePhotosExportWithAdapter,
@@ -174,8 +176,60 @@ describe("google photos export workflow", () => {
     });
     expect(adapter.resumable.startSession).not.toHaveBeenCalled();
     expect(adapter.library.batchCreateMediaItems).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toBe(
+      GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES.imageRenderFailed,
+    );
     expect(JSON.stringify(result)).not.toContain("file-a");
     expect(JSON.stringify(result)).not.toContain("https://");
+    expect(JSON.stringify(result)).not.toContain("image-render-failed");
+  });
+
+  it("does not start a Photos image session after a caption layout failure", async () => {
+    const adapter = createAdapter();
+    const caption = "あ".repeat(80);
+    adapter.renderImage = vi.fn(async ({ caption: text }) => {
+      const layout = measureCaptionLayout({
+        text,
+        imageWidth: 40,
+        imageHeight: 20,
+        measureText: (value) => (value ? 10_000 : 0),
+      });
+      expect(layout.kind).toBe("doesNotFit");
+      throw new GooglePhotosImageRenderError();
+    });
+    adapter.library.batchCreateMediaItems = vi.fn(async () => ({
+      ok: true as const,
+      mediaItemIds: ["media-1"],
+    }));
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      executeInput({
+        plan: {
+          ...plan,
+          items: [{ ...plan.items[0]!, description: caption }],
+          totalBytes: 10,
+        },
+      }),
+      adapter,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "imageRenderFailed" },
+      canResume: false,
+    });
+    expect(adapter.resumable.startSession).not.toHaveBeenCalled();
+    expect(adapter.library.batchCreateMediaItems).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toBe(
+      GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES.imageRenderFailed,
+    );
+    expect(JSON.stringify(result)).not.toContain("file-a");
+    expect(JSON.stringify(result)).not.toContain("image-render-failed");
+    expect(JSON.stringify(result)).not.toContain(caption);
   });
 
   it("blocks a rendered image larger than 200MiB before startSession", async () => {

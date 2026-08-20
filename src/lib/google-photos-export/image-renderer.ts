@@ -11,6 +11,9 @@ import {
 } from "./caption-layout";
 
 export const GOOGLE_PHOTOS_JPEG_QUALITY = 0.93;
+export const GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE = 1;
+
+let webpSupportPromise: Promise<boolean> | null = null;
 
 export type GooglePhotosRenderedImageMimeType =
   | "image/jpeg"
@@ -77,6 +80,37 @@ export function planGooglePhotosImageRender(input: {
   };
 }
 
+export async function resolveGooglePhotosExportOutputMime(input: {
+  sourceMimeType: string;
+  detectWebpSupport?: () => Promise<boolean>;
+}): Promise<GooglePhotosRenderedImageMimeType> {
+  if (input.sourceMimeType === "image/jpeg" || input.sourceMimeType === "image/png") {
+    return resolveGooglePhotosRenderedImageMime({
+      sourceMimeType: input.sourceMimeType,
+      canEncodeWebp: false,
+    });
+  }
+  if (input.sourceMimeType === "image/webp") {
+    const detectWebpSupport = input.detectWebpSupport ?? canBrowserEncodeWebp;
+    return resolveGooglePhotosRenderedImageMime({
+      sourceMimeType: "image/webp",
+      canEncodeWebp: await detectWebpSupport(),
+    });
+  }
+  throw new GooglePhotosImageRenderError();
+}
+
+export async function canBrowserEncodeWebp(): Promise<boolean> {
+  if (!webpSupportPromise) {
+    webpSupportPromise = probeTinyCanvasWebpSupport();
+  }
+  return webpSupportPromise;
+}
+
+export function resetGooglePhotosWebpEncodeSupportCache() {
+  webpSupportPromise = null;
+}
+
 export function buildGooglePhotosRenderedExportFileName(input: {
   sourceFileName: string;
   outputMimeType: GooglePhotosRenderedImageMimeType;
@@ -130,7 +164,10 @@ export async function renderGooglePhotosExportImage(
         return context.measureText(text).width;
       },
     });
-    if (layout.overlay) {
+    if (layout.kind === "doesNotFit") {
+      throw new GooglePhotosImageRenderError();
+    }
+    if (layout.kind === "overlay") {
       context.fillStyle = GOOGLE_PHOTOS_CAPTION_BACKGROUND;
       context.fillRect(0, layout.bandY, canvas.width, layout.bandHeight);
       context.fillStyle = GOOGLE_PHOTOS_CAPTION_TEXT_COLOR;
@@ -144,9 +181,8 @@ export async function renderGooglePhotosExportImage(
       });
     }
 
-    const outputMimeType = resolveGooglePhotosRenderedImageMime({
+    const outputMimeType = await resolveGooglePhotosExportOutputMime({
       sourceMimeType: input.sourceMimeType,
-      canEncodeWebp: canvasCanEncodeWebp(canvas),
     });
     const blob = await canvasToExportBlob(canvas, outputMimeType);
     return {
@@ -159,7 +195,7 @@ export async function renderGooglePhotosExportImage(
       }),
     };
   } catch (error) {
-    if (isAbortError(error)) {
+    if (isAbortError(error) || error instanceof GooglePhotosImageRenderError) {
       throw error;
     }
     throw new GooglePhotosImageRenderError();
@@ -253,11 +289,20 @@ async function decodeWithHtmlImage(source: Blob, signal: AbortSignal) {
   }
 }
 
-function canvasCanEncodeWebp(canvas: HTMLCanvasElement) {
+async function probeTinyCanvasWebpSupport(): Promise<boolean> {
+  if (typeof document === "undefined") {
+    return false;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE;
+  canvas.height = GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE;
   try {
-    return canvas.toDataURL("image/webp").startsWith("data:image/webp");
+    const blob = await canvasToBlob(canvas, "image/webp");
+    return blob?.type === "image/webp";
   } catch {
     return false;
+  } finally {
+    releaseCanvas(canvas);
   }
 }
 
@@ -267,18 +312,25 @@ function canvasToExportBlob(
 ) {
   const quality =
     mimeType === "image/jpeg" ? GOOGLE_PHOTOS_JPEG_QUALITY : undefined;
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new GooglePhotosImageRenderError());
-          return;
-        }
-        resolve(blob);
-      },
-      mimeType,
-      quality,
-    );
+  return canvasToBlob(canvas, mimeType, quality).then((blob) => {
+    if (!blob) {
+      throw new GooglePhotosImageRenderError();
+    }
+    return blob;
+  });
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  mimeType: string,
+  quality?: number,
+) {
+  return new Promise<Blob | null>((resolve, reject) => {
+    try {
+      canvas.toBlob((blob) => resolve(blob), mimeType, quality);
+    } catch (error) {
+      reject(error);
+    }
   });
 }
 
