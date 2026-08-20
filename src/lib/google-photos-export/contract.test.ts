@@ -5,6 +5,7 @@ import {
   buildGooglePhotosExportFileName,
   buildGooglePhotosExportReview,
   DRIVE_PROJECT_EXPORTABLE_MIME_TYPES,
+  GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES,
   GOOGLE_PHOTOS_EXPORT_MIME_TYPES,
   GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES,
   GOOGLE_PHOTOS_LIBRARY_UPLOADABLE_MIME_TYPES,
@@ -38,18 +39,18 @@ describe("google photos export contract", () => {
     expect(plan.items[1]?.description).toBe("");
   });
 
-  it("counts duplicate slides separately in total bytes", () => {
+  it("counts unique slides without advertising duplicate export semantics", () => {
     const plan = buildPlan();
     const review = buildGooglePhotosExportReview(plan);
     expect(review.slideCount).toBe(3);
     expect(review.photoCount).toBe(2);
     expect(review.videoCount).toBe(1);
     expect(review.totalBytes).toBe(3000);
-    expect(review.includesDuplicateSlides).toBe(true);
+    expect(review.includesDuplicateSlides).toBe(false);
     expect(review.albumTitle).not.toContain(plan.projectId);
   });
 
-  it("blocks videos larger than the existing 5GiB app limit", () => {
+  it("blocks videos larger than the existing 5GiB app limit and photos larger than 200MiB", () => {
     expect(GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES).toBe(DRIVE_VIDEO_MAX_BYTES);
     expect(
       isGooglePhotosExportFileSizeAllowed({
@@ -61,6 +62,18 @@ describe("google photos export contract", () => {
       isGooglePhotosExportFileSizeAllowed({
         mimeType: "video/mp4",
         sizeBytes: DRIVE_VIDEO_MAX_BYTES + 1,
+      }),
+    ).toBe(false);
+    expect(
+      isGooglePhotosExportFileSizeAllowed({
+        mimeType: "image/jpeg",
+        sizeBytes: GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES,
+      }),
+    ).toBe(true);
+    expect(
+      isGooglePhotosExportFileSizeAllowed({
+        mimeType: "image/jpeg",
+        sizeBytes: GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES + 1,
       }),
     ).toBe(false);
   });
@@ -90,6 +103,28 @@ describe("google photos export contract", () => {
       }),
     ).toBe("slide-3.mp4");
   });
+
+  it("keeps file names at or under 255 characters and preserves the extension", () => {
+    const fitting = `${"a".repeat(251)}.jpg`;
+    expect(fitting).toHaveLength(255);
+    expect(
+      buildGooglePhotosExportFileName({
+        slideIndex: 0,
+        assetName: fitting,
+        mimeType: "image/jpeg",
+      }),
+    ).toBe(fitting);
+
+    const truncated = buildGooglePhotosExportFileName({
+      slideIndex: 0,
+      assetName: `${"あ".repeat(300)}.jpg`,
+      mimeType: "image/jpeg",
+    });
+    expect(truncated.endsWith(".jpg")).toBe(true);
+    expect([...truncated].length).toBe(255);
+    expect(truncated.startsWith("あ")).toBe(true);
+    expect(truncated).not.toMatch(/asset|fileId|checksum/i);
+  });
 });
 
 function buildPlan(): GooglePhotosExportPlan {
@@ -112,12 +147,12 @@ function buildPlan(): GooglePhotosExportPlan {
       {
         slideIndex: 1,
         slideId: "slide-b",
-        assetFileId: "asset-file-a",
+        assetFileId: "asset-file-b",
         mediaKind: "image",
         mimeType: "image/jpeg",
         sizeBytes: 1000,
         description: toGooglePhotosDescription(""),
-        fileName: "beach.jpg",
+        fileName: "dusk.jpg",
       },
       {
         slideIndex: 2,

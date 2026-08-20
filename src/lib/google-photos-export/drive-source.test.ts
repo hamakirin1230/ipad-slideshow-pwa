@@ -1,17 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DRIVE_VIDEO_MAX_BYTES } from "../drive-video-policy";
 import type {
   DriveFileCandidate,
   DriveProjectSummary,
   ProjectManifest,
 } from "../google-drive";
+import { GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES } from "./contract";
 import { prepareGooglePhotosExportSourceWithAdapter } from "./drive-source";
 import type { GooglePhotosExportSourceAdapter } from "./drive-source";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const IMAGE_ASSET_ID = "33333333-3333-4333-8333-333333333333";
+const IMAGE_ASSET_ID_B = "88888888-8888-4888-8888-888888888888";
 const VIDEO_ASSET_ID = "44444444-4444-4444-8444-444444444444";
+const CHECKSUM_ASSET_ID = "99999999-9999-4999-8999-999999999999";
 const SLIDE_IDS = [
   "55555555-5555-4555-8555-555555555555",
   "66666666-6666-4666-8666-666666666666",
@@ -30,7 +33,7 @@ const project: DriveProjectSummary = {
 };
 
 describe("google photos export drive source", () => {
-  it("keeps slide order and treats duplicate assets as separate export items", async () => {
+  it("keeps slide order for unique assets", async () => {
     const result = await prepareGooglePhotosExportSourceWithAdapter(
       input(),
       createAdapter(),
@@ -45,11 +48,80 @@ describe("google photos export drive source", () => {
       "",
     ]);
     expect(result.plan.totalBytes).toBe(3500);
-    expect(result.plan.items[0]?.assetFileId).toBe(
+    expect(result.plan.items[0]?.assetFileId).not.toBe(
       result.plan.items[1]?.assetFileId,
     );
     expect(JSON.stringify(result.plan)).not.toContain("durationSeconds");
     expect(JSON.stringify(result)).not.toContain("accessToken");
+  });
+
+  it("blocks the same assetFileId used on multiple slides before a write plan", async () => {
+    const manifest = buildManifest();
+    manifest.slides[1] = {
+      ...manifest.slides[1]!,
+      assetId: IMAGE_ASSET_ID,
+      assetFileId: "image-file",
+      assetName: "beach.jpg",
+    };
+    const adapter = createAdapter({ manifest });
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      adapter,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "duplicateSlidesUnsupported" },
+    });
+    if (result.ok) return;
+    expect(result.error.message).toContain("順番を正確に再現できません");
+    expect(JSON.stringify(result)).not.toContain("image-file");
+    expect(JSON.stringify(result)).not.toContain(IMAGE_ASSET_ID);
+    expect(JSON.stringify(result)).not.toMatch(/checksum/i);
+    expect(adapter.readMetadata).toHaveBeenCalledTimes(3);
+  });
+
+  it("blocks distinct asset files whose checksum, size, and MIME all match", async () => {
+    const manifest = buildManifest();
+    manifest.slides[1] = slide({
+      slideId: SLIDE_IDS[1],
+      assetId: CHECKSUM_ASSET_ID,
+      assetFileId: "image-file-copy",
+      assetName: "copy.jpg",
+      mimeType: "image/jpeg",
+      fileSize: 1000,
+      caption: "夜",
+      durationSeconds: 12,
+    });
+    const files = defaultFiles();
+    files["image-file"] = file("image-file", "beach.jpg", "image/jpeg", "asset", {
+      sizeBytes: 1000,
+      checksum: "same-bytes-checksum",
+      appProperties: assetProperties(IMAGE_ASSET_ID),
+    });
+    files["image-file-copy"] = file(
+      "image-file-copy",
+      "copy.jpg",
+      "image/jpeg",
+      "asset",
+      {
+        sizeBytes: 1000,
+        checksum: "same-bytes-checksum",
+        appProperties: assetProperties(CHECKSUM_ASSET_ID),
+      },
+    );
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ manifest, files }),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "duplicateSlidesUnsupported" },
+    });
+    expect(JSON.stringify(result)).not.toContain("same-bytes-checksum");
+    expect(JSON.stringify(result)).not.toContain("image-file-copy");
+    expect(JSON.stringify(result)).not.toContain(CHECKSUM_ASSET_ID);
   });
 
   it("blocks unsupported MIME types before any Photos write plan is returned", async () => {
@@ -84,6 +156,45 @@ describe("google photos export drive source", () => {
     );
 
     expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "unsupportedMedia" },
+    });
+  });
+
+  it("accepts an image at the 200MiB Photos limit and rejects one byte over", async () => {
+    const acceptedFiles = defaultFiles();
+    acceptedFiles["image-file"] = file(
+      "image-file",
+      "beach.jpg",
+      "image/jpeg",
+      "asset",
+      {
+        sizeBytes: GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES,
+        appProperties: assetProperties(IMAGE_ASSET_ID),
+      },
+    );
+    const accepted = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ files: acceptedFiles }),
+    );
+    expect(accepted.ok).toBe(true);
+
+    const rejectedFiles = defaultFiles();
+    rejectedFiles["image-file"] = file(
+      "image-file",
+      "beach.jpg",
+      "image/jpeg",
+      "asset",
+      {
+        sizeBytes: GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES + 1,
+        appProperties: assetProperties(IMAGE_ASSET_ID),
+      },
+    );
+    const rejected = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ files: rejectedFiles }),
+    );
+    expect(rejected).toMatchObject({
       ok: false,
       error: { kind: "unsupportedMedia" },
     });
@@ -125,11 +236,11 @@ function createAdapter(options?: {
   const manifest = options?.manifest ?? buildManifest();
   const files = options?.files ?? defaultFiles();
   return {
-    async readMetadata({ fileId }) {
+    readMetadata: vi.fn(async ({ fileId }) => {
       const metadata = files[fileId];
       if (!metadata) throw new Error("missing metadata");
       return metadata;
-    },
+    }),
     async readText() {
       return JSON.stringify(manifest);
     },
@@ -157,9 +268,9 @@ function buildManifest(): ProjectManifest {
       }),
       slide({
         slideId: SLIDE_IDS[1],
-        assetId: IMAGE_ASSET_ID,
-        assetFileId: "image-file",
-        assetName: "beach.jpg",
+        assetId: IMAGE_ASSET_ID_B,
+        assetFileId: "image-file-b",
+        assetName: "dusk.jpg",
         mimeType: "image/jpeg",
         fileSize: 1000,
         caption: "夜",
@@ -208,6 +319,10 @@ function defaultFiles(): Record<string, DriveFileCandidate> {
     "image-file": file("image-file", "beach.jpg", "image/jpeg", "asset", {
       sizeBytes: 1000,
       appProperties: assetProperties(IMAGE_ASSET_ID),
+    }),
+    "image-file-b": file("image-file-b", "dusk.jpg", "image/jpeg", "asset", {
+      sizeBytes: 1000,
+      appProperties: assetProperties(IMAGE_ASSET_ID_B),
     }),
     "video-file": file("video-file", "clip.mp4", "video/mp4", "asset", {
       sizeBytes: 1500,

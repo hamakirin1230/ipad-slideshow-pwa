@@ -22,12 +22,12 @@ const plan: GooglePhotosExportPlan = {
     {
       slideIndex: 1,
       slideId: "slide-b",
-      assetFileId: "file-a",
+      assetFileId: "file-b",
       mediaKind: "image",
       mimeType: "image/jpeg",
       sizeBytes: 10,
       description: "夜",
-      fileName: "a.jpg",
+      fileName: "b.jpg",
     },
   ],
 };
@@ -63,6 +63,8 @@ describe("google photos export workflow", () => {
         mediaItemIds: ["media-1", "media-2"],
       }),
     );
+    expect(adapter.resumable.querySession).not.toHaveBeenCalled();
+    expect(adapter.resumable.startSession).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(result)).not.toContain("drive-token");
     expect(JSON.stringify(result)).not.toContain("file-a");
   });
@@ -115,6 +117,153 @@ describe("google photos export workflow", () => {
     expect(adapter.library.batchAddMediaItems).toHaveBeenCalledTimes(1);
     expect(adapter.library.createAlbum).toHaveBeenCalledTimes(1);
   });
+
+  it("queries the session after interruption and does not retry the write", async () => {
+    const adapter = createAdapter();
+    const runtimes: GooglePhotosExportRuntime[] = [];
+    adapter.resumable.uploadChunk = vi.fn(async () => {
+      throw new Error("network");
+    });
+    adapter.resumable.querySession = vi.fn(async () => ({
+      ok: true as const,
+      status: "active" as const,
+      offset: 6,
+    }));
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      {
+        driveAccessToken: "drive-token",
+        photosAccessToken: "photos-token",
+        runtime: runtime(),
+        signal: new AbortController().signal,
+        onProgress: () => undefined,
+        onRuntime: (next) => runtimes.push(structuredClone(next)),
+      },
+      adapter,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "uploadFailed" },
+      canResume: true,
+    });
+    expect(adapter.resumable.uploadChunk).toHaveBeenCalledTimes(1);
+    expect(adapter.resumable.startSession).toHaveBeenCalledTimes(1);
+    expect(adapter.resumable.querySession).toHaveBeenCalledTimes(1);
+    expect(runtimes.at(-1)?.currentUpload?.offset).toBe(6);
+    expect(adapter.library.batchCreateMediaItems).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a local offset as authoritative after interruption", async () => {
+    const adapter = createAdapter();
+    adapter.resumable.uploadChunk = vi.fn(async () => {
+      throw new Error("network");
+    });
+    adapter.resumable.querySession = vi.fn(async () => ({
+      ok: true as const,
+      status: "active" as const,
+      offset: 4,
+    }));
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      {
+        driveAccessToken: "drive-token",
+        photosAccessToken: "photos-token",
+        runtime: {
+          ...runtime(),
+          currentUpload: {
+            slideIndex: 0,
+            sessionUrl: "https://photos.example/session",
+            chunkGranularity: 256 * 1024,
+            offset: 999,
+          },
+        },
+        signal: new AbortController().signal,
+        onProgress: () => undefined,
+        onRuntime: () => undefined,
+      },
+      adapter,
+    );
+
+    expect(result.canResume).toBe(true);
+    expect(adapter.openDriveAssetStream).toHaveBeenCalledWith(
+      expect.objectContaining({ startByte: 4, expectedSizeBytes: 10 }),
+    );
+    expect(adapter.resumable.startSession).not.toHaveBeenCalled();
+  });
+
+  it("allows resume only when the query returns an in-range active offset", async () => {
+    const adapter = createAdapter();
+    adapter.resumable.uploadChunk = vi.fn(async () => {
+      throw new Error("network");
+    });
+    adapter.resumable.querySession = vi.fn(async () => ({ ok: false as const }));
+
+    const failed = await executeGooglePhotosExportWithAdapter(
+      {
+        driveAccessToken: "drive-token",
+        photosAccessToken: "photos-token",
+        runtime: runtime(),
+        signal: new AbortController().signal,
+        onProgress: () => undefined,
+        onRuntime: () => undefined,
+      },
+      adapter,
+    );
+
+    expect(failed.canResume).toBe(false);
+    expect(adapter.resumable.uploadChunk).toHaveBeenCalledTimes(1);
+    expect(adapter.resumable.startSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the queried offset when the user resumes and does not start a new session", async () => {
+    const adapter = createAdapter();
+    adapter.resumable.querySession = vi.fn(async () => ({
+      ok: true as const,
+      status: "active" as const,
+      offset: 5,
+    }));
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      {
+        driveAccessToken: "drive-token",
+        photosAccessToken: "photos-token",
+        runtime: {
+          ...runtime(),
+          currentUpload: {
+            slideIndex: 0,
+            sessionUrl: "https://photos.example/existing-session",
+            chunkGranularity: 256 * 1024,
+            offset: 999,
+          },
+        },
+        now: new Date("2026-08-16T02:05:00.000Z"),
+        signal: new AbortController().signal,
+        onProgress: () => undefined,
+        onRuntime: () => undefined,
+      },
+      adapter,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(adapter.resumable.startSession).toHaveBeenCalledTimes(1);
+    expect(adapter.resumable.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: "b.jpg" }),
+    );
+    expect(adapter.openDriveAssetStream).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        startByte: 5,
+        expectedSizeBytes: 10,
+        assetFileId: "file-a",
+      }),
+    );
+    expect(adapter.resumable.querySession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionUrl: "https://photos.example/existing-session",
+      }),
+    );
+  });
 });
 
 function runtime(): GooglePhotosExportRuntime {
@@ -134,8 +283,12 @@ function createAdapter(): GooglePhotosExportWriteAdapter {
       },
     })),
     resumable: {
-      startSession: vi.fn(async () => "https://photos.example/session"),
+      startSession: vi.fn(async () => ({
+        sessionUrl: "https://photos.example/session",
+        chunkGranularity: 256 * 1024,
+      })),
       uploadChunk: vi.fn(async (input) => (input.finalize ? "upload-token" : null)),
+      querySession: vi.fn(async () => ({ ok: false as const })),
     },
     library: {
       batchCreateMediaItems: vi.fn(async () => ({

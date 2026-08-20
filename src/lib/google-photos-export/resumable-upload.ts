@@ -2,10 +2,18 @@ export const GOOGLE_PHOTOS_RESUMABLE_CHUNK_BYTES = 8 * 1024 * 1024;
 export const GOOGLE_PHOTOS_UPLOADS_URL =
   "https://photoslibrary.googleapis.com/v1/uploads";
 
-export type GooglePhotosResumableSession = {
+export type GooglePhotosStartedSession = {
   sessionUrl: string;
+  chunkGranularity: number;
+};
+
+export type GooglePhotosResumableSession = GooglePhotosStartedSession & {
   offset: number;
 };
+
+export type GooglePhotosSessionQueryResult =
+  | { ok: true; status: "active"; offset: number }
+  | { ok: false };
 
 export type GooglePhotosResumableUploadAdapter = {
   startSession: (input: {
@@ -14,7 +22,7 @@ export type GooglePhotosResumableUploadAdapter = {
     sizeBytes: number;
     fileName: string;
     signal: AbortSignal;
-  }) => Promise<string>;
+  }) => Promise<GooglePhotosStartedSession>;
   uploadChunk: (input: {
     sessionUrl: string;
     chunk: Uint8Array;
@@ -22,7 +30,51 @@ export type GooglePhotosResumableUploadAdapter = {
     finalize: boolean;
     signal: AbortSignal;
   }) => Promise<string | null>;
+  querySession: (input: {
+    sessionUrl: string;
+    signal: AbortSignal;
+  }) => Promise<GooglePhotosSessionQueryResult>;
 };
+
+export function parseGooglePhotosChunkGranularity(value: string | null) {
+  return parseHeaderSafeInteger(value, { min: 1 });
+}
+
+export function resolveGooglePhotosResumableChunkSize(chunkGranularity: number) {
+  if (!Number.isSafeInteger(chunkGranularity) || chunkGranularity <= 0) {
+    throw new Error("photos-upload-granularity-invalid");
+  }
+  const multiple = Math.floor(
+    GOOGLE_PHOTOS_RESUMABLE_CHUNK_BYTES / chunkGranularity,
+  );
+  return multiple >= 1 ? multiple * chunkGranularity : chunkGranularity;
+}
+
+export function parseGooglePhotosUploadSessionQuery(
+  headers: Headers,
+): GooglePhotosSessionQueryResult {
+  const status = headers.get("X-Goog-Upload-Status")?.trim().toLowerCase();
+  const offset = parseHeaderSafeInteger(
+    headers.get("X-Goog-Upload-Size-Received"),
+    { min: 0 },
+  );
+  if (status !== "active" || offset === null) {
+    return { ok: false };
+  }
+  return { ok: true, status: "active", offset };
+}
+
+export function isGooglePhotosResumeOffsetValid(
+  offset: number,
+  sizeBytes: number,
+) {
+  return (
+    Number.isSafeInteger(offset) &&
+    Number.isSafeInteger(sizeBytes) &&
+    offset >= 0 &&
+    offset <= sizeBytes
+  );
+}
 
 export async function startGooglePhotosResumableSession(input: {
   accessToken: string;
@@ -30,7 +82,7 @@ export async function startGooglePhotosResumableSession(input: {
   sizeBytes: number;
   fileName: string;
   signal: AbortSignal;
-}): Promise<string> {
+}): Promise<GooglePhotosStartedSession> {
   const response = await fetch(GOOGLE_PHOTOS_UPLOADS_URL, {
     method: "POST",
     headers: {
@@ -48,10 +100,40 @@ export async function startGooglePhotosResumableSession(input: {
   });
 
   const sessionUrl = response.headers.get("X-Goog-Upload-URL");
+  const chunkGranularity = parseGooglePhotosChunkGranularity(
+    response.headers.get("X-Goog-Upload-Chunk-Granularity"),
+  );
   if (!response.ok || !sessionUrl) {
     throw new Error("photos-upload-session-failed");
   }
-  return sessionUrl;
+  if (chunkGranularity === null) {
+    throw new Error("photos-upload-granularity-invalid");
+  }
+  return { sessionUrl, chunkGranularity };
+}
+
+export async function queryGooglePhotosResumableSession(input: {
+  sessionUrl: string;
+  signal: AbortSignal;
+}): Promise<GooglePhotosSessionQueryResult> {
+  try {
+    const response = await fetch(input.sessionUrl, {
+      method: "POST",
+      headers: {
+        "Content-Length": "0",
+        "X-Goog-Upload-Command": "query",
+      },
+      cache: "no-store",
+      credentials: "omit",
+      signal: input.signal,
+    });
+    if (!response.ok) {
+      return { ok: false };
+    }
+    return parseGooglePhotosUploadSessionQuery(response.headers);
+  } catch {
+    return { ok: false };
+  }
 }
 
 export async function uploadGooglePhotosResumableChunk(input: {
@@ -100,7 +182,11 @@ export async function uploadGooglePhotosResumableStream(input: {
   const adapter = input.adapter ?? {
     startSession: startGooglePhotosResumableSession,
     uploadChunk: uploadGooglePhotosResumableChunk,
+    querySession: queryGooglePhotosResumableSession,
   };
+  const chunkSize = resolveGooglePhotosResumableChunkSize(
+    input.session.chunkGranularity,
+  );
   const reader = input.stream.getReader();
   let offset = input.session.offset;
   let pending = new Uint8Array(0);
@@ -116,12 +202,11 @@ export async function uploadGooglePhotosResumableStream(input: {
         pending = concatBytes(pending, value);
       }
 
-      while (pending.byteLength >= GOOGLE_PHOTOS_RESUMABLE_CHUNK_BYTES) {
-        const remainingAfterChunk =
-          input.sizeBytes - offset - GOOGLE_PHOTOS_RESUMABLE_CHUNK_BYTES;
+      while (pending.byteLength >= chunkSize) {
+        const remainingAfterChunk = input.sizeBytes - offset - chunkSize;
         if (!done && remainingAfterChunk > 0) {
-          const chunk = pending.slice(0, GOOGLE_PHOTOS_RESUMABLE_CHUNK_BYTES);
-          pending = pending.slice(GOOGLE_PHOTOS_RESUMABLE_CHUNK_BYTES);
+          const chunk = pending.slice(0, chunkSize);
+          pending = pending.slice(chunkSize);
           await adapter.uploadChunk({
             sessionUrl: input.session.sessionUrl,
             chunk,
@@ -157,6 +242,24 @@ export async function uploadGooglePhotosResumableStream(input: {
   } finally {
     reader.releaseLock();
   }
+}
+
+function parseHeaderSafeInteger(
+  value: string | null,
+  options: { min: number },
+) {
+  if (value == null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!/^[0-9]+$/.test(trimmed)) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < options.min) {
+    return null;
+  }
+  return parsed;
 }
 
 function concatBytes(left: Uint8Array, right: Uint8Array) {

@@ -9,7 +9,9 @@ import {
   buildGooglePhotosExportFileName,
   createSanitizedGooglePhotosExportError,
   getGooglePhotosExportMediaKind,
+  GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES,
   GOOGLE_PHOTOS_EXPORT_MAX_SLIDE_COUNT,
+  GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES,
   isGooglePhotosExportFileSizeAllowed,
   isGooglePhotosExportMimeType,
   toGooglePhotosDescription,
@@ -165,7 +167,13 @@ async function buildPlanFromManifest(input: {
     return fail("drivePreflightFailed");
   }
 
+  const assetFileIds = input.manifest.slides.map((slide) => slide.assetFileId);
+  if (new Set(assetFileIds).size !== assetFileIds.length) {
+    return fail("duplicateSlidesUnsupported");
+  }
+
   const items: GooglePhotosExportPlan["items"] = [];
+  const seenContentFingerprints = new Map<string, string>();
   for (const [slideIndex, slide] of input.manifest.slides.entries()) {
     if (!isGooglePhotosExportMimeType(slide.mimeType)) {
       return fail("unsupportedMedia");
@@ -206,11 +214,18 @@ async function buildPlanFromManifest(input: {
         sizeBytes,
       })
     ) {
-      return typeof sizeBytes === "number" &&
-        sizeBytes > 0 &&
-        slide.mimeType.startsWith("video/")
+      return isUnsupportedExportFileSize(slide.mimeType, sizeBytes)
         ? fail("unsupportedMedia")
         : fail("drivePreflightFailed");
+    }
+
+    const fingerprint = googlePhotosExportContentFingerprint(metadata);
+    if (fingerprint) {
+      const existingFileId = seenContentFingerprints.get(fingerprint);
+      if (existingFileId && existingFileId !== metadata.id) {
+        return fail("duplicateSlidesUnsupported");
+      }
+      seenContentFingerprints.set(fingerprint, metadata.id);
     }
 
     items.push({
@@ -290,6 +305,34 @@ function matchesManagedFile(
     file.appProperties.workspaceId === expected.workspaceId &&
     file.appProperties.projectId === expected.projectId
   );
+}
+
+function googlePhotosExportContentFingerprint(metadata: DriveFileCandidate) {
+  const checksum = metadata.checksum?.trim();
+  if (!checksum) {
+    return null;
+  }
+  if (
+    typeof metadata.sizeBytes !== "number" ||
+    !Number.isSafeInteger(metadata.sizeBytes) ||
+    metadata.sizeBytes <= 0
+  ) {
+    return null;
+  }
+  return `${checksum}\0${metadata.sizeBytes}\0${metadata.mimeType}`;
+}
+
+function isUnsupportedExportFileSize(
+  mimeType: string,
+  sizeBytes: number | null,
+) {
+  if (typeof sizeBytes !== "number" || sizeBytes <= 0) {
+    return false;
+  }
+  if (mimeType.startsWith("video/")) {
+    return sizeBytes > GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES;
+  }
+  return sizeBytes > GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES;
 }
 
 function fail(

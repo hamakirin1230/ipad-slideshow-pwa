@@ -264,7 +264,6 @@ function ExportReview({
       </dl>
 
       <ul className="list-disc space-y-2 pl-5 text-slate-300">
-        <li>同じ素材を使うスライドも、それぞれ1件として容量に含みます。</li>
         <li>Googleフォトに新しいアルバムを作成します。既存アルバムは更新しません。</li>
         <li>Googleアカウントの保存容量を使用します。</li>
         <li>表示時間はGoogleフォトへ引き継がれません。</li>

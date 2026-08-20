@@ -40,7 +40,10 @@ describe("google photos export review UI", () => {
     expect(source.panel).toContain("Googleアカウントの保存容量を使用します。");
     expect(source.panel).toContain("表示時間はGoogleフォトへ引き継がれません。");
     expect(source.panel).toContain("テロップはGoogleフォトの説明として書き出します。");
-    expect(source.panel).toContain("同じ素材を使うスライドも、それぞれ1件として容量に含みます。");
+    expect(source.panel).not.toContain(
+      "同じ素材を使うスライドも、それぞれ1件として容量に含みます。",
+    );
+    expect(source.panel).not.toMatch(/重複スライドも別アイテムとして書き出す/);
     expect(source.panel).toContain("このiPadに保存");
   });
 

@@ -2,6 +2,8 @@ import { DRIVE_VIDEO_MAX_BYTES } from "../drive-video-policy";
 
 export const GOOGLE_PHOTOS_EXPORT_MAX_SLIDE_COUNT = 50;
 export const GOOGLE_PHOTOS_ALBUM_TITLE_MAX_LENGTH = 500;
+export const GOOGLE_PHOTOS_EXPORT_FILENAME_MAX_LENGTH = 255;
+export const GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES = 200 * 1024 * 1024;
 export const GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES = DRIVE_VIDEO_MAX_BYTES;
 
 export const GOOGLE_PHOTOS_LIBRARY_UPLOADABLE_MIME_TYPES = [
@@ -34,6 +36,7 @@ export type GooglePhotosExportErrorKind =
   | "authorizationDenied"
   | "drivePreflightFailed"
   | "unsupportedMedia"
+  | "duplicateSlidesUnsupported"
   | "uploadFailed"
   | "mediaCreatePartial"
   | "albumCreateFailed"
@@ -99,6 +102,7 @@ export type GooglePhotosExportRuntime = {
   currentUpload: {
     slideIndex: number;
     sessionUrl: string;
+    chunkGranularity: number;
     offset: number;
   } | null;
 };
@@ -141,7 +145,7 @@ export function isGooglePhotosExportFileSizeAllowed(input: {
     return input.sizeBytes <= GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES;
   }
 
-  return true;
+  return input.sizeBytes <= GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES;
 }
 
 export function buildGooglePhotosAlbumTitle(input: {
@@ -159,11 +163,11 @@ export function buildGooglePhotosExportFileName(input: {
   mimeType: GooglePhotosExportMimeType;
 }) {
   const extension = getExportExtension(input.mimeType);
+  const fallback = `slide-${input.slideIndex + 1}.${extension}`;
   const base = sanitizeFileNamePart(input.assetName);
-  if (base && hasMatchingExtension(base, extension)) {
-    return base;
-  }
-  return `slide-${input.slideIndex + 1}.${extension}`;
+  const candidate =
+    base && hasMatchingExtension(base, extension) ? base : fallback;
+  return fitExportFileName(candidate, extension, fallback);
 }
 
 export function buildGooglePhotosExportReview(
@@ -219,6 +223,8 @@ export const GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES: Record<
     "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
   unsupportedMedia:
     "Googleフォトへ書き出せない形式のスライドがあるため、書き出しを開始しません。",
+  duplicateSlidesUnsupported:
+    "同じ写真または動画を複数のスライドで使用しているため、現在のGoogleフォト書き出しでは順番を正確に再現できません。重複しているスライドを整理してから、もう一度お試しください。",
   uploadFailed: "Googleフォトへのアップロードに失敗しました。",
   mediaCreatePartial:
     "一部のスライドをGoogleフォトへ追加できませんでした。新しいアルバムは作成していません。",
@@ -276,4 +282,47 @@ function sanitizeFileNamePart(value: string) {
 
 function hasMatchingExtension(fileName: string, extension: string) {
   return fileName.toLowerCase().endsWith(`.${extension}`);
+}
+
+function fitExportFileName(
+  fileName: string,
+  extension: string,
+  fallback: string,
+) {
+  if (characterLength(fileName) <= GOOGLE_PHOTOS_EXPORT_FILENAME_MAX_LENGTH) {
+    return fileName;
+  }
+
+  const suffix = `.${extension}`;
+  const maxBaseLength =
+    GOOGLE_PHOTOS_EXPORT_FILENAME_MAX_LENGTH - characterLength(suffix);
+  if (maxBaseLength < 1) {
+    return truncateCharacters(fallback, GOOGLE_PHOTOS_EXPORT_FILENAME_MAX_LENGTH);
+  }
+
+  const unsuffixed = hasMatchingExtension(fileName, extension)
+    ? fileName.slice(0, fileName.length - suffix.length)
+    : fileName;
+  const truncatedBase = truncateCharacters(unsuffixed, maxBaseLength).replace(
+    /[. ]+$/g,
+    "",
+  );
+  if (!truncatedBase) {
+    return characterLength(fallback) <= GOOGLE_PHOTOS_EXPORT_FILENAME_MAX_LENGTH
+      ? fallback
+      : truncateCharacters(fallback, GOOGLE_PHOTOS_EXPORT_FILENAME_MAX_LENGTH);
+  }
+  return `${truncatedBase}${suffix}`;
+}
+
+function characterLength(value: string) {
+  return [...value].length;
+}
+
+function truncateCharacters(value: string, maxLength: number) {
+  const chars = [...value];
+  if (chars.length <= maxLength) {
+    return value;
+  }
+  return chars.slice(0, maxLength).join("");
 }

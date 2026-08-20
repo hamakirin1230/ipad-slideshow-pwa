@@ -32,4 +32,13 @@ describe("google photos export safety contract", () => {
     expect(media).not.toContain(".blob()");
     expect(media).not.toContain(".arrayBuffer()");
   });
+
+  it("keeps Drive source preflight free of Photos upload APIs", () => {
+    const source =
+      files.find((file) => file.name === "drive-source.ts")?.source ?? "";
+    expect(source).not.toContain("photoslibrary.googleapis.com");
+    expect(source).not.toContain("/v1/uploads");
+    expect(source).not.toContain("startGooglePhotosResumableSession");
+    expect(source).not.toContain("queryGooglePhotosResumableSession");
+  });
 });
