@@ -757,8 +757,7 @@ async function collectStreamBlob(
   signal: AbortSignal,
 ) {
   const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
+  const chunks: BlobPart[] = [];
   try {
     while (true) {
       if (signal.aborted) {
@@ -769,20 +768,24 @@ async function collectStreamBlob(
         break;
       }
       if (value && value.byteLength > 0) {
-        chunks.push(value);
-        totalBytes += value.byteLength;
+        chunks.push(toBlobPart(value));
       }
     }
   } finally {
     reader.releaseLock();
   }
-  const merged = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
+  return new Blob(chunks, { type: mimeType });
+}
+
+function toBlobPart(chunk: Uint8Array): BlobPart {
+  const { buffer, byteOffset, byteLength } = chunk;
+  if (buffer instanceof ArrayBuffer) {
+    if (byteOffset === 0 && byteLength === buffer.byteLength) {
+      return buffer;
+    }
+    return new Uint8Array(buffer, byteOffset, byteLength);
   }
-  return new Blob([merged.buffer], { type: mimeType });
+  return chunk.slice();
 }
 
 async function querySessionSafely(

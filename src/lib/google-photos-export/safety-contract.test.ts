@@ -87,4 +87,25 @@ describe("google photos export safety contract", () => {
     expect(layout).toContain("GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE");
     expect(renderer).toContain('layout.kind === "doesNotFit"');
   });
+
+  it("builds image source Blobs from stream chunks without an extra merged copy", () => {
+    const workflow =
+      files.find((file) => file.name === "workflow.ts")?.source ?? "";
+    expect(workflow).toContain("return new Blob(chunks, { type: mimeType })");
+    expect(workflow).not.toContain("new Uint8Array(totalBytes)");
+    expect(workflow).not.toContain("merged.set");
+  });
+
+  it("keeps the video upload path on Drive range streams", () => {
+    const workflow =
+      files.find((file) => file.name === "workflow.ts")?.source ?? "";
+    const start = workflow.indexOf(
+      "async function uploadVideoFromAuthoritativeOffset",
+    );
+    const next = workflow.indexOf("\nasync function ", start + 1);
+    const videoPath = workflow.slice(start, next === -1 ? undefined : next);
+    expect(videoPath).toContain("startByte: input.session.offset");
+    expect(videoPath).not.toContain("collectStreamBlob");
+    expect(videoPath).not.toContain("renderImage");
+  });
 });

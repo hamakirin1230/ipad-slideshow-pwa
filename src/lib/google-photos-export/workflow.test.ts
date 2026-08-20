@@ -62,8 +62,15 @@ describe("google photos export workflow", () => {
     expect(adapter.renderImage).toHaveBeenCalledTimes(2);
     expect(adapter.renderImage).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ caption: "朝", sourceMimeType: "image/jpeg" }),
+      expect.objectContaining({
+        caption: "朝",
+        sourceMimeType: "image/jpeg",
+        source: expect.any(Blob),
+      }),
     );
+    const firstRender = vi.mocked(adapter.renderImage).mock.calls[0]?.[0];
+    expect(firstRender?.source).toBeInstanceOf(Blob);
+    expect(firstRender?.source.size).toBe(3);
     expect(adapter.resumable.startSession).toHaveBeenCalledWith(
       expect.objectContaining({
         mimeType: "image/jpeg",
@@ -142,6 +149,7 @@ describe("google photos export workflow", () => {
 
     expect(result.ok).toBe(true);
     expect(adapter.renderImage).not.toHaveBeenCalled();
+    expect(adapter.openDriveAssetStream).toHaveBeenCalledTimes(1);
     expect(adapter.openDriveAssetStream).toHaveBeenCalledWith(
       expect.objectContaining({
         startByte: 0,
@@ -419,6 +427,63 @@ describe("google photos export workflow", () => {
       }),
     );
     expect(renderedImageRef.current).toBeNull();
+  });
+
+  it("resumes a video upload from the authoritative session offset without blobifying it", async () => {
+    const adapter = createAdapter();
+    const videoPlan = {
+      ...plan,
+      items: [
+        {
+          slideIndex: 0,
+          slideId: "slide-v",
+          assetFileId: "file-v",
+          mediaKind: "video" as const,
+          mimeType: "video/mp4" as const,
+          sizeBytes: 20,
+          description: "動画テロップ",
+          fileName: "clip.mp4",
+        },
+      ],
+      totalBytes: 20,
+    };
+    adapter.resumable.querySession = vi.fn(async () => ({
+      ok: true as const,
+      status: "active" as const,
+      offset: 7,
+    }));
+    adapter.library.batchCreateMediaItems = vi.fn(async () => ({
+      ok: true as const,
+      mediaItemIds: ["media-1"],
+    }));
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      executeInput({
+        plan: videoPlan,
+        currentUpload: {
+          slideIndex: 0,
+          sessionUrl: "https://photos.example/existing-session",
+          chunkGranularity: 256 * 1024,
+          offset: 999,
+          payloadMimeType: "video/mp4",
+          payloadSizeBytes: 20,
+          payloadFileName: "clip.mp4",
+        },
+      }),
+      adapter,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(adapter.renderImage).not.toHaveBeenCalled();
+    expect(adapter.resumable.startSession).not.toHaveBeenCalled();
+    expect(adapter.openDriveAssetStream).toHaveBeenCalledTimes(1);
+    expect(adapter.openDriveAssetStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startByte: 7,
+        expectedSizeBytes: 20,
+        expectedMimeType: "video/mp4",
+      }),
+    );
   });
 });
 
