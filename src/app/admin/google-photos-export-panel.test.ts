@@ -93,6 +93,49 @@ describe("google photos export review UI", () => {
       "accessTokenRef.current = tokenResponse.access_token;\n    pendingRequest.resolve",
     );
   });
+
+  it("uses a dedicated Photos export token client with appendonly only", () => {
+    expect(source.providers).toContain("photosExportTokenClientRef");
+    expect(source.providers).toContain(
+      "photosExportTokenClientRef.current = oauth2.initTokenClient({",
+    );
+    expect(source.providers).toContain(
+      "tokenClientRef.current = oauth2.initTokenClient({",
+    );
+
+    const driveInitStart = source.providers.indexOf(
+      "tokenClientRef.current = oauth2.initTokenClient({",
+    );
+    const exportInitStart = source.providers.indexOf(
+      "photosExportTokenClientRef.current = oauth2.initTokenClient({",
+    );
+    expect(driveInitStart).toBeGreaterThan(-1);
+    expect(exportInitStart).toBeGreaterThan(driveInitStart);
+
+    const driveInit = source.providers.slice(driveInitStart, exportInitStart);
+    expect(driveInit).toContain("scope: DRIVE_FILE_SCOPE");
+    expect(driveInit).not.toContain("handlePhotosExportTokenResponse");
+    expect(driveInit).not.toContain("GOOGLE_PHOTOS_EXPORT_SCOPE");
+
+    const exportInitEnd = source.providers.indexOf(
+      'setGoogleStatus("notConnected")',
+      exportInitStart,
+    );
+    const exportInit = source.providers.slice(exportInitStart, exportInitEnd);
+    expect(exportInit).toContain("scope: GOOGLE_PHOTOS_EXPORT_SCOPE");
+    expect(exportInit).toContain("include_granted_scopes: false");
+    expect(exportInit).not.toContain("photospicker");
+    expect(exportInit).not.toContain("DRIVE_FILE_SCOPE");
+    expect(exportInit).toContain("handlePhotosExportTokenResponse");
+
+    expect(source.providers).toContain(
+      "const tokenClient = photosExportTokenClientRef.current;",
+    );
+    expect(source.providers).toContain(
+      "scope: GOOGLE_PHOTOS_EXPORT_SCOPE,\n          include_granted_scopes: false,",
+    );
+    expect(source.providers).not.toContain("setPhotosExportAccessToken");
+  });
 });
 
 function read(relativePath: string) {

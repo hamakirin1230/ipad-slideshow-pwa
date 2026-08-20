@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DRIVE_FILE_SCOPE } from "../google-auth";
+import {
+  DRIVE_FILE_SCOPE,
+  PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
+} from "../google-auth";
 import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
   isPhotosExportScopeRequest,
@@ -21,6 +24,14 @@ describe("google photos export authorization", () => {
     expect(
       isPhotosExportScopeRequest(
         "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
+      ),
+    ).toBe(false);
+    expect(tokenScopeList(GOOGLE_PHOTOS_EXPORT_SCOPE)).toEqual([
+      "https://www.googleapis.com/auth/photoslibrary.appendonly",
+    ]);
+    expect(
+      isPhotosExportScopeRequest(
+        `${GOOGLE_PHOTOS_EXPORT_SCOPE} ${PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE}`,
       ),
     ).toBe(false);
   });

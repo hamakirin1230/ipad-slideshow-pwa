@@ -839,6 +839,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const pendingPhotosTokenRequestRef =
     useRef<PendingPhotosTokenRequest | null>(null);
   const photosExportAccessTokenRef = useRef<string | null>(null);
+  const photosExportTokenClientRef = useRef<GoogleTokenClient | null>(null);
   const pendingPhotosExportTokenRequestRef =
     useRef<PendingPhotosTokenRequest | null>(null);
   const pendingGooglePhotosExportRef = useRef<GooglePhotosExportPlan | null>(
@@ -1421,7 +1422,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return Promise.resolve(existingToken);
     }
 
-    const tokenClient = tokenClientRef.current;
+    const tokenClient = photosExportTokenClientRef.current;
     if (!tokenClient) {
       return Promise.reject(
         new PhotosTokenRequestError({
@@ -1460,7 +1461,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       try {
         tokenClient.requestAccessToken({
           scope: GOOGLE_PHOTOS_EXPORT_SCOPE,
-          include_granted_scopes: true,
+          include_granted_scopes: false,
           prompt: "consent",
         });
       } catch {
@@ -2151,6 +2152,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (!hasClientId) {
       accessTokenRef.current = null;
       tokenClientRef.current = null;
+      photosExportTokenClientRef.current = null;
       setDriveFileGranted(null);
       setGoogleStatus("missingClientId");
       setGoogleMessage("NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。");
@@ -2164,6 +2166,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (!oauth2) {
       accessTokenRef.current = null;
       tokenClientRef.current = null;
+      photosExportTokenClientRef.current = null;
       setDriveFileGranted(null);
       setGoogleStatus("error");
       setGoogleMessage("Google認証ライブラリを利用できませんでした。");
@@ -2178,10 +2181,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
       prompt: "select_account",
       include_granted_scopes: false,
       callback: (tokenResponse) => {
-        if (handlePhotosExportTokenResponse(tokenResponse)) {
-          return;
-        }
-
         if (handlePhotosTokenResponse(tokenResponse)) {
           return;
         }
@@ -2237,10 +2236,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
         resetDriveState();
       },
       error_callback: (error) => {
-        if (handlePhotosExportTokenErrorCallback()) {
-          return;
-        }
-
         if (handlePhotosTokenErrorCallback()) {
           return;
         }
@@ -2253,6 +2248,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setGoogleMessage(getGoogleAuthPopupFailureMessage(error));
         abortDriveOperation();
         resetDriveState();
+      },
+    });
+
+    photosExportTokenClientRef.current = oauth2.initTokenClient({
+      client_id: clientId,
+      scope: GOOGLE_PHOTOS_EXPORT_SCOPE,
+      prompt: "consent",
+      include_granted_scopes: false,
+      callback: (tokenResponse) => {
+        handlePhotosExportTokenResponse(tokenResponse);
+      },
+      error_callback: () => {
+        handlePhotosExportTokenErrorCallback();
       },
     });
 

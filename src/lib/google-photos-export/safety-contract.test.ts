@@ -108,4 +108,16 @@ describe("google photos export safety contract", () => {
     expect(videoPath).not.toContain("collectStreamBlob");
     expect(videoPath).not.toContain("renderImage");
   });
+
+  it("keeps Photos export authorization appendonly-only", () => {
+    const auth =
+      files.find((file) => file.name === "authorization.ts")?.source ?? "";
+    expect(auth).toContain(
+      "export const GOOGLE_PHOTOS_EXPORT_SCOPE = PHOTOS_LIBRARY_APPENDONLY_SCOPE",
+    );
+    expect(auth).toContain(
+      "!scopes.includes(PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE)",
+    );
+    expect(auth).not.toContain("include_granted_scopes");
+  });
 });
