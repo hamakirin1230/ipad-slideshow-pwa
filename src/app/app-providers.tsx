@@ -31,6 +31,7 @@ import {
   prepareGooglePhotosExportReviewInDrive,
   toGooglePhotosExportReviewResult,
   type CommitGooglePhotosExportResult,
+  type GooglePhotosRenderedImageHolder,
   type PrepareGooglePhotosExportReviewResult,
 } from "@/lib/google-photos-export/workflow";
 import type {
@@ -846,6 +847,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const googlePhotosExportRuntimeRef = useRef<GooglePhotosExportRuntime | null>(
     null,
   );
+  const googlePhotosRenderedImageRef =
+    useRef<GooglePhotosRenderedImageHolder | null>(null);
   const googlePhotosExportAbortRef = useRef<AbortController | null>(null);
   const googlePhotosExportRequestSequenceRef = useRef(0);
   const googlePhotosExportInFlightRef = useRef(false);
@@ -1559,6 +1562,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     googlePhotosExportAbortRef.current = null;
     pendingGooglePhotosExportRef.current = null;
     googlePhotosExportRuntimeRef.current = null;
+    googlePhotosRenderedImageRef.current = null;
     googlePhotosExportInFlightRef.current = false;
     setIsGooglePhotosExportInFlight(false);
     setGooglePhotosExportProgress(null);
@@ -5813,8 +5817,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       googlePhotosExportRuntimeRef.current = {
         plan: source.plan,
         uploadTokens: [],
+        uploadedFileNames: [],
         currentUpload: null,
       };
+      googlePhotosRenderedImageRef.current = null;
       setGooglePhotosExportResult(null);
       setCanResumeGooglePhotosExport(false);
       return toGooglePhotosExportReviewResult(source);
@@ -5892,6 +5898,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         onRuntime: (next) => {
           googlePhotosExportRuntimeRef.current = next;
         },
+        renderedImageRef: googlePhotosRenderedImageRef,
       });
       if (requestSequence !== googlePhotosExportRequestSequenceRef.current) {
         return {
@@ -5906,6 +5913,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (result.ok) {
         pendingGooglePhotosExportRef.current = null;
         googlePhotosExportRuntimeRef.current = null;
+        googlePhotosRenderedImageRef.current = null;
         setGooglePhotosExportProgress(null);
         setGooglePhotosExportResult(result.result);
         setCanResumeGooglePhotosExport(false);
@@ -5914,9 +5922,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (result.error.kind === "sourceChanged") {
         pendingGooglePhotosExportRef.current = null;
         googlePhotosExportRuntimeRef.current = null;
+        googlePhotosRenderedImageRef.current = null;
         setGooglePhotosExportProgress(null);
         setCanResumeGooglePhotosExport(false);
         return result;
+      }
+      if (!result.canResume) {
+        googlePhotosRenderedImageRef.current = null;
       }
       setCanResumeGooglePhotosExport(result.canResume);
       return result;

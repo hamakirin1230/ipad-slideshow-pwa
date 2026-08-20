@@ -38,6 +38,7 @@ export type GooglePhotosExportErrorKind =
   | "unsupportedMedia"
   | "duplicateSlidesUnsupported"
   | "sourceChanged"
+  | "imageRenderFailed"
   | "uploadFailed"
   | "mediaCreatePartial"
   | "albumCreateFailed"
@@ -82,7 +83,12 @@ export type GooglePhotosExportReview = {
 };
 
 export type GooglePhotosExportProgress = {
-  phase: "uploading" | "creatingMedia" | "creatingAlbum" | "addingToAlbum";
+  phase:
+    | "renderingImage"
+    | "uploading"
+    | "creatingMedia"
+    | "creatingAlbum"
+    | "addingToAlbum";
   currentSlide: number;
   totalSlides: number;
   mediaKind: GooglePhotosExportMediaKind;
@@ -100,11 +106,15 @@ export type SanitizedGooglePhotosExportSuccess = {
 export type GooglePhotosExportRuntime = {
   plan: GooglePhotosExportPlan;
   uploadTokens: string[];
+  uploadedFileNames: string[];
   currentUpload: {
     slideIndex: number;
     sessionUrl: string;
     chunkGranularity: number;
     offset: number;
+    payloadMimeType: string;
+    payloadSizeBytes: number;
+    payloadFileName: string;
   } | null;
 };
 
@@ -258,6 +268,8 @@ export const GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES: Record<
     "同じ写真または動画を複数のスライドで使用しているため、現在のGoogleフォト書き出しでは順番を正確に再現できません。重複しているスライドを整理してから、もう一度お試しください。",
   sourceChanged:
     "書き出し前の確認後に作品が変更されました。最新の内容を確認するため、もう一度『書き出し前に確認』を実行してください。",
+  imageRenderFailed:
+    "Googleフォト用の画像を作成できませんでした。元の作品は変更されていません。画像を確認してから、もう一度お試しください。",
   uploadFailed: "Googleフォトへのアップロードに失敗しました。",
   mediaCreatePartial:
     "一部のスライドをGoogleフォトへ追加できませんでした。新しいアルバムは作成していません。",

@@ -9,6 +9,8 @@ const files = [
   "resumable-upload.ts",
   "library-api.ts",
   "workflow.ts",
+  "caption-layout.ts",
+  "image-renderer.ts",
 ].map((name) => ({
   name,
   source: readFileSync(new URL(`./${name}`, import.meta.url), "utf8"),
@@ -40,5 +42,20 @@ describe("google photos export safety contract", () => {
     expect(source).not.toContain("/v1/uploads");
     expect(source).not.toContain("startGooglePhotosResumableSession");
     expect(source).not.toContain("queryGooglePhotosResumableSession");
+  });
+
+  it("does not persist rendered images or access tokens", () => {
+    const renderer =
+      files.find((file) => file.name === "image-renderer.ts")?.source ?? "";
+    const workflow =
+      files.find((file) => file.name === "workflow.ts")?.source ?? "";
+    for (const source of [renderer, workflow]) {
+      expect(source).not.toContain("localStorage");
+      expect(source).not.toContain("sessionStorage");
+      expect(source).not.toContain("indexedDB");
+      expect(source).not.toContain("document.cookie");
+    }
+    expect(workflow).toContain('item.mediaKind === "video"');
+    expect(renderer).not.toContain("video/mp4");
   });
 });

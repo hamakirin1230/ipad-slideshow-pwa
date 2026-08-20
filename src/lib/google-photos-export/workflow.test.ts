@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { executeGooglePhotosExportWithAdapter } from "./workflow";
-import type { GooglePhotosExportPlan, GooglePhotosExportRuntime } from "./contract";
-import type { GooglePhotosExportWriteAdapter } from "./workflow";
+import {
+  GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES,
+  type GooglePhotosExportPlan,
+  type GooglePhotosExportRuntime,
+} from "./contract";
+import { GooglePhotosImageRenderError } from "./image-renderer";
+import {
+  executeGooglePhotosExportWithAdapter,
+  type GooglePhotosExportWriteAdapter,
+  type GooglePhotosRenderedImageHolder,
+} from "./workflow";
 
 const plan: GooglePhotosExportPlan = {
   projectId: "project-secret",
@@ -33,18 +41,10 @@ const plan: GooglePhotosExportPlan = {
 };
 
 describe("google photos export workflow", () => {
-  it("creates media items then an album and adds IDs in slide order", async () => {
+  it("renders images, starts the session with rendered size/MIME, and keeps captions as descriptions", async () => {
     const adapter = createAdapter();
     const result = await executeGooglePhotosExportWithAdapter(
-      {
-        driveAccessToken: "drive-token",
-        photosAccessToken: "photos-token",
-        runtime: runtime(),
-        now: new Date("2026-08-16T02:05:00.000Z"),
-        signal: new AbortController().signal,
-        onProgress: () => undefined,
-        onRuntime: () => undefined,
-      },
+      executeInput(),
       adapter,
     );
 
@@ -57,16 +57,161 @@ describe("google photos export workflow", () => {
         productUrl: "https://photos.google.com/lr/album/safe",
       },
     });
-    expect(adapter.library.createAlbum).toHaveBeenCalledTimes(1);
-    expect(adapter.library.batchAddMediaItems).toHaveBeenCalledWith(
+    expect(adapter.renderImage).toHaveBeenCalledTimes(2);
+    expect(adapter.renderImage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ caption: "朝", sourceMimeType: "image/jpeg" }),
+    );
+    expect(adapter.resumable.startSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        mediaItemIds: ["media-1", "media-2"],
+        mimeType: "image/jpeg",
+        sizeBytes: 8,
+        fileName: "a.jpg",
       }),
     );
-    expect(adapter.resumable.querySession).not.toHaveBeenCalled();
-    expect(adapter.resumable.startSession).toHaveBeenCalledTimes(2);
+    expect(adapter.library.batchCreateMediaItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({ description: "朝", fileName: "a.jpg" }),
+          expect.objectContaining({ description: "夜", fileName: "b.jpg" }),
+        ],
+      }),
+    );
+    expect(adapter.library.createAlbum).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(result)).not.toContain("drive-token");
     expect(JSON.stringify(result)).not.toContain("file-a");
+  });
+
+  it("still renders empty-caption images without overlay text being required by the adapter caption", async () => {
+    const adapter = createAdapter();
+    const emptyPlan = {
+      ...plan,
+      items: [{ ...plan.items[0]!, description: "" }],
+      totalBytes: 10,
+    };
+    adapter.library.batchCreateMediaItems = vi.fn(async () => ({
+      ok: true as const,
+      mediaItemIds: ["media-1"],
+    }));
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      executeInput({ plan: emptyPlan }),
+      adapter,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(adapter.renderImage).toHaveBeenCalledWith(
+      expect.objectContaining({ caption: "" }),
+    );
+    expect(adapter.library.batchCreateMediaItems).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [expect.objectContaining({ description: "" })],
+      }),
+    );
+  });
+
+  it("never sends videos through the image renderer", async () => {
+    const adapter = createAdapter();
+    const videoPlan = {
+      ...plan,
+      items: [
+        {
+          slideIndex: 0,
+          slideId: "slide-v",
+          assetFileId: "file-v",
+          mediaKind: "video" as const,
+          mimeType: "video/mp4" as const,
+          sizeBytes: 20,
+          description: "動画テロップ",
+          fileName: "clip.mp4",
+        },
+      ],
+      totalBytes: 20,
+    };
+    adapter.library.batchCreateMediaItems = vi.fn(async () => ({
+      ok: true as const,
+      mediaItemIds: ["media-1"],
+    }));
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      executeInput({ plan: videoPlan }),
+      adapter,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(adapter.renderImage).not.toHaveBeenCalled();
+    expect(adapter.openDriveAssetStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startByte: 0,
+        expectedSizeBytes: 20,
+        expectedMimeType: "video/mp4",
+      }),
+    );
+    expect(adapter.resumable.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mimeType: "video/mp4",
+        sizeBytes: 20,
+        fileName: "clip.mp4",
+      }),
+    );
+  });
+
+  it("does not start a Photos image session after a render failure", async () => {
+    const adapter = createAdapter();
+    adapter.renderImage = vi.fn(async () => {
+      throw new GooglePhotosImageRenderError();
+    });
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      executeInput(),
+      adapter,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "imageRenderFailed" },
+      canResume: false,
+    });
+    expect(adapter.resumable.startSession).not.toHaveBeenCalled();
+    expect(adapter.library.batchCreateMediaItems).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("file-a");
+    expect(JSON.stringify(result)).not.toContain("https://");
+  });
+
+  it("blocks a rendered image larger than 200MiB before startSession", async () => {
+    const adapter = createAdapter();
+    adapter.renderImage = vi.fn(async ({ fileName }) => {
+      const blob = new Blob([new Uint8Array(1)], { type: "image/jpeg" });
+      Object.defineProperty(blob, "size", {
+        value: GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES + 1,
+      });
+      return { blob, mimeType: "image/jpeg" as const, fileName };
+    });
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      executeInput(),
+      adapter,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "unsupportedMedia" },
+    });
+    expect(adapter.resumable.startSession).not.toHaveBeenCalled();
+  });
+
+  it("releases the rendered image blob after a successful upload", async () => {
+    const adapter = createAdapter();
+    const renderedImageRef: { current: GooglePhotosRenderedImageHolder | null } =
+      { current: null };
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      { ...executeInput(), renderedImageRef },
+      adapter,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(renderedImageRef.current).toBeNull();
   });
 
   it("does not create an album after partial media creation", async () => {
@@ -76,14 +221,7 @@ describe("google photos export workflow", () => {
       kind: "mediaCreatePartial" as const,
     }));
     const result = await executeGooglePhotosExportWithAdapter(
-      {
-        driveAccessToken: "drive-token",
-        photosAccessToken: "photos-token",
-        runtime: runtime(),
-        signal: new AbortController().signal,
-        onProgress: () => undefined,
-        onRuntime: () => undefined,
-      },
+      executeInput(),
       adapter,
     );
 
@@ -99,14 +237,7 @@ describe("google photos export workflow", () => {
     const adapter = createAdapter();
     adapter.library.batchAddMediaItems = vi.fn(async () => false);
     const result = await executeGooglePhotosExportWithAdapter(
-      {
-        driveAccessToken: "drive-token",
-        photosAccessToken: "photos-token",
-        runtime: runtime(),
-        signal: new AbortController().signal,
-        onProgress: () => undefined,
-        onRuntime: () => undefined,
-      },
+      executeInput(),
       adapter,
     );
 
@@ -120,6 +251,8 @@ describe("google photos export workflow", () => {
 
   it("queries the session after interruption and does not retry the write", async () => {
     const adapter = createAdapter();
+    const renderedImageRef: { current: GooglePhotosRenderedImageHolder | null } =
+      { current: null };
     const runtimes: GooglePhotosExportRuntime[] = [];
     adapter.resumable.uploadChunk = vi.fn(async () => {
       throw new Error("network");
@@ -132,11 +265,8 @@ describe("google photos export workflow", () => {
 
     const result = await executeGooglePhotosExportWithAdapter(
       {
-        driveAccessToken: "drive-token",
-        photosAccessToken: "photos-token",
-        runtime: runtime(),
-        signal: new AbortController().signal,
-        onProgress: () => undefined,
+        ...executeInput(),
+        renderedImageRef,
         onRuntime: (next) => runtimes.push(structuredClone(next)),
       },
       adapter,
@@ -152,95 +282,73 @@ describe("google photos export workflow", () => {
     expect(adapter.resumable.querySession).toHaveBeenCalledTimes(1);
     expect(runtimes.at(-1)?.currentUpload?.offset).toBe(6);
     expect(adapter.library.batchCreateMediaItems).not.toHaveBeenCalled();
+    expect(renderedImageRef.current?.sizeBytes).toBe(8);
   });
 
-  it("does not treat a local offset as authoritative after interruption", async () => {
+  it("requires a retained rendered image to resume an image upload", async () => {
     const adapter = createAdapter();
-    adapter.resumable.uploadChunk = vi.fn(async () => {
-      throw new Error("network");
-    });
     adapter.resumable.querySession = vi.fn(async () => ({
       ok: true as const,
       status: "active" as const,
       offset: 4,
     }));
 
-    const result = await executeGooglePhotosExportWithAdapter(
+    const withoutBlob = await executeGooglePhotosExportWithAdapter(
       {
-        driveAccessToken: "drive-token",
-        photosAccessToken: "photos-token",
+        ...executeInput(),
         runtime: {
           ...runtime(),
-          currentUpload: {
-            slideIndex: 0,
-            sessionUrl: "https://photos.example/session",
-            chunkGranularity: 256 * 1024,
-            offset: 999,
-          },
+          currentUpload: imageUploadState(999),
         },
-        signal: new AbortController().signal,
-        onProgress: () => undefined,
-        onRuntime: () => undefined,
       },
       adapter,
     );
-
-    expect(result.canResume).toBe(true);
-    expect(adapter.openDriveAssetStream).toHaveBeenCalledWith(
-      expect.objectContaining({ startByte: 4, expectedSizeBytes: 10 }),
-    );
+    expect(withoutBlob.canResume).toBe(false);
     expect(adapter.resumable.startSession).not.toHaveBeenCalled();
-  });
+    expect(adapter.renderImage).not.toHaveBeenCalled();
 
-  it("allows resume only when the query returns an in-range active offset", async () => {
-    const adapter = createAdapter();
+    const renderedImageRef = {
+      current: retainedImage(jpegBlob(8)),
+    };
     adapter.resumable.uploadChunk = vi.fn(async () => {
       throw new Error("network");
     });
-    adapter.resumable.querySession = vi.fn(async () => ({ ok: false as const }));
-
-    const failed = await executeGooglePhotosExportWithAdapter(
+    const withBlob = await executeGooglePhotosExportWithAdapter(
       {
-        driveAccessToken: "drive-token",
-        photosAccessToken: "photos-token",
-        runtime: runtime(),
-        signal: new AbortController().signal,
-        onProgress: () => undefined,
-        onRuntime: () => undefined,
+        ...executeInput(),
+        runtime: {
+          ...runtime(),
+          currentUpload: imageUploadState(999),
+        },
+        renderedImageRef,
       },
       adapter,
     );
-
-    expect(failed.canResume).toBe(false);
-    expect(adapter.resumable.uploadChunk).toHaveBeenCalledTimes(1);
-    expect(adapter.resumable.startSession).toHaveBeenCalledTimes(1);
+    expect(withBlob.canResume).toBe(true);
+    expect(adapter.openDriveAssetStream).not.toHaveBeenCalled();
+    expect(adapter.resumable.startSession).not.toHaveBeenCalled();
+    expect(adapter.renderImage).not.toHaveBeenCalled();
   });
 
-  it("uses the queried offset when the user resumes and does not start a new session", async () => {
+  it("uses the queried offset from a retained rendered image on manual resume", async () => {
     const adapter = createAdapter();
     adapter.resumable.querySession = vi.fn(async () => ({
       ok: true as const,
       status: "active" as const,
       offset: 5,
     }));
+    const renderedImageRef = {
+      current: retainedImage(jpegBlob(8)),
+    };
 
     const result = await executeGooglePhotosExportWithAdapter(
       {
-        driveAccessToken: "drive-token",
-        photosAccessToken: "photos-token",
+        ...executeInput(),
         runtime: {
           ...runtime(),
-          currentUpload: {
-            slideIndex: 0,
-            sessionUrl: "https://photos.example/existing-session",
-            chunkGranularity: 256 * 1024,
-            offset: 999,
-          },
+          currentUpload: imageUploadState(999),
         },
-        now: new Date("2026-08-16T02:05:00.000Z"),
-        signal: new AbortController().signal,
-        onProgress: () => undefined,
-        onRuntime: () => undefined,
+        renderedImageRef,
       },
       adapter,
     );
@@ -250,27 +358,65 @@ describe("google photos export workflow", () => {
     expect(adapter.resumable.startSession).toHaveBeenCalledWith(
       expect.objectContaining({ fileName: "b.jpg" }),
     );
-    expect(adapter.openDriveAssetStream).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        startByte: 5,
-        expectedSizeBytes: 10,
-        assetFileId: "file-a",
-      }),
-    );
+    expect(adapter.renderImage).toHaveBeenCalledTimes(1);
     expect(adapter.resumable.querySession).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionUrl: "https://photos.example/existing-session",
       }),
     );
+    expect(renderedImageRef.current).toBeNull();
   });
 });
 
-function runtime(): GooglePhotosExportRuntime {
+function executeInput(
+  runtimeOverride: Partial<GooglePhotosExportRuntime> = {},
+) {
+  return {
+    driveAccessToken: "drive-token",
+    photosAccessToken: "photos-token",
+    runtime: runtime(runtimeOverride),
+    now: new Date("2026-08-16T02:05:00.000Z"),
+    signal: new AbortController().signal,
+    onProgress: () => undefined,
+    onRuntime: () => undefined,
+  };
+}
+
+function runtime(
+  override: Partial<GooglePhotosExportRuntime> = {},
+): GooglePhotosExportRuntime {
   return {
     plan,
     uploadTokens: [],
+    uploadedFileNames: [],
     currentUpload: null,
+    ...override,
+  };
+}
+
+function imageUploadState(offset: number) {
+  return {
+    slideIndex: 0,
+    sessionUrl: "https://photos.example/existing-session",
+    chunkGranularity: 256 * 1024,
+    offset,
+    payloadMimeType: "image/jpeg",
+    payloadSizeBytes: 8,
+    payloadFileName: "a.jpg",
+  };
+}
+
+function jpegBlob(size: number) {
+  return new Blob([new Uint8Array(size)], { type: "image/jpeg" });
+}
+
+function retainedImage(blob: Blob): GooglePhotosRenderedImageHolder {
+  return {
+    slideIndex: 0,
+    blob,
+    mimeType: "image/jpeg",
+    sizeBytes: blob.size,
+    fileName: "a.jpg",
   };
 }
 
@@ -281,6 +427,11 @@ function createAdapter(): GooglePhotosExportWriteAdapter {
         controller.enqueue(new Uint8Array([1, 2, 3]));
         controller.close();
       },
+    })),
+    renderImage: vi.fn(async ({ fileName }) => ({
+      blob: jpegBlob(8),
+      mimeType: "image/jpeg" as const,
+      fileName,
     })),
     resumable: {
       startSession: vi.fn(async () => ({

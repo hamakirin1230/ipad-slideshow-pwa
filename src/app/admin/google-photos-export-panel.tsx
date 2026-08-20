@@ -260,7 +260,7 @@ function ExportReview({
         <ReviewItem label="写真" value={`${review.photoCount}件`} />
         <ReviewItem label="動画" value={`${review.videoCount}件`} />
         <ReviewItem
-          label="書き出し合計容量"
+          label="元素材合計容量"
           value={formatGooglePhotosExportBytes(review.totalBytes)}
         />
         <ReviewItem label="作成するアルバム" value={review.albumTitle} />
@@ -270,7 +270,15 @@ function ExportReview({
         <li>Googleフォトに新しいアルバムを作成します。既存アルバムは更新しません。</li>
         <li>Googleアカウントの保存容量を使用します。</li>
         <li>表示時間はGoogleフォトへ引き継がれません。</li>
-        <li>テロップはGoogleフォトの説明として書き出します。</li>
+        <li>画像スライドのテロップは、Googleフォト用の画像に焼き込んで書き出します。</li>
+        <li>画像のテロップは、Googleフォトの説明にも保存します。</li>
+        <li>
+          動画スライドにはテロップを焼き込みません。テロップはGoogleフォトの説明として保存します。
+        </li>
+        <li>Google Drive上の元画像・元動画は変更しません。</li>
+        <li>
+          画像はGoogleフォト用に再生成するため、書き出し後の容量は元素材と異なる場合があります。
+        </li>
         <li>
           Googleフォトへの書き出しと「このiPadに保存」は別操作です。Driveの公開版も作成しません。
         </li>
@@ -332,11 +340,21 @@ function ExportProgress({
         全体: {currentSlide} / {totalSlides}
       </p>
       <p>現在のスライド: {currentSlide}（{mediaKind}）</p>
-      <p>
-        アップロード:{" "}
-        {formatGooglePhotosExportBytes(progress?.uploadedBytes ?? 0)} /{" "}
-        {formatGooglePhotosExportBytes(progress?.fileBytes ?? 0)}
-      </p>
+      {progress?.phase === "renderingImage" ? (
+        <p className="flex items-center gap-2">
+          <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+          Googleフォト用の画像を作成しています
+        </p>
+      ) : (
+        <>
+          <p>Googleフォトへアップロードしています</p>
+          <p>
+            アップロード:{" "}
+            {formatGooglePhotosExportBytes(progress?.uploadedBytes ?? 0)} /{" "}
+            {formatGooglePhotosExportBytes(progress?.fileBytes ?? 0)}
+          </p>
+        </>
+      )}
       <Button
         type="button"
         variant="secondary"

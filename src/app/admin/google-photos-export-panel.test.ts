@@ -22,6 +22,8 @@ describe("google photos export review UI", () => {
     expect(source.panel).toContain("全体:");
     expect(source.panel).toContain("現在のスライド:");
     expect(source.panel).toContain("アップロード:");
+    expect(source.panel).toContain("Googleフォト用の画像を作成しています");
+    expect(source.panel).toContain("Googleフォトへアップロードしています");
     expect(source.panel).toContain("中止");
     expect(source.panel).toContain("Googleフォトへの書き出しが完了しました");
     expect(source.panel).toContain("Googleフォトで開く");
@@ -39,7 +41,22 @@ describe("google photos export review UI", () => {
     expect(source.panel).toContain("disabled={!confirmed || disabled}");
     expect(source.panel).toContain("Googleアカウントの保存容量を使用します。");
     expect(source.panel).toContain("表示時間はGoogleフォトへ引き継がれません。");
-    expect(source.panel).toContain("テロップはGoogleフォトの説明として書き出します。");
+    expect(source.panel).toContain(
+      "画像スライドのテロップは、Googleフォト用の画像に焼き込んで書き出します。",
+    );
+    expect(source.panel).toContain(
+      "画像のテロップは、Googleフォトの説明にも保存します。",
+    );
+    expect(source.panel).toContain(
+      "動画スライドにはテロップを焼き込みません。テロップはGoogleフォトの説明として保存します。",
+    );
+    expect(source.panel).toContain(
+      "Google Drive上の元画像・元動画は変更しません。",
+    );
+    expect(source.panel).toContain("元素材合計容量");
+    expect(source.panel).not.toContain(
+      "テロップはGoogleフォトの説明として書き出します。",
+    );
     expect(source.panel).not.toContain(
       "同じ素材を使うスライドも、それぞれ1件として容量に含みます。",
     );
@@ -61,7 +78,11 @@ describe("google photos export review UI", () => {
   it("does not persist or display Photos or Drive tokens", () => {
     expect(source.panel).not.toContain("accessToken");
     expect(source.panel).not.toContain("photosExportAccessTokenRef");
-    expect(source.panel).not.toContain("localStorage");
+    expect(source.providers).toContain("googlePhotosRenderedImageRef");
+    expect(source.providers).not.toContain(
+      "setGooglePhotosRenderedImage",
+    );
+    expect(source.providers).not.toContain("localStorage");
     expect(source.panel).not.toContain("sessionStorage");
     expect(source.providers).toContain("photosExportAccessTokenRef");
     expect(source.providers).toContain("scope: GOOGLE_PHOTOS_EXPORT_SCOPE");

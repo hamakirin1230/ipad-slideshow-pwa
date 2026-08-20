@@ -171,6 +171,9 @@ describe("google photos export revalidation before write", () => {
           sessionUrl: "https://photos.example/existing-session",
           chunkGranularity: 256 * 1024,
           offset: 4,
+          payloadMimeType: "image/jpeg",
+          payloadSizeBytes: 1000,
+          payloadFileName: "dusk.jpg",
         },
       },
       source.adapter,
@@ -185,6 +188,7 @@ describe("google photos export revalidation before write", () => {
     expectPhotosWriteNotStarted(write);
     expect(write.resumable.querySession).not.toHaveBeenCalled();
     expect(write.library.batchCreateMediaItems).not.toHaveBeenCalled();
+    expect(write.renderImage).not.toHaveBeenCalled();
   });
 
   it("keeps the sourceChanged message free of IDs, checksums, URLs, and raw errors", async () => {
@@ -232,6 +236,7 @@ async function preparePlan(adapter: GooglePhotosExportSourceAdapter) {
   return {
     plan: prepared.plan,
     uploadTokens: [] as string[],
+    uploadedFileNames: [] as string[],
     currentUpload: null,
   } satisfies GooglePhotosExportRuntime;
 }
@@ -264,6 +269,7 @@ function expectPhotosWriteNotStarted(write: GooglePhotosExportWriteAdapter) {
   expect(write.resumable.startSession).not.toHaveBeenCalled();
   expect(write.resumable.uploadChunk).not.toHaveBeenCalled();
   expect(write.openDriveAssetStream).not.toHaveBeenCalled();
+  expect(write.renderImage).not.toHaveBeenCalled();
   expect(write.library.batchCreateMediaItems).not.toHaveBeenCalled();
   expect(write.library.createAlbum).not.toHaveBeenCalled();
   expect(write.library.batchAddMediaItems).not.toHaveBeenCalled();
@@ -276,6 +282,11 @@ function createWriteAdapter(): GooglePhotosExportWriteAdapter {
         controller.enqueue(new Uint8Array([1, 2, 3]));
         controller.close();
       },
+    })),
+    renderImage: vi.fn(async ({ fileName }) => ({
+      blob: new Blob([new Uint8Array(8)], { type: "image/jpeg" }),
+      mimeType: "image/jpeg" as const,
+      fileName,
     })),
     resumable: {
       startSession: vi.fn(async () => ({
