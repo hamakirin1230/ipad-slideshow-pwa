@@ -28,6 +28,11 @@ describe("google auth does not auto-restore after refresh", () => {
     expect(providers).not.toContain("driveRestore");
     expect(providers).not.toContain('prompt: "none"');
     expect(providers).not.toContain("google-connection-restore");
+    expect(providers).toContain("restoreOnPageLoad()");
+    expect(providers).not.toContain("restoreOnPageLoad(abort.signal)");
+    expect(providers).toContain("controller.dispose()");
+    expect(providers).toContain("setDriveFileGranted(true)");
+    expect(providers).not.toContain("/api/google-session/restore\"");
   });
 
   it("starts visible Drive authorization only from manual connect", () => {
@@ -74,6 +79,40 @@ describe("google auth does not auto-restore after refresh", () => {
     expect(providers).not.toContain("document.cookie");
     expect(providers).not.toContain("ipad-slideshow:google-connection-restore");
     expect(providers).toContain("accessTokenRef.current = tokenResponse.access_token");
+    expect(providers).toContain("accessTokenRef.current = accessToken");
     expect(providers).not.toContain("setAccessToken");
+  });
+
+  it("connects Drive GIS success to session create and keeps Photos OAuth isolated", () => {
+    expect(providers).toContain("persistAfterManualConnect");
+    expect(providers).toContain("deleteAfterLocalDisconnect");
+    expect(providers).toContain('from "@/lib/google-session/browser-session"');
+    const photosResponse = extractFunction(providers, "handlePhotosTokenResponse");
+    const photosExport = extractFunction(
+      providers,
+      "handlePhotosExportTokenResponse",
+    );
+    const photosRequest = extractFunction(providers, "requestPhotosAccessToken");
+    const photosExportRequest = extractFunction(
+      providers,
+      "requestPhotosExportAccessToken",
+    );
+    for (const photosFn of [
+      photosResponse,
+      photosExport,
+      photosRequest,
+      photosExportRequest,
+    ]) {
+      expect(photosFn).not.toContain("persistAfterManualConnect");
+      expect(photosFn).not.toContain("invalidate");
+      expect(photosFn).not.toContain("dispose");
+      expect(photosFn).not.toContain("deleteAfterLocalDisconnect");
+      expect(photosFn).not.toContain("/api/google-session/");
+    }
+    const driveCallback = providers.slice(
+      providers.indexOf("accessTokenRef.current = tokenResponse.access_token"),
+      providers.indexOf("error_callback: (error) => {"),
+    );
+    expect(driveCallback).toContain("persistAfterManualConnect");
   });
 });

@@ -21,6 +21,7 @@ import {
   hasGrantedDriveFileAndPhotosPickerScopes,
   hasGrantedDriveFileScope,
 } from "@/lib/google-auth";
+import { createGoogleSessionClientController } from "@/lib/google-session/browser-session";
 import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
   tokenResponseGrantsPhotosLibraryAppendonly,
@@ -895,6 +896,26 @@ export function AppProviders({ children }: { children: ReactNode }) {
   );
   const [driveFileGranted, setDriveFileGranted] = useState<boolean | null>(null);
 
+  const googleSessionControllerRef =
+    useRef<ReturnType<typeof createGoogleSessionClientController> | null>(null);
+  if (googleSessionControllerRef.current === null) {
+    googleSessionControllerRef.current = createGoogleSessionClientController({
+      onRestored(accessToken) {
+        accessTokenRef.current = accessToken;
+        setDriveFileGranted(true);
+        setGoogleStatus("connected");
+        setGoogleMessage(
+          "Google接続済みです。認証情報は画面表示や永続保存を行いません。",
+        );
+      },
+      onCreateFailed() {
+        setGoogleMessage(
+          "Google接続済みです。次回再読み込み後は再接続が必要になる可能性があります。",
+        );
+      },
+    });
+  }
+
   const [driveStatus, setDriveStatus] =
     useState<DriveWorkspaceStatus>("unchecked");
   const [driveMessage, setDriveMessage] = useState(initialDriveMessage);
@@ -1069,6 +1090,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
       pendingAssetCleanupDeletePlanRef.current = null;
       assetCleanupDeletePreflightOwnerRef.current = null;
       assetCleanupDeleteInFlightRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = googleSessionControllerRef.current;
+    if (!controller) {
+      return;
+    }
+    void controller.restoreOnPageLoad();
+    return () => {
+      controller.dispose();
     };
   }, []);
 
@@ -2102,6 +2134,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function resetGoogleAfterDriveAuthFailure() {
+    googleSessionControllerRef.current?.invalidate();
     clearDriveVideoPlaybackSessions();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
@@ -2113,6 +2146,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     );
     setWorkspaceReadyContext(null);
     resetProjectState();
+    googleSessionControllerRef.current?.deleteAfterLocalDisconnect();
   }
 
   function applyDriveCheckResult(result: DriveWorkspaceCheckResult) {
@@ -2242,6 +2276,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
         );
         abortDriveOperation();
         resetDriveState();
+        void googleSessionControllerRef.current?.persistAfterManualConnect(
+          tokenResponse,
+        );
       },
       error_callback: (error) => {
         if (handlePhotosTokenErrorCallback()) {
@@ -2272,15 +2309,24 @@ export function AppProviders({ children }: { children: ReactNode }) {
       },
     });
 
-    setGoogleStatus("notConnected");
-    setGoogleMessage("Google接続を開始できます。");
     abortDriveOperation();
     resetDriveState();
+    if (accessTokenRef.current) {
+      setDriveFileGranted(true);
+      setGoogleStatus("connected");
+      setGoogleMessage(
+        "Google接続済みです。認証情報は画面表示や永続保存を行いません。",
+      );
+    } else {
+      setGoogleStatus("notConnected");
+      setGoogleMessage("Google接続を開始できます。");
+    }
   }
 
    function connectGoogle() {
     abortDriveOperation();
     clearGoogleAuthTimeout();
+    googleSessionControllerRef.current?.invalidate();
 
     if (!hasClientId) {
       accessTokenRef.current = null;
@@ -2345,6 +2391,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
   function resetGoogleAuthFlow() {
+    googleSessionControllerRef.current?.invalidate();
     clearDriveVideoPlaybackSessions();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
@@ -2361,9 +2408,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
         ? "Google認証状態をリセットしました。iPadの場合は、App SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、もう一度Google接続を開始してください。"
         : "NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。",
     );
+    googleSessionControllerRef.current?.deleteAfterLocalDisconnect();
   }
 
   function disconnectGoogle() {
+    googleSessionControllerRef.current?.invalidate();
     clearDriveVideoPlaybackSessions();
     abortDriveOperation();
     clearGoogleAuthTimeout();
@@ -2379,6 +2428,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         : "NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。",
     );
     resetDriveState();
+    googleSessionControllerRef.current?.deleteAfterLocalDisconnect();
   }
 
   async function startAssetImport() {
