@@ -2235,7 +2235,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       tokenClient.requestAccessToken({
         scope: DRIVE_FILE_SCOPE,
         include_granted_scopes: false,
-        prompt: "",
+        prompt: "none",
       });
     } catch {
       failSilentDriveRestore();

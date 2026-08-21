@@ -40,7 +40,8 @@ describe("google connection restore wiring", () => {
     expect(restore).toContain('tokenRequestKindRef.current = "driveRestore"');
     expect(restore).toContain("scope: DRIVE_FILE_SCOPE");
     expect(restore).toContain("include_granted_scopes: false");
-    expect(restore).toContain('prompt: ""');
+    expect(restore).toContain('prompt: "none"');
+    expect(restore).not.toContain('prompt: ""');
     expect(restore).not.toContain("DRIVE_AND_PHOTOS_PICKER_SCOPES");
     expect(restore).not.toContain("PHOTOS_LIBRARY_APPENDONLY_SCOPE");
     expect(restore).not.toContain("GOOGLE_PHOTOS_EXPORT_SCOPE");
@@ -58,6 +59,26 @@ describe("google connection restore wiring", () => {
     expect(fail).not.toContain("connectGoogle(");
     expect(fail).not.toContain('prompt: "select_account"');
     expect(fail).not.toContain("requestAccessToken");
+  });
+
+  it("keeps visible account selection on the manual connect path only", () => {
+    const restore = extractFunction(providers, "trySilentDriveRestore");
+    const connect = extractFunction(providers, "connectGoogle");
+    const exportInitStart = providers.indexOf(
+      "photosExportTokenClientRef.current = oauth2.initTokenClient({",
+    );
+    const exportInitEnd = providers.indexOf(
+      'setGoogleStatus("notConnected")',
+      exportInitStart,
+    );
+    const exportInit = providers.slice(exportInitStart, exportInitEnd);
+
+    expect(restore.match(/requestAccessToken/g)).toHaveLength(1);
+    expect(connect).toContain('prompt: "select_account"');
+    expect(connect).not.toContain('prompt: "none"');
+    expect(exportInit).toContain('prompt: "consent"');
+    expect(exportInit).toContain("scope: GOOGLE_PHOTOS_EXPORT_SCOPE");
+    expect(exportInit).toContain("include_granted_scopes: false");
   });
 
   it("clears the restore marker on disconnect, reset, and Drive auth failure", () => {

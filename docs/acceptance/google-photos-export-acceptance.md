@@ -128,9 +128,22 @@ JPEG画像2枚の作品を、Google Photosの新規albumへexportした。
 - Admin最上部headerの写真 / 動画件数
 - access tokenを永続化しないまま、明示login後60分以内のrefreshでGoogle Drive接続をbest-effort silent restoreする
 
+2026-08-21の実機Previewでは、次が未達だったため追加fixを入れた。
+
+- headerの写真 / 動画件数は確認できた
+- 作品カードは「スライド / 素材」の旧表示のままだった
+- 「この作品を再生」が過去に選んだ作品をPlayerへ出していた
+- refresh時にGoogleアカウント選択画面が表示された
+
+追加fixの内容:
+
+- 全作品カードも写真 / 動画件数へ揃える
+- PlayerはURLの`projectId`をauthorityにする
+- 自動restoreは`prompt: "none"`だけを使い、visible account chooserを開かない
+
 これらのfeedback fix後の新HEADについて、Google Photos v1 / v2を再実施した記録ではない。この文書を「新HEADもmanual acceptance済み」とは読まない。
 
-selected playback UX / media count / connection restoreについては、新HEADのtargeted Preview re-smokeが必要である。silent restoreはiPad / WebKitまたはGoogle側の状態により拒否されることがあり、60分間必ず再ログインなしで使える保証ではない。
+selected playback UX / media count / connection restoreについては、新HEADのtargeted Preview re-smokeが必要である。`prompt: "none"`へ変えても、iPad / WebKitまたはGoogle側がsilent authorizationを拒否すれば手動再接続が必要である。60分間必ず維持できる保証ではない。
 
 Production acceptanceは引き続き未実施である。
 

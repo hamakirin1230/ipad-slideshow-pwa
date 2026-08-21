@@ -187,8 +187,11 @@ describe("current documentation contract", () => {
     expect(googlePhotosExportAcceptance).toContain(
       "新HEADもmanual acceptance済み",
     );
+    expect(googlePhotosExportAcceptance).toContain('prompt: "none"');
     expect(rootReadme).not.toContain("60分tokenを保存");
     expect(currentContext).not.toContain("60分tokenを保存");
     expect(googlePhotosExportAcceptance).not.toContain("60分tokenを保存");
+    expect(rootReadme).not.toContain("60分必ず維持");
+    expect(currentContext).not.toContain("60分必ず維持");
   });
 });
