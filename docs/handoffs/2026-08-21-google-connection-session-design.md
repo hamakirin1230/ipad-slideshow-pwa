@@ -1,8 +1,8 @@
 # Google connection session design handoff
 
 Date: 2026-08-21
-Branch: `docs/google-session-gate0-result`
-Status: architecture + Gate 0 FAIL recorded. Session not implemented.
+Branch: `feature/google-session-backend`
+Status: Phase 1 hosting migration PASS. 60-minute Google session not implemented.
 
 ## 1. 目的
 
@@ -23,7 +23,7 @@ Status: architecture + Gate 0 FAIL recorded. Session not implemented.
 - Google scope: `drive.file`のまま
 - cookie: 256-bit opaque session IDだけ。`__Host-` / HttpOnly / Secure / SameSite=Strict / Path=/ / Domainなし / Max-Age ≤ 3600
 - Redis lookup key: `SHA-256(sessionId)`。raw session IDは保存しない
-- store: Upstash Redis via Vercel Native integration。このbranchではprovisionしない
+- store: Upstash Redis via Vercel Native integration。まだprovisionしない
 - access tokenはbrowser storageへ置かない
 - Photos export / Pickerはsession対象外
 - restoreごとのGoogle tokeninfoは呼ばない
@@ -33,21 +33,26 @@ Status: architecture + Gate 0 FAIL recorded. Session not implemented.
 
 Gate 0 = FAIL。
 
-`spike/google-session-vercel-function`でWeb fetch handlerとclassic Node handlerをPreview検証した。static export維持のままlocal / Preview buildは成功し、既存static routesは生成された。Vercelはroot `/api/session-probe`をFunctionとして認識し、routingは404ではなかった。しかしGET invocationはどちらもFUNCTION_INVOCATION_FAILED。classic Node handlerではCommonJS loaderがES moduleの`export default`を読めなかった。
+`spike/google-session-vercel-function`でWeb fetch handlerとclassic Node handlerをPreview検証した。static export維持のままlocal / Preview buildは成功し、既存static routesは生成された。Vercelはroot `/api/session-probe`をFunctionとして認識し、routingは404ではなかった。しかしGET invocationはどちらもFUNCTION_INVOCATION_FAILED。
 
-これは「Vercelでroot `/api`が絶対不可能」ではなく、現行repository構成の最小方式がgateを通らなかったという限定FAILである。third handler / `vercel.json` / module workaroundは試さない。spikeはmainへmergeしない。
+これは「Vercelでroot `/api`が絶対不可能」ではなく、当時の現行構成の最小方式がgateを通らなかったという限定FAILである。spikeはmainへmergeしない。
 
-## 5. hosting
+## 5. Phase 1 hosting
 
-次は`output: "export"`撤去 + App Router Route Handler。
+Phase 1 hosting migration = PASS。
 
-次branch候補: `feature/google-session-backend`。最初のcommitはhosting migrationと秘密情報なしの`src/app/api/session-probe/route.ts`。Google token / Redis / cookie / encryptionはまだ入れない。60分sessionは未実装。
+`output: "export"`撤去 + App Router Route Handlerが、このrepositoryのPreview acceptance済みhosting authorityである。
 
-## 6. まだやらないこと
+- `GET /api/session-probe/` = 200
+- fixed JSON `google-session-app-router-probe`
+- `Cache-Control: no-store`
+- FUNCTION_INVOCATION_FAILEDなし
+- `/` `/settings/` `/admin/` `/player/` `/system/` OK
+- existing installed PWA OK
+- offline Playerの明らかな回帰なし
 
-- このdocs branchでのruntime実装
-- spikeのmain merge
-- Redis provision
-- Vercel env追加
-- Google Cloud変更
-- push / main merge
+60分session本体は未実装。Redis / cookie / AES-GCM / create-restore-delete API / AppProviders wiringは未実装。Photos OAuthは変更していない。
+
+## 6. 次
+
+Phase 2: server-only crypto / session primitives。Redisはまだprovisionしない。Google token / cookie / Redis / API wiringはPhase 2最初のcommitに入れない。

@@ -1,20 +1,20 @@
 # Google connection 60-minute session
 
 Date: 2026-08-21
-Status: Implementation-front architecture. Gate 0 FAIL. Session not implemented.
-Branch: `design/google-connection-session` / `docs/google-session-gate0-result`
+Status: Phase 1 hosting migration PASS. 60-minute Google session not implemented.
+Branch: `feature/google-session-backend`
 
-この文書は、明示的な「Googleへ接続」のあと、page refreshしても最大約60分はGoogle account chooserを出さず Drive 接続を復元するための実装前architectureである。runtime、package、Vercel configはまだ変更しない。この文書を「60分接続維持は実装済み」とは読まない。
+この文書は、明示的な「Googleへ接続」のあと、page refreshしても最大約60分はGoogle account chooserを出さず Drive 接続を復元するためのarchitectureである。Phase 1 hosting migrationはPreview acceptance済みである。この文書を「60分接続維持は実装済み」とは読まない。session restore、cookie、Redis、token encryptionは未実装である。
 
 要件は「必ず60分」ではない。Google access tokenの`expires_in`が60分未満なら、その短い方をauthorityにする。silent延長は禁止する。restoreするたびにTTLを延長しない。「60分保証」とは書かない。
 
-`output: "export"`の撤去は、Gate 0 FAILにより次implementationの方針として確定する。Next.js App Routerのrequest-dependent Route Handler / Cookies APIはstatic exportでは使えない。Vercel root `/api` Functionは、このrepositoryの現行構成（static export維持、package/module変更なし、`vercel.json`なし、dependency追加なし、routing workaroundなし）ではinvocationに失敗した。一般に「Vercelでroot `/api`が不可能」という意味ではない。
+`output: "export"`の撤去 + Next.js App Router Route Handlerは、Gate 0 FAIL後のhosting方針としてPreview acceptance済みである。これが今後のserver session実装のhosting authorityである。Vercel root `/api` Functionは、このrepositoryの現行構成（当時のstatic export維持、package/module変更なし、`vercel.json`なし、dependency追加なし、routing workaroundなし）ではinvocationに失敗した。一般に「Vercelでroot `/api`が不可能」という意味ではない。
 
 ## 現行契約（このrepositoryで確認した事実）
 
 確認対象: `next.config.ts`、`package.json`、`src/app/app-providers.tsx`、`src/lib/google-auth.ts`、`public/sw.js`、`src/app/root-deployment-contract.test.ts`、`docs/environment-security.md`、`docs/current-context.md`、`docs/acceptance/google-photos-export-acceptance.md`。
 
-- Next.js 16.2.6。`output: "export"` かつ `trailingSlash: true`。`images.unoptimized: true`。`vercel.json`はない。`app/api`もroot `api/`もない
+- Next.js 16.2.6。`output: "export"`は撤去済み。`trailingSlash: true`。`images.unoptimized: true`。`vercel.json`はない。秘密情報なしのApp Router probe `src/app/api/session-probe/route.ts`がある。Google session APIはまだない
 - hostingはVercel Productionのみ。GitHub Pages deployは廃止済み。CIは`pnpm test` / `lint` / `build`
 - Drive OAuthはbrowser GIS token client。scopeは`https://www.googleapis.com/auth/drive.file`。手動「Googleへ接続」だけが`prompt: "select_account"`で`requestAccessToken`する
 - GIS ready / page loadでは`requestAccessToken`しない。`prompt: ""` / `prompt: "none"`のpage-load silent restoreはPreviewで失敗し、撤去済み。再試行しない
@@ -67,7 +67,7 @@ OAuth web-server flow、Client Secret、`access_type=offline`、refresh token、
 - Photos export / Picker: 変更しない
 - page-load silent GIS: 使わない
 
-要件を満たせる。採用する。hostingはGate 0 FAILにより、`output: "export"`撤去 + App Router Route Handlerとする。60分session本体はまだ未実装である。
+要件を満たせる。採用する。hostingはGate 0 FAILのあと、`output: "export"`撤去 + App Router Route HandlerをPhase 1でPreview acceptanceした。60分session本体はまだ未実装である。
 
 ## Recommended architecture
 
@@ -133,14 +133,50 @@ raw Vercel request ID、temporary Preview URL、完全なruntime logは記録し
 
 ### 次のhosting方針
 
-Gate 0 FAILにより次を採用する。
+Gate 0 FAILにより次を採用し、Phase 1でPreview acceptanceした。これが今後のserver session実装のhosting authorityである。
 
 - `output: "export"`を撤去する
 - Next.js App Router Route Handlerを使う
-- `trailingSlash: true`はPWA path互換のためまず維持する
+- `trailingSlash: true`はPWA path互換のため維持する
 - `images.unoptimized: true`、root `start_url` / `scope`、manifest、`/sw.js`は維持する
 - SWは`/api/`をcache / interceptしない
-- `root-deployment-contract` testはhosting変更commitで更新する
+- `root-deployment-contract` testは`output: "export"`必須を外した
+
+## Phase 1: hosting migration result
+
+Phase 1 hosting migration = **PASS**。
+
+確認済み（Preview / user acceptance。全部OK）:
+
+- `output: "export"`を撤去
+- `trailingSlash: true`維持
+- `images.unoptimized: true`維持
+- App Router Route Handler `src/app/api/session-probe/route.ts`
+- Vercel Preview deployment READY
+- `GET /api/session-probe/` = 200
+- `Content-Type: application/json`
+- `Cache-Control: no-store`
+- body semantic `{ "ok": true, "kind": "google-session-app-router-probe" }`
+- Vercel runtime logでも200
+- FUNCTION_INVOCATION_FAILEDなし
+- Home `/`、Settings `/settings/`、Admin `/admin/`、Player `/player/`、System `/system/`
+- existing installed PWA
+- offline Playerの明らかな回帰なし
+
+temporary Preview URL、deployment ID、完全なSHAは記録しない。
+
+60分Google connection session本体は未実装のままである。未実装:
+
+- Redis / Upstash
+- cookie session
+- AES-GCM token encryption
+- server session persistence
+- create / restore / delete session API
+- AppProviders restore wiring
+- Drive token session create
+- disconnect session delete
+
+Photos OAuthは変更していない。
 
 session API候補（本物は後続commit）:
 
@@ -150,7 +186,7 @@ src/app/api/google-session/restore/route.ts
 src/app/api/google-session/delete/route.ts
 ```
 
-最初のimplementation commitでは本物のsession APIを一気に作らない。hosting migrationを独立させる。
+canonical pathは`trailingSlash: true`に合わせ、slash付きを使う。
 
 ## Session store
 
@@ -317,7 +353,7 @@ src/app/api/google-session/restore/route.ts
 src/app/api/google-session/delete/route.ts
 ```
 
-本物のsession APIはhosting migrationと秘密情報なしprobeのPreview確認後に作る。
+本物のsession APIはPhase 1 hosting acceptanceのあと、crypto primitiveの次に作る。
 
 restore:
 
@@ -412,20 +448,20 @@ Client Secretが必要になるのは案Bだけである。案Cでは不要。
 
 ## Implementation commit分割案
 
-runtimeはこのdocs commitに含めない。次は`main`から`feature/google-session-backend`を作る。
+Phase 1は完了。次は`feature/google-session-backend`上でPhase 2へ進む。
 
-1. Phase 1 hosting migration。独立commit。目安messageは`chore: enable next server functions`。`next.config.ts`から`output: "export"`のみ撤去する。`trailingSlash: true`と`images.unoptimized: true`は維持する。既存route、PWA `start_url: /`、`scope: /`、manifest、`sw.js`、static assets、offline Playerを壊さない。秘密情報なしの`src/app/api/session-probe/route.ts`を追加し、Vercel Previewで200を確認する。このPhaseではGoogle token / Redis / cookie / encryption / OAuthは入れない
-2. session ID生成、SHA-256 lookup key、AES-GCM、TTL計算、Redis adapterのpure moduleとunit test
+1. Phase 1 hosting migration。完了。`chore: enable next server functions`。`output: "export"`撤去、秘密情報なしApp Router probe、Preview PASS
+2. Phase 2 server-only crypto / session primitives。まだRedisをprovisionしない。環境依存なしunit testから始める。cryptographically secure session ID、SHA-256 lookup key、AES-256-GCM encrypt/decrypt、absolute expiry normalization、3600秒上限、scope metadata normalization。Google token / cookie / Redis / API route wiringはこの最初のcommitに入れない
 3. create / restore / delete Route Handler。Origin / `Sec-Fetch-Site` / Content-Type / body size / no-store。tokenをlogしないtest。Drive GIS callbackだけがcreateへ渡るcontract test
 4. `AppProviders`配線。manual connect成功後create。page loadでrestore。disconnect / Drive auth failureでdelete。GIS silentなし。create失敗はconnected維持。Photos経路非回帰test
-5. Preview acceptance。iPad PWA cookieを必須にする
+5. session Preview acceptance。iPad PWA cookieを必須にする
 6. 実装後docs: `environment-security.md`、`current-context.md`、acceptance。「60分保証」と書かない
 
-各commitはrevert可能な大きさにする。Phase 1のhosting変更だけ先にPreviewへ出し、既存PWAが壊れたらそのcommitをrevertする。
+各commitはrevert可能な大きさにする。hosting変更で既存PWAが壊れたらそのcommitをrevertする。
 
 ## Preview acceptance plan
 
-Gate 0はFAIL済み。token persistenceのacceptanceはPhase 1のApp Router probeがPreviewで200になったあと。確認していない項目をpassedへしない。token、email、Drive ID、Preview URLは記録しない。
+Gate 0はFAIL済み。Phase 1 hosting migrationはPASS。token persistenceのacceptanceはsession API実装後。確認していない項目をpassedへしない。token、email、Drive ID、Preview URLは記録しない。
 
 1. 明示「Googleへ接続」成功。chooserはこの操作のときだけ
 2. 約5分後refresh → chooserなし → connected restore
@@ -446,9 +482,8 @@ PWA新規install、WebP/PNG/動画Photos export、publication abnormal writeは�
 
 ## Rollback strategy
 
-- 実装前のmainは今日の契約のまま。このdocs branchをmergeしてもruntime影響はない
-- Gate 0 spikeはfailed experimental evidence。mainへmergeしない。probe runtimeもmainへ入れない
-- Phase 1で`output: "export"`を撤去して既存PWAが壊れたら、そのcommitをrevertしてstatic exportへ戻す
+- Phase 1 hostingはPreview accepted。session未実装のままrevertする場合は`output: "export"`撤去commitを戻す
+- Gate 0 spikeはfailed experimental evidence。mainへmergeしない
 - session API導入後の障害は、APIを失敗させてclientを現行`notConnected`へ落とす。chooser自動起動へは戻さない
 - Redis / 暗号化key障害時はconnect自体を止めず、persistence unavailable
 - Vercel rollbackはserver sessionを消さない。TTLで消える。必要ならRedis flushはユーザーがDashboardで行う。docsへ接続情報を書かない
@@ -463,14 +498,14 @@ PWA新規install、WebP/PNG/動画Photos export、publication abnormal writeは�
 - Google tokeninfoをrestoreごとに呼ぶこと
 - tokeninfoへaccess tokenをquery parameterとして送ること
 - 「60分保証」
-- このcommitでのRedis provision、env追加、runtime変更
+- このcommitでのRedis provision、env追加
 - Gate 0 spikeをmainへmergeすること
 - 同じspikeでthird handler / `package.json` type変更 / `vercel.json` / module workaroundを試すこと
+- Phase 2最初のcommitへGoogle token / cookie / Redis / API wiringを入れること
 
 ## 未決でPreviewへ持ち越す項目
 
-- Phase 1のApp Router probeがVercel Previewで200になるか
-- `trailingSlash: true`とApp Router `/api/*` POSTの相性。必要ならAPI pathだけredirect対象外にする
+- `trailingSlash: true`と将来のsession POST `/api/google-session/*/` の相性。Phase 1 probeのGET slash付きpathはPASS。必要ならAPI pathだけredirect対象外にする
 - iPad standalone PWAで`SameSite=Strict` + `__Host-`が実際に残るか。ダメならLaxへ落とす判断はPreview evidenceだけで行う
 - cookie名の最終文字列
 - Upstash Redisの具体plan / リージョン。ユーザーがVercel Dashboardで選ぶ
@@ -493,10 +528,10 @@ Client Secret: 不要。
 
 refresh token: 不要。
 
-output: "export": Gate 0 FAIL。現行構成の最小root `/api`共存はinvocationに失敗した。次は`output: "export"`撤去 + App Router Route Handler。static export維持は採用しない。60分session自体はまだ未実装。
+output: "export": Gate 0 FAILのあと撤去。Phase 1 hosting migration = PASS。App Router Route Handlerがhosting authority。60分session自体はまだ未実装。
 
-Implementation commits: Phase 1 hosting migration + secretなしApp Router probe → crypto/store → session Route Handler → AppProviders配線 → Preview acceptance → docs。
+Implementation commits: Phase 1完了 → Phase 2 server-only crypto primitives（Redis未provision） → session Route Handler → AppProviders配線 → session Preview acceptance → docs。
 
-Preview acceptance gates: Phase 1 probeの200確認のあと、上記1–12。iPad PWA cookieは必須。
+Preview acceptance gates: hosting probeはPASS。session本体の1–12は未実施。iPad PWA cookieは必須。
 
-Rollback: spikeはmainへ入れない。export撤去は独立revert可能にする。API失敗時は現行未接続へ安全側に倒す。
+Rollback: spikeはmainへ入れない。export撤去は独立revert可能。API失敗時は現行未接続へ安全側に倒す。

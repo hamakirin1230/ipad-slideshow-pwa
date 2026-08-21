@@ -212,8 +212,10 @@ describe("current documentation contract", () => {
     expect(currentContext).toContain("実装済みではない");
     expect(currentContext).toContain("Gate 0");
     expect(currentContext).toContain("FAIL");
+    expect(currentContext).toContain("Phase 1 hosting migrationはPASS");
     expect(currentContext).toContain('output:"export"');
     expect(currentContext).not.toContain("Gate 0 PASS");
+    expect(currentContext).not.toContain("session restore実装済み");
     expect(docsIndex).toContain("design/google-connection-60-minute-session.md");
     expect(docsIndex).toContain("## Design in progress");
     expect(rootReadme).not.toContain("60分tokenを保存");
