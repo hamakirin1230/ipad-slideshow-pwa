@@ -149,7 +149,7 @@ function GooglePhotosExportPanelSession() {
             <h2 id="google-photos-export-heading">Googleフォトへ書き出す</h2>
           </CardTitle>
           <CardDescription className="text-slate-300">
-            選択中の作品を、Googleフォトの新しいアルバムへコピーします。Driveの公開版作成とは別の操作です。
+            選択中の作品の写真を、Googleフォトの新しいアルバムへコピーします。動画は書き出しません。Driveの公開版作成とは別の操作です。
           </CardDescription>
         </CardHeader>
 
@@ -256,25 +256,36 @@ function ExportReview({
     <div className="space-y-4 rounded-2xl border border-white/10 bg-black/25 p-4">
       <dl className="grid gap-2 sm:grid-cols-2">
         <ReviewItem label="作品名" value={review.projectTitle} />
-        <ReviewItem label="スライド数" value={`${review.slideCount}件`} />
-        <ReviewItem label="写真" value={`${review.photoCount}件`} />
-        <ReviewItem label="動画" value={`${review.videoCount}件`} />
         <ReviewItem
-          label="元素材合計容量"
+          label="元のスライド数"
+          value={`${review.sourceSlideCount}件`}
+        />
+        <ReviewItem
+          label="書き出す写真"
+          value={`${review.exportPhotoCount}件`}
+        />
+        <ReviewItem
+          label="対象外の動画"
+          value={`${review.skippedVideoCount}件`}
+        />
+        <ReviewItem
+          label="書き出す写真の合計容量"
           value={formatGooglePhotosExportBytes(review.totalBytes)}
         />
         <ReviewItem label="作成するアルバム" value={review.albumTitle} />
       </dl>
 
       <ul className="list-disc space-y-2 pl-5 text-slate-300">
+        <li>
+          写真 {review.exportPhotoCount}件を書き出します。動画{" "}
+          {review.skippedVideoCount}件はGoogleフォトへの書き出し対象外です。
+        </li>
         <li>Googleフォトに新しいアルバムを作成します。既存アルバムは更新しません。</li>
         <li>Googleアカウントの保存容量を使用します。</li>
         <li>表示時間はGoogleフォトへ引き継がれません。</li>
         <li>画像スライドのテロップは、Googleフォト用の画像に焼き込んで書き出します。</li>
         <li>画像のテロップは、Googleフォトの説明にも保存します。</li>
-        <li>
-          動画スライドにはテロップを焼き込みません。テロップはGoogleフォトの説明として保存します。
-        </li>
+        <li>動画はGoogleフォトへ書き出しません。作品とDrive上の動画はそのまま残ります。</li>
         <li>Google Drive上の元画像・元動画は変更しません。</li>
         <li>
           画像はGoogleフォト用に再生成するため、書き出し後の容量は元素材と異なる場合があります。
@@ -328,8 +339,7 @@ function ExportProgress({
   onAbort: () => void;
 }) {
   const currentSlide = progress?.currentSlide ?? 1;
-  const totalSlides = progress?.totalSlides ?? review.slideCount;
-  const mediaKind = progress?.mediaKind === "video" ? "動画" : "写真";
+  const totalSlides = progress?.totalSlides ?? review.exportPhotoCount;
 
   return (
     <div
@@ -339,7 +349,7 @@ function ExportProgress({
       <p className="font-medium">
         全体: {currentSlide} / {totalSlides}
       </p>
-      <p>現在のスライド: {currentSlide}（{mediaKind}）</p>
+      <p>現在の写真: {currentSlide}</p>
       {progress?.phase === "renderingImage" ? (
         <p className="flex items-center gap-2">
           <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
@@ -379,7 +389,7 @@ function ExportSuccess({
       <p className="font-medium">Googleフォトへの書き出しが完了しました</p>
       <dl className="grid gap-2 sm:grid-cols-2">
         <ReviewItem label="アルバム" value={result.albumTitle} />
-        <ReviewItem label="件数" value={`${result.mediaItemCount}件`} />
+        <ReviewItem label="書き出した写真" value={`${result.mediaItemCount}件`} />
         <ReviewItem label="完了日時" value={formatUiDateTime(result.completedAt)} />
       </dl>
       {result.productUrl ? (

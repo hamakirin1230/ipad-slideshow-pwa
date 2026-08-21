@@ -14,13 +14,15 @@ describe("google photos export review UI", () => {
       source.workspace.indexOf("<ProjectPublishPanel />"),
     );
     expect(source.panel).toContain("Googleフォトへ書き出す");
+    expect(source.panel).toContain("動画は書き出しません");
     expect(source.panel).toContain("Driveの公開版作成とは別の操作です");
     expect(source.panel).not.toMatch(/公開URL|共有URL|共有リンク/);
   });
 
   it("shows progress and a Photos open link without calling it a share URL", () => {
     expect(source.panel).toContain("全体:");
-    expect(source.panel).toContain("現在のスライド:");
+    expect(source.panel).toContain("現在の写真:");
+    expect(source.panel).not.toContain("現在のスライド:");
     expect(source.panel).toContain("アップロード:");
     expect(source.panel).toContain("Googleフォト用の画像を作成しています");
     expect(source.panel).toContain("Googleフォトへアップロードしています");
@@ -48,12 +50,20 @@ describe("google photos export review UI", () => {
       "画像のテロップは、Googleフォトの説明にも保存します。",
     );
     expect(source.panel).toContain(
-      "動画スライドにはテロップを焼き込みません。テロップはGoogleフォトの説明として保存します。",
+      "動画はGoogleフォトへ書き出しません。作品とDrive上の動画はそのまま残ります。",
     );
+    expect(source.panel).toContain("書き出し対象外");
+    expect(source.panel).toContain("review.exportPhotoCount");
+    expect(source.panel).toContain("review.skippedVideoCount");
+    expect(source.panel).toContain("review.sourceSlideCount");
+    expect(source.panel).toContain("書き出す写真の合計容量");
+    expect(source.panel).not.toContain("review.videoCount");
+    expect(source.panel).not.toContain('label="スライド数"');
+    expect(source.panel).not.toContain('label="動画"');
     expect(source.panel).toContain(
       "Google Drive上の元画像・元動画は変更しません。",
     );
-    expect(source.panel).toContain("元素材合計容量");
+    expect(source.panel).toContain("元素材と異なる場合があります。");
     expect(source.panel).not.toContain(
       "テロップはGoogleフォトの説明として書き出します。",
     );
@@ -84,6 +94,15 @@ describe("google photos export review UI", () => {
     );
     expect(source.providers).not.toContain("localStorage");
     expect(source.panel).not.toContain("sessionStorage");
+    expect(source.providers).toContain("assertGooglePhotosExportPlanIsImageOnly");
+    expect(source.providers).toContain(
+      "await requestPhotosExportAccessToken(requestSequence);",
+    );
+    expect(
+      source.providers.indexOf("assertGooglePhotosExportPlanIsImageOnly(source.plan)"),
+    ).toBeLessThan(
+      source.providers.indexOf("await requestPhotosExportAccessToken(requestSequence);"),
+    );
     expect(source.providers).toContain("photosExportAccessTokenRef");
     expect(source.providers).toContain("scope: GOOGLE_PHOTOS_EXPORT_SCOPE");
     expect(source.providers).toContain(

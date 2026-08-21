@@ -55,7 +55,9 @@ describe("google photos export safety contract", () => {
       expect(source).not.toContain("indexedDB");
       expect(source).not.toContain("document.cookie");
     }
-    expect(workflow).toContain('item.mediaKind === "video"');
+    expect(workflow).toContain("assertGooglePhotosExportPlanIsImageOnly");
+    expect(workflow).toContain('item.mediaKind !== "image"');
+    expect(workflow).not.toContain("uploadVideoFromAuthoritativeOffset");
     expect(renderer).not.toContain("video/mp4");
   });
 
@@ -96,17 +98,13 @@ describe("google photos export safety contract", () => {
     expect(workflow).not.toContain("merged.set");
   });
 
-  it("keeps the video upload path on Drive range streams", () => {
+  it("rejects video items before any Photos upload starts", () => {
     const workflow =
       files.find((file) => file.name === "workflow.ts")?.source ?? "";
-    const start = workflow.indexOf(
-      "async function uploadVideoFromAuthoritativeOffset",
-    );
-    const next = workflow.indexOf("\nasync function ", start + 1);
-    const videoPath = workflow.slice(start, next === -1 ? undefined : next);
-    expect(videoPath).toContain("startByte: input.session.offset");
-    expect(videoPath).not.toContain("collectStreamBlob");
-    expect(videoPath).not.toContain("renderImage");
+    expect(workflow).toContain("assertGooglePhotosExportPlanIsImageOnly");
+    expect(workflow).not.toContain("async function uploadVideoFromAuthoritativeOffset");
+    expect(workflow).not.toContain("uploadGooglePhotosResumableStream({\n    stream,");
+    expect(workflow).toContain("collectStreamBlob");
   });
 
   it("keeps Photos export authorization appendonly-only", () => {

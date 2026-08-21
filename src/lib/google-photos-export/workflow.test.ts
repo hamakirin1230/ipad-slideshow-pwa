@@ -18,6 +18,8 @@ const plan: GooglePhotosExportPlan = {
   projectTitle: "夏の記録",
   albumTitle: "夏の記録 - 2026-08-16 11:05",
   totalBytes: 20,
+  sourceSlideCount: 2,
+  skippedVideoCount: 0,
   items: [
     {
       slideIndex: 0,
@@ -119,7 +121,7 @@ describe("google photos export workflow", () => {
     );
   });
 
-  it("never sends videos through the image renderer", async () => {
+  it("does not start Photos upload when an internal plan contains MP4", async () => {
     const adapter = createAdapter();
     const videoPlan = {
       ...plan,
@@ -136,34 +138,85 @@ describe("google photos export workflow", () => {
         },
       ],
       totalBytes: 20,
+      sourceSlideCount: 1,
+      skippedVideoCount: 0,
     };
-    adapter.library.batchCreateMediaItems = vi.fn(async () => ({
-      ok: true as const,
-      mediaItemIds: ["media-1"],
-    }));
 
     const result = await executeGooglePhotosExportWithAdapter(
-      executeInput({ plan: videoPlan }),
+      executeInput({ plan: videoPlan as GooglePhotosExportPlan }),
       adapter,
     );
 
-    expect(result.ok).toBe(true);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "unsupportedMedia" },
+    });
     expect(adapter.renderImage).not.toHaveBeenCalled();
-    expect(adapter.openDriveAssetStream).toHaveBeenCalledTimes(1);
-    expect(adapter.openDriveAssetStream).toHaveBeenCalledWith(
-      expect.objectContaining({
-        startByte: 0,
-        expectedSizeBytes: 20,
-        expectedMimeType: "video/mp4",
-      }),
+    expect(adapter.openDriveAssetStream).not.toHaveBeenCalled();
+    expect(adapter.resumable.startSession).not.toHaveBeenCalled();
+    expect(adapter.library.batchCreateMediaItems).not.toHaveBeenCalled();
+    expect(adapter.library.createAlbum).not.toHaveBeenCalled();
+  });
+
+  it("does not start Photos upload when an internal plan contains MOV", async () => {
+    const adapter = createAdapter();
+    const videoPlan = {
+      ...plan,
+      items: [
+        {
+          slideIndex: 0,
+          slideId: "slide-v",
+          assetFileId: "file-v",
+          mediaKind: "video" as const,
+          mimeType: "video/quicktime" as const,
+          sizeBytes: 20,
+          description: "",
+          fileName: "clip.mov",
+        },
+      ],
+      totalBytes: 20,
+      sourceSlideCount: 1,
+      skippedVideoCount: 0,
+    };
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      executeInput({ plan: videoPlan as GooglePhotosExportPlan }),
+      adapter,
     );
-    expect(adapter.resumable.startSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mimeType: "video/mp4",
-        sizeBytes: 20,
-        fileName: "clip.mp4",
-      }),
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "unsupportedMedia" },
+    });
+    expect(adapter.openDriveAssetStream).not.toHaveBeenCalled();
+    expect(adapter.resumable.startSession).not.toHaveBeenCalled();
+    expect(adapter.library.createAlbum).not.toHaveBeenCalled();
+  });
+
+  it("does not create an album when the export plan has no photos", async () => {
+    const adapter = createAdapter();
+    const emptyPlan = {
+      ...plan,
+      items: [],
+      totalBytes: 0,
+      sourceSlideCount: 1,
+      skippedVideoCount: 1,
+    };
+
+    const result = await executeGooglePhotosExportWithAdapter(
+      executeInput({ plan: emptyPlan }),
+      adapter,
     );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        kind: "noExportablePhotos",
+        message: GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES.noExportablePhotos,
+      },
+    });
+    expect(adapter.library.createAlbum).not.toHaveBeenCalled();
+    expect(adapter.resumable.startSession).not.toHaveBeenCalled();
   });
 
   it("does not start a Photos image session after a render failure", async () => {
@@ -429,7 +482,7 @@ describe("google photos export workflow", () => {
     expect(renderedImageRef.current).toBeNull();
   });
 
-  it("resumes a video upload from the authoritative session offset without blobifying it", async () => {
+  it("does not resume a video upload and stops before Photos write", async () => {
     const adapter = createAdapter();
     const videoPlan = {
       ...plan,
@@ -446,20 +499,13 @@ describe("google photos export workflow", () => {
         },
       ],
       totalBytes: 20,
+      sourceSlideCount: 1,
+      skippedVideoCount: 0,
     };
-    adapter.resumable.querySession = vi.fn(async () => ({
-      ok: true as const,
-      status: "active" as const,
-      offset: 7,
-    }));
-    adapter.library.batchCreateMediaItems = vi.fn(async () => ({
-      ok: true as const,
-      mediaItemIds: ["media-1"],
-    }));
 
     const result = await executeGooglePhotosExportWithAdapter(
       executeInput({
-        plan: videoPlan,
+        plan: videoPlan as GooglePhotosExportPlan,
         currentUpload: {
           slideIndex: 0,
           sessionUrl: "https://photos.example/existing-session",
@@ -473,17 +519,14 @@ describe("google photos export workflow", () => {
       adapter,
     );
 
-    expect(result.ok).toBe(true);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "unsupportedMedia" },
+    });
     expect(adapter.renderImage).not.toHaveBeenCalled();
     expect(adapter.resumable.startSession).not.toHaveBeenCalled();
-    expect(adapter.openDriveAssetStream).toHaveBeenCalledTimes(1);
-    expect(adapter.openDriveAssetStream).toHaveBeenCalledWith(
-      expect.objectContaining({
-        startByte: 7,
-        expectedSizeBytes: 20,
-        expectedMimeType: "video/mp4",
-      }),
-    );
+    expect(adapter.resumable.querySession).not.toHaveBeenCalled();
+    expect(adapter.openDriveAssetStream).not.toHaveBeenCalled();
   });
 });
 

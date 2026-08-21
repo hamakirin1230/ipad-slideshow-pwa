@@ -1,10 +1,7 @@
-import { DRIVE_VIDEO_MAX_BYTES } from "../drive-video-policy";
-
 export const GOOGLE_PHOTOS_EXPORT_MAX_SLIDE_COUNT = 50;
 export const GOOGLE_PHOTOS_ALBUM_TITLE_MAX_LENGTH = 500;
 export const GOOGLE_PHOTOS_EXPORT_FILENAME_MAX_LENGTH = 255;
 export const GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES = 200 * 1024 * 1024;
-export const GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES = DRIVE_VIDEO_MAX_BYTES;
 
 export const GOOGLE_PHOTOS_LIBRARY_UPLOADABLE_MIME_TYPES = [
   "image/jpeg",
@@ -23,8 +20,16 @@ export const DRIVE_PROJECT_EXPORTABLE_MIME_TYPES = [
   "video/quicktime",
 ] as const;
 
-export const GOOGLE_PHOTOS_EXPORT_MIME_TYPES =
-  DRIVE_PROJECT_EXPORTABLE_MIME_TYPES;
+export const GOOGLE_PHOTOS_EXPORT_SKIPPED_VIDEO_MIME_TYPES = [
+  "video/mp4",
+  "video/quicktime",
+] as const;
+
+export const GOOGLE_PHOTOS_EXPORT_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
 
 export type GooglePhotosExportMimeType =
   (typeof GOOGLE_PHOTOS_EXPORT_MIME_TYPES)[number];
@@ -35,6 +40,7 @@ export type GooglePhotosExportErrorKind =
   | "authorizationRequired"
   | "authorizationDenied"
   | "drivePreflightFailed"
+  | "noExportablePhotos"
   | "unsupportedMedia"
   | "duplicateSlidesUnsupported"
   | "sourceChanged"
@@ -69,14 +75,17 @@ export type GooglePhotosExportPlan = {
   projectTitle: string;
   albumTitle: string;
   totalBytes: number;
+  sourceSlideCount: number;
+  skippedVideoCount: number;
   items: GooglePhotosExportPlanItem[];
 };
 
 export type GooglePhotosExportReview = {
   projectTitle: string;
-  slideCount: number;
+  sourceSlideCount: number;
+  exportPhotoCount: number;
   photoCount: number;
-  videoCount: number;
+  skippedVideoCount: number;
   totalBytes: number;
   includesDuplicateSlides: boolean;
   albumTitle: string;
@@ -124,6 +133,18 @@ export function isGooglePhotosLibraryUploadableMimeType(value: string) {
   );
 }
 
+export function isDriveProjectExportableMimeType(value: string) {
+  return (DRIVE_PROJECT_EXPORTABLE_MIME_TYPES as readonly string[]).includes(
+    value,
+  );
+}
+
+export function isGooglePhotosExportSkippedVideoMimeType(value: string) {
+  return (
+    GOOGLE_PHOTOS_EXPORT_SKIPPED_VIDEO_MIME_TYPES as readonly string[]
+  ).includes(value);
+}
+
 export function isGooglePhotosExportMimeType(
   value: string,
 ): value is GooglePhotosExportMimeType {
@@ -152,8 +173,8 @@ export function isGooglePhotosExportFileSizeAllowed(input: {
     return false;
   }
 
-  if (input.mimeType.startsWith("video/")) {
-    return input.sizeBytes <= GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES;
+  if (!isGooglePhotosExportMimeType(input.mimeType)) {
+    return false;
   }
 
   return input.sizeBytes <= GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES;
@@ -191,6 +212,12 @@ export function googlePhotosExportSourceMatchesPreparedPlan(
   if (prepared.projectTitle !== fresh.projectTitle) {
     return false;
   }
+  if (prepared.sourceSlideCount !== fresh.sourceSlideCount) {
+    return false;
+  }
+  if (prepared.skippedVideoCount !== fresh.skippedVideoCount) {
+    return false;
+  }
   if (prepared.items.length !== fresh.items.length) {
     return false;
   }
@@ -217,15 +244,35 @@ export function buildGooglePhotosExportReview(
   const assetKeys = plan.items.map(
     (item) => `${item.assetFileId}:${item.mimeType}`,
   );
+  const exportPhotoCount = plan.items.length;
   return {
     projectTitle: plan.projectTitle,
-    slideCount: plan.items.length,
-    photoCount: plan.items.filter((item) => item.mediaKind === "image").length,
-    videoCount: plan.items.filter((item) => item.mediaKind === "video").length,
+    sourceSlideCount: plan.sourceSlideCount,
+    exportPhotoCount,
+    photoCount: exportPhotoCount,
+    skippedVideoCount: plan.skippedVideoCount,
     totalBytes: plan.totalBytes,
     includesDuplicateSlides: new Set(assetKeys).size < assetKeys.length,
     albumTitle: plan.albumTitle,
   };
+}
+
+export function assertGooglePhotosExportPlanIsImageOnly(
+  plan: GooglePhotosExportPlan,
+): SanitizedGooglePhotosExportError | null {
+  if (plan.items.length === 0) {
+    return createSanitizedGooglePhotosExportError("noExportablePhotos");
+  }
+
+  const hasNonImageItem = plan.items.some(
+    (item) =>
+      item.mediaKind !== "image" || !isGooglePhotosExportMimeType(item.mimeType),
+  );
+  if (hasNonImageItem) {
+    return createSanitizedGooglePhotosExportError("unsupportedMedia");
+  }
+
+  return null;
 }
 
 export function createSanitizedGooglePhotosExportError(
@@ -262,10 +309,11 @@ export const GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES: Record<
   authorizationDenied: "Googleフォトへの書き出し許可がキャンセルされました。",
   drivePreflightFailed:
     "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+  noExportablePhotos: "Googleフォトへ書き出せる写真がありません。",
   unsupportedMedia:
     "Googleフォトへ書き出せない形式のスライドがあるため、書き出しを開始しません。",
   duplicateSlidesUnsupported:
-    "同じ写真または動画を複数のスライドで使用しているため、現在のGoogleフォト書き出しでは順番を正確に再現できません。重複しているスライドを整理してから、もう一度お試しください。",
+    "同じ写真を複数のスライドで使用しているため、現在のGoogleフォト書き出しでは順番を正確に再現できません。重複しているスライドを整理してから、もう一度お試しください。",
   sourceChanged:
     "書き出し前の確認後に作品が変更されました。最新の内容を確認するため、もう一度『書き出し前に確認』を実行してください。",
   imageRenderFailed:
@@ -275,7 +323,7 @@ export const GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES: Record<
     "一部のスライドをGoogleフォトへ追加できませんでした。新しいアルバムは作成していません。",
   albumCreateFailed: "Googleフォトのアルバムを作成できませんでした。",
   albumAddFailed:
-    "アルバムへの追加に失敗しました。Googleフォトに写真や動画が残っている場合があります。",
+    "アルバムへの追加に失敗しました。Googleフォトに写真が残っている場合があります。",
   aborted: "Googleフォトへの書き出しを中止しました。",
 };
 
@@ -311,10 +359,6 @@ function getExportExtension(mimeType: GooglePhotosExportMimeType) {
       return "png";
     case "image/webp":
       return "webp";
-    case "video/mp4":
-      return "mp4";
-    case "video/quicktime":
-      return "mov";
   }
 }
 

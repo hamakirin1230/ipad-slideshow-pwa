@@ -34,11 +34,12 @@ import {
   type GooglePhotosRenderedImageHolder,
   type PrepareGooglePhotosExportReviewResult,
 } from "@/lib/google-photos-export/workflow";
-import type {
-  GooglePhotosExportPlan,
-  GooglePhotosExportProgress,
-  GooglePhotosExportRuntime,
-  SanitizedGooglePhotosExportSuccess,
+import {
+  assertGooglePhotosExportPlanIsImageOnly,
+  type GooglePhotosExportPlan,
+  type GooglePhotosExportProgress,
+  type GooglePhotosExportRuntime,
+  type SanitizedGooglePhotosExportSuccess,
 } from "@/lib/google-photos-export/contract";
 import {
   listProjectPublishRevisions,
@@ -5813,6 +5814,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
       if (!source.ok) {
         return source;
+      }
+      const imageOnlyError = assertGooglePhotosExportPlanIsImageOnly(source.plan);
+      if (imageOnlyError) {
+        return { ok: false, error: imageOnlyError };
       }
 
       try {

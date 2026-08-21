@@ -41,13 +41,18 @@ describe("google photos export drive source", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.plan.items.map((item) => item.slideIndex)).toEqual([0, 1, 2]);
+    expect(result.plan.items.map((item) => item.slideIndex)).toEqual([0, 1]);
+    expect(result.plan.items.map((item) => item.mediaKind)).toEqual([
+      "image",
+      "image",
+    ]);
     expect(result.plan.items.map((item) => item.description)).toEqual([
       "朝",
       "夜",
-      "",
     ]);
-    expect(result.plan.totalBytes).toBe(3500);
+    expect(result.plan.totalBytes).toBe(2000);
+    expect(result.plan.sourceSlideCount).toBe(3);
+    expect(result.plan.skippedVideoCount).toBe(1);
     expect(result.plan.items[0]?.assetFileId).not.toBe(
       result.plan.items[1]?.assetFileId,
     );
@@ -55,7 +60,54 @@ describe("google photos export drive source", () => {
     expect(JSON.stringify(result)).not.toContain("accessToken");
   });
 
-  it("blocks the same assetFileId used on multiple slides before a write plan", async () => {
+  it("keeps photo order when videos sit between photos", async () => {
+    const manifest = buildManifest();
+    const [photoA, photoB, video] = manifest.slides;
+    manifest.slides = [photoA!, video!, photoB!];
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ manifest }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.items.map((item) => item.slideIndex)).toEqual([0, 2]);
+    expect(result.plan.items.map((item) => item.description)).toEqual([
+      "朝",
+      "夜",
+    ]);
+    expect(result.plan.items.map((item) => item.fileName)).toEqual([
+      "beach.jpg",
+      "dusk.jpg",
+    ]);
+    expect(result.plan.skippedVideoCount).toBe(1);
+    expect(result.plan.sourceSlideCount).toBe(3);
+  });
+
+  it("skips video-only duplicates instead of blocking export", async () => {
+    const manifest = buildManifest();
+    manifest.slides[1] = {
+      ...manifest.slides[2]!,
+      slideId: SLIDE_IDS[1],
+      assetId: VIDEO_ASSET_ID,
+      assetFileId: "video-file",
+      assetName: "clip.mp4",
+      type: "video",
+      mimeType: "video/mp4",
+    };
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ manifest }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.items).toHaveLength(1);
+    expect(result.plan.items[0]?.mimeType).toBe("image/jpeg");
+    expect(result.plan.skippedVideoCount).toBe(2);
+  });
+
+  it("blocks the same photo assetFileId used on multiple slides before a write plan", async () => {
     const manifest = buildManifest();
     manifest.slides[1] = {
       ...manifest.slides[1]!,
@@ -144,7 +196,7 @@ describe("google photos export drive source", () => {
     expect(JSON.stringify(result)).not.toContain("image-file");
   });
 
-  it("blocks videos larger than the existing 5GiB limit", async () => {
+  it("does not apply the Drive 5GiB video limit on the Photos export plan", async () => {
     const files = defaultFiles();
     files["video-file"] = file("video-file", "clip.mp4", "video/mp4", "asset", {
       sizeBytes: DRIVE_VIDEO_MAX_BYTES + 1,
@@ -155,10 +207,71 @@ describe("google photos export drive source", () => {
       createAdapter({ files }),
     );
 
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.items.map((item) => item.mimeType)).toEqual([
+      "image/jpeg",
+      "image/jpeg",
+    ]);
+    expect(result.plan.skippedVideoCount).toBe(1);
+    expect(result.plan.totalBytes).toBe(2000);
+  });
+
+  it("skips MOV videos without creating upload items", async () => {
+    const manifest = buildManifest();
+    manifest.slides[2] = {
+      ...manifest.slides[2]!,
+      type: "video",
+      mimeType: "video/quicktime",
+      sourceMimeType: "video/quicktime",
+      assetName: "clip.mov",
+    };
+    const files = defaultFiles();
+    files["video-file"] = file(
+      "video-file",
+      "clip.mov",
+      "video/quicktime",
+      "asset",
+      {
+        sizeBytes: 1500,
+        appProperties: assetProperties(VIDEO_ASSET_ID),
+      },
+    );
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ manifest, files }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.items.every((item) => item.mediaKind === "image")).toBe(
+      true,
+    );
+    expect(result.plan.skippedVideoCount).toBe(1);
+    expect(JSON.stringify(result.plan.items)).not.toContain("video/quicktime");
+  });
+
+  it("does not start an export plan when the project has videos only", async () => {
+    const manifest = buildManifest();
+    manifest.slides = [
+      {
+        ...manifest.slides[2]!,
+        slideId: SLIDE_IDS[0],
+      },
+    ];
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ manifest }),
+    );
+
     expect(result).toMatchObject({
       ok: false,
-      error: { kind: "unsupportedMedia" },
+      error: { kind: "noExportablePhotos" },
     });
+    if (result.ok) return;
+    expect(result.error.message).toBe(
+      "Googleフォトへ書き出せる写真がありません。",
+    );
   });
 
   it("accepts an image at the 200MiB Photos limit and rejects one byte over", async () => {

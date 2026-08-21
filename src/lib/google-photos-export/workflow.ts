@@ -1,5 +1,6 @@
 import { readDriveFileMetadata, readDriveTextFile } from "../google-drive";
 import {
+  assertGooglePhotosExportPlanIsImageOnly,
   buildGooglePhotosExportReview,
   createSanitizedGooglePhotosExportError,
   googlePhotosExportSourceMatchesPreparedPlan,
@@ -230,6 +231,11 @@ export async function executeGooglePhotosExportWithAdapter(
   adapter: GooglePhotosExportWriteAdapter = defaultWriteAdapter,
 ): Promise<CommitGooglePhotosExportResult> {
   const { plan } = input.runtime;
+  const imageOnlyError = assertGooglePhotosExportPlanIsImageOnly(plan);
+  if (imageOnlyError) {
+    return { ok: false, error: imageOnlyError, canResume: false };
+  }
+
   const uploadTokens = [...input.runtime.uploadTokens];
   const uploadedFileNames = alignUploadedFileNames(
     uploadTokens,
@@ -249,103 +255,42 @@ export async function executeGooglePhotosExportWithAdapter(
   };
 
   try {
-    for (let slideIndex = uploadTokens.length; slideIndex < plan.items.length; slideIndex += 1) {
-      const item = plan.items[slideIndex];
+    for (
+      let exportIndex = uploadTokens.length;
+      exportIndex < plan.items.length;
+      exportIndex += 1
+    ) {
+      const item = plan.items[exportIndex];
       if (!item) {
         return failExport("drivePreflightFailed");
       }
-
-      if (item.mediaKind === "image") {
-        const exported = await exportRenderedImageSlide({
-          driveAccessToken: input.driveAccessToken,
-          photosAccessToken: input.photosAccessToken,
-          item,
-          currentUpload,
-          renderedImageRef,
-          signal: input.signal,
-          adapter,
-          onProgress: input.onProgress,
-          totalSlides: plan.items.length,
-          onSession: (next) => {
-            currentUpload = next;
-            publishRuntime();
-          },
-        });
-        if (!exported.ok) {
-          return exported;
-        }
-        uploadTokens.push(exported.uploadToken);
-        uploadedFileNames.push(exported.fileName);
-        currentUpload = null;
-        clearRenderedImage(renderedImageRef);
-        publishRuntime();
-        continue;
+      if (item.mediaKind !== "image") {
+        return failExport("unsupportedMedia");
       }
 
-      input.onProgress({
-        phase: "uploading",
-        currentSlide: slideIndex + 1,
-        totalSlides: plan.items.length,
-        mediaKind: item.mediaKind,
-        uploadedBytes: 0,
-        fileBytes: item.sizeBytes,
-      });
-
-      const session = await resolveResumableSession({
-        currentUpload,
-        payload: {
-          mimeType: item.mimeType,
-          sizeBytes: item.sizeBytes,
-          fileName: item.fileName,
-        },
-        slideIndex,
-        photosAccessToken: input.photosAccessToken,
-        signal: input.signal,
-        adapter: adapter.resumable,
-      });
-      currentUpload = {
-        slideIndex,
-        sessionUrl: session.sessionUrl,
-        chunkGranularity: session.chunkGranularity,
-        offset: session.offset,
-        payloadMimeType: item.mimeType,
-        payloadSizeBytes: item.sizeBytes,
-        payloadFileName: item.fileName,
-      };
-      publishRuntime();
-      input.onProgress({
-        phase: "uploading",
-        currentSlide: slideIndex + 1,
-        totalSlides: plan.items.length,
-        mediaKind: item.mediaKind,
-        uploadedBytes: session.offset,
-        fileBytes: item.sizeBytes,
-      });
-
-      const uploadToken = await uploadVideoFromAuthoritativeOffset({
+      const exported = await exportRenderedImageSlide({
         driveAccessToken: input.driveAccessToken,
+        photosAccessToken: input.photosAccessToken,
         item,
-        session,
+        exportIndex,
+        currentUpload,
+        renderedImageRef,
         signal: input.signal,
         adapter,
-        onOffset: (nextOffset) => {
-          currentUpload = currentUpload
-            ? { ...currentUpload, offset: nextOffset }
-            : currentUpload;
+        onProgress: input.onProgress,
+        totalSlides: plan.items.length,
+        onSession: (next) => {
+          currentUpload = next;
           publishRuntime();
-          input.onProgress({
-            phase: "uploading",
-            currentSlide: slideIndex + 1,
-            totalSlides: plan.items.length,
-            mediaKind: item.mediaKind,
-            uploadedBytes: nextOffset,
-            fileBytes: item.sizeBytes,
-          });
         },
       });
-      uploadTokens.push(uploadToken);
-      uploadedFileNames.push(item.fileName);
+      if (!exported.ok) {
+        return exported;
+      }
+      uploadTokens.push(exported.uploadToken);
+      uploadedFileNames.push(exported.fileName);
       currentUpload = null;
+      clearRenderedImage(renderedImageRef);
       publishRuntime();
     }
 
@@ -469,6 +414,7 @@ async function exportRenderedImageSlide(input: {
   driveAccessToken: string;
   photosAccessToken: string;
   item: GooglePhotosExportPlanItem;
+  exportIndex: number;
   currentUpload: GooglePhotosExportRuntime["currentUpload"];
   renderedImageRef: { current: GooglePhotosRenderedImageHolder | null };
   signal: AbortSignal;
@@ -480,14 +426,16 @@ async function exportRenderedImageSlide(input: {
   | { ok: true; uploadToken: string; fileName: string }
   | Extract<CommitGooglePhotosExportResult, { ok: false }>
 > {
-  const payload = await resolveRenderedImagePayload(input);
+  const payload = await resolveRenderedImagePayload({
+    ...input,
+  });
   if (!payload.ok) {
     return payload;
   }
 
   input.onProgress({
     phase: "uploading",
-    currentSlide: input.item.slideIndex + 1,
+    currentSlide: input.exportIndex + 1,
     totalSlides: input.totalSlides,
     mediaKind: "image",
     uploadedBytes: 0,
@@ -501,13 +449,13 @@ async function exportRenderedImageSlide(input: {
       sizeBytes: payload.holder.sizeBytes,
       fileName: payload.holder.fileName,
     },
-    slideIndex: input.item.slideIndex,
+    slideIndex: input.exportIndex,
     photosAccessToken: input.photosAccessToken,
     signal: input.signal,
     adapter: input.adapter.resumable,
   });
   input.onSession({
-    slideIndex: input.item.slideIndex,
+    slideIndex: input.exportIndex,
     sessionUrl: session.sessionUrl,
     chunkGranularity: session.chunkGranularity,
     offset: session.offset,
@@ -517,7 +465,7 @@ async function exportRenderedImageSlide(input: {
   });
   input.onProgress({
     phase: "uploading",
-    currentSlide: input.item.slideIndex + 1,
+    currentSlide: input.exportIndex + 1,
     totalSlides: input.totalSlides,
     mediaKind: "image",
     uploadedBytes: session.offset,
@@ -532,7 +480,7 @@ async function exportRenderedImageSlide(input: {
     adapter: input.adapter,
     onOffset: (nextOffset) => {
       input.onSession({
-        slideIndex: input.item.slideIndex,
+        slideIndex: input.exportIndex,
         sessionUrl: session.sessionUrl,
         chunkGranularity: session.chunkGranularity,
         offset: nextOffset,
@@ -542,7 +490,7 @@ async function exportRenderedImageSlide(input: {
       });
       input.onProgress({
         phase: "uploading",
-        currentSlide: input.item.slideIndex + 1,
+        currentSlide: input.exportIndex + 1,
         totalSlides: input.totalSlides,
         mediaKind: "image",
         uploadedBytes: nextOffset,
@@ -560,6 +508,7 @@ async function exportRenderedImageSlide(input: {
 async function resolveRenderedImagePayload(input: {
   driveAccessToken: string;
   item: GooglePhotosExportPlanItem;
+  exportIndex: number;
   currentUpload: GooglePhotosExportRuntime["currentUpload"];
   renderedImageRef: { current: GooglePhotosRenderedImageHolder | null };
   signal: AbortSignal;
@@ -574,8 +523,9 @@ async function resolveRenderedImagePayload(input: {
     input.renderedImageRef.current,
     input.item.slideIndex,
     input.currentUpload,
+    input.exportIndex,
   );
-  if (input.currentUpload?.slideIndex === input.item.slideIndex) {
+  if (input.currentUpload?.slideIndex === input.exportIndex) {
     if (!retained) {
       return { ...failExport("uploadFailed"), canResume: false };
     }
@@ -585,7 +535,7 @@ async function resolveRenderedImagePayload(input: {
   clearRenderedImage(input.renderedImageRef);
   input.onProgress({
     phase: "renderingImage",
-    currentSlide: input.item.slideIndex + 1,
+    currentSlide: input.exportIndex + 1,
     totalSlides: input.totalSlides,
     mediaKind: "image",
     uploadedBytes: 0,
@@ -664,36 +614,6 @@ async function resolveResumableSession(input: {
   return { ...started, offset: 0 };
 }
 
-async function uploadVideoFromAuthoritativeOffset(input: {
-  driveAccessToken: string;
-  item: GooglePhotosExportPlanItem;
-  session: GooglePhotosResumableSession;
-  signal: AbortSignal;
-  adapter: GooglePhotosExportWriteAdapter;
-  onOffset: (offset: number) => void;
-}) {
-  if (input.session.offset === input.item.sizeBytes) {
-    return finalizeEmptyRemaining(input);
-  }
-
-  const stream = await input.adapter.openDriveAssetStream({
-    accessToken: input.driveAccessToken,
-    assetFileId: input.item.assetFileId,
-    expectedMimeType: input.item.mimeType,
-    expectedSizeBytes: input.item.sizeBytes,
-    startByte: input.session.offset,
-    signal: input.signal,
-  });
-  return uploadGooglePhotosResumableStream({
-    stream,
-    session: input.session,
-    sizeBytes: input.item.sizeBytes,
-    signal: input.signal,
-    adapter: input.adapter.resumable,
-    onOffset: input.onOffset,
-  });
-}
-
 async function uploadBlobFromAuthoritativeOffset(input: {
   blob: Blob;
   session: GooglePhotosResumableSession;
@@ -729,26 +649,6 @@ async function uploadBlobFromAuthoritativeOffset(input: {
     adapter: input.adapter.resumable,
     onOffset: input.onOffset,
   });
-}
-
-async function finalizeEmptyRemaining(input: {
-  session: GooglePhotosResumableSession;
-  signal: AbortSignal;
-  adapter: GooglePhotosExportWriteAdapter;
-  onOffset: (offset: number) => void;
-}) {
-  const uploadToken = await input.adapter.resumable.uploadChunk({
-    sessionUrl: input.session.sessionUrl,
-    chunk: new Uint8Array(0),
-    offset: input.session.offset,
-    finalize: true,
-    signal: input.signal,
-  });
-  if (!uploadToken) {
-    throw new Error("photos-upload-token-missing");
-  }
-  input.onOffset(input.session.offset);
-  return uploadToken;
 }
 
 async function collectStreamBlob(
@@ -815,13 +715,14 @@ function alignUploadedFileNames(
 
 function matchingRenderedImage(
   holder: GooglePhotosRenderedImageHolder | null,
-  slideIndex: number,
+  sourceSlideIndex: number,
   currentUpload: GooglePhotosExportRuntime["currentUpload"],
+  exportIndex: number,
 ) {
-  if (!holder || holder.slideIndex !== slideIndex) {
+  if (!holder || holder.slideIndex !== sourceSlideIndex) {
     return null;
   }
-  if (!currentUpload || currentUpload.slideIndex !== slideIndex) {
+  if (!currentUpload || currentUpload.slideIndex !== exportIndex) {
     return holder;
   }
   if (
@@ -839,13 +740,14 @@ function canResumeCurrentUpload(input: {
   currentUpload: NonNullable<GooglePhotosExportRuntime["currentUpload"]>;
   renderedImage: GooglePhotosRenderedImageHolder | null;
 }) {
-  if (input.item.mediaKind === "video") {
-    return true;
+  if (input.item.mediaKind !== "image") {
+    return false;
   }
   return matchingRenderedImage(
     input.renderedImage,
-    input.currentUpload.slideIndex,
+    input.item.slideIndex,
     input.currentUpload,
+    input.currentUpload.slideIndex,
   ) !== null;
 }
 

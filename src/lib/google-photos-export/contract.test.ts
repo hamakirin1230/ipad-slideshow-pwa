@@ -1,24 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { DRIVE_VIDEO_MAX_BYTES } from "../drive-video-policy";
 import {
+  assertGooglePhotosExportPlanIsImageOnly,
   buildGooglePhotosAlbumTitle,
   buildGooglePhotosExportFileName,
   buildGooglePhotosExportReview,
   DRIVE_PROJECT_EXPORTABLE_MIME_TYPES,
+  GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES,
   GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES,
   GOOGLE_PHOTOS_EXPORT_MIME_TYPES,
-  GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES,
+  GOOGLE_PHOTOS_EXPORT_SKIPPED_VIDEO_MIME_TYPES,
   GOOGLE_PHOTOS_LIBRARY_UPLOADABLE_MIME_TYPES,
   googlePhotosExportSourceMatchesPreparedPlan,
   isGooglePhotosExportFileSizeAllowed,
   isGooglePhotosExportMimeType,
+  isGooglePhotosExportSkippedVideoMimeType,
   toGooglePhotosDescription,
   type GooglePhotosExportPlan,
+  type GooglePhotosExportPlanItem,
 } from "./contract";
 
 describe("google photos export contract", () => {
-  it("exports the intersection of Drive project MIME types and Photos uploadables", () => {
+  it("exports image MIME types only while Drive projects can still contain videos", () => {
     expect(GOOGLE_PHOTOS_EXPORT_MIME_TYPES).toEqual([
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ]);
+    expect(GOOGLE_PHOTOS_EXPORT_SKIPPED_VIDEO_MIME_TYPES).toEqual([
+      "video/mp4",
+      "video/quicktime",
+    ]);
+    expect(DRIVE_PROJECT_EXPORTABLE_MIME_TYPES).toEqual([
       "image/jpeg",
       "image/png",
       "image/webp",
@@ -29,6 +41,12 @@ describe("google photos export contract", () => {
     expect(DRIVE_PROJECT_EXPORTABLE_MIME_TYPES).not.toContain("image/heic");
     expect(isGooglePhotosExportMimeType("image/heic")).toBe(false);
     expect(isGooglePhotosExportMimeType("image/jpeg")).toBe(true);
+    expect(isGooglePhotosExportMimeType("video/mp4")).toBe(false);
+    expect(isGooglePhotosExportSkippedVideoMimeType("video/mp4")).toBe(true);
+    expect(isGooglePhotosExportSkippedVideoMimeType("video/quicktime")).toBe(
+      true,
+    );
+    expect(isGooglePhotosExportSkippedVideoMimeType("image/jpeg")).toBe(false);
   });
 
   it("maps caption only and never exports durationSeconds", () => {
@@ -40,31 +58,20 @@ describe("google photos export contract", () => {
     expect(plan.items[1]?.description).toBe("");
   });
 
-  it("counts unique slides without advertising duplicate export semantics", () => {
+  it("counts export photos and skipped videos without treating videos as export items", () => {
     const plan = buildPlan();
     const review = buildGooglePhotosExportReview(plan);
-    expect(review.slideCount).toBe(3);
+    expect(review.sourceSlideCount).toBe(4);
+    expect(review.exportPhotoCount).toBe(2);
     expect(review.photoCount).toBe(2);
-    expect(review.videoCount).toBe(1);
-    expect(review.totalBytes).toBe(3000);
+    expect(review.skippedVideoCount).toBe(2);
+    expect(review.totalBytes).toBe(2000);
     expect(review.includesDuplicateSlides).toBe(false);
     expect(review.albumTitle).not.toContain(plan.projectId);
+    expect(plan.items.every((item) => item.mediaKind === "image")).toBe(true);
   });
 
-  it("blocks videos larger than the existing 5GiB app limit and photos larger than 200MiB", () => {
-    expect(GOOGLE_PHOTOS_EXPORT_VIDEO_MAX_BYTES).toBe(DRIVE_VIDEO_MAX_BYTES);
-    expect(
-      isGooglePhotosExportFileSizeAllowed({
-        mimeType: "video/mp4",
-        sizeBytes: DRIVE_VIDEO_MAX_BYTES,
-      }),
-    ).toBe(true);
-    expect(
-      isGooglePhotosExportFileSizeAllowed({
-        mimeType: "video/mp4",
-        sizeBytes: DRIVE_VIDEO_MAX_BYTES + 1,
-      }),
-    ).toBe(false);
+  it("applies the 200MiB image size limit and does not size-check videos on the Photos export path", () => {
     expect(
       isGooglePhotosExportFileSizeAllowed({
         mimeType: "image/jpeg",
@@ -75,6 +82,18 @@ describe("google photos export contract", () => {
       isGooglePhotosExportFileSizeAllowed({
         mimeType: "image/jpeg",
         sizeBytes: GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES + 1,
+      }),
+    ).toBe(false);
+    expect(
+      isGooglePhotosExportFileSizeAllowed({
+        mimeType: "video/mp4",
+        sizeBytes: 20,
+      }),
+    ).toBe(false);
+    expect(
+      isGooglePhotosExportFileSizeAllowed({
+        mimeType: "video/quicktime",
+        sizeBytes: 20,
       }),
     ).toBe(false);
   });
@@ -100,9 +119,9 @@ describe("google photos export contract", () => {
       buildGooglePhotosExportFileName({
         slideIndex: 2,
         assetName: "secret-asset-id",
-        mimeType: "video/mp4",
+        mimeType: "image/png",
       }),
-    ).toBe("slide-3.mp4");
+    ).toBe("slide-3.png");
   });
 
   it("keeps file names at or under 255 characters and preserves the extension", () => {
@@ -147,7 +166,7 @@ describe("google photos export contract", () => {
     expect(
       googlePhotosExportSourceMatchesPreparedPlan(prepared, {
         ...fresh,
-        items: [prepared.items[1]!, prepared.items[0]!, prepared.items[2]!].map(
+        items: [prepared.items[1]!, prepared.items[0]!].map(
           (item, slideIndex) => ({ ...item, slideIndex }),
         ),
       }),
@@ -163,9 +182,46 @@ describe("google photos export contract", () => {
     expect(
       googlePhotosExportSourceMatchesPreparedPlan(prepared, {
         ...fresh,
-        projectTitle: "冬の記録",
+        skippedVideoCount: prepared.skippedVideoCount + 1,
       }),
     ).toBe(false);
+    expect(
+      googlePhotosExportSourceMatchesPreparedPlan(prepared, {
+        ...fresh,
+        sourceSlideCount: prepared.sourceSlideCount + 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects empty or video-contaminated internal export plans", () => {
+    expect(assertGooglePhotosExportPlanIsImageOnly(buildPlan())).toBeNull();
+    expect(
+      assertGooglePhotosExportPlanIsImageOnly({
+        ...buildPlan(),
+        items: [],
+        totalBytes: 0,
+      }),
+    ).toMatchObject({
+      kind: "noExportablePhotos",
+      message: GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES.noExportablePhotos,
+    });
+    expect(
+      assertGooglePhotosExportPlanIsImageOnly({
+        ...buildPlan(),
+        items: [
+          {
+            slideIndex: 1,
+            slideId: "slide-v",
+            assetFileId: "asset-file-v",
+            mediaKind: "video",
+            mimeType: "video/mp4",
+            sizeBytes: 1000,
+            description: "",
+            fileName: "clip.mp4",
+          } as GooglePhotosExportPlanItem,
+        ],
+      }),
+    ).toMatchObject({ kind: "unsupportedMedia" });
   });
 });
 
@@ -174,7 +230,9 @@ function buildPlan(): GooglePhotosExportPlan {
     projectId: "project-secret",
     projectTitle: "夏の記録",
     albumTitle: "夏の記録 - 2026-08-16 11:05",
-    totalBytes: 3000,
+    totalBytes: 2000,
+    sourceSlideCount: 4,
+    skippedVideoCount: 2,
     items: [
       {
         slideIndex: 0,
@@ -187,7 +245,7 @@ function buildPlan(): GooglePhotosExportPlan {
         fileName: "beach.jpg",
       },
       {
-        slideIndex: 1,
+        slideIndex: 2,
         slideId: "slide-b",
         assetFileId: "asset-file-b",
         mediaKind: "image",
@@ -195,16 +253,6 @@ function buildPlan(): GooglePhotosExportPlan {
         sizeBytes: 1000,
         description: toGooglePhotosDescription(""),
         fileName: "dusk.jpg",
-      },
-      {
-        slideIndex: 2,
-        slideId: "slide-c",
-        assetFileId: "asset-file-c",
-        mediaKind: "video",
-        mimeType: "video/mp4",
-        sizeBytes: 1000,
-        description: "",
-        fileName: "clip.mp4",
       },
     ],
   };
