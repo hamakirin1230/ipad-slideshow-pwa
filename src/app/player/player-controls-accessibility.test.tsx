@@ -3,6 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import PlayerPage from "./page";
 
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ replace: vi.fn() }),
+}));
+
 vi.mock("@/app/app-providers", () => ({
   useAppState: () => ({
     googleStatus: "connected",

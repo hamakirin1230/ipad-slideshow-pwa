@@ -2,6 +2,7 @@
 "use client";
 
 import {
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -14,6 +15,7 @@ import {
   type RefObject,
 } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
@@ -39,6 +41,7 @@ import {
   type SupportedDriveVideoMimeType,
 } from "@/lib/drive-video-policy";
 import { useAppState } from "@/app/app-providers";
+import { createPlayerProjectLinkHref } from "@/lib/player-route";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
 import {
   canApplyRemoteVideoResult,
@@ -296,6 +299,31 @@ function PlayerControlGroup({
 }
 
 export default function PlayerPage() {
+  return (
+    <Suspense fallback={<PlayerRouteFallback />}>
+      <PlayerPageContent />
+    </Suspense>
+  );
+}
+
+function PlayerRouteFallback() {
+  return (
+    <main className="min-h-svh bg-slate-950 px-4 py-6 text-slate-50">
+      <div className="mx-auto w-full max-w-4xl">
+        <PlayerStatusCard
+          tone="neutral"
+          title="このiPadの再生用コピーを確認しています"
+          description="端末保存データから、プロジェクト・スライド・素材を読み込んでいます。"
+        />
+      </div>
+    </main>
+  );
+}
+
+function PlayerPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedProjectId = searchParams.get("projectId");
   const {
     googleStatus,
     registerDriveVideoPlaybackSession,
@@ -310,7 +338,25 @@ export default function PlayerPage() {
     selectProject,
     clearSelectedProject,
     reload,
-  } = useOfflinePlaybackSnapshot();
+  } = useOfflinePlaybackSnapshot({
+    requestedProjectId,
+  });
+
+  function handleSelectProject(projectId: string) {
+    selectProject(projectId);
+    const href = createPlayerProjectLinkHref(projectId);
+    if (!href) {
+      return;
+    }
+    router.replace(
+      `${href.pathname}?projectId=${encodeURIComponent(href.query.projectId)}`,
+    );
+  }
+
+  function handleClearSelectedProject() {
+    clearSelectedProject();
+    router.replace("/player");
+  }
 
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [displayedSlideImage, setDisplayedSlideImage] =
@@ -689,6 +735,27 @@ export default function PlayerPage() {
       });
     });
   }, [slideCount]);
+
+  const playbackProjectId = readySnapshot?.projectId ?? null;
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setCurrentSlideIndex(0);
+      setSlideTransitionDirection("none");
+      setIsSlideTransitioning(false);
+      revokeSlideImage(previousSlideImageRef.current);
+      revokeSlideImage(displayedSlideImageRef.current);
+      revokeSlideVideo(displayedSlideVideoRef.current);
+      previousSlideImageRef.current = null;
+      displayedSlideImageRef.current = null;
+      displayedSlideVideoRef.current = null;
+      setPreviousSlideImage(null);
+      setDisplayedSlideImage(null);
+      setDisplayedSlideVideo(null);
+      setImageStatus("idle");
+      setVideoStatus("idle");
+    });
+  }, [playbackProjectId]);
 
   const safeCurrentSlideIndex =
     slideCount === 0
@@ -1989,7 +2056,7 @@ export default function PlayerPage() {
                   title="再生プロジェクトを選び直す"
                   onClick={() => {
                     revealControls();
-                    clearSelectedProject();
+                    handleClearSelectedProject();
                   }}
                 >
                   <List />
@@ -2340,7 +2407,7 @@ export default function PlayerPage() {
             projects={projectSelectionSnapshot.availableProjects}
             selectedProjectId={selectedProjectId}
             diagnostics={projectSelectionSnapshot.diagnostics}
-            onSelectProject={selectProject}
+            onSelectProject={handleSelectProject}
             onReload={reload}
           />
         ) : null}

@@ -42,19 +42,39 @@ export type UseOfflinePlaybackSnapshotResult =
     reload: () => void;
   };
 
+export type ReadOfflinePlaybackSnapshotFn = (input: {
+  projectId: string | null;
+}) => Promise<OfflinePlaybackSnapshot>;
+
 const offlinePlaybackSnapshotErrorMessage =
   "offline playback snapshot を読み込めませんでした。";
 
-export function useOfflinePlaybackSnapshot(): UseOfflinePlaybackSnapshotResult {
+export function useOfflinePlaybackSnapshot(input?: {
+  requestedProjectId?: string | null;
+}): UseOfflinePlaybackSnapshotResult {
   const requestIdRef = useRef(0);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() =>
-    readInitialPlaybackProjectId(),
+  const requestedProjectId = normalizePlaybackProjectId(
+    input?.requestedProjectId ?? null,
   );
+  const [storedProjectId, setStoredProjectId] = useState<string | null>(() =>
+    readStoredPlaybackProjectId(),
+  );
+  const selectedProjectId = resolvePlaybackProjectId({
+    requestedProjectId,
+    storedProjectId,
+  });
   const [state, setState] = useState<UseOfflinePlaybackSnapshotState>({
     status: "loading",
     snapshot: null,
     errorMessage: null,
   });
+
+  useEffect(() => {
+    if (!requestedProjectId) {
+      return;
+    }
+    writeStoredPlaybackProjectId(requestedProjectId);
+  }, [requestedProjectId]);
 
   const reload = useCallback(() => {
     requestIdRef.current += 1;
@@ -82,13 +102,13 @@ export function useOfflinePlaybackSnapshot(): UseOfflinePlaybackSnapshotResult {
     }
 
     writeStoredPlaybackProjectId(normalizedProjectId);
-    setSelectedProjectId(normalizedProjectId);
-  }, []);
+    setStoredProjectId(normalizedProjectId);
+  }, [setStoredProjectId]);
 
   const clearSelectedProject = useCallback(() => {
     clearStoredPlaybackProjectId();
-    setSelectedProjectId(null);
-  }, []);
+    setStoredProjectId(null);
+  }, [setStoredProjectId]);
 
   useEffect(() => {
     requestIdRef.current += 1;
@@ -123,77 +143,88 @@ export function useOfflinePlaybackSnapshot(): UseOfflinePlaybackSnapshotResult {
   };
 }
 
+export async function loadOfflinePlaybackSnapshotForRequest(input: {
+  requestId: number;
+  getCurrentRequestId: () => number;
+  projectId: string | null;
+  readSnapshot?: ReadOfflinePlaybackSnapshotFn;
+}): Promise<
+  | { kind: "ignored" }
+  | { kind: "ready"; snapshot: OfflinePlaybackSnapshot }
+  | { kind: "error"; errorMessage: string }
+> {
+  try {
+    const snapshot = await (input.readSnapshot ?? readOfflinePlaybackSnapshot)({
+      projectId: input.projectId,
+    });
+
+    if (input.requestId !== input.getCurrentRequestId()) {
+      return { kind: "ignored" };
+    }
+
+    return { kind: "ready", snapshot };
+  } catch {
+    if (input.requestId !== input.getCurrentRequestId()) {
+      return { kind: "ignored" };
+    }
+
+    return {
+      kind: "error",
+      errorMessage: offlinePlaybackSnapshotErrorMessage,
+    };
+  }
+}
+
 async function loadOfflinePlaybackSnapshot(
   requestIdRef: MutableRefObject<number>,
   requestId: number,
   selectedProjectId: string | null,
   setState: Dispatch<SetStateAction<UseOfflinePlaybackSnapshotState>>,
 ) {
-  try {
-    const snapshot = await readOfflinePlaybackSnapshot({
-      projectId: selectedProjectId,
-    });
+  const result = await loadOfflinePlaybackSnapshotForRequest({
+    requestId,
+    getCurrentRequestId: () => requestIdRef.current,
+    projectId: selectedProjectId,
+  });
 
-    if (requestId !== requestIdRef.current) {
-      return;
-    }
+  if (result.kind === "ignored") {
+    return;
+  }
 
-    setState({
-      status: "ready",
-      snapshot,
-      errorMessage: null,
-    });
-  } catch {
-    if (requestId !== requestIdRef.current) {
-      return;
-    }
-
+  if (result.kind === "error") {
     setState({
       status: "error",
       snapshot: null,
-      errorMessage: offlinePlaybackSnapshotErrorMessage,
+      errorMessage: result.errorMessage,
     });
+    return;
   }
+
+  setState({
+    status: "ready",
+    snapshot: result.snapshot,
+    errorMessage: null,
+  });
 }
 
-function readInitialPlaybackProjectId() {
-  const urlProjectId = readUrlPlaybackProjectId();
-  const storedProjectId = readStoredPlaybackProjectId();
-  const selectedProjectId = resolveInitialPlaybackProjectId({
-    urlProjectId,
-    storedProjectId,
-  });
-
-  if (selectedProjectId && selectedProjectId === urlProjectId) {
-    writeStoredPlaybackProjectId(selectedProjectId);
-  }
-
-  return selectedProjectId;
+export function resolvePlaybackProjectId(input: {
+  requestedProjectId: string | null;
+  storedProjectId: string | null;
+}) {
+  return (
+    normalizePlaybackProjectId(input.requestedProjectId) ??
+    normalizePlaybackProjectId(input.storedProjectId)
+  );
 }
 
 export function resolveInitialPlaybackProjectId(input: {
   urlProjectId: string | null;
   storedProjectId: string | null;
 }) {
-  return (
-    normalizePlaybackProjectId(input.urlProjectId) ??
-    normalizePlaybackProjectId(input.storedProjectId)
-  );
-}
-
-function readUrlPlaybackProjectId() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const projectId = new URLSearchParams(window.location.search).get("projectId");
-    const trimmedProjectId = projectId?.trim() ?? "";
-
-    return trimmedProjectId.length === 0 ? null : trimmedProjectId;
-  } catch {
-    return null;
-  }
+  return resolvePlaybackProjectId({
+    requestedProjectId: input.urlProjectId,
+    storedProjectId: input.storedProjectId,
+  });
 }
 
 function readStoredPlaybackProjectId() {
@@ -229,7 +260,7 @@ function clearStoredPlaybackProjectId() {
   }
 }
 
-function normalizePlaybackProjectId(projectId: string | null) {
+function normalizePlaybackProjectId(projectId: string | null | undefined) {
   const normalizedProjectId = projectId?.trim() ?? "";
   return normalizedProjectId.length === 0 ? null : normalizedProjectId;
 }
