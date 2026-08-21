@@ -18,7 +18,9 @@ but are skipped for Google Photos export.
 - Google Photos exportの正式pathでは動画5GiB limitを使わない。画像200 MiBは維持。Drive動画5GiBは変更しない
 - 重複判定は書き出す写真だけ。動画duplicateだけではblockしない
 - Drive publication / 「このiPadに保存」 / Player動画再生は変更しない
-- images-only仕様のPreview / Production再acceptanceは未実施
+- caption font sizeはimageHeight基準。最大2行。truncateなし。長文のみ縮小
+- 2026-08-21 images-only + caption normalization Preview acceptance passed
+- images-only仕様のProduction再acceptanceは未実施
 
 過去のJPEG caption burn-in v1 / v2と、2026-08-21 Production acceptanceはhistorical evidenceとして残す。当時の「動画もstream uploadする」記述は現行仕様ではない。
 
@@ -42,6 +44,7 @@ Save != Drive Publish != Google Photos Export != このiPadに保存
 - 同じ写真Drive assetを複数slideで使う作品は`duplicateSlidesUnsupported`でblockする。動画duplicateだけではblockしない
 - 画像: export用画像へcaptionを焼き込む。空captionでもraw original bytesは送らず再エンコードする
 - 非空captionは最大2行。全文が収まらなければsilent truncationせず`imageRenderFailed`
+- font sizeはimageHeight基準。短いcaptionでlandscapeだけ極端に大きくしない
 - 動画: Google Photosへは書き出さない。作品・Drive・「このiPadに保存」・Playerには残る
 - image 200 MiB以下。Google Photos exportの正式pathでは動画5GiB limitを使わない。Drive動画5GiBは維持
 - 写真0件ならexportを開始しない。Photos token request / upload / album createをしない
@@ -121,7 +124,8 @@ Productionは引き続き既存mainのまま。このbranchはまだProduction�
 - PNG alpha実画像export
 - EXIF orientation実画像export
 - 実動画のGoogle Photos export（現行仕様では対象外。動画はskipする）
-- images-only仕様のPreview実機確認
+- 動画だけの作品で「書き出せる写真がありません」を出す経路のPreview実機確認
+- images-only仕様のProduction再acceptance
 - 実ネットワーク中断からのresume
 - 200 MiB画像境界
 - Drive動画の5 GiB境界
@@ -180,3 +184,33 @@ Productionへ未反映であり、正式Production URL上でのGoogle Photos exp
 - automatic publish禁止
 - automatic repair禁止
 - raw IDs / tokens / URLs / errorsをユーザー向け表示しない
+
+## 13. Images-only + caption normalization Preview acceptance
+
+2026-08-21 images-only Preview acceptance passed.
+
+作業ブランチは`feature/google-photos-images-only`。このPreviewはProduction confirmationへ昇格させない。
+
+確認した作品は写真5件 / 動画1件 / 全6スライド。
+
+確認できたもの:
+
+- export reviewは元のスライド数 6件、書き出す写真 5件、対象外の動画 1件
+- Google Photos albumに写真5件のみ
+- 今回のPhotos exportで動画はuploadされていない
+- 写真の相対順を維持
+- caption burn-in成功
+- Drive上の写真・動画は変更なし
+- 動画は作品に残る
+- 「このiPadに保存」契約は維持
+- Player動画契約は維持
+
+caption normalizationの実機確認:
+
+- portrait: 「もっちゅりんが美味しかった」
+- landscape: 「おいしそう」
+- small source image: 「もも」
+
+旧width-basedよりportrait / landscapeの視覚サイズ差が明確に改善。user acceptanceは「いい感じに仕上がりました」。
+
+Google connection 60-minute session Phase 2は停止中のまま。mainへは未merge。pushしていない記録はgit状態を正とする。

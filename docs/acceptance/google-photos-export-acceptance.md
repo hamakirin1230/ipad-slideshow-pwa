@@ -5,6 +5,7 @@ Date: 2026-08-21
 Status:
 Preview / real Google Photos image-caption acceptance passed.
 2026-08-21 Production acceptance passed.
+2026-08-21 images-only + caption normalization Preview acceptance passed.
 
 この文書は、Google Photos書き出しについて、local validation、code audit、Preview確認、実Google Photos手動確認、Production確認を段階別に記録する。各段階で再実行していない操作を、その段階の確認結果へ含めない。Previewのv1 / v2 caption差分はPreview evidenceとして維持し、Production confirmationへ昇格させない。
 
@@ -14,9 +15,11 @@ Preview / real Google Photos image-caption acceptance passed.
 
 - `/admin` から「Googleフォトへ書き出す」
 - Google Photos export is images-only
-- 画像captionはexport用画像へburn-in
+- 正式export対象は`image/jpeg` / `image/png` / `image/webp`
+- 画像captionはexport用画像へburn-inする。font sizeはimageHeight基準
 - 動画slideは作品とDriveと「このiPadに保存」/ Playerに残るが、Google Photosへはskipする
-- 動画だけの作品はexportしない。空albumは作らない
+- 動画が存在してもexport全体をblockしない
+- 動画だけの作品はexportしない。空albumは作らない。Photos OAuth / upload / album作成へ進まない
 - Drive publish / offline sync / 「このiPadに保存」とは別操作
 - export失敗でもDrive publication / offline store / Playerを変更しない
 
@@ -113,7 +116,50 @@ Google Photos exportの現行契約はimages-onlyである。動画経路のDriv
 
 Drive動画5GiB契約は変更しない。Google Photos exportの正式pathでは動画5GiB limitを使わない。
 
-過去の「実動画のGoogle Photos export」未確認項目は、現行仕様では実施対象外になった。images-onlyのPreview確認は未実施である。
+2026-08-21、混在作品（写真5件 / 動画1件 / 全6スライド）のPreviewで、動画skipと写真5件だけのalbum作成を確認した。動画だけの作品で「書き出せる写真がありません」を出す契約は維持するが、そのケースのPreview実機確認はしていない。
+
+## Images-only + caption normalization Preview acceptance
+
+2026-08-21 images-only Preview acceptance passed.
+
+Vercel Previewから実Google Photosへ書き出した結果だけを記録する。temporary Preview URL、token、Drive / Photos IDは記録しない。このPreviewはProduction confirmationへ昇格させない。
+
+確認した作品:
+
+- 写真5件 / 動画1件 / 全6スライド
+
+確認できたもの:
+
+| 対象 | 結果 |
+| --- | --- |
+| Google Photos exportは写真のみ | OK |
+| export reviewが元のスライド数 6件、書き出す写真 5件、対象外の動画 1件 | OK |
+| 新albumに写真5件のみ作成 | OK |
+| 今回のPhotos exportで動画はuploadされていない | OK |
+| 写真の相対順を維持 | OK |
+| caption burn-in | OK |
+| Drive上の写真・動画は変更なし | OK |
+| 動画は作品に残る | OK |
+| 「このiPadに保存」契約は維持 | OK |
+| Player動画契約は維持 | OK |
+
+caption normalizationも実機確認した。確認caption:
+
+- portrait: 「もっちゅりんが美味しかった」
+- landscape: 「おいしそう」
+- small source image: 「もも」
+
+旧width-based sizingより、portrait / landscapeの視覚サイズ差が明確に改善した。user acceptanceは「いい感じに仕上がりました」。
+
+現行caption契約:
+
+- すべてのexport画像を再encodeする
+- captionを画像下部へburn-inする
+- 最大2行
+- truncateなし
+- font sizeはimageHeight基準
+- 長文のみ2行に収まるまで縮小する
+- background / font / colorは既存維持
 
 ## Explicitly unverified items
 
@@ -125,7 +171,8 @@ Drive動画5GiB契約は変更しない。Google Photos exportの正式pathで�
 - PNG alpha実画像export
 - EXIF orientation実画像export
 - 実動画のGoogle Photos export（現行仕様では対象外。動画はskipする）
-- images-only仕様のPreview実機確認
+- 動画だけの作品で「書き出せる写真がありません」を出す経路のPreview実機確認
+- images-only仕様のProduction再acceptance
 - 実ネットワーク中断からのresume
 - 200 MiB画像境界
 - Drive動画の5 GiB境界

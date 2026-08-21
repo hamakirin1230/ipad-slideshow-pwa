@@ -38,7 +38,7 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/admin/` drag handle表示を「≡」のみへ簡略化し、aria-label / titleは維持
 - `/player/` のcaptionテロップ下帯をiPad PWAでも残るように背景指定を強化
 - Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
-- `/admin/` から選択中projectの写真だけをGoogle Photosの新規albumへ書き出せる。画像captionはexport画像にburn-inする。動画slideは作品に残し、このiPadへの保存とPlayer再生はできるが、Google Photosへは書き出さない。Production上の実Google Photosで新規album exportと画像caption burn-inを確認済み。images-only仕様のPreview確認は未実施
+- `/admin/` から選択中projectの写真だけをGoogle Photosの新規albumへ書き出せる。画像captionはexport画像にburn-inする。font sizeはimageHeight基準。動画slideは作品に残し、このiPadへの保存とPlayer再生はできるが、Google Photosへは書き出さない。Production上の実Google Photosで新規album exportと画像caption burn-inを確認済み。images-only + caption normalizationのPreview確認済み。images-only仕様のProduction再acceptanceは未実施
 - `/admin/` で選択中projectのunused Drive asset cleanup preview / readiness / preflight / confirm previewを表示
 - cleanup preview / preflight / confirm previewはread-onlyで、Drive file、Player snapshot、IndexedDBを変更しない
 - fresh preflight、明示confirm、順次DELETE、partial failure停止を経た未参照app-managed JPEG / PNG / WebPの物理削除と、実Google Driveでの動作確認

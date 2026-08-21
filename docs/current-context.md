@@ -15,7 +15,7 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 
 ## Google Photos export
 
-2026-08-21、Google Photosへの新規album書き出しはProduction accepted。Productionで実Google Photosへの新規album exportと画像caption burn-in目視を確認した。PreviewのJPEG 2枚 caption burn-in（v1 / v2）はPreview evidenceとして維持し、Productionではv1 / v2差分検証を再実施していない。段階別evidenceは[`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md)を参照する。
+2026-08-21、Google Photosへの新規album書き出しはProduction accepted。Productionで実Google Photosへの新規album exportと画像caption burn-in目視を確認した。PreviewのJPEG 2枚 caption burn-in（v1 / v2）はPreview evidenceとして維持し、Productionではv1 / v2差分検証を再実施していない。2026-08-21、images-only + caption normalizationのPreview acceptance passed。段階別evidenceは[`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md)を参照する。
 
 現行仕様:
 
@@ -26,10 +26,11 @@ but are skipped for Google Photos export.
 - Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作
 - 書き出し対象は`image/jpeg` / `image/png` / `image/webp`だけ
 - 作品自体は写真と動画を保持できる。動画slideの削除、Drive動画の削除、「このiPadに保存」やPlayer再生の制限ではない
-- `video/mp4` / `video/quicktime`はunsupported errorにせず、export対象外としてskipする
+- `video/mp4` / `video/quicktime`はunsupported errorにせず、export対象外としてskipする。動画が存在してもexport全体をblockしない
 - album順は元project内の写真相対順を維持する
-- 動画だけの作品はexportを開始しない。空albumは作らない。Photos OAuth token requestも開始しない
+- 動画だけの作品はexportを開始しない。空albumは作らない。表示は「Googleフォトへ書き出せる写真がありません。」Photos OAuth token request / upload / album作成へ進まない
 - 画像captionはexport用画像へburn-inする。すべてのexport画像は再encodeする
+- captionは最大2行、truncateなし。font sizeはimageHeight基準。長文のみ2行に収まるまで縮小する
 - Google Photos exportの正式pathでは動画5GiB limitを使わない。画像は`GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES`（200 MiB）を維持する。Drive動画5GiB契約は変更しない
 - 重複判定は実際に書き出す写真だけを対象にする。動画duplicateだけではblockしない
 - export失敗でもDrive publication / offline store / Playerを変更しない
@@ -43,7 +44,7 @@ but are skipped for Google Photos export.
 - 作品カードとAdmin最上部headerは写真 / 動画件数を表示する
 - 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
 - PlayerはURLの`projectId`を再生対象のauthorityとし、localStorageの前回作品で上書きしない
-- images-only仕様のPreview / Production再acceptanceは未実施
+- images-only Preview acceptance passed。images-only仕様のProduction再acceptanceは未実施
 
 ## 最重要方針
 
@@ -101,7 +102,7 @@ production App Routerに存在する主要route:
 - save / publish / rollbackだけではoffline dataを更新せず、端末反映には明示的offline syncが必要
 - Googleフォトへ書き出すはDrive publish / offline sync / このiPadに保存とは別操作であり、Drive publicationとoffline storeは変更しない
 - Google Photos export is images-only。写真だけを新しいalbumへ書き出し、動画slideはskipする
-- Googleフォトへ書き出す画像captionはexport用画像へburn-inする
+- Googleフォトへ書き出す画像captionはexport用画像へburn-inする。font sizeはimageHeight基準
 - 動画は作品とDriveと「このiPadに保存」/ Playerに残る。Google Photosへはuploadしない
 - publication writeのin-flight guardは同一tab内の直列化であり、既知のmulti-tab raceは未解決
 - temporary publication acceptance fault harnessは専用branchで実装後に完全撤去され、production sourceには存在しない
@@ -149,6 +150,7 @@ confirmed store promotion
 /admin unused Drive asset explicit physical delete
 /admin Google Photos新規album書き出し（images-only。画像caption burn-in。動画slideはskip）
 Preview上の実Google PhotosでJPEG 2枚のcaption burn-in v1 / v2を確認（Preview evidence。Productionではv1 / v2差分を再実施していない）
+2026-08-21 images-only + caption normalization Preview acceptance passed（写真5 / 動画1の混在作品。captionはimageHeight基準）
 Production上の実Google Photos新規album書き出しと画像caption burn-in目視を確認（2026-08-21 Production acceptance）
 /admin headerの写真 / 動画件数と、confirmed copyがある選択作品だけ再生
 refresh後のGoogle接続は手動再接続（page-load silent restoreはPreview不成立のため撤去。60分接続維持は未解決）
@@ -440,8 +442,8 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. Google Photos exportのimages-only仕様変更のPreview実機確認。local PASSだけでは完了にしない。Google connection 60-minute session Phase 2は停止中
-2. 60分Google接続維持は未解決。Gate 0 FAIL。Phase 1 hosting migration PASS。Phase 2 server-only crypto primitivesは未着手で停止中。Redis / cookie / session APIは未実装。session本体は実装済みではない
+1. 60分Google接続維持は未解決。Gate 0 FAIL。Phase 1 hosting migration PASS。Phase 2 server-only crypto primitivesは未着手で停止中。Redis / cookie / session APIは未実装。session本体は実装済みではない。Google connection 60-minute session Phase 2は停止中
+2. images-only仕様のProduction再acceptance。今回のPreview PASSをProduction confirmationへ昇格させない
 3. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
