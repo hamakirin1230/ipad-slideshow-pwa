@@ -5,14 +5,16 @@ import {
 } from "./project-media-counts";
 
 describe("project media counts", () => {
-  it("counts image and video slides from explicit types", () => {
+  it("counts JPEG, PNG, WebP as photos and MP4, MOV as videos", () => {
     expect(
       countProjectMedia([
         { type: "image", mimeType: "image/jpeg" },
         { type: "image", mimeType: "image/png" },
+        { type: "image", mimeType: "image/webp" },
         { type: "video", mimeType: "video/mp4" },
+        { type: "video", mimeType: "video/quicktime" },
       ]),
-    ).toEqual({ photoCount: 2, videoCount: 1, otherCount: 0 });
+    ).toEqual({ photoCount: 3, videoCount: 2, otherCount: 0 });
   });
 
   it("falls back to MIME only when type is missing", () => {

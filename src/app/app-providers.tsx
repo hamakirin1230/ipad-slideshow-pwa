@@ -144,6 +144,10 @@ import {
 } from "@/lib/google-drive";
 import { hydrateDriveProjectCounts } from "@/lib/drive-project-summary-hydration";
 import {
+  countProjectMedia,
+  nullableProjectMediaCounts,
+} from "@/lib/project-media-counts";
+import {
   buildDriveProjectUnusedAssetDeleteOwner,
   deleteDriveProjectAssetFile,
   driveProjectUnusedAssetDeleteOwnerMatches,
@@ -333,6 +337,9 @@ export type ProjectSummary = {
   updatedAt: string;
   slideCount: number | null;
   assetCount: number | null;
+  photoCount: number | null;
+  videoCount: number | null;
+  otherCount: number | null;
 };
 
 export type ProjectSlideSummary = {
@@ -3871,6 +3878,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
                 ...project,
                 slideCount: counts.slideCount,
                 assetCount: counts.assetCount,
+                photoCount: counts.photoCount,
+                videoCount: counts.videoCount,
+                otherCount: counts.otherCount,
               }
             : project;
         }),
@@ -6917,6 +6927,7 @@ function toProjectSummary(
     updatedAt: project.updatedAt,
     slideCount: details?.slideCount ?? null,
     assetCount: details?.assetCount ?? null,
+    ...nullableProjectMediaCounts(countProjectMedia(details?.slides)),
   };
 }
 

@@ -1,4 +1,8 @@
 import {
+  countProjectMedia,
+  nullableProjectMediaCounts,
+} from "./project-media-counts";
+import {
   validateDriveProjectDetails,
   type DriveProjectDetailsValidationResult,
   type DriveProjectSummary,
@@ -8,6 +12,9 @@ export type HydratedDriveProjectCount = {
   projectId: string;
   slideCount: number | null;
   assetCount: number | null;
+  photoCount: number | null;
+  videoCount: number | null;
+  otherCount: number | null;
 };
 
 export async function hydrateDriveProjectCounts(input: {
@@ -46,17 +53,31 @@ export async function hydrateDriveProjectCounts(input: {
         if (input.signal.aborted) throw new DOMException("Aborted", "AbortError");
       }
 
-      results[index] =
-        result?.status === "ready"
-          ? {
-              projectId: project.projectId,
-              slideCount: result.details.slideCount,
-              assetCount: result.details.assetCount,
-            }
-          : { projectId: project.projectId, slideCount: null, assetCount: null };
+      results[index] = {
+        projectId: project.projectId,
+        ...countsFromDetailsResult(result),
+      };
     }
   }
 
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
   return results;
+}
+
+function countsFromDetailsResult(
+  result: DriveProjectDetailsValidationResult | null,
+) {
+  if (result?.status !== "ready") {
+    return {
+      slideCount: null,
+      assetCount: null,
+      ...nullableProjectMediaCounts(null),
+    };
+  }
+
+  return {
+    slideCount: result.details.slideCount,
+    assetCount: result.details.assetCount,
+    ...nullableProjectMediaCounts(countProjectMedia(result.details.slides)),
+  };
 }

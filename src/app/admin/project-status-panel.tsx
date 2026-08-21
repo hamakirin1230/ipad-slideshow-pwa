@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button";
 import { ProductDisclosure } from "@/components/product-disclosure";
 import { useAppState, type ProjectSummary } from "@/app/app-providers";
 import { DRIVE_PROJECT_TITLE_MAX_LENGTH } from "@/lib/google-drive";
-import { formatUiCount, formatUiDateTime } from "@/lib/ui-format";
+import { formatUiDateTime } from "@/lib/ui-format";
+import {
+  formatProjectMediaCounts,
+  projectMediaCountsFromSummary,
+} from "@/lib/project-media-counts";
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 
 export function ProjectStatusPanel() {
@@ -199,9 +203,11 @@ export function ProjectList({
                   {project.title}
                 </p>
                 <p className="mt-2 text-xs leading-5 text-slate-500">
-                  スライド {formatUiCount(project.slideCount)} <span aria-hidden="true">·</span>{" "}
-                  素材 {formatUiCount(project.assetCount)} <span aria-hidden="true">·</span>{" "}
-                  更新 {formatUiDateTime(project.updatedAt)}
+                  {formatProjectMediaCounts(
+                    projectMediaCountsFromSummary(project),
+                  )}{" "}
+                  <span aria-hidden="true">·</span> 更新{" "}
+                  {formatUiDateTime(project.updatedAt)}
                 </p>
               </div>
               {isSelected ? (

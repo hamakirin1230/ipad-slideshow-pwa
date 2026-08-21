@@ -48,8 +48,16 @@ describe("beginner-first product experience", () => {
   it("never represents unknown project counts as zero and makes the whole card selectable", () => {
     expect(source.providers).toContain("slideCount: details?.slideCount ?? null");
     expect(source.providers).toContain("assetCount: details?.assetCount ?? null");
-    expect(source.projects).toContain("formatUiCount(project.slideCount)");
+    expect(source.providers).toContain("const summary = toProjectSummary(project, details)");
+    expect(source.providers).toContain("const nextProjectSummary = toProjectSummary(");
+    expect(source.providers).toContain("photoCount: counts.photoCount");
+    expect(source.providers).toContain("videoCount: counts.videoCount");
+    expect(source.providers).toContain("otherCount: counts.otherCount");
+    expect(source.projects).toContain("formatProjectMediaCounts(");
+    expect(source.projects).toContain("projectMediaCountsFromSummary(project)");
     expect(source.projects).toContain("formatUiDateTime(project.updatedAt)");
+    expect(source.projects).not.toContain("formatUiCount(project.slideCount)");
+    expect(source.projects).not.toContain("formatUiCount(project.assetCount)");
     expect(source.projects).toContain("aria-pressed={isSelected}");
     expect(source.projects).not.toContain("この作品を選択");
   });

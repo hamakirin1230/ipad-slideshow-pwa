@@ -1,6 +1,12 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { hydrateDriveProjectCounts } from "./drive-project-summary-hydration";
 import type { DriveProjectSummary } from "./google-drive";
+
+const source = readFileSync(
+  new URL("./drive-project-summary-hydration.ts", import.meta.url),
+  "utf8",
+);
 
 function project(index: number): DriveProjectSummary {
   return {
@@ -16,7 +22,7 @@ function project(index: number): DriveProjectSummary {
 }
 
 describe("read-only project count hydration", () => {
-  it("uses bounded reads without selecting, retrying, or writing", async () => {
+  it("derives media counts from the existing details read without extra requests", async () => {
     let active = 0;
     let maxActive = 0;
     const readDetails = vi.fn(async ({ project: item }: { project: DriveProjectSummary }) => {
@@ -28,8 +34,15 @@ describe("read-only project count hydration", () => {
         status: "ready" as const,
         details: {
           project: item,
-          slides: [],
-          slideCount: Number(item.projectId.split("-")[1]),
+          slides: [
+            { type: "image" as const, mimeType: "image/jpeg" },
+            { type: "image" as const, mimeType: "image/png" },
+            { type: "image" as const, mimeType: "image/webp" },
+            { type: "video" as const, mimeType: "video/mp4" },
+            { mimeType: "video/quicktime" },
+            { mimeType: "application/octet-stream" },
+          ],
+          slideCount: 6,
           assetCount: 20,
         },
         diagnostics: [],
@@ -49,8 +62,16 @@ describe("read-only project count hydration", () => {
 
     expect(readDetails).toHaveBeenCalledTimes(11);
     expect(maxActive).toBeLessThanOrEqual(2);
-    expect(result[0]).toMatchObject({ projectId: "project-1", slideCount: 1, assetCount: 20 });
-    expect(projects[0].projectId).toBe("project-1");
+    expect(result[0]).toEqual({
+      projectId: "project-1",
+      slideCount: 6,
+      assetCount: 20,
+      photoCount: 3,
+      videoCount: 2,
+      otherCount: 1,
+    });
+    expect(source).toContain("countProjectMedia(result.details.slides)");
+    expect(source.match(/await readDetails\(/g)).toHaveLength(1);
   });
 
   it("leaves failed reads unknown and does not retry", async () => {
@@ -65,6 +86,15 @@ describe("read-only project count hydration", () => {
     });
 
     expect(readDetails).toHaveBeenCalledOnce();
-    expect(result).toEqual([{ projectId: "project-1", slideCount: null, assetCount: null }]);
+    expect(result).toEqual([
+      {
+        projectId: "project-1",
+        slideCount: null,
+        assetCount: null,
+        photoCount: null,
+        videoCount: null,
+        otherCount: null,
+      },
+    ]);
   });
 });

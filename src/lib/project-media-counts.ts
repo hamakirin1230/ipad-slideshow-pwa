@@ -36,6 +36,44 @@ export function countProjectMedia(
   return { photoCount, videoCount, otherCount };
 }
 
+export function nullableProjectMediaCounts(
+  counts: ProjectMediaCounts | null | undefined,
+) {
+  if (!counts) {
+    return {
+      photoCount: null,
+      videoCount: null,
+      otherCount: null,
+    };
+  }
+
+  return {
+    photoCount: counts.photoCount,
+    videoCount: counts.videoCount,
+    otherCount: counts.otherCount,
+  };
+}
+
+export function projectMediaCountsFromSummary(input: {
+  photoCount: number | null;
+  videoCount: number | null;
+  otherCount: number | null;
+}): ProjectMediaCounts | null {
+  if (
+    input.photoCount === null ||
+    input.videoCount === null ||
+    input.otherCount === null
+  ) {
+    return null;
+  }
+
+  return {
+    photoCount: input.photoCount,
+    videoCount: input.videoCount,
+    otherCount: input.otherCount,
+  };
+}
+
 export function formatProjectMediaCounts(counts: ProjectMediaCounts | null) {
   if (!counts) {
     return "写真 — ・ 動画 —";
