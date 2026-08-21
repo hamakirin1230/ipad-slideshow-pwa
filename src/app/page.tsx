@@ -43,7 +43,7 @@ export default function Home() {
             >
               <Link href="/admin">
                 <Pencil className="size-5" aria-hidden="true" />
-                編集する
+                つくる
               </Link>
             </Button>
           </div>

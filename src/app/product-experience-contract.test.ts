@@ -43,7 +43,9 @@ describe("focused product experience contract", () => {
 
   it("turns Home into a simple launch surface", () => {
     expect(homeSource).toContain("再生する");
-    expect(homeSource).toContain("編集する");
+    expect(homeSource).toContain("つくる");
+    expect(homeSource).not.toContain("編集する");
+    expect(homeSource).toContain('href="/admin"');
     expect(homeSource).toContain("サポート");
     expect(homeSource).not.toMatch(/Vercel|IndexedDB|offline-first|Drive workspace/);
     expect(homeSource).not.toContain("taskItems");

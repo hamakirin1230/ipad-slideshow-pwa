@@ -29,7 +29,8 @@ describe("production task copy", () => {
     }
 
     expect(homeSource).toContain("再生する");
-    expect(homeSource).toContain("編集する");
+    expect(homeSource).toContain("つくる");
+    expect(homeSource).not.toContain("編集する");
     expect(homeSource).not.toContain("次の開発候補");
     expect(homeSource).not.toContain("nextStepItems");
     expect(homeSource).not.toContain("現在の到達点");
