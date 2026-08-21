@@ -12,8 +12,15 @@ import { Play, Shuffle } from "lucide-react";
 import { useAppState } from "@/app/app-providers";
 import { ProductDisclosure } from "@/components/product-disclosure";
 import { Button } from "@/components/ui/button";
+import {
+  readOfflineProjectPlaybackReadiness,
+  type OfflineProjectPlaybackReadiness,
+} from "@/lib/offline-project-playback-readiness";
 import { createPlayerProjectLinkHref } from "@/lib/player-route";
-import { formatUiCount } from "@/lib/ui-format";
+import {
+  formatProjectMediaCounts,
+  countProjectMedia,
+} from "@/lib/project-media-counts";
 import { cn } from "@/lib/utils";
 import { DriveProjectWorkspacePanel } from "./drive-project-workspace-panel";
 import { OfflineConfirmedStorePanel } from "./offline-confirmed-store-panel";
@@ -32,16 +39,31 @@ const workspaceTabs = [
 type WorkspaceTab = (typeof workspaceTabs)[number]["id"];
 
 export function AdminWorkspace() {
-  const { projectSummary, projectDetails } = useAppState();
+  const {
+    projectSummary,
+    projectDetails,
+    selectedProjectId,
+    offlineSyncStatus,
+  } = useAppState();
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("project");
+  const [checkedPlaybackReadiness, setCheckedPlaybackReadiness] = useState<{
+    projectId: string;
+    syncStatus: typeof offlineSyncStatus;
+    status: OfflineProjectPlaybackReadiness["status"];
+  } | null>(null);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const slideCount =
-    projectDetails?.slideCount ?? projectSummary?.slideCount ?? null;
-  const assetCount =
-    projectDetails?.assetCount ?? projectSummary?.assetCount ?? null;
-  const playerHref = projectSummary
-    ? createPlayerProjectLinkHref(projectSummary.projectId)
+  const readinessRequestIdRef = useRef(0);
+  const selectedId = selectedProjectId ?? projectSummary?.projectId ?? null;
+  const mediaCounts = countProjectMedia(projectDetails?.slides);
+  const playerHref = selectedId
+    ? createPlayerProjectLinkHref(selectedId)
     : null;
+  const playbackReadiness = !selectedId
+    ? "notReady"
+    : checkedPlaybackReadiness?.projectId === selectedId &&
+        checkedPlaybackReadiness.syncStatus === offlineSyncStatus
+      ? checkedPlaybackReadiness.status
+      : "checking";
 
   useEffect(() => {
     function selectHashTab() {
@@ -53,6 +75,26 @@ export function AdminWorkspace() {
     window.addEventListener("hashchange", selectHashTab);
     return () => window.removeEventListener("hashchange", selectHashTab);
   }, []);
+
+  useEffect(() => {
+    if (!selectedId) {
+      return;
+    }
+
+    const requestId = readinessRequestIdRef.current + 1;
+    readinessRequestIdRef.current = requestId;
+
+    void readOfflineProjectPlaybackReadiness(selectedId).then((result) => {
+      if (requestId !== readinessRequestIdRef.current) {
+        return;
+      }
+      setCheckedPlaybackReadiness({
+        projectId: selectedId,
+        syncStatus: offlineSyncStatus,
+        status: result.status,
+      });
+    });
+  }, [selectedId, offlineSyncStatus]);
 
   function selectTab(tab: WorkspaceTab, focus = false) {
     setActiveTab(tab);
@@ -93,8 +135,7 @@ export function AdminWorkspace() {
                   {projectSummary.title}
                 </h1>
                 <p className="mt-2 text-sm text-slate-400">
-                  スライド {formatUiCount(slideCount)} <span aria-hidden="true">·</span>{" "}
-                  素材 {formatUiCount(assetCount)}
+                  {formatProjectMediaCounts(mediaCounts)}
                 </p>
               </>
             ) : (
@@ -118,7 +159,18 @@ export function AdminWorkspace() {
               <Shuffle className="size-4" aria-hidden="true" />
               {projectSummary ? "作品を切り替える" : "作品を選択"}
             </Button>
-            {playerHref ? (
+            {selectedId && playbackReadiness === "checking" ? (
+              <Button
+                type="button"
+                className="min-h-11 bg-sky-300 text-slate-950"
+                disabled
+              >
+                再生準備を確認中
+              </Button>
+            ) : null}
+            {selectedId &&
+            playbackReadiness === "ready" &&
+            playerHref ? (
               <Button
                 asChild
                 className="min-h-11 bg-sky-300 text-slate-950 hover:bg-sky-200"
@@ -128,16 +180,18 @@ export function AdminWorkspace() {
                   再生
                 </Link>
               </Button>
-            ) : (
+            ) : null}
+            {selectedId &&
+            (playbackReadiness === "notReady" ||
+              playbackReadiness === "unavailable") ? (
               <Button
                 type="button"
-                className="min-h-11 bg-sky-300 text-slate-950"
-                disabled
+                className="min-h-11 bg-sky-300 text-slate-950 hover:bg-sky-200"
+                onClick={() => selectTab("device")}
               >
-                <Play className="size-4 fill-current" aria-hidden="true" />
-                再生
+                このiPadに保存
               </Button>
-            )}
+            ) : null}
           </div>
         </header>
 

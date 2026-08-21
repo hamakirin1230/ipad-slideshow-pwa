@@ -25,6 +25,12 @@ describe("offline sync panel progress accessibility", () => {
       "buildOfflineSyncStaleView(\n    offlineSyncLastResult?.status,",
     );
   });
+
+  it("opens the selected project after a ready save", () => {
+    expect(source).toContain("createPlayerProjectLinkHref(selectedProjectId)");
+    expect(source).toContain("この作品を再生");
+    expect(source).not.toContain('<Link href="/player">');
+  });
 });
 
 describe("offline sync stale view", () => {

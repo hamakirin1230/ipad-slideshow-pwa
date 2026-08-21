@@ -78,19 +78,42 @@ describe("admin creative workspace", () => {
 
   it("removes editing dashboard counts and duplicated ready context", () => {
     expect(source.edit).not.toMatch(/Driveプロジェクト数|選択中Driveプロジェクト|Drive確認済み/);
-    expect(source.workspace).toContain("formatUiCount(slideCount)");
-    expect(source.workspace).toContain("formatUiCount(assetCount)");
+    expect(source.workspace).toContain("countProjectMedia(projectDetails?.slides)");
+    expect(source.workspace).toContain("formatProjectMediaCounts(mediaCounts)");
+    expect(source.workspace).not.toContain("formatUiCount(slideCount)");
+    expect(source.workspace).not.toContain("formatUiCount(assetCount)");
   });
 
   it("passes the selected app project to Player without an implicit fallback link", () => {
     expect(source.workspace).toContain(
-      "createPlayerProjectLinkHref(projectSummary.projectId)",
+      "createPlayerProjectLinkHref(selectedId)",
     );
     expect(source.publish).toContain(
       "createPlayerProjectLinkHref(selectedProjectId)",
     );
     expect(source.workspace).not.toContain('<Link href="/player">');
     expect(source.publish).not.toContain('<Link href="/player">');
+  });
+
+  it("plays only a confirmed selected project and otherwise guides to this iPad", () => {
+    expect(source.workspace).toContain("readOfflineProjectPlaybackReadiness(selectedId)");
+    expect(source.workspace).toContain(
+      "if (requestId !== readinessRequestIdRef.current)",
+    );
+    expect(source.workspace).toContain(
+      "checkedPlaybackReadiness?.projectId === selectedId",
+    );
+    expect(source.workspace).toContain("playbackReadiness === \"ready\"");
+    expect(source.workspace).toContain("このiPadに保存");
+    expect(source.workspace).toContain('onClick={() => selectTab("device")}');
+    expect(source.workspace).toContain("再生準備を確認中");
+    expect(source.workspace).not.toContain("createPlayerProjectLinkHref(projectSummary.projectId)");
+    expect(source.workspace).not.toContain("readOfflinePlaybackSnapshot");
+    expect(source.offlineSync).toContain(
+      "createPlayerProjectLinkHref(selectedProjectId)",
+    );
+    expect(source.offlineSync).toContain("この作品を再生");
+    expect(source.offlineSync).not.toContain('<Link href="/player">');
   });
 
   it("guides an unavailable requested project back to this iPad storage", () => {

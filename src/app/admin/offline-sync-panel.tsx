@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProductDisclosure } from "@/components/product-disclosure";
@@ -13,6 +14,7 @@ import {
 import { useAppState, type OfflineSyncStatus } from "@/app/app-providers";
 import type { DriveOfflineStagingSyncRuntimeResult } from "@/lib/drive-offline-staging-sync-runtime";
 import { buildOfflineSyncProgressView } from "@/lib/offline-sync-progress";
+import { createPlayerProjectLinkHref } from "@/lib/player-route";
 import { buildOfflineSyncStaleView } from "@/app/admin/offline-sync-stale-view";
 
 export function OfflineSyncPanel() {
@@ -27,6 +29,7 @@ export function OfflineSyncPanel() {
     offlineSyncBlockedReason,
     startOfflineSync,
     cancelOfflineSync,
+    selectedProjectId,
   } = useAppState();
 
   const canCancelOfflineSync = isOfflineSyncInFlight;
@@ -44,6 +47,10 @@ export function OfflineSyncPanel() {
   const staleView = buildOfflineSyncStaleView(
     offlineSyncLastResult?.status,
   );
+  const selectedPlayerHref =
+    selectedProjectId && offlineSyncStatus === "ready"
+      ? createPlayerProjectLinkHref(selectedProjectId)
+      : null;
 
   return (
     <Card className="border-white/10 bg-white/[0.035] text-slate-50">
@@ -117,6 +124,14 @@ export function OfflineSyncPanel() {
             <p className="mt-2">
               選択中の作品をこのiPadへ保存しました。
             </p>
+            {selectedPlayerHref ? (
+              <Button
+                asChild
+                className="mt-4 min-h-11 bg-emerald-200 text-slate-950 hover:bg-emerald-100"
+              >
+                <Link href={selectedPlayerHref}>この作品を再生</Link>
+              </Button>
+            ) : null}
           </div>
         ) : null}
 

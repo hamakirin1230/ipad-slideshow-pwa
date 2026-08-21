@@ -81,7 +81,9 @@ describe("beginner-first product experience", () => {
     expect(source.publish).toContain("formatUiDateTime(result.publishedAt)");
     expect(source.publish).not.toMatch(/公開URL|共有URL/);
     expect(source.device).toContain("このiPadに保存");
-    expect(source.device).not.toContain("/player");
+    expect(source.device).toContain("createPlayerProjectLinkHref(selectedProjectId)");
+    expect(source.device).toContain("この作品を再生");
+    expect(source.device).not.toContain('<Link href="/player">');
     for (const productSurface of [
       source.publish,
       source.device,
