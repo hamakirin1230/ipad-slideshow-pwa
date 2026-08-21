@@ -165,32 +165,44 @@ describe("current documentation contract", () => {
     );
   });
 
-  it("records Google Photos export Preview acceptance without claiming Production", () => {
+  it("records Google Photos export Production acceptance without overstating remaining gaps", () => {
     expect(googlePhotosExportAcceptance).toContain(
       "Preview / real Google Photos image-caption acceptance passed.",
     );
     expect(googlePhotosExportAcceptance).toContain(
+      "2026-08-21 Production acceptance passed.",
+    );
+    expect(googlePhotosExportAcceptance).toContain(
+      "Production acceptance passed",
+    );
+    expect(googlePhotosExportAcceptance).not.toContain(
       "Production acceptance not yet performed.",
     );
     expect(googlePhotosExportAcceptance).toContain("photo-1-burned-v1");
     expect(googlePhotosExportAcceptance).toContain("photo-1-burned-v2");
-    expect(googlePhotosExportAcceptance).toContain("未実施");
-    expect(googlePhotosExportAcceptance).not.toContain(
-      "Production acceptance passed",
+    expect(googlePhotosExportAcceptance).toContain(
+      "Productionではv1 / v2差分検証を再実施していない",
     );
-    expect(currentContext).toContain("Production acceptanceは未実施");
+    expect(googlePhotosExportAcceptance).toContain("existing installed PWA");
+    expect(googlePhotosExportAcceptance).toContain("PWA new install");
+    expect(currentContext).toContain("Production accepted");
+    expect(currentContext).not.toContain("Production acceptanceは未実施");
     expect(currentContext).toContain("photoslibrary.appendonly");
     expect(currentContext).toContain("include_granted_scopes");
-    expect(rootReadme).toContain("画像captionはexport画像にburn-in");
-    expect(rootReadme).toContain("Production acceptanceは未実施");
-    expect(googlePhotosExportAcceptance).toContain(
-      "新HEADもmanual acceptance済み",
+    expect(currentContext).toContain("写真 / 動画件数");
+    expect(currentContext).toContain(
+      "PlayerはURLの`projectId`を再生対象のauthority",
     );
-    expect(googlePhotosExportAcceptance).toContain('prompt: "none"');
+    expect(currentContext).toContain("access tokenは非永続");
+    expect(rootReadme).toContain("画像captionはexport画像にburn-in");
+    expect(rootReadme).toContain("Production上の実Google Photos");
+    expect(rootReadme).not.toContain("Production acceptanceは未実施");
+    expect(rootReadme).toContain("写真 / 動画件数");
     expect(googlePhotosExportAcceptance).toContain(
       "page-load silent token requestは撤去した",
     );
     expect(googlePhotosExportAcceptance).toContain("60分接続維持」は未解決");
+    expect(googlePhotosExportAcceptance).toContain('prompt: "none"');
     expect(rootReadme).toContain("refresh後のGoogle接続は、明示的な「Googleへ接続」");
     expect(currentContext).toContain(
       "refresh後のGoogle接続は、明示的な「Googleへ接続」",

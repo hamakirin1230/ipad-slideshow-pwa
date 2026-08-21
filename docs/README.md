@@ -36,7 +36,7 @@ HistoricalとCurrentが衝突する場合はCurrentを優先します。dated ha
 
 ## Acceptance / evidence
 
-- [`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md) — 2026-08-21 Google Photos exportのPreview / 実Google Photos画像caption acceptance。Production acceptanceは未実施
+- [`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md) — 2026-08-21 Google Photos exportのPreview / Production acceptance。Previewのv1 / v2 caption evidenceとProduction確認を区別して記録
 - [`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md) — 2026-08-12 finalization merge前 / Production acceptanceと未確認項目
 - [`acceptance/publication-write-abnormal-acceptance-plan.md`](acceptance/publication-write-abnormal-acceptance-plan.md) — publication write異常系の承認済み試験計画。temporary harnessの履歴を含むが、実Google DriveでのA/B/C完了記録はない
 - [`verification/`](verification/) — 各時点の検証記録

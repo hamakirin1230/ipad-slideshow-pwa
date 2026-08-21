@@ -4,9 +4,9 @@ Date: 2026-08-21
 
 Status:
 Preview / real Google Photos image-caption acceptance passed.
-Production acceptance not yet performed.
+2026-08-21 Production acceptance passed.
 
-この文書は、`feature/google-photos-export` のGoogle Photos書き出しについて、local validation、code audit、Preview確認、実Google Photos手動確認を段階別に記録する。各段階で再実行していない操作を、その段階の確認結果へ含めない。Production acceptanceは未実施であり、成功扱いしない。
+この文書は、Google Photos書き出しについて、local validation、code audit、Preview確認、実Google Photos手動確認、Production確認を段階別に記録する。各段階で再実行していない操作を、その段階の確認結果へ含めない。Previewのv1 / v2 caption差分はPreview evidenceとして維持し、Production confirmationへ昇格させない。
 
 ## Scope
 
@@ -53,7 +53,7 @@ runtime HEADに対するcode auditで確認した契約。これは手動accepta
 
 Vercel Preview上でGoogle Photos exportの実行経路を使い、後述の実Google Photos manual acceptanceを行った。Preview deploymentはREADYだった。temporary Preview URLは記録しない。
 
-Productionへは未反映であり、Preview確認をProduction確認へ昇格させない。
+このPreview確認はProduction confirmationへ昇格させない。Production acceptanceは後述の別sectionで記録する。
 
 ## Real Google Photos manual acceptance
 
@@ -110,12 +110,13 @@ JPEG画像2枚の作品を、Google Photosの新規albumへexportした。
 - 200 MiB画像境界
 - 5 GiB動画境界
 - OAuth consent画面上でのscope文言目視
+- 60分Google接続維持
 
 既存の未確認事項も解決済みへしない。
 
 - multi-tab publication race
 - exact 5 GiB upload境界
-- publication abnormal write A/B/C
+- publication abnormal write A/B/C real Drive completion
 - PWA new install
 
 ## Main merge前 feedback fix
@@ -137,10 +138,34 @@ JPEG画像2枚の作品を、Google Photosの新規albumへexportした。
 - 「60分接続維持」は未解決である
 - 別branchでOAuth authorization code flow / backend方式を検討対象とする
 
-この文書を「新HEADもmanual acceptance済み」とは読まない。Google Photos v1 / v2は以前のruntime evidenceとして保持する。Production acceptanceは引き続き未実施である。
+Google Photos v1 / v2はPreview runtime evidenceとして保持する。Productionではv1 / v2差分検証を再実施していない。
 
 ## Production acceptance
 
-未実施。
+2026-08-21 Production acceptance passed.
 
-Productionへ未反映であり、Production上のGoogle Photos export smoke check、正式URLでの再export、Production OAuth経路の再確認はまだ行っていない。この欄を成功扱いにしない。
+Productionで確認した範囲:
+
+- Home / navigation。正常表示。「再生する」「編集する」が動作
+- Settings explicit Google reconnect。明示的な「Googleへ接続」で正常接続。refresh後は未接続へ戻る。自動account chooserは出ない
+- `/system`。正常表示。Google / Drive / 端末状態に大きな異常なし
+- Admin tabs。作品 / スライド / 公開 / このiPad の4tabが切替可能。作品一覧は正常
+- project card photo/video counts。各作品カードが「写真 X ・ 動画 Y」
+- selected-project offline save + exact Player playback。選択作品を「このiPadに保存」し、「この作品を再生」でその作品がPlayerで正常再生
+- real Google Photos new album export。Productionから実Google Photosへexport成功。新しいalbum作成を確認
+- image caption burn-in visible。画像caption burn-inを目視確認
+- existing installed PWA launch。既存インストール済みPWAが正常起動
+
+Previewで確認済みだったv1 / v2 caption evidenceは維持する。Productionではv1 / v2差分検証を再実施していないので、そこはPreview evidenceとして区別する。
+
+現在のGoogle接続仕様:
+
+- access tokenは非永続
+- page refresh後は未接続
+- ユーザーが明示的に「Googleへ接続」する
+- page-load token requestなし
+- automatic account chooserなし
+
+「60分接続維持」は未解決のままである。authorization code flow / backend方式は別branchの検討対象とする。
+
+未確認項目は「Explicitly unverified items」のまま残す。確認していない操作をverifiedへ昇格しない。

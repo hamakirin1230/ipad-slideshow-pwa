@@ -15,7 +15,7 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 
 ## Google Photos export
 
-2026-08-21時点で、`feature/google-photos-export`上にGoogle Photosへの新規album書き出しを実装済み。Preview上の実Google Photosで、JPEG 2枚のcaption burn-in（v1 / v2）を確認した。Productionへは未反映であり、Production acceptanceは未実施である。段階別evidenceは[`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md)を参照する。
+2026-08-21、Google Photosへの新規album書き出しはProduction accepted。Productionで実Google Photosへの新規album exportと画像caption burn-in目視を確認した。PreviewのJPEG 2枚 caption burn-in（v1 / v2）はPreview evidenceとして維持し、Productionではv1 / v2差分検証を再実施していない。段階別evidenceは[`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md)を参照する。
 
 - Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作
 - 画像captionはexport用画像へburn-inする
@@ -135,9 +135,10 @@ confirmed store promotion
 /admin unused Drive asset cleanup preview
 /admin unused Drive asset explicit physical delete
 /admin Google Photos新規album書き出し（画像caption burn-in。動画はstream upload）
-Preview上の実Google PhotosでJPEG 2枚のcaption burn-in v1 / v2を確認（Production acceptanceは未実施）
+Preview上の実Google PhotosでJPEG 2枚のcaption burn-in v1 / v2を確認（Preview evidence。Productionではv1 / v2差分を再実施していない）
+Production上の実Google Photos新規album書き出しと画像caption burn-in目視を確認（2026-08-21 Production acceptance）
 /admin headerの写真 / 動画件数と、confirmed copyがある選択作品だけ再生
-refresh後のGoogle接続は手動再接続（page-load silent restoreはPreview不成立のため撤去）
+refresh後のGoogle接続は手動再接続（page-load silent restoreはPreview不成立のため撤去。60分接続維持は未解決）
 unused Drive asset physical deleteの実Google Drive動作確認（未参照app-managed JPEG / PNG / WebPのみ。MP4/MOVは対象外）
 明示的publish / immutable revision / rollback impact preview / fresh preflight / verified rollback
 manifest.publication.currentRevisionId authorityと、新しいrollback revision作成
@@ -426,8 +427,7 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. Google Photos exportのmain merge後Production acceptance
-   Preview画像caption burn-inは完了。Production反映後の再確認は未実施
+1. 60分Google接続維持は未解決。authorization code flow / backend方式は別branchの検討対象
 2. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る

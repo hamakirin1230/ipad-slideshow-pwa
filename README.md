@@ -38,7 +38,7 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/admin/` drag handle表示を「≡」のみへ簡略化し、aria-label / titleは維持
 - `/player/` のcaptionテロップ下帯をiPad PWAでも残るように背景指定を強化
 - Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
-- `/admin/` から選択中projectをGoogle Photosの新規albumへ書き出せる。画像captionはexport画像にburn-inし、動画は元動画をstream uploadしてcaption burn-inしない。Preview上の実Google PhotosでJPEG画像caption burn-inを確認済み。Production acceptanceは未実施
+- `/admin/` から選択中projectをGoogle Photosの新規albumへ書き出せる。画像captionはexport画像にburn-inし、動画は元動画をstream uploadしてcaption burn-inしない。Production上の実Google Photosで新規album exportと画像caption burn-inを確認済み
 - `/admin/` で選択中projectのunused Drive asset cleanup preview / readiness / preflight / confirm previewを表示
 - cleanup preview / preflight / confirm previewはread-onlyで、Drive file、Player snapshot、IndexedDBを変更しない
 - fresh preflight、明示confirm、順次DELETE、partial failure停止を経た未参照app-managed JPEG / PNG / WebPの物理削除と、実Google Driveでの動作確認
@@ -175,7 +175,7 @@ GitHub ActionsはCI専用です。正式な本番deploymentはVercelで行い、
 
 ## 次の作業候補
 
-1. Google Photos exportをProductionへ反映した後のProduction acceptance。Preview画像caption burn-inは完了、Productionは未実施
+1. 60分Google接続維持は未解決。authorization code flow / backend方式は別branchの検討対象
 2. publication writeのupdate応答不明、current競合、index warningを、承認済みplanに従って専用disposable workspaceと一時的なPreview-only harnessで実Google Drive確認する
 3. MOVのexactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後のmanual retry実機経路を確認する
 
