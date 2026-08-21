@@ -20,16 +20,17 @@ const serviceWorkerRegistrationSource = readFileSync(
   "utf8",
 );
 
-describe("root deployment contract", () => {
-  it("keeps a root static export without a hosting-specific base path", () => {
+describe("root Vercel deployment contract", () => {
+  it("keeps a root Vercel deployment without a hosting-specific base path", () => {
     expect(nextConfig).toMatchObject({
-      output: "export",
       trailingSlash: true,
       images: {
         unoptimized: true,
       },
     });
+    expect(nextConfig).not.toHaveProperty("output");
     expect(nextConfig).not.toHaveProperty("basePath");
+    expect(nextConfigSource).not.toContain('output: "export"');
     expect(nextConfigSource).not.toContain("GITHUB_PAGES");
     expect(nextConfigSource).not.toContain("/ipad-slideshow-pwa");
   });
