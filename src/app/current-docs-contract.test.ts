@@ -183,15 +183,26 @@ describe("current documentation contract", () => {
     expect(currentContext).toContain("include_granted_scopes");
     expect(rootReadme).toContain("画像captionはexport画像にburn-in");
     expect(rootReadme).toContain("Production acceptanceは未実施");
-    expect(googlePhotosExportAcceptance).toContain("targeted Preview re-smoke");
     expect(googlePhotosExportAcceptance).toContain(
       "新HEADもmanual acceptance済み",
     );
     expect(googlePhotosExportAcceptance).toContain('prompt: "none"');
+    expect(googlePhotosExportAcceptance).toContain(
+      "page-load silent token requestは撤去した",
+    );
+    expect(googlePhotosExportAcceptance).toContain("60分接続維持」は未解決");
+    expect(rootReadme).toContain("refresh後のGoogle接続は、明示的な「Googleへ接続」");
+    expect(currentContext).toContain(
+      "refresh後のGoogle接続は、明示的な「Googleへ接続」",
+    );
+    expect(rootReadme).toContain("60分接続維持は未解決");
+    expect(currentContext).toContain("60分接続維持は未解決");
     expect(rootReadme).not.toContain("60分tokenを保存");
     expect(currentContext).not.toContain("60分tokenを保存");
     expect(googlePhotosExportAcceptance).not.toContain("60分tokenを保存");
     expect(rootReadme).not.toContain("60分必ず維持");
     expect(currentContext).not.toContain("60分必ず維持");
+    expect(rootReadme).not.toContain("best-effort silent restore");
+    expect(currentContext).not.toContain("best-effort silent restore");
   });
 });

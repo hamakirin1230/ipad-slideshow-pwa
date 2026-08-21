@@ -87,9 +87,10 @@ https://ipad-slideshow-pwa.vercel.app/
 - iPadホーム画面PWAで安定して動くことを優先する
 - access tokenは保存しない、表示しない、console出力しない
 - access tokenはProvider内部のメモリ上にだけ保持する
-- 明示的なGoogle Drive接続成功後60分以内のpage refreshでは、非機密の期限markerだけを見て、`prompt: "none"`のDrive接続をbest-effortでsilent restoreする。silent restoreが拒否または失敗した場合は、手動で再接続する。アカウント選択画面は自動では開かない
+- ページrefresh後のGoogle接続は、明示的な「Googleへ接続」で再接続する。page loadやGIS readyではtoken requestを開始せず、アカウント選択画面を自動では開かない
+- 60分接続維持は未解決であり、authorization code flow / backend方式は別branchの検討対象とする
 - Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`
-- Google Photos export開始時だけ専用token clientで`https://www.googleapis.com/auth/photoslibrary.appendonly`を要求し、`include_granted_scopes`はfalseにする。Photos exportの認可は操作開始時だけであり、60分restore対象には含めない
+- Google Photos export開始時だけ専用token clientで`https://www.googleapis.com/auth/photoslibrary.appendonly`を要求し、`include_granted_scopes`はfalseにする。Photos exportの認可は操作開始時だけである
 - Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作であり、source Drive素材を更新しない
 - Google Photos exportは自動retryしない
 - Client SecretとAPIキーは作らない、使わない

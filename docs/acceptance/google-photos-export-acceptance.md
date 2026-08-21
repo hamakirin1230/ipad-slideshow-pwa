@@ -122,30 +122,22 @@ JPEG画像2枚の作品を、Google Photosの新規albumへexportした。
 
 2026-08-21のGoogle Photos v1 / v2 evidence自体は有効である。caption burn-inの手動確認結果は、その時点のruntime HEADに対する記録として残す。
 
-その後、main merge前feedbackとして次を追加した。
+その後のPreview再確認で、次は成立した。
 
-- 選択中作品の再生導線（confirmed copyがあるときだけ再生し、未保存なら「このiPadに保存」へ誘導）
-- Admin最上部headerの写真 / 動画件数
-- access tokenを永続化しないまま、明示login後60分以内のrefreshでGoogle Drive接続をbest-effort silent restoreする
+- 全作品カードの写真 / 動画件数
+- 「この作品を再生」で選択中作品をPlayer再生
 
-2026-08-21の実機Previewでは、次が未達だったため追加fixを入れた。
+60分silent restoreは成立しなかった。`prompt: ""` でも `prompt: "none"` でも、refresh時にGoogleアカウント選択画面が一瞬表示されて消え、その後未接続になった。page-loadからGIS token clientをsilent実行してrefresh persistenceを実現する試みは中止し、page-load silent token requestは撤去した。
 
-- headerの写真 / 動画件数は確認できた
-- 作品カードは「スライド / 素材」の旧表示のままだった
-- 「この作品を再生」が過去に選んだ作品をPlayerへ出していた
-- refresh時にGoogleアカウント選択画面が表示された
+現在の契約:
 
-追加fixの内容:
+- refresh後は明示的な手動Google再接続が必要
+- 自動account chooser / popup / consent UIは、ユーザーの明示操作なしには開始しない
+- access token非永続を維持する
+- 「60分接続維持」は未解決である
+- 別branchでOAuth authorization code flow / backend方式を検討対象とする
 
-- 全作品カードも写真 / 動画件数へ揃える
-- PlayerはURLの`projectId`をauthorityにする
-- 自動restoreは`prompt: "none"`だけを使い、visible account chooserを開かない
-
-これらのfeedback fix後の新HEADについて、Google Photos v1 / v2を再実施した記録ではない。この文書を「新HEADもmanual acceptance済み」とは読まない。
-
-selected playback UX / media count / connection restoreについては、新HEADのtargeted Preview re-smokeが必要である。`prompt: "none"`へ変えても、iPad / WebKitまたはGoogle側がsilent authorizationを拒否すれば手動再接続が必要である。60分間必ず維持できる保証ではない。
-
-Production acceptanceは引き続き未実施である。
+この文書を「新HEADもmanual acceptance済み」とは読まない。Google Photos v1 / v2は以前のruntime evidenceとして保持する。Production acceptanceは引き続き未実施である。
 
 ## Production acceptance
 
