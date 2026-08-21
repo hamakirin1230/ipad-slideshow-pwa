@@ -21,17 +21,31 @@ Status: architecture only. Not implemented.
 - Client Secret: 不要
 - refresh token: 不要
 - Google scope: `drive.file`のまま
-- cookie: opaque session IDだけ。HttpOnly / Secure / SameSite=Strict / Max-Age ≤ 3600
+- cookie: 256-bit opaque session IDだけ。`__Host-` / HttpOnly / Secure / SameSite=Strict / Path=/ / Domainなし / Max-Age ≤ 3600
+- Redis lookup key: `SHA-256(sessionId)`。raw session IDは保存しない
+- store: Upstash Redis via Vercel Native integration。このbranchではprovisionしない
 - access tokenはbrowser storageへ置かない
 - Photos export / Pickerはsession対象外
+- restoreごとのGoogle tokeninfoは呼ばない
+- restore responseのtokenはXSS隔離ではない。persistence回避が目的
 
 ## 4. hosting
 
-現在は`output: "export"`。request-dependent cookies / POST Route Handlerは使えない。実装時に`output: "export"`を撤去する。既存pageの静的配信と`trailingSlash: true`は維持する。root `/api`とstatic exportの共存は未実証なので採らない。
+`output: "export"`撤去は確定しない。
+
+Next.js App Routerのrequest-dependent Route Handler / Cookies APIはstatic exportでは使えない。これは確定。
+
+Vercel root `/api/*.ts` Functionとの共存は未実証。次implementation phaseの最初に`main`から`spike/google-session-vercel-function`を作り、secretなしの`api/session-probe.ts`相当だけでPreview確認する。
+
+- PASS: static export維持を第一候補に昇格
+- FAIL: そのとき`output: "export"`撤去 + App Router Route Handler
+
+PWA / static shellへの影響が小さい方を優先する。
 
 ## 5. まだやらないこと
 
 - runtime実装
+- `api/`追加
 - Redis provision
 - Vercel env追加
 - Google Cloud変更
@@ -39,4 +53,4 @@ Status: architecture only. Not implemented.
 
 ## 6. 次の実装開始条件
 
-ユーザーがVercel Marketplace Redisとserver-only暗号化keyを用意できること。iPad PWA cookieをPreview必須acceptanceにすること。60分接続維持を「実装済み」とdocsへ書かないこと。
+Gate 0 hosting spikeを先に行うこと。Upstash RedisはPreviewだけ先に足せること。iPad PWA cookieをPreview必須acceptanceにすること。60分接続維持を「実装済み」とdocsへ書かないこと。

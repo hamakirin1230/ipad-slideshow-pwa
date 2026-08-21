@@ -6,7 +6,9 @@ Branch: `design/google-connection-session`
 
 この文書は、明示的な「Googleへ接続」のあと、page refreshしても最大約60分はGoogle account chooserを出さず Drive 接続を復元するための実装前architectureである。runtime、package、Vercel configはまだ変更しない。この文書を「60分接続維持は実装済み」とは読まない。
 
-要件は「必ず60分」ではない。Google access tokenの`expires_in`が60分未満なら、その短い方をauthorityにする。silent延長は禁止する。refreshするたびにTTLを60分へ戻さない。
+要件は「必ず60分」ではない。Google access tokenの`expires_in`が60分未満なら、その短い方をauthorityにする。silent延長は禁止する。restoreするたびにTTLを延長しない。「60分保証」とは書かない。
+
+`output: "export"`の撤去は、この文書では確定しない。Next.js App Routerのrequest-dependent Route Handler / Cookies APIがstatic exportで使えないことだけが確定である。Vercel root `/api` Functionとの共存は、実装前Gate 0のPreview spikeで実証してから決める。
 
 ## 現行契約（このrepositoryで確認した事実）
 
@@ -65,15 +67,15 @@ OAuth web-server flow、Client Secret、`access_type=offline`、refresh token、
 - Photos export / Picker: 変更しない
 - page-load silent GIS: 使わない
 
-要件を満たせる。採用する。
+要件を満たせる。採用する。hostingの載せ方（root `/api` Function vs `output: "export"`撤去）だけはGate 0のあと決める。
 
 ## Recommended architecture
 
-手動GIS connect成功 → HTTPS POSTでDrive access tokenをserverへ渡す → serverがtokenを検証し、TTL付きsessionをstoreへ書く → `Set-Cookie`はcryptographically randomなopaque session IDだけ。
+手動GIS connect成功 → HTTPS POSTでDrive access tokenをserverへ渡す → serverがtokenを検証し、TTL付きsessionをstoreへ書く → `Set-Cookie`はcryptographically randomなopaque session IDだけ。Redis lookup keyは`SHA-256(sessionId)`であり、raw session IDはstoreしない。
 
-page load → GIS client初期化（token requestなし） → same-origin session restore POST → 有効ならresponseのaccess tokenを`accessTokenRef`へだけ格納 → Drive `drive.file` grantをserver検証済みとしてconnected。
+page load → GIS client初期化（token requestなし） → same-origin session restore POST → 有効ならresponseのaccess tokenを`accessTokenRef`へだけ格納 → connected。
 
-invalid / expired / backend unavailable → account chooserを自動表示しない → `notConnected` → 手動「Googleへ接続」。automatic retry loop禁止。
+invalid / expired / backend unavailable → account chooserを自動表示しない → `notConnected` → 手動「Googleへ接続」。automatic retry loop禁止。automatic GIS auth禁止。
 
 ## Security boundary
 
@@ -81,13 +83,16 @@ invalid / expired / backend unavailable → account chooserを自動表示しな
 
 - access tokenのbrowser persistent storageは引き続き禁止
 - cookieへaccess token / refresh tokenを置かない
-- cookieは最低256-bit（128-bit以上の要件を満たす）のcryptographically random opaque session IDだけ
-- server-side session storeに暗号化済みDrive access tokenと、grant検証に必要な最小情報、`expiresAt`だけを置く
-- encryption keyはVercel server-only環境変数。`NEXT_PUBLIC_`を絶対に付けない
-- token / session IDをlogs、Vercel logs、diagnostics、error message、docs、URL、analyticsへ出さない
-- session restore APIは`Cache-Control: no-store`
-- CORSで他originから使わせない。same-origin only
+- cookieは256-bit cryptographically random opaque session IDだけ
+- Redis lookup keyはraw session IDではなく`SHA-256(sessionId)`
+- server-side session storeにAES-256-GCM暗号化済みDrive access token、IV / auth tag、`expiresAt`、Drive token response由来の最小scope metadataだけを置く
+- encryption keyはVercel server-only環境変数。256-bit。`NEXT_PUBLIC_`を絶対に付けない。plaintext fallback禁止
+- token / session ID / request bodyをlogs、Vercel logs、diagnostics、error message、docs、URL、analyticsへ出さない
+- session APIは`Cache-Control: no-store`
+- cross-origin CORSを許可しない。same-origin only
+- cookieだけをCSRF防御の根拠にしない
 - Client Secretとrefresh tokenは追加しない
+- Google tokeninfoをpage restoreごとに呼ばない。access tokenをtokeninfo URLのquery parameterへ載せない
 
 現行契約で維持:
 
@@ -95,61 +100,150 @@ invalid / expired / backend unavailable → account chooserを自動表示しな
 - Photos exportは`photoslibrary.appendonly`専用client、`include_granted_scopes: false`、操作開始時だけ
 - Player offline playbackはGoogle接続restore失敗で壊さない
 
-## output: "export" 方針
+security limitation: restoreが成功するとaccess tokenはHTTPS response bodyでbrowser JSへ戻る。この方式はXSSからtokenを隔離しない。目的はtokenのbrowser persistenceを避けることである。runtime中のbrowser memory exposureは現行GISと同じ。
 
-session APIはrequestを読み、cookieを読み書きし、POSTを扱う。Next.js 16のstatic exportは次をunsupportedとする。
+## Gate 0: hosting spike
 
-- Route Handlers that rely on Request
-- Cookies API
-- request-dependent dynamic logic
+確定していること:
 
-したがって`app/api/**`のRoute Handlerを`output: "export"`のまま追加すると、local / CIの`next build`が失敗する。これは推測ではなくNext.js static exportの現行ドキュメントである。
+- Next.js App Routerのrequest-dependent Route Handler / Cookies APIは`output: "export"`では使えない
+- `app/api/**`をstatic exportのまま追加すると`next build`が失敗する
 
-root `/api/*.ts`のVercel Functionをstatic exportと共存させる案は、このrepositoryのNext.js 16 + Vercel Next.js builder契約として実証されていない。Vercel / Next.js公式は`output: "export"`でAPI routesを無効化する。推測で共存可能と決めない。
+確定していないこと:
 
-推奨:
+- `output: "export"`を撤去するかどうか
+- この既存Next.js / Vercel projectで、framework runtimeとは別にproject rootの`/api/*.ts`をVercel Functionとしてdeployできるか
 
-1. 実装phaseで`output: "export"`を撤去する
-2. 既存App Router pageは動的server APIを使わないため、Vercel上は従来どおり静的に配信できる
-3. `trailingSlash: true`はPWA path互換のため維持する。Route Handlerはtrailing slash redirectでPOST bodyを落さないことをPreviewで確認する。必要ならAPI pathだけredirect対象外にする
-4. `images.unoptimized: true`、root pathのmanifest / `/sw.js`、GitHub Pages廃止は維持する
-5. `src/app/root-deployment-contract.test.ts`は実装commitで`output: "export"`前提を更新する
+推測で共存可能とも、共存不可能とも決めない。実装phaseの最初に専用Preview spikeで実証する。
 
-`output: "export"`撤去の影響範囲:
+### spike branch
 
-- PWA `start_url: /`、`scope: /`、`/sw.js`は変更しない
-- existing installed PWAは同じoriginのまま動く想定だが、Previewで実機確認する
-- Service Workerは`/api/`をcache / interceptしないよう明示除外する。現行SWはPOSTを既に通すが、GET誤用と将来変更に備える
-- GitHub Pagesへ戻す能力は既に捨てている。static host単体ではsession APIは動かない。それは受け入れ済みである
-- CIの`pnpm build`は`output: "export"`なしの`next build`へ変わる。serverless functionが含まれる
+次implementation phaseの最初に、`main`から次を作る想定とする。
 
-Gate: `output: "export"`を残したままroot Vercel Functionでcookieを扱うprototypeは、このdesignでは採らない。どうしても残したい場合は、実装前に専用Preview spikeでSet-CookieとiPad PWA cookieが動くevidenceを取ってから再判断する。evidenceなしでは採用しない。
+```text
+spike/google-session-vercel-function
+```
+
+このspikeではGoogle token / Redis / encryptionを扱わない。最小の`api/session-probe.ts`相当だけを追加する。
+
+要件:
+
+- GETまたはPOSTで固定sanitized JSONだけ返す
+- secretなし
+- Google OAuthなし
+- Redisなし
+- tokenなし
+- user dataなし
+- loggingなし
+- `Cache-Control: no-store`
+
+確認すること:
+
+1. `next.config.ts`の`output: "export"`を維持する
+2. existing Next static export buildが成功する
+3. Vercel PreviewがREADYになる
+4. `/` が動く
+5. `/settings/` が動く
+6. `/admin/` が動く
+7. `/player/` が動く
+8. `/system/` が動く
+9. `/api/session-probe` が動く
+10. existing PWA / Service WorkerがPreviewで動く
+
+判定:
+
+- PASS: static export維持 + root Vercel Functionを第一候補に昇格する。PWA / static shellへの影響が小さい方を優先する
+- FAIL: そのとき初めて`output: "export"`撤去 + App Router Route Handlerへ進む。`trailingSlash: true`はPWA path互換のため維持する。SWは`/api/`をcache / interceptしない。`root-deployment-contract` testはhosting変更commitで更新する
+
+Gate 0が終わるまで、session APIの最終pathは固定しない。下記の`/api/google-session/*`は設計候補である。
+
+このdesign commitでは`api/`を追加しない。spikeは別branchの仕事である。
 
 ## Session store
 
 serverless functionのprocess memoryだけにtokenを置く案は禁止する。instance間で共有されない。
 
-候補:
+第一候補: **Upstash Redis via Vercel Native integration**。
 
-| store | 評価 |
-| --- | --- |
-| function memory | REJECT。TTLもinstance間も保証できない |
-| Vercel Marketplace Redis（Upstash互換） | 推奨。serverless向けREST、TTL、Vercel env連携 |
-| 自前Upstash Redis | 同等。Marketplace未使用なら手動URL設定 |
-| その他durable KV | 要件は満たし得るが、新規比較コストが大きい。今回は選ばない |
+理由:
 
-推奨store: Vercel MarketplaceのRedis（Upstash）。このdesign commitでは外部serviceをprovisionしない。実装前のmanual setup gateとする。
+- serverless向け
+- TTL sessionに適する
+- Vercel integrationでserver-only env設定が可能
+- process memoryに依存しない
 
-session dataは最大60分でTTL削除する。Redis TTLとcookie Max-AgeとGoogle token expiryの最短を使う。
+このdesign branchではprovisionしない。
 
-保存してよいもの:
+manual setup gate:
 
-- 暗号化済みDrive access token
-- `expiresAt`（Unix ms）
-- `drive.file` grant検証済みフラグ、または検証済みscope文字列`https://www.googleapis.com/auth/drive.file`だけ
+- Vercel projectへUpstash Redis integrationを追加する
+- 最初はPreview environmentだけに設定する
+- ProductionへはPreview acceptance後
+- server-only envのみ
+- `NEXT_PUBLIC_`禁止
+
+その他durable KVは要件を満たし得るが、今回は選ばない。
+
+## Session identifier hardening
+
+cookie値: 256-bit cryptographically random opaque session IDのみ。
+
+Redis lookup keyにはraw session IDを直接使わない。serverで`SHA-256(sessionId)`を計算し、次のようなkeyでlookupする。
+
+```text
+google-session:<sha256(sessionId)>
+```
+
+Redis内容が露出しても、保存済みkeyだけからactive cookie値を直接再利用できないようにする。raw session IDはRedisへ保存しない。session IDをlogしない。
+
+## Cookie
+
+- 値: opaque session IDのみ。256-bit cryptographically random
+- Production / Previewの第一候補は`__Host-` prefix（`Secure`必須、`Path=/`、`Domain`指定なし）
+- `HttpOnly`
+- `Secure`
+- `SameSite=Strict`
+- `Path=/`
+- `Domain`指定なし
+- `Max-Age`はabsolute expiryまでの秒。最大3600。Redis TTLと同じexpiryをauthorityにする
+
+iPad PWAでStrict / `__Host-`が問題になる場合だけ、Preview evidenceに基づきLaxを再検討する。推測でLaxへ落とさない。
+
+local `next dev`のHTTPでは`__Host-`を付けられない。localだけ別cookie名にする。Preview実機を正式確認とする。
+
+cookie名の実値はGate 0後の実装で選ぶ。
+
+## Session create endpoint security
+
+manual GIS connect成功後のsession create API:
+
+- POSTのみ
+- `Content-Type: application/json`のみ
+- request body sizeを小さく制限する
+- `Origin`をexpected same-originと照合する。一致しない / 欠落したcross-site POSTは拒否
+- `Sec-Fetch-Site`が存在する場合は`same-origin`のみ許可
+- cross-origin CORSを許可しない
+- `Cache-Control: no-store`
+- token / session ID / bodyをlogしない
+
+cross-site form POST等によるsession injection / account swappingを防ぐ。cookieの`SameSite`だけをCSRF防御の根拠にしない。
+
+restore / deleteも同様にPOST、same-origin、no-store、loggingなし。GET restoreは作らない（SW cacheとprefetchを避ける）。
+
+session IDはserverが生成する。client bodyのsession IDは採用しない。createのたびに新しいsession IDを発行する。
+
+## Token storage
+
+Redisへ保存してよいもの:
+
+- AES-256-GCM encrypted Drive access token
+- IV / auth tag等のdecryptに必要な値
+- `expiresAt`
+- Drive token responseから得た最小scope metadata（`drive.file`があることだけ）
 
 保存しないもの:
 
+- raw session ID
 - refresh token
 - user account email
 - Drive ID / folder ID / file ID
@@ -158,83 +252,89 @@ session dataは最大60分でTTL削除する。Redis TTLとcookie Max-AgeとGoog
 - Photos Picker token
 - Photos export token
 - `photoslibrary.appendonly` grant
+- `photospicker.mediaitems.readonly` grant
 
-key例（docsへ実IDを書かない）: `gds:<opaqueSessionId>`。session ID自体をlogしない。
+encryption key:
 
-## Token encryption
+- server-only Vercel environment variable
+- 256-bit
+- `NEXT_PUBLIC_`禁止
+- Production / Previewで別値
+- plaintext fallback禁止
+- decrypt失敗時はsession invalid。tokenを返さない。chooserは出さない
 
-session storeへplaintext tokenを置かない。
+key未設定ならcreate / restoreを拒否し、Google接続は現行どおりmemory-onlyへ落ちる。
 
-- AES-256-GCM
-- keyは32-byte。Vercel server-only env。名前に`NEXT_PUBLIC_`を付けない
-- 値は`iv + ciphertext + authTag`をserver外へ出さない形式でstoreする
-- keyはProduction / Previewで分ける
-- v1ではkey rotationは手動再発行（既存sessionは無効化）。rotation自動化は対象外
+## Token validation
 
-key未設定ならsession APIは起動してもcreate/restoreを拒否し、Google接続は現行どおりmemory-onlyへ落ちる。自動でplaintextへfallbackしない。
+Google tokeninfoをpage restoreごとに呼ぶ設計にはしない。tokeninfo URLへaccess tokenをquery parameterとして送る実装は採らない。
 
-## Cookie
+既存GIS Drive token client（`scope: drive.file`、`include_granted_scopes: false`）のcallbackで得たtokenだけをsession createへ渡すコード境界をcontract testする。Picker / export callbackからcreateを呼ぶ禁止。
 
-- 値: opaque session IDのみ。256-bit cryptographically random
-- `HttpOnly`
-- `Secure`（Preview / ProductionのHTTPS）
-- `SameSite=Strict`を第一候補。same-origin POSTだけがcookieを送れば足りる。Laxは他siteからのtop-level GETでcookieが付き得る
-- `Path=/`
-- `Max-Age`はsession TTL秒。最大3600
-- Production / Previewでは`__Host-` prefixを推奨（`Secure`必須、`Path=/`、`Domain`属性なし）
-- local `next dev`のHTTPでは`__Host-`を付けられない。localだけ別cookie名にする。実装時に分岐する。Preview実機を正式確認とする
+session createでは最低限次を検証する。
 
-cookie名の実値はdocsへ固定しすぎない。実装時に選ぶ。
+- `expires_in`が正の有限値
+- TTL上限3600秒
+- scope metadataに`drive.file`がある
+- Photos scopeをsession metadataとして受け入れない
 
-## CSRF / session fixation / replay
+欠落または不正ならcreateを拒否する。当該tabのmemory tokenは残してよい（後述のcreate failure UX）。
 
-- same-origin only。`Origin`がこのappのProductionまたは当該Preview originと一致しないrequestは拒否。`Origin`欠落のcross-site POSTも拒否
-- CORS headerを他originへ出さない
-- restore / create / deleteはすべてPOST + `credentials: "include"`。GET restoreは作らない（SW cacheとprefetchを避ける）
-- アプリ由来であることを示す非機密header（例: 固定名のcustom header）を必須にする。値にtokenを入れない
-- session IDはserverが生成する。client bodyのsession IDは採用しない
-- createのたびに新しいsession IDを発行する。古いsessionは上書きせずTTL切れまたは明示delete
-- restoreはTTLを延長しない。replay可能時間はtoken expiryまで
-- User-Agent bindingはiPadの揺れでfalse denyし得るのでv1ではしない
+restoreではstore TTL / absolute expiryとdecrypt成功を見る。restoreのたびにGoogle tokeninfoは呼ばない。
+
+restore後の実Drive APIが401 / 403等のauth failureになった場合:
+
+- memory token clear
+- server session delete
+- cookie expire
+- `notConnected`
+
+automatic GIS authは禁止する。account chooserを自動表示しない。
 
 ## TTL
 
 ```text
-sessionExpiresAt = now + min(googleExpiresInSec, 3600) * 1000
+ttlSeconds = min(googleTokenExpiresIn, 3600)
+sessionExpiresAt = createdAt + ttlSeconds * 1000
 ```
 
+- Redis TTLとcookie `Max-Age`は同じabsolute expiryをauthorityにする
+- restoreでは延長しない
+- refreshするたびにTTLを延長しない
 - Google token expiryを超えてsessionを有効にしない
-- 60分を超えて有効にしない
-- restore成功でもexpiresAtを更新しない
-- silent延長禁止
+- 「60分保証」と書かない
 
-`expires_in`は現行`app-providers.tsx`では未使用。GISの典型値は約3600秒だが、実装はtokeninfoまたはtoken responseの実値を使う。欠落時は短く見る（例: 50分）かcreateを拒否する。誇張した60分固定にしない。
+`expires_in`は現行`app-providers.tsx`では未使用。create時にtoken responseの実値を使う。欠落時はcreateを拒否する。
 
-## Server token verification
+## API候補
 
-session create時、client申告のscopeを信じない。serverがGoogleのtokeninfo（tokenをqueryへ載せない方法）またはDriveの最小readで次を確認する。
+設計上の候補。Gate 0のroot `/api`方式が成功するまでは最終path contractに固定しない。
 
-- tokenが有効
-- audienceがこのappのOAuth client ID
-- scopeに`drive.file`がある
-- `photoslibrary.appendonly`だけのtoken、Picker専用tokenは拒否
-- `expires_in`を読む
+```text
+POST /api/google-session/create
+POST /api/google-session/restore
+POST /api/google-session/delete
+```
 
-restore時も、storeから復号したtokenがまだ有効かを確認してからbrowserへ返す。無効ならsession削除、401、chooserなしで`notConnected`。
+restore:
 
-verification APIのrequest/responseをappのlogへ出さない。
+- valid sessionならDrive access tokenをHTTPS response bodyで返す
+- `Cache-Control: no-store`
+- browserは`accessTokenRef`へだけ格納する
+- React state / Context / storage / logsへ置かない
+- invalid / expired / decrypt失敗 / backend unavailableはchooserなしで`notConnected`
+
+restore responseをJSが受け取るため、XSSからaccess tokenを隔離する方式ではない。目的はtokenのbrowser persistenceを避けることである。runtime中のbrowser memory exposureは現行GISと同じ。
 
 ## Browser restore sequence
 
 1. GIS scriptを読み、Drive / Photos export token clientを`initTokenClient`する。`requestAccessToken`はしない
 2. Google account chooser / popup / consentを自動開始しない
-3. same-origin `POST /api/google/session/restore`（名前は実装時に確定）だけを呼ぶ
-4. validならresponse JSONのDrive access tokenを`accessTokenRef`へだけ格納。React state / Context / consoleへ出さない
-5. serverが`drive.file`を確認済みなら`googleStatus = connected`
+3. same-origin restore POSTだけを呼ぶ
+4. validならresponse JSONのDrive access tokenを`accessTokenRef`へだけ格納する
+5. `googleStatus = connected`
 6. invalid / expired / 4xx / 5xx / network fail → tokenを残さない、chooserを出さない、`notConnected`、手動接続を表示。自動retry loopなし
 7. restore中でもPlayerはconfirmed IndexedDBを使う。Google restore待ちでplaybackを止めない
-
-restore responseを`console.log`しない。devtools NetworkはHTTPS上の運用リスクとして残るが、appはtokenを複製しない。
 
 ## Manual login contract
 
@@ -243,75 +343,67 @@ restore responseを`console.log`しない。devtools NetworkはHTTPS上の運用
 成功:
 
 1. `accessTokenRef`へ格納（現行どおりこのtabで即connected）
-2. `POST /api/google/session`でserver session create
+2. session create POST
 3. opaque HttpOnly cookieを発行
 
-### session create失敗時
+### session create failure UX
 
-| 案 | UX | security | consistency |
-| --- | --- | --- | --- |
-| a. このtabはconnected。refresh persistenceだけunavailable | Google許可後にRedis障害でも作業を続けられる | tokenはmemoryのみ。現行と同等 | refresh後は今日と同じ未接続 |
-| b. 全体failure。memory tokenも捨てる | 成功したGoogle許可を失敗に見せる。chooser再実行 | persistence失敗を接続失敗と同一視 | refresh前後は揃う |
+manual Google connect自体が成功し、`accessTokenRef`にtokenがあるが、server session createだけ失敗した場合:
 
-推奨: **a**。非機密の`sessionPersist: "unavailable"`だけをUI stateにして、「この画面では接続済み。再読み込み後は再接続が必要です。」と出す。tokenはstateへ入れない。chooserは出さない。
+- current pageでは`connected`を維持する
+- Drive操作もcurrent memory tokenで継続可能
+- session persistence unavailableとしてsanitizedな非blocking状態を保持してよい
+- automatic retryは禁止
+- refresh後は通常どおり`notConnected`になる
+- Google接続そのものをfailure扱いにはしない
+- chooserは自動で出さない
 
-bはRedis障害のたびに明示OAuthをやり直し、iPad運用を壊す。aは60分維持を成功と偽らない限り安全契約を緩めない。
-
-create成功後にcookieがSetできない（ITP、PWA制限）場合もaと同じ扱いにする。Previewで区別して記録する。
+cookieがSetできない（ITP、PWA制限）場合も同じ扱う。Previewで区別して記録する。
 
 ## Disconnect / Drive auth failure
 
-`disconnectGoogle`の必須契約:
+明示disconnect時:
 
-- browser memoryのDrive tokenを消す（現行）
-- Photos export token clear（現行。session対象ではないが既存cleanupは維持）
-- `POST /api/google/session/delete`でserver session削除
-- session cookieをMax-Age=0でexpire
+1. memory Drive token clear
+2. server session delete
+3. cookie expire
 
-Drive API `authRequired` / token invalid時:
+server deleteが失敗してもbrowser memoryは必ずclearする。cookie expiry responseも試みる。session TTLによりserver側の最大残存時間は制限される。automatic retry loopはしない。best-effortのdeleteは1回まで。
 
-- memory token clear
-- server sessionを無効化（delete）
-- cookie expire
-- `notConnected`へ戻し、chooserは自動で出さない
+Drive API auth failure時も同じcleanupへ落とす。`notConnected`。automatic GIS authは禁止。
 
-reset Google auth flowも同じsession無効化を行う。
-
-delete API失敗時もbrowser側は切断する。server TTLに任せる。自動retry loopはしない。数回以内のbest-effort一回は可。失敗をtokenやsession IDつきで出さない。
+reset Google auth flowも同じsession無効化を行う。Photos export tokenの既存cleanupは維持する。session対象ではない。
 
 ## Photos OAuth非回帰
 
-Drive 60分sessionへ入れない:
+Google Photosは完全にsession対象外。
 
-- Photos Picker token
-- Photos export token
-- `photoslibrary.appendonly` grant
-- `photospicker.mediaitems.readonly` grant
+- Photos Picker token: 保存しない
+- Photos export token: 保存しない
+- `photoslibrary.appendonly`: sessionへ入れない
+- exportは引き続きユーザー操作開始時の専用token client
 
-Google Photos exportは引き続き操作開始時だけ専用token client。session restore対象外。refresh後のPhotos exportは、Driveがrestoreされていてもexport操作開始時に既存consent方針で認可する。
-
-session createはDrive manual connect成功時だけ呼ぶ。Picker / export callbackから呼ぶ禁止。
+refresh後のPhotos exportは、Driveがrestoreされていてもexport操作開始時に既存consent方針で認可する。session createはDrive manual connect成功時だけ呼ぶ。
 
 ## Required infrastructure / manual setup
 
-このdesign commitではprovisionしない。実装開始前のユーザー作業。
+このdesign commitではprovisionしない。
 
 ### Vercel manual setup
 
-- Marketplace Redis（Upstash）をProduction / Previewへ追加
-- REST URLとtokenをserver-only envへ
-- session暗号化keyをserver-only envへ（Production / Previewで別値）
+- Upstash Redis via Vercel Native integration。最初はPreviewだけ
+- session暗号化keyをserver-only envへ（PreviewとProductionで別値）
 - `NEXT_PUBLIC_`を付けない
-- Preview Deployment Protectionとsession cookie / fetchの相性をDashboardで確認する（未監査）
+- Production RedisはPreview acceptance後
+- Preview Deployment Protectionとsession cookie / fetchの相性はDashboard確認（未監査）
 
 ### Google Cloud manual setup
 
-- 追加不要が第一結論
+- 追加不要
 - 既存Web application client IDとAuthorized JavaScript originsのまま
 - Client Secretを作らない
 - 新しいredirect URIを足さない
 - 新しいOAuth scopeを足さない
-- tokeninfo / Drive最小検証は既存tokenで行う
 
 Client Secretが必要になるのは案Bだけである。案Cでは不要。
 
@@ -319,18 +411,19 @@ Client Secretが必要になるのは案Bだけである。案Cでは不要。
 
 runtimeはこのdesign commitに含めない。実装するときは概ね次の順。
 
-1. `output: "export"`撤去とdeployment contract test更新。pageは静的のまま。`trailingSlash`維持。SWが`/api/`を触らない。Previewで既存route / PWA shellが生きていること
-2. session ID生成、AES-GCM、TTL計算、Redis adapterのpure moduleとunit test。HTTP未接続
-3. `POST` create / restore / delete Route Handler。Origin検査、no-store、cookie属性、tokeninfo検証。tokenをlogしないtest
-4. `AppProviders`配線。manual connect成功後create。page loadでrestore。disconnect/auth failureでdelete。GIS silentなし。Photos経路非回帰test
-5. Preview acceptance（下記）。iPad PWA cookieを必須にする
-6. 実装後docs: `environment-security.md`、`current-context.md`、acceptance。未実装のまま「60分必ず維持」と書かない
+1. Gate 0: `spike/google-session-vercel-function`。`output: "export"`維持。`api/session-probe.ts`相当のみ。secret / Google / Redisなし。Previewでstatic routesと`/api/session-probe`とPWAの共存を確認する
+2. Gate 0 PASSならstatic export維持でsession Functionを載せる。FAILならそのとき`output: "export"`撤去 + App Router Route Handler
+3. session ID生成、SHA-256 lookup key、AES-GCM、TTL計算、Redis adapterのpure moduleとunit test
+4. create / restore / delete。Origin / `Sec-Fetch-Site` / Content-Type / body size / no-store。tokenをlogしないtest。Drive GIS callbackだけがcreateへ渡るcontract test
+5. `AppProviders`配線。manual connect成功後create。page loadでrestore。disconnect / Drive auth failureでdelete。GIS silentなし。create失敗はconnected維持。Photos経路非回帰test
+6. Preview acceptance。iPad PWA cookieを必須にする
+7. 実装後docs: `environment-security.md`、`current-context.md`、acceptance。「60分保証」と書かない
 
-各commitはrevert可能な大きさにする。1のhosting変更だけ先にPreviewへ出し、問題ならそこで止める。
+各commitはrevert可能な大きさにする。Gate 0で共存できなければ、そこでhosting方針だけを切り替える。
 
 ## Preview acceptance plan
 
-実装後、Productionへ出す前にPreview / 実iPadで行う。確認していない項目をpassedへしない。token、email、Drive ID、Preview URLは記録しない。
+Gate 0 spike自体のacceptanceは上のhosting確認である。token persistenceのacceptanceはGate 0 PASS（またはFAIL後のRoute Handler移行）のあと。確認していない項目をpassedへしない。token、email、Drive ID、Preview URLは記録しない。
 
 1. 明示「Googleへ接続」成功。chooserはこの操作のときだけ
 2. 約5分後refresh → chooserなし → connected restore
@@ -342,20 +435,20 @@ runtimeはこのdesign commitに含めない。実装するときは概ね次の
 8. Photos export → 操作開始時の専用consentのまま。restoreだけではexport tokenが付かない
 9. existing installed PWA → session cookieとsame-origin APIが動くか。動かない場合は未解決としてProductionへ出さない
 10. offline（飛行機モード等）→ session確認失敗でもPlayer confirmed playbackを壊さない。chooserを自動表示しない
-11. session create失敗（backend停止）→ 当該tabはconnected、refresh後は未接続、chooser自動なし
-12. Drive auth failure → server session無効、refresh後restoreしない
+11. session create失敗（backend停止）→ 当該tabはconnected、Drive操作継続、refresh後は未接続、chooser自動なし
+12. Drive auth failure → memory clear、server session無効、cookie expire、refresh後restoreしない
 
-iPad PWAのcookie（standalone、ITP、既存install）は机上合格にしない。実機必須。
+iPad PWAのcookie（standalone、ITP、既存install）は机上合格にしない。実機必須。Strict / `__Host-`が問題になるevidenceがあるときだけLaxを再検討する。
 
-PWA新規install、WebP/PNG/動画Photos export、publication abnormal writeは本acceptanceの対象外。既存の未確認リストを消化しない。
+PWA新規install、WebP/PNG/動画Photos export、publication abnormal writeは本acceptanceの対象外。
 
 ## Rollback strategy
 
 - 実装前のmainは今日の契約のまま。このdesign branchをmergeしなければruntime影響はない
-- 実装中はPreviewだけ。Production aliasへ出さない
-- hosting変更（`output: "export"`撤去）で既存PWAが壊れたら、そのcommitをrevertしてstatic exportへ戻す。session APIは同時に無効化する
-- session API導入後の障害は、Route Handlerを失敗させてclientを現行`notConnected`へ落とす。chooser自動起動へは戻さない
-- Redis / 暗号化key障害時はconnect自体を止めず、persistence unavailable（推奨案a）
+- Gate 0 spikeは専用branch。Production aliasへ出さない。probe Functionだけならsecretはない。終わったらspikeを残さない判断は実装時に行う
+- Gate 0 FAIL後に`output: "export"`を撤去して既存PWAが壊れたら、そのcommitをrevertしてstatic exportへ戻す
+- session API導入後の障害は、APIを失敗させてclientを現行`notConnected`へ落とす。chooser自動起動へは戻さない
+- Redis / 暗号化key障害時はconnect自体を止めず、persistence unavailable
 - Vercel rollbackはserver sessionを消さない。TTLで消える。必要ならRedis flushはユーザーがDashboardで行う。docsへ接続情報を書かない
 - Git / Vercel rollbackはDrive dataとIndexedDBを戻さない（既存`docs/release-rollback.md`）
 
@@ -365,28 +458,31 @@ PWA新規install、WebP/PNG/動画Photos export、publication abnormal writeは�
 - access tokenのbrowser storage
 - Client Secret / refresh token / authorization code flow（今回）
 - Photos export / Pickerをsessionへ入れる
-- 「必ず60分」
-- このcommitでのRedis provision、env追加、runtime変更
+- Google tokeninfoをrestoreごとに呼ぶこと
+- tokeninfoへaccess tokenをquery parameterとして送ること
+- 「60分保証」
+- このcommitでのRedis provision、env追加、runtime変更、`api/`追加
+- Gate 0 evidenceなしに`output: "export"`撤去を確定すること
 
-## 未決でPreviewへ持ち越す項目
+## 未決でPreview / Gate 0へ持ち越す項目
 
-- iPad standalone PWAで`SameSite=Strict` + `__Host-`が実際に残るか。ダメならLaxへ落とす判断をPreview evidenceで行う。机上ではStrict
-- restore時tokeninfoを毎回呼ぶか、Redis TTLだけにするか。第一候補は毎回検証。latencyが実機で sorければcreate時のみへ縮小する
-- cookie名とAPI pathの最終文字列
-- Marketplace Redisの具体plan（無料枠 / リージョン）。ユーザーがVercel Dashboardで選ぶ
-- `output: "export"`撤去後のVercel function region。既定のままでよい想定
+- root `/api` Vercel Functionがこのprojectのstatic exportと共存するか（Gate 0）
+- 共存した場合のsession API最終path
+- iPad standalone PWAで`SameSite=Strict` + `__Host-`が実際に残るか。ダメならLaxへ落とす判断はPreview evidenceだけで行う
+- cookie名の最終文字列
+- Upstash Redisの具体plan / リージョン。ユーザーがVercel Dashboardで選ぶ
 
 ## 結論
 
 Recommended architecture: 案C。現行GIS token flow + server-side short-lived session。
 
-Rejected alternatives: 案A（browser storage）、案B（authorization code + refresh token。今回の60分にはoverkill）、process memory store、page-load GIS silent auth、SWメモリpersistence。
+Rejected alternatives: 案A（browser storage）、案B（authorization code + refresh token。今回の60分にはoverkill）、process memory store、page-load GIS silent auth、SWメモリpersistence、restoreごとのGoogle tokeninfo、tokeninfo query parameter。
 
-Security boundary changes: server-only encrypted token storeとHttpOnly opaque cookieを追加する。browser persistent tokenは禁止のまま。Client Secretなし。refresh tokenなし。scopeは`drive.file`のまま。
+Security boundary changes: server-only AES-256-GCM token store、hashed Redis lookup key、HttpOnly opaque cookie。browser persistent tokenは禁止のまま。Client Secretなし。refresh tokenなし。scopeは`drive.file`のまま。restore responseのmemory exposureは現行GISと同じlimitation。
 
-Required infrastructure: Vercel Marketplace Redis（Upstash）とserver-only暗号化key。このcommitでは作らない。
+Required infrastructure: Upstash Redis via Vercel Native integrationとserver-only 256-bit暗号化key。このcommitでは作らない。最初はPreviewだけ。
 
-Required Vercel manual setup: Redis integration、server-only env、Preview/Production分離。
+Required Vercel manual setup: Upstash integration（Preview）、server-only env。Productionはacceptance後。
 
 Required Google Cloud manual setup: なし（既存Web client / JS originsのまま）。
 
@@ -394,10 +490,10 @@ Client Secret: 不要。
 
 refresh token: 不要。
 
-output: "export": 残したままrequest-dependent session APIは使えない。実装時に撤去する。pageの静的配信と`trailingSlash`は維持する。root `/api`共存は未実証なので採らない。
+output: "export": 撤去を確定しない。App Router request-dependent Route Handlerが使えないことだけ確定。Phase 0でstatic export維持 + root Vercel Function共存をPreview spikeする。PASSならstatic export維持。FAILならそのとき`output: "export"`撤去 + App Router Route Handler。PWA / static shellへの影響が小さい方を優先する。
 
-Implementation commits: hosting → crypto/store → Route Handler → AppProviders配線 → Preview acceptance → docs。
+Implementation commits: Gate 0 spike → hosting方針確定 → crypto/store → session API → AppProviders配線 → Preview acceptance → docs。
 
-Preview acceptance gates: 上記1–12。iPad PWA cookieは必須。
+Preview acceptance gates: Gate 0のhosting確認のあと、上記1–12。iPad PWA cookieは必須。
 
-Rollback: Preview限定、export撤去は独立revert、API失敗時は現行未接続へ安全側に倒す。
+Rollback: Preview限定。Gate 0はsecretなし。export撤去はFAIL時だけ、独立revert可能にする。API失敗時は現行未接続へ安全側に倒す。

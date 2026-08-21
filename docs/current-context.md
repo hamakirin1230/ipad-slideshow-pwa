@@ -427,7 +427,7 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. 60分Google接続維持は未解決。design branch `design/google-connection-session` で実装前architectureを検討中。実装済みではない
+1. 60分Google接続維持は未解決。design branch `design/google-connection-session` で実装前architectureを検討中。実装済みではない。次の実装はGate 0として `output:"export"` 維持と root `/api` Vercel Function共存のPreview spikeから始める
 2. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
