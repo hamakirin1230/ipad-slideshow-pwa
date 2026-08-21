@@ -833,6 +833,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
   );
   const driveOperationRequestIdRef = useRef(0);
   const driveOperationInFlightRef = useRef(false);
+  const googleConnectionGenerationRef = useRef(0);
+  const driveWorkspaceAutoCheckGenerationRef = useRef(-1);
+  const queueDriveWorkspaceAutoCheckRef = useRef<() => void>(() => {});
   const pendingProjectPublishRef = useRef<PendingProjectPublish | null>(null);
   const projectPublishAbortRef = useRef<AbortController | null>(null);
   const projectPublishRequestSequenceRef = useRef(0);
@@ -907,6 +910,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setGoogleMessage(
           "Google接続済みです。認証情報は画面表示や永続保存を行いません。",
         );
+        queueDriveWorkspaceAutoCheckRef.current();
       },
       onCreateFailed() {
         setGoogleMessage(
@@ -2133,8 +2137,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetProjectState();
   }
 
-  function resetGoogleAfterDriveAuthFailure() {
+  function invalidateGoogleSessionForConnectionChange() {
+    googleConnectionGenerationRef.current += 1;
     googleSessionControllerRef.current?.invalidate();
+  }
+
+  function resetGoogleAfterDriveAuthFailure() {
+    invalidateGoogleSessionForConnectionChange();
     clearDriveVideoPlaybackSessions();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
@@ -2279,6 +2288,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         void googleSessionControllerRef.current?.persistAfterManualConnect(
           tokenResponse,
         );
+        queueDriveWorkspaceAutoCheckRef.current();
       },
       error_callback: (error) => {
         if (handlePhotosTokenErrorCallback()) {
@@ -2309,8 +2319,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
       },
     });
 
-    abortDriveOperation();
-    resetDriveState();
     if (accessTokenRef.current) {
       setDriveFileGranted(true);
       setGoogleStatus("connected");
@@ -2318,6 +2326,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "Google接続済みです。認証情報は画面表示や永続保存を行いません。",
       );
     } else {
+      abortDriveOperation();
+      resetDriveState();
       setGoogleStatus("notConnected");
       setGoogleMessage("Google接続を開始できます。");
     }
@@ -2326,7 +2336,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
    function connectGoogle() {
     abortDriveOperation();
     clearGoogleAuthTimeout();
-    googleSessionControllerRef.current?.invalidate();
+    invalidateGoogleSessionForConnectionChange();
 
     if (!hasClientId) {
       accessTokenRef.current = null;
@@ -2391,7 +2401,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
   function resetGoogleAuthFlow() {
-    googleSessionControllerRef.current?.invalidate();
+    invalidateGoogleSessionForConnectionChange();
     clearDriveVideoPlaybackSessions();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
@@ -2412,7 +2422,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function disconnectGoogle() {
-    googleSessionControllerRef.current?.invalidate();
+    invalidateGoogleSessionForConnectionChange();
     clearDriveVideoPlaybackSessions();
     abortDriveOperation();
     clearGoogleAuthTimeout();
@@ -3519,6 +3529,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
     }
   }
+
+  function queueDriveWorkspaceAutoCheck() {
+    if (!accessTokenRef.current) {
+      return;
+    }
+
+    if (driveOperationInFlightRef.current) {
+      return;
+    }
+
+    const generation = googleConnectionGenerationRef.current;
+    if (driveWorkspaceAutoCheckGenerationRef.current === generation) {
+      return;
+    }
+
+    driveWorkspaceAutoCheckGenerationRef.current = generation;
+    void checkDriveWorkspace();
+  }
+  queueDriveWorkspaceAutoCheckRef.current = queueDriveWorkspaceAutoCheck;
 
   async function createWorkspace() {
     if (driveOperationInFlightRef.current) {

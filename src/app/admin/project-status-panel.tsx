@@ -5,7 +5,8 @@ import { Check } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { ProductDisclosure } from "@/components/product-disclosure";
-import { useAppState, type ProjectSummary } from "@/app/app-providers";
+import { useAppState, type DriveWorkspaceStatus, type ProjectSummary } from "@/app/app-providers";
+import type { GoogleConnectionStatus } from "@/lib/google-auth";
 import { DRIVE_PROJECT_TITLE_MAX_LENGTH } from "@/lib/google-drive";
 import { formatUiDateTime } from "@/lib/ui-format";
 import {
@@ -16,6 +17,7 @@ import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 
 export function ProjectStatusPanel() {
   const {
+    googleStatus,
     driveStatus,
     projectStatus,
     driveProjects,
@@ -31,6 +33,10 @@ export function ProjectStatusPanel() {
   } = useAppState();
 
   const suggestedProjectTitle = getSuggestedProjectTitle(driveProjects.length);
+  const driveNotReadyNotice = getProjectDriveNotReadyNotice({
+    googleStatus,
+    driveStatus,
+  });
 
   const canCreateProject =
     driveStatus === "ready" &&
@@ -60,10 +66,10 @@ export function ProjectStatusPanel() {
         </h2>
       </div>
 
-      {driveStatus !== "ready" ? (
+      {driveNotReadyNotice ? (
         <div className="rounded-xl border border-amber-400/25 bg-amber-400/8 p-4 text-amber-100">
-          <p className="font-semibold">Google Driveへの接続が必要です</p>
-          <p className="mt-1 leading-6">設定を完了すると、作品を選べます。</p>
+          <p className="font-semibold">{driveNotReadyNotice.title}</p>
+          <p className="mt-1 leading-6">{driveNotReadyNotice.body}</p>
           <Link
             href="/settings"
             className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-amber-100 underline decoration-amber-300/40 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200"
@@ -349,6 +355,41 @@ function SelectedProjectTitleForm(input: {
       </Button>
     </form>
   );
+}
+
+export function getProjectDriveNotReadyNotice(input: {
+  googleStatus: GoogleConnectionStatus;
+  driveStatus: DriveWorkspaceStatus;
+}): { title: string; body: string } | null {
+  if (input.driveStatus === "ready") {
+    return null;
+  }
+
+  if (input.googleStatus !== "connected") {
+    return {
+      title: "Google Driveへの接続が必要です",
+      body: "設定を完了すると、作品を選べます。",
+    };
+  }
+
+  if (input.driveStatus === "unchecked" || input.driveStatus === "checking") {
+    return {
+      title: "Google Driveの保存場所を確認しています",
+      body: "確認が終わると、作品を選べます。",
+    };
+  }
+
+  if (input.driveStatus === "creating" || input.driveStatus === "notCreated") {
+    return {
+      title: "Google Driveの保存場所の準備が必要です",
+      body: "設定で保存場所を準備すると、作品を選べます。",
+    };
+  }
+
+  return {
+    title: "Google Driveの保存場所を確認できません",
+    body: "設定で保存場所を確認すると、作品を選べます。",
+  };
 }
 
 function getCreateProjectButtonLabel(projectStatus: string) {

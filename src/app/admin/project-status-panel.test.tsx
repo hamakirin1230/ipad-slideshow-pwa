@@ -1,7 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectSummary } from "@/app/app-providers";
-import { ProjectList } from "./project-status-panel";
+import {
+  getProjectDriveNotReadyNotice,
+  ProjectList,
+} from "./project-status-panel";
 
 function project(index: number): ProjectSummary {
   return {
@@ -65,5 +68,73 @@ describe("project list presentation", () => {
     expect(html).toContain("その他 3");
     expect(html).not.toContain("スライド");
     expect(html).not.toContain("素材");
+  });
+});
+
+describe("project drive not-ready notice", () => {
+  it("asks for Google connection when Drive is not ready and Google is disconnected", () => {
+    expect(
+      getProjectDriveNotReadyNotice({
+        googleStatus: "notConnected",
+        driveStatus: "unchecked",
+      }),
+    ).toEqual({
+      title: "Google Driveへの接続が必要です",
+      body: "設定を完了すると、作品を選べます。",
+    });
+  });
+
+  it("does not call an unchecked connected session a missing Google connection", () => {
+    expect(
+      getProjectDriveNotReadyNotice({
+        googleStatus: "connected",
+        driveStatus: "unchecked",
+      })?.title,
+    ).toBe("Google Driveの保存場所を確認しています");
+    expect(
+      getProjectDriveNotReadyNotice({
+        googleStatus: "connected",
+        driveStatus: "checking",
+      })?.title,
+    ).toBe("Google Driveの保存場所を確認しています");
+    expect(
+      getProjectDriveNotReadyNotice({
+        googleStatus: "connected",
+        driveStatus: "checking",
+      })?.title,
+    ).not.toBe("Google Driveへの接続が必要です");
+  });
+
+  it("asks to prepare or recheck the save location after Drive validation fails", () => {
+    expect(
+      getProjectDriveNotReadyNotice({
+        googleStatus: "connected",
+        driveStatus: "notCreated",
+      })?.title,
+    ).toBe("Google Driveの保存場所の準備が必要です");
+    expect(
+      getProjectDriveNotReadyNotice({
+        googleStatus: "connected",
+        driveStatus: "creating",
+      })?.title,
+    ).toBe("Google Driveの保存場所の準備が必要です");
+    expect(
+      getProjectDriveNotReadyNotice({
+        googleStatus: "connected",
+        driveStatus: "operationFailed",
+      })?.title,
+    ).toBe("Google Driveの保存場所を確認できません");
+    expect(
+      getProjectDriveNotReadyNotice({
+        googleStatus: "connected",
+        driveStatus: "invalidWorkspace",
+      })?.title,
+    ).toBe("Google Driveの保存場所を確認できません");
+    expect(
+      getProjectDriveNotReadyNotice({
+        googleStatus: "connected",
+        driveStatus: "ready",
+      }),
+    ).toBeNull();
   });
 });
