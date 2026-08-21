@@ -6,6 +6,7 @@ Status:
 Preview / real Google Photos image-caption acceptance passed.
 2026-08-21 Production acceptance passed.
 2026-08-21 images-only + caption normalization Preview acceptance passed.
+2026-08-21 images-only + caption normalization Production acceptance passed.
 
 この文書は、Google Photos書き出しについて、local validation、code audit、Preview確認、実Google Photos手動確認、Production確認を段階別に記録する。各段階で再実行していない操作を、その段階の確認結果へ含めない。Previewのv1 / v2 caption差分はPreview evidenceとして維持し、Production confirmationへ昇格させない。
 
@@ -116,13 +117,13 @@ Google Photos exportの現行契約はimages-onlyである。動画経路のDriv
 
 Drive動画5GiB契約は変更しない。Google Photos exportの正式pathでは動画5GiB limitを使わない。
 
-2026-08-21、混在作品（写真5件 / 動画1件 / 全6スライド）のPreviewで、動画skipと写真5件だけのalbum作成を確認した。動画だけの作品で「書き出せる写真がありません」を出す契約は維持するが、そのケースのPreview実機確認はしていない。
+2026-08-21、混在作品（写真5件 / 動画1件 / 全6スライド）のPreviewとProductionで、動画skipと写真5件だけのalbum作成を確認した。動画だけの作品で「書き出せる写真がありません」を出す契約は維持するが、そのケースの実機acceptanceは未実施である。passedとは書かない。
 
 ## Images-only + caption normalization Preview acceptance
 
 2026-08-21 images-only Preview acceptance passed.
 
-Vercel Previewから実Google Photosへ書き出した結果だけを記録する。temporary Preview URL、token、Drive / Photos IDは記録しない。このPreviewはProduction confirmationへ昇格させない。
+Vercel Previewから実Google Photosへ書き出した結果だけを記録する。temporary Preview URL、token、Drive / Photos IDは記録しない。このPreview sectionはPreview evidenceであり、v1 / v2 caption差分と同じくProduction confirmationと区別する。
 
 確認した作品:
 
@@ -161,6 +162,36 @@ caption normalizationも実機確認した。確認caption:
 - 長文のみ2行に収まるまで縮小する
 - background / font / colorは既存維持
 
+## Images-only + caption normalization Production acceptance
+
+2026-08-21 images-only + caption normalization Production acceptance passed.
+
+main / Production deployment上で確認した範囲だけを記録する。Preview-only evidence（v1 / v2 caption差分、Previewで使った個別caption文字列）はこのProduction confirmationへ含めない。token、Drive / Photos ID、temporary URLは記録しない。
+
+確認した作品:
+
+- 写真5件 / 動画1件 / 全6スライド
+
+確認できたもの:
+
+| 対象 | 結果 |
+| --- | --- |
+| main / Production deployment | 正常 |
+| Google Photos exportは写真のみ | OK |
+| export reviewが書き出す写真 5件、対象外の動画 1件 | OK |
+| 新規albumには写真のみ | OK |
+| 今回のPhotos exportで動画はuploadされていない | OK |
+| 写真の相対順を維持 | OK |
+| caption burn-in | OK |
+| imageHeight基準のcaption normalization | OK |
+| portrait / landscape / small imageの見た目改善 | OK |
+| existing installed PWA | 正常 |
+| Player動画の既存挙動 | 問題なし |
+
+user acceptanceは「全部OK」。
+
+動画だけの作品で「Googleフォトへ書き出せる写真がありません。」としてPhotos OAuth / upload / album作成へ進まない経路は、contract / test済みである。実機acceptanceは未実施のまま。passedとは書かない。
+
 ## Explicitly unverified items
 
 次は今回確認済みへ昇格しない。
@@ -171,8 +202,7 @@ caption normalizationも実機確認した。確認caption:
 - PNG alpha実画像export
 - EXIF orientation実画像export
 - 実動画のGoogle Photos export（現行仕様では対象外。動画はskipする）
-- 動画だけの作品で「書き出せる写真がありません」を出す経路のPreview実機確認
-- images-only仕様のProduction再acceptance
+- 動画だけの作品で「書き出せる写真がありません」を出す経路の実機acceptance
 - 実ネットワーク中断からのresume
 - 200 MiB画像境界
 - Drive動画の5 GiB境界

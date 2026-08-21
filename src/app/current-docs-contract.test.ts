@@ -196,19 +196,38 @@ describe("current documentation contract", () => {
     expect(googlePhotosExportAcceptance).toContain(
       "2026-08-21 images-only + caption normalization Preview acceptance passed.",
     );
+    expect(googlePhotosExportAcceptance).toContain(
+      "2026-08-21 images-only + caption normalization Production acceptance passed.",
+    );
     expect(googlePhotosExportAcceptance).toContain("書き出す写真 5件");
     expect(googlePhotosExportAcceptance).toContain("対象外の動画 1件");
     expect(googlePhotosExportAcceptance).toContain(
       "もっちゅりんが美味しかった",
     );
+    expect(googlePhotosExportAcceptance).toContain(
+      "実機acceptanceは未実施のまま",
+    );
+    expect(googlePhotosExportAcceptance).not.toContain(
+      "images-only仕様のProduction再acceptance",
+    );
     expect(currentContext).toContain("images-only Preview acceptance passed");
+    expect(currentContext).toContain(
+      "images-only + caption normalization Production acceptance passed",
+    );
     expect(currentContext).toContain("font sizeはimageHeight基準");
     expect(currentContext).not.toContain(
       "images-only仕様のPreview / Production再acceptanceは未実施",
     );
+    expect(currentContext).not.toContain(
+      "images-only仕様のProduction再acceptanceは未実施",
+    );
     expect(currentContext).toContain("Phase 2は停止中");
     expect(rootReadme).not.toContain("images-only仕様のPreview確認は未実施");
+    expect(rootReadme).not.toContain(
+      "images-only仕様のProduction再acceptanceは未実施",
+    );
     expect(rootReadme).toContain("images-only + caption normalizationのPreview確認済み");
+    expect(rootReadme).toContain("images-only + caption normalizationのProduction確認済み");
     expect(currentContext).toContain("写真 / 動画件数");
     expect(currentContext).toContain(
       "PlayerはURLの`projectId`を再生対象のauthority",

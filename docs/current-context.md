@@ -15,7 +15,7 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 
 ## Google Photos export
 
-2026-08-21、Google Photosへの新規album書き出しはProduction accepted。Productionで実Google Photosへの新規album exportと画像caption burn-in目視を確認した。PreviewのJPEG 2枚 caption burn-in（v1 / v2）はPreview evidenceとして維持し、Productionではv1 / v2差分検証を再実施していない。2026-08-21、images-only + caption normalizationのPreview acceptance passed。段階別evidenceは[`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md)を参照する。
+2026-08-21、Google Photosへの新規album書き出しはProduction accepted。Productionで実Google Photosへの新規album exportと画像caption burn-in目視を確認した。PreviewのJPEG 2枚 caption burn-in（v1 / v2）はPreview evidenceとして維持し、Productionではv1 / v2差分検証を再実施していない。2026-08-21、images-only + caption normalizationのPreview acceptance passed。同じ日にimages-only + caption normalization Production acceptance passed。段階別evidenceは[`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md)を参照する。
 
 現行仕様:
 
@@ -44,7 +44,7 @@ but are skipped for Google Photos export.
 - 作品カードとAdmin最上部headerは写真 / 動画件数を表示する
 - 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
 - PlayerはURLの`projectId`を再生対象のauthorityとし、localStorageの前回作品で上書きしない
-- images-only Preview acceptance passed。images-only仕様のProduction再acceptanceは未実施
+- images-only Preview acceptance passed。images-only + caption normalization Production acceptance passed。動画だけの作品の実機acceptanceは未実施
 
 ## 最重要方針
 
@@ -151,6 +151,7 @@ confirmed store promotion
 /admin Google Photos新規album書き出し（images-only。画像caption burn-in。動画slideはskip）
 Preview上の実Google PhotosでJPEG 2枚のcaption burn-in v1 / v2を確認（Preview evidence。Productionではv1 / v2差分を再実施していない）
 2026-08-21 images-only + caption normalization Preview acceptance passed（写真5 / 動画1の混在作品。captionはimageHeight基準）
+2026-08-21 images-only + caption normalization Production acceptance passed（写真5 / 動画1。user acceptanceは全部OK。動画だけの実機は未実施）
 Production上の実Google Photos新規album書き出しと画像caption burn-in目視を確認（2026-08-21 Production acceptance）
 /admin headerの写真 / 動画件数と、confirmed copyがある選択作品だけ再生
 refresh後のGoogle接続は手動再接続（page-load silent restoreはPreview不成立のため撤去。60分接続維持は未解決）
@@ -443,11 +444,10 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 
 ```text
 1. 60分Google接続維持は未解決。Gate 0 FAIL。Phase 1 hosting migration PASS。Phase 2 server-only crypto primitivesは未着手で停止中。Redis / cookie / session APIは未実装。session本体は実装済みではない。Google connection 60-minute session Phase 2は停止中
-2. images-only仕様のProduction再acceptance。今回のPreview PASSをProduction confirmationへ昇格させない
-3. publication write異常系の実Google Drive acceptance
+2. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
-4. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
+3. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
 ```
 
 publication write異常系の詳細計画は`docs/acceptance/publication-write-abnormal-acceptance-plan.md`を参照。Gate 0承認後にtemporary harnessを専用branchで実装したが、その後完全撤去済みでmainへmergeしていない。repository docsに実Google DriveでA/B/Cを完了した結果記録はない。

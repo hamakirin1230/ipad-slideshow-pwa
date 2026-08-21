@@ -20,7 +20,8 @@ but are skipped for Google Photos export.
 - Drive publication / 「このiPadに保存」 / Player動画再生は変更しない
 - caption font sizeはimageHeight基準。最大2行。truncateなし。長文のみ縮小
 - 2026-08-21 images-only + caption normalization Preview acceptance passed
-- images-only仕様のProduction再acceptanceは未実施
+- 2026-08-21 images-only + caption normalization Production acceptance passed
+- 動画だけの作品の実機acceptanceは未実施。contract / test済み。passedとは書かない
 
 過去のJPEG caption burn-in v1 / v2と、2026-08-21 Production acceptanceはhistorical evidenceとして残す。当時の「動画もstream uploadする」記述は現行仕様ではない。
 
@@ -124,8 +125,7 @@ Productionは引き続き既存mainのまま。このbranchはまだProduction�
 - PNG alpha実画像export
 - EXIF orientation実画像export
 - 実動画のGoogle Photos export（現行仕様では対象外。動画はskipする）
-- 動画だけの作品で「書き出せる写真がありません」を出す経路のPreview実機確認
-- images-only仕様のProduction再acceptance
+- 動画だけの作品で「書き出せる写真がありません」を出す経路の実機acceptance
 - 実ネットワーク中断からのresume
 - 200 MiB画像境界
 - Drive動画の5 GiB境界
@@ -214,3 +214,27 @@ caption normalizationの実機確認:
 旧width-basedよりportrait / landscapeの視覚サイズ差が明確に改善。user acceptanceは「いい感じに仕上がりました」。
 
 Google connection 60-minute session Phase 2は停止中のまま。mainへは未merge。pushしていない記録はgit状態を正とする。
+
+## 14. Images-only + caption normalization Production acceptance
+
+2026-08-21 images-only + caption normalization Production acceptance passed.
+
+main / Production deploymentで確認した。Preview-only evidence（v1 / v2 caption差分、Previewの個別caption文字列）はこのProduction confirmationへ含めない。
+
+確認した作品は写真5件 / 動画1件 / 全6スライド。
+
+確認できたもの:
+
+- Google Photos exportは写真のみ
+- reviewは書き出す写真 5件、対象外の動画 1件
+- 新規albumには写真のみ
+- 今回のPhotos exportで動画はuploadされていない
+- 写真の相対順を維持
+- caption burn-in成功
+- imageHeight基準のcaption normalization実機確認
+- portrait / landscape / small imageで見た目改善
+- existing installed PWA正常
+- Player動画の既存挙動も問題なし
+- user acceptanceは全部OK
+
+動画だけの作品でOAuth / upload / album作成へ進まない経路はcontract / test済み。実機acceptanceは未実施。passedとは書かない。
