@@ -22,6 +22,12 @@ import {
   hasGrantedDriveFileScope,
 } from "@/lib/google-auth";
 import {
+  clearGoogleConnectionRestoreMarker,
+  createGoogleConnectionRestoreExpiry,
+  readActiveGoogleConnectionRestoreMarker,
+  writeGoogleConnectionRestoreMarker,
+} from "@/lib/google-connection-restore";
+import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
   tokenResponseGrantsPhotosLibraryAppendonly,
 } from "@/lib/google-photos-export/authorization";
@@ -463,7 +469,12 @@ type PendingPhotosTokenRequest = {
   reject: (error: unknown) => void;
 };
 
-type TokenRequestKind = "drive" | "photos" | "photosExport" | null;
+type TokenRequestKind =
+  | "drive"
+  | "driveRestore"
+  | "photos"
+  | "photosExport"
+  | null;
 
 type PhotosTokenRequestFailureStatus = "cancelled" | "error";
 
@@ -815,6 +826,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const accessTokenRef = useRef<string | null>(null);
   const tokenClientRef = useRef<GoogleTokenClient | null>(null);
   const tokenRequestKindRef = useRef<TokenRequestKind>(null);
+  const silentDriveRestoreAttemptedRef = useRef(false);
   const googleAuthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -2097,6 +2109,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     clearDriveVideoPlaybackSessions();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
+    clearGoogleConnectionRestoreMarker();
     accessTokenRef.current = null;
     setDriveFileGranted(null);
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
@@ -2148,6 +2161,80 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  function failSilentDriveRestore() {
+    clearGoogleAuthTimeout();
+    tokenRequestKindRef.current = null;
+    accessTokenRef.current = null;
+    clearGoogleConnectionRestoreMarker();
+    setDriveFileGranted(null);
+    setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
+    setGoogleMessage(
+      hasClientId
+        ? "Google接続を開始できます。"
+        : "NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。",
+    );
+    abortDriveOperation();
+    resetDriveState();
+  }
+
+  function applySilentDriveRestoreResponse(tokenResponse: GoogleTokenResponse) {
+    if (
+      tokenResponse.error ||
+      !tokenResponse.access_token ||
+      !hasGrantedDriveFileScope(tokenResponse)
+    ) {
+      failSilentDriveRestore();
+      return;
+    }
+
+    accessTokenRef.current = tokenResponse.access_token;
+    setDriveFileGranted(true);
+    setGoogleStatus("connected");
+    setGoogleMessage(
+      "Google接続済みです。認証情報は画面表示や永続保存を行いません。",
+    );
+    abortDriveOperation();
+    resetDriveState();
+  }
+
+  function trySilentDriveRestore() {
+    if (silentDriveRestoreAttemptedRef.current) {
+      return;
+    }
+
+    const tokenClient = tokenClientRef.current;
+    if (!tokenClient) {
+      return;
+    }
+
+    const marker = readActiveGoogleConnectionRestoreMarker(Date.now());
+    if (!marker) {
+      return;
+    }
+
+    silentDriveRestoreAttemptedRef.current = true;
+    tokenRequestKindRef.current = "driveRestore";
+    setGoogleStatus("connecting");
+    setGoogleMessage("Google接続の復元を試しています。");
+
+    googleAuthTimeoutRef.current = setTimeout(() => {
+      if (tokenRequestKindRef.current !== "driveRestore") {
+        return;
+      }
+      failSilentDriveRestore();
+    }, GOOGLE_DRIVE_TOKEN_REQUEST_TIMEOUT_MS);
+
+    try {
+      tokenClient.requestAccessToken({
+        scope: DRIVE_FILE_SCOPE,
+        include_granted_scopes: false,
+        prompt: "",
+      });
+    } catch {
+      failSilentDriveRestore();
+    }
+  }
+
   function handleScriptReady() {
     if (!hasClientId) {
       accessTokenRef.current = null;
@@ -2181,6 +2268,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
       prompt: "select_account",
       include_granted_scopes: false,
       callback: (tokenResponse) => {
+        const requestKind = tokenRequestKindRef.current;
+        if (requestKind === "driveRestore") {
+          clearGoogleAuthTimeout();
+          tokenRequestKindRef.current = null;
+          applySilentDriveRestoreResponse(tokenResponse);
+          return;
+        }
+
         if (handlePhotosTokenResponse(tokenResponse)) {
           return;
         }
@@ -2189,6 +2284,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         tokenRequestKindRef.current = null;
 
         if (tokenResponse.error) {
+          clearGoogleConnectionRestoreMarker();
           accessTokenRef.current = null;
           setDriveFileGranted(null);
           setGoogleStatus("error");
@@ -2201,6 +2297,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         }
 
         if (!tokenResponse.access_token) {
+          clearGoogleConnectionRestoreMarker();
           accessTokenRef.current = null;
           setDriveFileGranted(null);
           setGoogleStatus("error");
@@ -2215,6 +2312,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         const granted = hasGrantedDriveFileScope(tokenResponse);
 
         if (!granted) {
+          clearGoogleConnectionRestoreMarker();
           accessTokenRef.current = null;
           setDriveFileGranted(false);
           setGoogleStatus("scopeMissing");
@@ -2227,6 +2325,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
         }
 
         accessTokenRef.current = tokenResponse.access_token;
+        writeGoogleConnectionRestoreMarker(
+          createGoogleConnectionRestoreExpiry(
+            Date.now(),
+            tokenResponse.expires_in,
+          ),
+        );
         setDriveFileGranted(true);
         setGoogleStatus("connected");
         setGoogleMessage(
@@ -2236,12 +2340,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
         resetDriveState();
       },
       error_callback: (error) => {
+        const requestKind = tokenRequestKindRef.current;
+        if (requestKind === "driveRestore") {
+          failSilentDriveRestore();
+          return;
+        }
+
         if (handlePhotosTokenErrorCallback()) {
           return;
         }
 
         clearGoogleAuthTimeout();
         tokenRequestKindRef.current = null;
+        clearGoogleConnectionRestoreMarker();
         accessTokenRef.current = null;
         setDriveFileGranted(null);
         setGoogleStatus("error");
@@ -2268,6 +2379,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setGoogleMessage("Google接続を開始できます。");
     abortDriveOperation();
     resetDriveState();
+    trySilentDriveRestore();
   }
 
    function connectGoogle() {
@@ -2310,6 +2422,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       tokenRequestKindRef.current = null;
+      clearGoogleConnectionRestoreMarker();
       accessTokenRef.current = null;
       setDriveFileGranted(null);
       setGoogleStatus("error");
@@ -2327,6 +2440,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     } catch {
       clearGoogleAuthTimeout();
       tokenRequestKindRef.current = null;
+      clearGoogleConnectionRestoreMarker();
       accessTokenRef.current = null;
       setDriveFileGranted(null);
       setGoogleStatus("error");
@@ -2340,6 +2454,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     clearDriveVideoPlaybackSessions();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
+    clearGoogleConnectionRestoreMarker();
     accessTokenRef.current = null;
     clearPhotosExportAuthorization();
     discardPendingGooglePhotosExport();
@@ -2360,6 +2475,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     abortDriveOperation();
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
+    clearGoogleConnectionRestoreMarker();
     accessTokenRef.current = null;
     clearPhotosExportAuthorization();
     discardPendingGooglePhotosExport();

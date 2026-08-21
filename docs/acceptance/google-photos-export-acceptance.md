@@ -118,11 +118,21 @@ JPEG画像2枚の作品を、Google Photosの新規albumへexportした。
 - publication abnormal write A/B/C
 - PWA new install
 
-## Main merge readiness conclusion
+## Main merge前 feedback fix
 
-Preview上の実Google Photosで、JPEG 2枚のcaption burn-in（v1 / v2）をacceptした。code auditとlocal validationもこのdocs整理時点で成功している。
+2026-08-21のGoogle Photos v1 / v2 evidence自体は有効である。caption burn-inの手動確認結果は、その時点のruntime HEADに対する記録として残す。
 
-これはProduction反映済みという判断ではない。未確認項目は上記のまま保持する。main merge後のProduction smoke / Production Google Photos acceptanceは別evidenceとする。
+その後、main merge前feedbackとして次を追加した。
+
+- 選択中作品の再生導線（confirmed copyがあるときだけ再生し、未保存なら「このiPadに保存」へ誘導）
+- Admin最上部headerの写真 / 動画件数
+- access tokenを永続化しないまま、明示login後60分以内のrefreshでGoogle Drive接続をbest-effort silent restoreする
+
+これらのfeedback fix後の新HEADについて、Google Photos v1 / v2を再実施した記録ではない。この文書を「新HEADもmanual acceptance済み」とは読まない。
+
+selected playback UX / media count / connection restoreについては、新HEADのtargeted Preview re-smokeが必要である。silent restoreはiPad / WebKitまたはGoogle側の状態により拒否されることがあり、60分間必ず再ログインなしで使える保証ではない。
+
+Production acceptanceは引き続き未実施である。
 
 ## Production acceptance
 

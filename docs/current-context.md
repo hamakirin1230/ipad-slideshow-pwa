@@ -26,6 +26,11 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 - Google Photos export開始時だけ`https://www.googleapis.com/auth/photoslibrary.appendonly`を専用token clientで要求する
 - `include_granted_scopes`はfalse
 - access tokenは非永続で、Drive用とPhotos export用を別refに保持する
+- 明示的なGoogle Drive接続成功後60分以内のpage refreshでは、非機密の期限markerだけを見てDrive接続をbest-effortでsilent restoreする。access token自体は保存しない
+- silent restoreが失敗または拒否された場合は、手動で再接続する
+- Google Photos exportの認可は操作開始時の専用token clientのままで、60分restore対象に含めない
+- Admin最上部headerは選択中作品の写真 / 動画件数を表示する
+- 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
 
 ## 最重要方針
 
@@ -130,6 +135,8 @@ confirmed store promotion
 /admin unused Drive asset explicit physical delete
 /admin Google Photos新規album書き出し（画像caption burn-in。動画はstream upload）
 Preview上の実Google PhotosでJPEG 2枚のcaption burn-in v1 / v2を確認（Production acceptanceは未実施）
+/admin headerの写真 / 動画件数と、confirmed copyがある選択作品だけ再生
+明示login後60分以内のGoogle Drive接続best-effort silent restore（token非永続）
 unused Drive asset physical deleteの実Google Drive動作確認（未参照app-managed JPEG / PNG / WebPのみ。MP4/MOVは対象外）
 明示的publish / immutable revision / rollback impact preview / fresh preflight / verified rollback
 manifest.publication.currentRevisionId authorityと、新しいrollback revision作成

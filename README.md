@@ -78,7 +78,7 @@ https://ipad-slideshow-pwa.vercel.app/
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、Google Photos新規album書き出し、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete
+- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、Google Photos新規album書き出し、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete。最上部headerは選択中作品の写真 / 動画件数を表示し、confirmed copyがある作品だけ「再生」、未保存なら「このiPadに保存」へ誘導する
 - `/admin/history` project別公開履歴一覧、current公開状態と未公開編集表示、revision詳細、rollback影響確認、fresh preflightを経たverified rollback実行
 - `/player` 画像／Blob保存済み動画のoffline-first再生、remoteOnly動画のonline Drive streaming、remote video手動retry、project selector、自動送り設定、本番モード、操作ロック、テロップ表示
 
@@ -87,8 +87,9 @@ https://ipad-slideshow-pwa.vercel.app/
 - iPadホーム画面PWAで安定して動くことを優先する
 - access tokenは保存しない、表示しない、console出力しない
 - access tokenはProvider内部のメモリ上にだけ保持する
+- 明示的なGoogle Drive接続成功後60分以内のpage refreshでは、非機密の期限markerだけを見てDrive接続をbest-effortでsilent restoreする。silent restoreが拒否または失敗した場合は、手動で再接続する
 - Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`
-- Google Photos export開始時だけ専用token clientで`https://www.googleapis.com/auth/photoslibrary.appendonly`を要求し、`include_granted_scopes`はfalseにする
+- Google Photos export開始時だけ専用token clientで`https://www.googleapis.com/auth/photoslibrary.appendonly`を要求し、`include_granted_scopes`はfalseにする。Photos exportの認可は操作開始時だけであり、60分restore対象には含めない
 - Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作であり、source Drive素材を更新しない
 - Google Photos exportは自動retryしない
 - Client SecretとAPIキーは作らない、使わない
