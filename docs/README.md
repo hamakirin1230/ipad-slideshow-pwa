@@ -26,7 +26,7 @@ Currentに記載がない詳細はproduction codeとtestsで確認し、古い�
 
 実装前のarchitecture。現行runtime契約ではない。
 
-- [`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md) — Google接続60分session。未実装
+- [`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md) — Google接続60分session。Gate 0 FAIL。未実装
 
 ## Historical
 

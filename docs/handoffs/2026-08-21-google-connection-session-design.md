@@ -1,8 +1,8 @@
 # Google connection session design handoff
 
 Date: 2026-08-21
-Branch: `design/google-connection-session`
-Status: architecture only. Not implemented.
+Branch: `docs/google-session-gate0-result`
+Status: architecture + Gate 0 FAIL recorded. Session not implemented.
 
 ## 1. 目的
 
@@ -29,28 +29,25 @@ Status: architecture only. Not implemented.
 - restoreごとのGoogle tokeninfoは呼ばない
 - restore responseのtokenはXSS隔離ではない。persistence回避が目的
 
-## 4. hosting
+## 4. Gate 0
 
-`output: "export"`撤去は確定しない。
+Gate 0 = FAIL。
 
-Next.js App Routerのrequest-dependent Route Handler / Cookies APIはstatic exportでは使えない。これは確定。
+`spike/google-session-vercel-function`でWeb fetch handlerとclassic Node handlerをPreview検証した。static export維持のままlocal / Preview buildは成功し、既存static routesは生成された。Vercelはroot `/api/session-probe`をFunctionとして認識し、routingは404ではなかった。しかしGET invocationはどちらもFUNCTION_INVOCATION_FAILED。classic Node handlerではCommonJS loaderがES moduleの`export default`を読めなかった。
 
-Vercel root `/api/*.ts` Functionとの共存は未実証。次implementation phaseの最初に`main`から`spike/google-session-vercel-function`を作り、secretなしの`api/session-probe.ts`相当だけでPreview確認する。
+これは「Vercelでroot `/api`が絶対不可能」ではなく、現行repository構成の最小方式がgateを通らなかったという限定FAILである。third handler / `vercel.json` / module workaroundは試さない。spikeはmainへmergeしない。
 
-- PASS: static export維持を第一候補に昇格
-- FAIL: そのとき`output: "export"`撤去 + App Router Route Handler
+## 5. hosting
 
-PWA / static shellへの影響が小さい方を優先する。
+次は`output: "export"`撤去 + App Router Route Handler。
 
-## 5. まだやらないこと
+次branch候補: `feature/google-session-backend`。最初のcommitはhosting migrationと秘密情報なしの`src/app/api/session-probe/route.ts`。Google token / Redis / cookie / encryptionはまだ入れない。60分sessionは未実装。
 
-- runtime実装
-- `api/`追加
+## 6. まだやらないこと
+
+- このdocs branchでのruntime実装
+- spikeのmain merge
 - Redis provision
 - Vercel env追加
 - Google Cloud変更
-- main merge / push
-
-## 6. 次の実装開始条件
-
-Gate 0 hosting spikeを先に行うこと。Upstash RedisはPreviewだけ先に足せること。iPad PWA cookieをPreview必須acceptanceにすること。60分接続維持を「実装済み」とdocsへ書かないこと。
+- push / main merge

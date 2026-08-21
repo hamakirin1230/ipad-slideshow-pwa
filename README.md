@@ -88,7 +88,7 @@ https://ipad-slideshow-pwa.vercel.app/
 - access tokenは保存しない、表示しない、console出力しない
 - access tokenはProvider内部のメモリ上にだけ保持する
 - ページrefresh後のGoogle接続は、明示的な「Googleへ接続」で再接続する。page loadやGIS readyではtoken requestを開始せず、アカウント選択画面を自動では開かない
-- 60分接続維持は未解決である。実装前architectureは`docs/design/google-connection-60-minute-session.md`で検討中であり、実装済みではない
+- 60分接続維持は未解決である。実装前architectureは`docs/design/google-connection-60-minute-session.md`。Gate 0はFAIL。session本体は実装済みではない
 - Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`
 - Google Photos export開始時だけ専用token clientで`https://www.googleapis.com/auth/photoslibrary.appendonly`を要求し、`include_granted_scopes`はfalseにする。Photos exportの認可は操作開始時だけである
 - Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作であり、source Drive素材を更新しない
@@ -175,7 +175,7 @@ GitHub ActionsはCI専用です。正式な本番deploymentはVercelで行い、
 
 ## 次の作業候補
 
-1. 60分Google接続維持は未解決。実装前architectureは`docs/design/google-connection-60-minute-session.md`。実装済みではない
+1. 60分Google接続維持は未解決。Gate 0 FAIL。次は`output:"export"`撤去とApp Router Route Handler。実装済みではない
 2. publication writeのupdate応答不明、current競合、index warningを、承認済みplanに従って専用disposable workspaceと一時的なPreview-only harnessで実Google Drive確認する
 3. MOVのexactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後のmanual retry実機経路を確認する
 

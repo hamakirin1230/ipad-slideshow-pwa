@@ -27,7 +27,7 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 - `include_granted_scopes`はfalse
 - access tokenは非永続で、Drive用とPhotos export用を別refに保持する
 - ページrefresh後のGoogle接続は、明示的な「Googleへ接続」で再接続する。page loadでtoken requestやアカウント選択画面を自動開始しない
-- 60分接続維持は未解決である。実装前architectureは[`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md)で検討中であり、実装済みではない。authorization code flow / refresh tokenは今回の推奨ではない
+- 60分接続維持は未解決である。実装前architectureは[`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md)。Gate 0はFAIL。次は`output:"export"`撤去とApp Router Route Handler。session本体は実装済みではない。authorization code flow / refresh tokenは今回の推奨ではない
 - Google Photos exportの認可は操作開始時の専用token clientのままである
 - 作品カードとAdmin最上部headerは写真 / 動画件数を表示する
 - 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
@@ -427,7 +427,7 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. 60分Google接続維持は未解決。design branch `design/google-connection-session` で実装前architectureを検討中。実装済みではない。次の実装はGate 0として `output:"export"` 維持と root `/api` Vercel Function共存のPreview spikeから始める
+1. 60分Google接続維持は未解決。Gate 0 FAIL。次branch候補は `feature/google-session-backend`。最初は `output:"export"` 撤去と秘密情報なしApp Router probe。session本体は実装済みではない
 2. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
