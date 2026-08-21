@@ -1,30 +1,24 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+
 const NO_STORE = "no-store";
+const PROBE_BODY = JSON.stringify({
+  ok: true,
+  kind: "google-session-hosting-probe",
+});
 
-const sessionProbe = {
-  async fetch(request: Request): Promise<Response> {
-    if (request.method !== "GET") {
-      return new Response(null, {
-        status: 405,
-        headers: {
-          "Cache-Control": NO_STORE,
-        },
-      });
-    }
+export default function handler(
+  request: IncomingMessage,
+  response: ServerResponse,
+) {
+  if (request.method !== "GET") {
+    response.statusCode = 405;
+    response.setHeader("Cache-Control", NO_STORE);
+    response.end();
+    return;
+  }
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        kind: "google-session-hosting-probe",
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": NO_STORE,
-        },
-      },
-    );
-  },
-};
-
-export default sessionProbe;
+  response.statusCode = 200;
+  response.setHeader("Content-Type", "application/json");
+  response.setHeader("Cache-Control", NO_STORE);
+  response.end(PROBE_BODY);
+}

@@ -21,11 +21,21 @@ describe("google session hosting probe contract", () => {
       existsSync(new URL("../../api/session-probe.ts", import.meta.url)),
     ).toBe(true);
     expect(probeSource).toContain('kind: "google-session-hosting-probe"');
-    expect(probeSource).toContain('ok: true');
-    expect(probeSource).toContain('"Cache-Control": NO_STORE');
+    expect(probeSource).toContain("ok: true");
+    expect(probeSource).toContain('from "node:http"');
+    expect(probeSource).toContain("IncomingMessage");
+    expect(probeSource).toContain("ServerResponse");
+    expect(probeSource).toContain("export default function handler(");
     expect(probeSource).toContain('const NO_STORE = "no-store"');
-    expect(probeSource).toContain("request.method !== \"GET\"");
-    expect(probeSource).toContain("status: 405");
+    expect(probeSource).toContain('setHeader("Cache-Control", NO_STORE)');
+    expect(probeSource).toContain('request.method !== "GET"');
+    expect(probeSource).toContain("statusCode = 405");
+    expect(probeSource).toContain("statusCode = 200");
+    expect(probeSource).not.toContain("async fetch");
+    expect(probeSource).not.toContain("VercelRequest");
+    expect(probeSource).not.toContain("VercelResponse");
+    expect(probeSource).not.toContain("response.json");
+    expect(probeSource).not.toContain("response.status(");
     expect(probeSource).not.toContain("console.log");
     expect(probeSource).not.toContain("process.env");
     expect(probeSource).not.toContain("cookie");
