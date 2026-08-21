@@ -17,21 +17,33 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 
 2026-08-21、Google Photosへの新規album書き出しはProduction accepted。Productionで実Google Photosへの新規album exportと画像caption burn-in目視を確認した。PreviewのJPEG 2枚 caption burn-in（v1 / v2）はPreview evidenceとして維持し、Productionではv1 / v2差分検証を再実施していない。段階別evidenceは[`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md)を参照する。
 
+現行仕様:
+
+Google Photos export is images-only.
+Video slides remain in the project and can be saved/played on this iPad,
+but are skipped for Google Photos export.
+
 - Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作
-- 画像captionはexport用画像へburn-inする
-- 動画captionはburn-inしない
-- 動画はDrive range streamのままresumable uploadし、Canvasへ入れない
+- 書き出し対象は`image/jpeg` / `image/png` / `image/webp`だけ
+- 作品自体は写真と動画を保持できる。動画slideの削除、Drive動画の削除、「このiPadに保存」やPlayer再生の制限ではない
+- `video/mp4` / `video/quicktime`はunsupported errorにせず、export対象外としてskipする
+- album順は元project内の写真相対順を維持する
+- 動画だけの作品はexportを開始しない。空albumは作らない。Photos OAuth token requestも開始しない
+- 画像captionはexport用画像へburn-inする。すべてのexport画像は再encodeする
+- Google Photos exportの正式pathでは動画5GiB limitを使わない。画像は`GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES`（200 MiB）を維持する。Drive動画5GiB契約は変更しない
+- 重複判定は実際に書き出す写真だけを対象にする。動画duplicateだけではblockしない
 - export失敗でもDrive publication / offline store / Playerを変更しない
 - 通常OAuthは`https://www.googleapis.com/auth/drive.file`
 - Google Photos export開始時だけ`https://www.googleapis.com/auth/photoslibrary.appendonly`を専用token clientで要求する
 - `include_granted_scopes`はfalse
 - access tokenは非永続で、Drive用とPhotos export用を別refに保持する
 - ページrefresh後のGoogle接続は、明示的な「Googleへ接続」で再接続する。page loadでtoken requestやアカウント選択画面を自動開始しない
-- 60分接続維持は未解決である。実装前architectureは[`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md)。Gate 0はFAIL。Phase 1 hosting migrationはPASS（`output:"export"`撤去 + App Router Route Handler）。session本体は実装済みではない。authorization code flow / refresh tokenは今回の推奨ではない
-- Google Photos exportの認可は操作開始時の専用token clientのままである
+- 60分接続維持は未解決である。実装前architectureは[`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md)。Gate 0はFAIL。Phase 1 hosting migrationはPASS（`output:"export"`撤去 + App Router Route Handler）。session本体は実装済みではない。authorization code flow / refresh tokenは今回の推奨ではない。Google connection 60-minute session Phase 2は停止中
+- Google Photos exportの認可は操作開始時の専用token clientのままである。写真0件ならDrive preflight後にPhotos token requestを開始しない
 - 作品カードとAdmin最上部headerは写真 / 動画件数を表示する
 - 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
 - PlayerはURLの`projectId`を再生対象のauthorityとし、localStorageの前回作品で上書きしない
+- images-only仕様のPreview / Production再acceptanceは未実施
 
 ## 最重要方針
 
@@ -88,8 +100,9 @@ production App Routerに存在する主要route:
 - rollbackは過去revisionへpointerを戻さず、過去内容から新しいrollback revisionを作る
 - save / publish / rollbackだけではoffline dataを更新せず、端末反映には明示的offline syncが必要
 - Googleフォトへ書き出すはDrive publish / offline sync / このiPadに保存とは別操作であり、Drive publicationとoffline storeは変更しない
-- Googleフォトへ書き出す画像captionはexport用画像へburn-inし、動画captionはburn-inしない
-- Googleフォトへ書き出す動画はDrive range streamのままuploadし、Canvasへ入れない
+- Google Photos export is images-only。写真だけを新しいalbumへ書き出し、動画slideはskipする
+- Googleフォトへ書き出す画像captionはexport用画像へburn-inする
+- 動画は作品とDriveと「このiPadに保存」/ Playerに残る。Google Photosへはuploadしない
 - publication writeのin-flight guardは同一tab内の直列化であり、既知のmulti-tab raceは未解決
 - temporary publication acceptance fault harnessは専用branchで実装後に完全撤去され、production sourceには存在しない
 
@@ -134,7 +147,7 @@ confirmed store promotion
 /admin drag handle compact display
 /admin unused Drive asset cleanup preview
 /admin unused Drive asset explicit physical delete
-/admin Google Photos新規album書き出し（画像caption burn-in。動画はstream upload）
+/admin Google Photos新規album書き出し（images-only。画像caption burn-in。動画slideはskip）
 Preview上の実Google PhotosでJPEG 2枚のcaption burn-in v1 / v2を確認（Preview evidence。Productionではv1 / v2差分を再実施していない）
 Production上の実Google Photos新規album書き出しと画像caption burn-in目視を確認（2026-08-21 Production acceptance）
 /admin headerの写真 / 動画件数と、confirmed copyがある選択作品だけ再生
@@ -427,11 +440,12 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. 60分Google接続維持は未解決。Gate 0 FAIL。Phase 1 hosting migration PASS。次は Phase 2 server-only crypto primitives。Redis / cookie / session APIは未実装。session本体は実装済みではない
-2. publication write異常系の実Google Drive acceptance
+1. Google Photos exportのimages-only仕様変更のPreview実機確認。local PASSだけでは完了にしない。Google connection 60-minute session Phase 2は停止中
+2. 60分Google接続維持は未解決。Gate 0 FAIL。Phase 1 hosting migration PASS。Phase 2 server-only crypto primitivesは未着手で停止中。Redis / cookie / session APIは未実装。session本体は実装済みではない
+3. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
-3. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
+4. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
 ```
 
 publication write異常系の詳細計画は`docs/acceptance/publication-write-abnormal-acceptance-plan.md`を参照。Gate 0承認後にtemporary harnessを専用branchで実装したが、その後完全撤去済みでmainへmergeしていない。repository docsに実Google DriveでA/B/Cを完了した結果記録はない。

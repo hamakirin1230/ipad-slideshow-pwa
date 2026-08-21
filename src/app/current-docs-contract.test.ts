@@ -189,6 +189,10 @@ describe("current documentation contract", () => {
     expect(currentContext).not.toContain("Production acceptanceは未実施");
     expect(currentContext).toContain("photoslibrary.appendonly");
     expect(currentContext).toContain("include_granted_scopes");
+    expect(currentContext).toContain("Google Photos export is images-only");
+    expect(googlePhotosExportAcceptance).toContain(
+      "Google Photos export is images-only",
+    );
     expect(currentContext).toContain("写真 / 動画件数");
     expect(currentContext).toContain(
       "PlayerはURLの`projectId`を再生対象のauthority",

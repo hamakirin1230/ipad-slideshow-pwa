@@ -4,6 +4,24 @@ Updated: 2026-08-21
 
 このファイルは、iPad用スライドショーPWA制作プロジェクト `ipad-slideshow-pwa` のGoogle Photos export completion handoffです。Git commit SHA、temporary Preview URL、token、Drive / Photos IDは記録しません。
 
+## Current authority
+
+Google Photos export is images-only.
+Video slides remain in the project and can be saved/played on this iPad,
+but are skipped for Google Photos export.
+
+- 書き出し対象は写真だけ（`image/jpeg` / `image/png` / `image/webp`）
+- `video/mp4` / `video/quicktime`はunsupported errorにせずskipする
+- album順は元project内の写真相対順
+- 動画だけの作品はexportしない。空albumを作らない。Photos OAuthも開始しない
+- 画像は再encodeし、captionをburn-inする
+- Google Photos exportの正式pathでは動画5GiB limitを使わない。画像200 MiBは維持。Drive動画5GiBは変更しない
+- 重複判定は書き出す写真だけ。動画duplicateだけではblockしない
+- Drive publication / 「このiPadに保存」 / Player動画再生は変更しない
+- images-only仕様のPreview / Production再acceptanceは未実施
+
+過去のJPEG caption burn-in v1 / v2と、2026-08-21 Production acceptanceはhistorical evidenceとして残す。当時の「動画もstream uploadする」記述は現行仕様ではない。
+
 ## 1. Branch / 目的
 
 作業ブランチ:
@@ -21,11 +39,12 @@ Save != Drive Publish != Google Photos Export != このiPadに保存
 - Google Driveはsource of truthのまま
 - 毎回新しいGoogle Photos albumを作成する。既存albumの更新 / 同期 / 上書きは対象外
 - write直前にfresh Drive revalidationを行う。不一致は`sourceChanged`としてPhotos writeを開始しない
-- 同じDrive assetを複数slideで使う作品は`duplicateSlidesUnsupported`でblock
+- 同じ写真Drive assetを複数slideで使う作品は`duplicateSlidesUnsupported`でblockする。動画duplicateだけではblockしない
 - 画像: export用画像へcaptionを焼き込む。空captionでもraw original bytesは送らず再エンコードする
 - 非空captionは最大2行。全文が収まらなければsilent truncationせず`imageRenderFailed`
-- 動画: Canvasへ入れない。Drive range stream → resumable upload。caption burn-inなし
-- image 200 MiB以下、videoは既存アプリ制約の5 GiB以下
+- 動画: Google Photosへは書き出さない。作品・Drive・「このiPadに保存」・Playerには残る
+- image 200 MiB以下。Google Photos exportの正式pathでは動画5GiB limitを使わない。Drive動画5GiBは維持
+- 写真0件ならexportを開始しない。Photos token request / upload / album createをしない
 - automatic retry / automatic publish / automatic repairは禁止
 - Google Photos export失敗でもDrive source、publication、offline store、Playerを変更しない
 - access tokenは非永続。React state / storage / Cookie / URL / UI / console / diagnosticsへ出さない
@@ -36,7 +55,7 @@ Save != Drive Publish != Google Photos Export != このiPadに保存
 - Drive fresh preflightとwrite直前revalidation
 - 画像は1枚ずつDrive読出 → Canvas再エンコード → rendered Blob → resumable upload
 - JPEGはJPEG（quality 0.93）、PNGはPNG、WebPはWebP、encode不可時はPNG fallback
-- 動画はDrive Range streamのままupload
+- 動画slideはexport planから除外する。upload token / resumable upload / batchCreate / album addへ渡さない
 - `mediaItems.batchCreate` → 全件成功後のみ `albums.create` → `albums.batchAddMediaItems`
 - 専用GoogleTokenClient
 - scopeは`photoslibrary.appendonly`のみ
@@ -57,7 +76,7 @@ Save != Drive Publish != Google Photos Export != このiPadに保存
 - full-size canvasの`toDataURL` probeなし
 - JPEG / PNGではWebP probeなし
 - image source Blob生成時の追加merged buffer copyを削減
-- MP4 / MOVはDrive range stream → resumable uploadのまま
+- MP4 / MOVはGoogle Photos export planへ入れない
 - Photos export専用GoogleTokenClient
 - scopeは`photoslibrary.appendonly`のみ
 - `include_granted_scopes: false`
@@ -101,10 +120,11 @@ Productionは引き続き既存mainのまま。このbranchはまだProduction�
 - WebP実画像export
 - PNG alpha実画像export
 - EXIF orientation実画像export
-- 実動画のGoogle Photos export
+- 実動画のGoogle Photos export（現行仕様では対象外。動画はskipする）
+- images-only仕様のPreview実機確認
 - 実ネットワーク中断からのresume
 - 200 MiB画像境界
-- 5 GiB動画境界
+- Drive動画の5 GiB境界
 - OAuth consent画面上でscope文言を目視確認したこと
 
 既存の未確認事項も解決済みにしない。
@@ -154,7 +174,7 @@ Productionへ未反映であり、正式Production URL上でのGoogle Photos exp
 - offline confirmed / stagingを変更しない
 - Player selectionを変更しない
 - Google Photos export失敗時もDrive原本を変更しない
-- 動画はCanvas renderしない
+- 動画はCanvas renderしない。Google Photosへはuploadしない
 - access tokenは非永続化する
 - automatic retry禁止
 - automatic publish禁止

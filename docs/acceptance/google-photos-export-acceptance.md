@@ -10,12 +10,13 @@ Preview / real Google Photos image-caption acceptance passed.
 
 ## Scope
 
-対象は、選択中Drive projectをGoogle Photosの新規albumへ書き出す機能である。
+対象は、選択中Drive projectの写真だけをGoogle Photosの新規albumへ書き出す機能である。
 
 - `/admin` から「Googleフォトへ書き出す」
+- Google Photos export is images-only
 - 画像captionはexport用画像へburn-in
-- 動画captionはburn-inしない
-- 動画はDrive range streamのままresumable upload
+- 動画slideは作品とDriveと「このiPadに保存」/ Playerに残るが、Google Photosへはskipする
+- 動画だけの作品はexportしない。空albumは作らない
 - Drive publish / offline sync / 「このiPadに保存」とは別操作
 - export失敗でもDrive publication / offline store / Playerを変更しない
 
@@ -40,7 +41,8 @@ runtime HEADに対するcode auditで確認した契約。これは手動accepta
 - WebP encode capabilityの確認は1x1 canvasの`toBlob`だけを使い、full-size canvasの`toDataURL`は使わない
 - JPEG / PNG sourceではWebP probeを実行しない
 - image source Blobはstream chunkから直接構築し、追加のmerged buffer copyを置かない
-- MP4 / MOVはCanvasへ入れず、Drive range streamからresumable uploadする
+- MP4 / MOVはGoogle Photos export planへ入れない。upload token / resumable upload / batchCreate / album addへ渡さない
+- 写真0件ならPhotos token requestを開始しない
 - Photos exportは専用GoogleTokenClientを使う
 - 要求scopeは`photoslibrary.appendonly`のみ
 - `include_granted_scopes`はfalse
@@ -90,11 +92,28 @@ JPEG画像2枚の作品を、Google Photosの新規albumへexportした。
 
 この境界はcode / docs契約であり、OAuth consent画面のscope文言目視は未実施である。
 
-## Video non-regression
+## Video skip contract
 
-動画経路はcode / test contractとして、Drive range stream → resumable uploadのままである。Canvas render、全ファイルBlob化、数GB動画の一括読込は行わない。
+Google Photos exportの現行契約はimages-onlyである。動画経路のDrive range stream → Photos resumable uploadは、正式runtime pathではない。
 
-実動画のGoogle Photos exportは今回のmanual acceptance対象外である。
+動画slideは:
+
+- 作品manifestに残る
+- Drive assetとして残る
+- 「このiPadに保存」できる
+- Playerで再生できる
+
+一方Google Photos exportでは:
+
+- unsupported errorにしない
+- upload tokenを作らない
+- resumable uploadを開始しない
+- batchCreate / album addへ渡さない
+- 動画だけの作品では空albumを作らない
+
+Drive動画5GiB契約は変更しない。Google Photos exportの正式pathでは動画5GiB limitを使わない。
+
+過去の「実動画のGoogle Photos export」未確認項目は、現行仕様では実施対象外になった。images-onlyのPreview確認は未実施である。
 
 ## Explicitly unverified items
 
@@ -105,10 +124,11 @@ JPEG画像2枚の作品を、Google Photosの新規albumへexportした。
 - WebP実画像export
 - PNG alpha実画像export
 - EXIF orientation実画像export
-- 実動画のGoogle Photos export
+- 実動画のGoogle Photos export（現行仕様では対象外。動画はskipする）
+- images-only仕様のPreview実機確認
 - 実ネットワーク中断からのresume
 - 200 MiB画像境界
-- 5 GiB動画境界
+- Drive動画の5 GiB境界
 - OAuth consent画面上でのscope文言目視
 - 60分Google接続維持
 
