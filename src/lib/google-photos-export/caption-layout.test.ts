@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE,
+  GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO,
   GOOGLE_PHOTOS_CAPTION_MAX_LINES,
   measureCaptionLayout,
   segmentCaptionText,
@@ -8,6 +9,29 @@ import {
 
 function measureByGrapheme(text: string, fontSize: number) {
   return segmentCaptionText(text).length * fontSize * 0.8;
+}
+
+function overlayLayout(
+  imageWidth: number,
+  imageHeight: number,
+  text = "記録",
+) {
+  return measureCaptionLayout({
+    text,
+    imageWidth,
+    imageHeight,
+    measureText: measureByGrapheme,
+  });
+}
+
+function containVisualFontSize(
+  fontSize: number,
+  imageWidth: number,
+  imageHeight: number,
+  viewWidth: number,
+  viewHeight: number,
+) {
+  return fontSize * Math.min(viewWidth / imageWidth, viewHeight / imageHeight);
 }
 
 describe("google photos caption layout", () => {
@@ -39,7 +63,7 @@ describe("google photos caption layout", () => {
   });
 
   it("wraps a long Japanese caption onto at most two lines without dropping text", () => {
-    const caption = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよ";
+    const caption = "あ".repeat(80);
     const layout = measureCaptionLayout({
       text: caption,
       imageWidth: 900,
@@ -125,22 +149,128 @@ describe("google photos caption layout", () => {
     expect(layout).toEqual({ kind: "doesNotFit" });
   });
 
-  it("scales font size with image width", () => {
-    const small = measureCaptionLayout({
-      text: "記録",
-      imageWidth: 640,
-      imageHeight: 480,
-      measureText: measureByGrapheme,
-    });
-    const large = measureCaptionLayout({
-      text: "記録",
-      imageWidth: 2400,
-      imageHeight: 1800,
-      measureText: measureByGrapheme,
-    });
+  it("uses the same short-caption font size for same-height images with different widths", () => {
+    const square = overlayLayout(1200, 1200);
+    const wide = overlayLayout(2400, 1200);
+    expect(square.kind === "overlay" && wide.kind === "overlay").toBe(true);
+    if (square.kind !== "overlay" || wide.kind !== "overlay") return;
+    expect(square.fontSize).toBe(wide.fontSize);
+    expect(square.fontSize).toBe(
+      Math.round(1200 * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO),
+    );
+    expect(square.lines).toEqual(["記録"]);
+    expect(wide.lines).toEqual(["記録"]);
+  });
+
+  it("scales short-caption font size with image height, not image width", () => {
+    const small = overlayLayout(640, 480);
+    const large = overlayLayout(2400, 1800);
     expect(small.kind === "overlay" && large.kind === "overlay").toBe(true);
     if (small.kind !== "overlay" || large.kind !== "overlay") return;
     expect(large.fontSize).toBeGreaterThan(small.fontSize);
+    expect(small.fontSize).toBe(
+      Math.round(480 * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO),
+    );
+    expect(large.fontSize).toBe(
+      Math.round(1800 * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO),
+    );
+  });
+
+  it("keeps portrait and landscape representative photos visually close under contain", () => {
+    const portrait = overlayLayout(3024, 4032);
+    const landscape = overlayLayout(4032, 3024);
+    const landscape1600 = overlayLayout(1600, 1200);
+    const small = overlayLayout(600, 400);
+    expect(
+      portrait.kind === "overlay" &&
+        landscape.kind === "overlay" &&
+        landscape1600.kind === "overlay" &&
+        small.kind === "overlay",
+    ).toBe(true);
+    if (
+      portrait.kind !== "overlay" ||
+      landscape.kind !== "overlay" ||
+      landscape1600.kind !== "overlay" ||
+      small.kind !== "overlay"
+    ) {
+      return;
+    }
+
+    expect(portrait.fontSize).toBe(
+      Math.round(4032 * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO),
+    );
+    expect(landscape.fontSize).toBe(
+      Math.round(3024 * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO),
+    );
+    expect(landscape1600.fontSize).toBe(
+      Math.round(1200 * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO),
+    );
+    expect(small.fontSize).toBe(
+      Math.round(400 * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO),
+    );
+    expect(small.fontSize).toBeGreaterThanOrEqual(
+      GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE,
+    );
+
+    const previousWidthBasedLandscape = Math.round(
+      Math.min(4032 * 0.045, 3024 * 0.08),
+    );
+    expect(landscape.fontSize).toBeLessThan(previousWidthBasedLandscape);
+
+    const viewWidth = 1024;
+    const viewHeight = 768;
+    const portraitVisual = containVisualFontSize(
+      portrait.fontSize,
+      3024,
+      4032,
+      viewWidth,
+      viewHeight,
+    );
+    const landscapeVisual = containVisualFontSize(
+      landscape.fontSize,
+      4032,
+      3024,
+      viewWidth,
+      viewHeight,
+    );
+    const previousLandscapeVisual = containVisualFontSize(
+      previousWidthBasedLandscape,
+      4032,
+      3024,
+      viewWidth,
+      viewHeight,
+    );
+    const previousPortraitVisual = containVisualFontSize(
+      Math.round(Math.min(3024 * 0.045, 4032 * 0.08)),
+      3024,
+      4032,
+      viewWidth,
+      viewHeight,
+    );
+
+    expect(Math.abs(portraitVisual - landscapeVisual)).toBeLessThan(
+      0.05 * Math.min(portraitVisual, landscapeVisual),
+    );
+    expect(Math.abs(portraitVisual - landscapeVisual)).toBeLessThan(
+      Math.abs(previousPortraitVisual - previousLandscapeVisual),
+    );
+  });
+
+  it("shrinks a long caption only as far as needed to keep two full lines", () => {
+    const caption = "あ".repeat(80);
+    const short = overlayLayout(500, 800, "記録");
+    const long = overlayLayout(500, 800, caption);
+    expect(short.kind === "overlay" && long.kind === "overlay").toBe(true);
+    if (short.kind !== "overlay" || long.kind !== "overlay") return;
+    expect(short.fontSize).toBe(
+      Math.round(800 * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO),
+    );
+    expect(long.fontSize).toBeLessThan(short.fontSize);
+    expect(long.lines.length).toBe(GOOGLE_PHOTOS_CAPTION_MAX_LINES);
+    expect(long.lines.join("")).toBe(caption);
+    expect(long.fontSize).toBeGreaterThanOrEqual(
+      GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE,
+    );
   });
 
   it("keeps fitted text and overlay inside the image bounds", () => {

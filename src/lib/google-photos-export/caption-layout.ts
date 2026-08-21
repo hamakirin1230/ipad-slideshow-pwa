@@ -1,5 +1,7 @@
 export const GOOGLE_PHOTOS_CAPTION_MAX_LINES = 2;
 export const GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE = 8;
+export const GOOGLE_PHOTOS_CAPTION_MIN_FONT_SIZE_HEIGHT_RATIO = 0.018;
+export const GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO = 0.04;
 export const GOOGLE_PHOTOS_CAPTION_BACKGROUND = "rgba(0, 0, 0, 0.62)";
 export const GOOGLE_PHOTOS_CAPTION_TEXT_COLOR = "#ffffff";
 export const GOOGLE_PHOTOS_CAPTION_LINE_HEIGHT = 1.3;
@@ -48,11 +50,15 @@ export function measureCaptionLayout(input: {
   const maxTextWidth = Math.max(1, input.imageWidth - paddingX * 2);
   const preferredMinFontSize = Math.max(
     GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE,
-    Math.round(input.imageWidth * 0.018),
+    Math.round(
+      input.imageHeight * GOOGLE_PHOTOS_CAPTION_MIN_FONT_SIZE_HEIGHT_RATIO,
+    ),
   );
   const maxFontSize = Math.max(
     preferredMinFontSize,
-    Math.round(Math.min(input.imageWidth * 0.045, input.imageHeight * 0.08)),
+    Math.round(
+      input.imageHeight * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO,
+    ),
   );
   const units = segmentCaptionText(text);
 
