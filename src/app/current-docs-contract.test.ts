@@ -221,7 +221,12 @@ describe("current documentation contract", () => {
     expect(currentContext).not.toContain(
       "images-only仕様のProduction再acceptanceは未実施",
     );
-    expect(currentContext).toContain("Phase 2は停止中");
+    expect(currentContext).toContain("Phase 2 server-only primitivesは実装済み");
+    expect(currentContext).not.toContain("Phase 2は停止中");
+    expect(currentContext).not.toContain("Phase 2 server-only crypto primitivesは未着手");
+    expect(currentContext).toContain("session本体は実装済みではない");
+    expect(currentContext).toContain("Phase 3へは進んでいない");
+    expect(currentContext).toContain("Photos OAuthは変更していない");
     expect(rootReadme).not.toContain("images-only仕様のPreview確認は未実施");
     expect(rootReadme).not.toContain(
       "images-only仕様のProduction再acceptanceは未実施",

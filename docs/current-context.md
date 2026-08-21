@@ -39,7 +39,7 @@ but are skipped for Google Photos export.
 - `include_granted_scopes`はfalse
 - access tokenは非永続で、Drive用とPhotos export用を別refに保持する
 - ページrefresh後のGoogle接続は、明示的な「Googleへ接続」で再接続する。page loadでtoken requestやアカウント選択画面を自動開始しない
-- 60分接続維持は未解決である。実装前architectureは[`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md)。Gate 0はFAIL。Phase 1 hosting migrationはPASS（`output:"export"`撤去 + App Router Route Handler）。session本体は実装済みではない。authorization code flow / refresh tokenは今回の推奨ではない。Google connection 60-minute session Phase 2は停止中
+- 60分接続維持は未解決である。実装前architectureは[`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md)。Gate 0はFAIL。Phase 1 hosting migrationはPASS（`output:"export"`撤去 + App Router Route Handler）。Phase 2 server-only primitivesは実装済み（256-bit session ID、SHA-256 lookup key、AES-256-GCM helper、absolute expiry normalization、3600秒上限、drive.file scope metadata normalization）。session本体は実装済みではない。Redis / Upstash、cookie、session store、create / restore / delete API、AppProviders wiring、page-load restore、disconnect時のserver-session deleteは未実装。authorization code flow / refresh tokenは今回の推奨ではない。Phase 3へは進んでいない。Photos OAuthは変更していない
 - Google Photos exportの認可は操作開始時の専用token clientのままである。写真0件ならDrive preflight後にPhotos token requestを開始しない
 - 作品カードとAdmin最上部headerは写真 / 動画件数を表示する
 - 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
@@ -443,7 +443,7 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. 60分Google接続維持は未解決。Gate 0 FAIL。Phase 1 hosting migration PASS。Phase 2 server-only crypto primitivesは未着手で停止中。Redis / cookie / session APIは未実装。session本体は実装済みではない。Google connection 60-minute session Phase 2は停止中
+1. 60分Google接続維持は未解決。Gate 0 FAIL。Phase 1 hosting migration PASS。Phase 2 server-only primitivesは実装済み。session本体は実装済みではない。Redis / cookie / session API / AppProviders wiringは未実装。Phase 3へは進んでいない。Photos OAuthは変更していない
 2. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る

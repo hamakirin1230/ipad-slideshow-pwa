@@ -167,6 +167,45 @@ describe("google session server primitives", () => {
     }
   });
 
+  it("rejects expiry results that are not safe integers without leaking inputs", () => {
+    expect(() =>
+      normalizeGoogleSessionExpiry({
+        createdAtMs: Number.MAX_SAFE_INTEGER,
+        expiresInSeconds: 3600,
+      }),
+    ).toThrow(/google-session-invalid-expiry/);
+    expect(() =>
+      normalizeGoogleSessionExpiry({
+        createdAtMs: Number.MAX_SAFE_INTEGER - 1000,
+        expiresInSeconds: 3600,
+      }),
+    ).toThrow(/google-session-invalid-expiry/);
+
+    try {
+      normalizeGoogleSessionExpiry({
+        createdAtMs: Number.MAX_SAFE_INTEGER,
+        expiresInSeconds: 1200,
+      });
+      throw new Error("expected reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      if (!(error instanceof Error)) return;
+      expect(error.message).toBe("google-session-invalid-expiry");
+      expect(error.message).not.toContain(String(Number.MAX_SAFE_INTEGER));
+      expect(error.message).not.toContain("1200");
+      expect(error.message).not.toMatch(/ya29|access.token|secret/i);
+    }
+
+    const now = Date.now();
+    const normal = normalizeGoogleSessionExpiry({
+      createdAtMs: now,
+      expiresInSeconds: 1800,
+    });
+    expect(Number.isSafeInteger(normal.expiresAtMs)).toBe(true);
+    expect(normal.expiresAtMs).toBeGreaterThan(now);
+    expect(normal.ttlSeconds).toBe(1800);
+  });
+
   it("accepts drive.file and rejects Photos scopes without storing the raw scope string", () => {
     expect(normalizeGoogleSessionScopeMetadata(DRIVE_FILE_SCOPE)).toEqual({
       driveFile: true,

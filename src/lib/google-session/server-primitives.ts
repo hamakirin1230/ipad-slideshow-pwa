@@ -127,9 +127,17 @@ export function normalizeGoogleSessionExpiry(input: {
     throw sanitizedGoogleSessionError("invalid-ttl");
   }
 
+  const expiresAtMs = input.createdAtMs + ttlSeconds * 1000;
+  if (
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= input.createdAtMs
+  ) {
+    throw sanitizedGoogleSessionError("invalid-expiry");
+  }
+
   return {
     ttlSeconds,
-    expiresAtMs: input.createdAtMs + ttlSeconds * 1000,
+    expiresAtMs,
   };
 }
 
