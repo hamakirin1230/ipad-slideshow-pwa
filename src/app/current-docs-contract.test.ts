@@ -54,6 +54,9 @@ describe("current documentation contract", () => {
     expect(acceptanceEvidence).toContain(
       "acceptance/google-photos-export-acceptance.md",
     );
+    expect(acceptanceEvidence).toContain(
+      "acceptance/google-session-preview-acceptance.md",
+    );
   });
 
   it("captures the current hosting, package, route, and publication contract", () => {
@@ -224,8 +227,13 @@ describe("current documentation contract", () => {
     expect(currentContext).toContain("Phase 2 server-only primitivesは実装済み");
     expect(currentContext).not.toContain("Phase 2は停止中");
     expect(currentContext).not.toContain("Phase 2 server-only crypto primitivesは未着手");
-    expect(currentContext).toContain("session本体は実装済みではない");
-    expect(currentContext).toContain("Phase 3へは進んでいない");
+    expect(currentContext).toContain("Phase 3 service / store / HTTP implemented");
+    expect(currentContext).toContain("Phase 4 browser restore implemented");
+    expect(currentContext).toContain("Preview functional acceptance PASS");
+    expect(currentContext).toContain("Productionはまだ旧mainでsession機能未反映");
+    expect(currentContext).toContain("実時間absolute-expiry境界の実機確認は未実施");
+    expect(currentContext).not.toContain("session本体は実装済みではない");
+    expect(currentContext).not.toContain("Phase 3へは進んでいない");
     expect(currentContext).toContain("Photos OAuthは変更していない");
     expect(rootReadme).not.toContain("images-only仕様のPreview確認は未実施");
     expect(rootReadme).not.toContain(
@@ -248,20 +256,17 @@ describe("current documentation contract", () => {
     expect(googlePhotosExportAcceptance).toContain("60分接続維持」は未解決");
     expect(googlePhotosExportAcceptance).toContain('prompt: "none"');
     expect(rootReadme).toContain("refresh後のGoogle接続は、明示的な「Googleへ接続」");
-    expect(currentContext).toContain(
-      "refresh後のGoogle接続は、明示的な「Googleへ接続」",
-    );
     expect(rootReadme).toContain("60分接続維持は未解決");
-    expect(currentContext).toContain("60分接続維持は未解決");
-    expect(currentContext).toContain("実装済みではない");
-    expect(currentContext).toContain("Gate 0");
-    expect(currentContext).toContain("FAIL");
+    expect(currentContext).toContain("page loadでGIS");
+    expect(currentContext).toContain("live pageを60分で強制logoutする機能ではない");
     expect(currentContext).toContain("Phase 1 hosting migrationはPASS");
     expect(currentContext).toContain('output:"export"');
     expect(currentContext).not.toContain("Gate 0 PASS");
-    expect(currentContext).not.toContain("session restore実装済み");
+    expect(currentContext).not.toContain("Google Drive session Production accepted");
     expect(docsIndex).toContain("design/google-connection-60-minute-session.md");
     expect(docsIndex).toContain("## Design in progress");
+    expect(docsIndex).toContain("Preview functional acceptance passed 2026-08-22");
+    expect(docsIndex).toContain("Production provisioning / acceptance");
     expect(rootReadme).not.toContain("60分tokenを保存");
     expect(currentContext).not.toContain("60分tokenを保存");
     expect(googlePhotosExportAcceptance).not.toContain("60分tokenを保存");

@@ -1,8 +1,8 @@
 # iPad用スライドショーPWA 現在の引き継ぎ
 
-Date: 2026-08-21
+Date: 2026-08-22
 
-このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-21時点の実装・運用状態を正とします。
+このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-22時点の実装・運用状態を正とします。
 
 docs全体のCurrent / Historical分類は[`docs/README.md`](README.md)を参照してください。
 runtime environmentとVercel security headerの現行契約は[`environment-security.md`](environment-security.md)を参照してください。
@@ -38,8 +38,12 @@ but are skipped for Google Photos export.
 - Google Photos export開始時だけ`https://www.googleapis.com/auth/photoslibrary.appendonly`を専用token clientで要求する
 - `include_granted_scopes`はfalse
 - access tokenは非永続で、Drive用とPhotos export用を別refに保持する
-- ページrefresh後のGoogle接続は、明示的な「Googleへ接続」で再接続する。page loadでtoken requestやアカウント選択画面を自動開始しない
-- 60分接続維持は未解決である。実装前architectureは[`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md)。Gate 0はFAIL。Phase 1 hosting migrationはPASS（`output:"export"`撤去 + App Router Route Handler）。Phase 2 server-only primitivesは実装済み（256-bit session ID、SHA-256 lookup key、AES-256-GCM helper、absolute expiry normalization、3600秒上限、drive.file scope metadata normalization）。session本体は実装済みではない。Redis / Upstash、cookie、session store、create / restore / delete API、AppProviders wiring、page-load restore、disconnect時のserver-session deleteは未実装。authorization code flow / refresh tokenは今回の推奨ではない。Phase 3へは進んでいない。Photos OAuthは変更していない
+- page loadでGIS `requestAccessToken`やアカウント選択画面を自動開始しない。`prompt: "none"` / silent GIS restoreは使わない
+- Preview上のGoogle Drive short-lived sessionは、2026-08-22時点でPreview functional acceptance PASS。architectureは[`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md)。Preview evidenceは[`acceptance/google-session-preview-acceptance.md`](acceptance/google-session-preview-acceptance.md)
+- 2026-08-22時点の正: Phase 1 hosting migrationはPASS（`output:"export"`撤去 + App Router Route Handler）。Phase 2 server-only primitivesは実装済み。Phase 3 service / store / HTTP implemented。Preview Upstash integration implemented。create / restore / delete API implemented。Phase 4 browser restore implemented。Phase 4.1 restore / manual-connect後のread-only Drive auto validation implemented。Preview functional acceptance PASS。explicit disconnect acceptance PASS。Photos OAuth isolation acceptance PASS。Photos OAuthは変更していない
+- Productionはまだ旧mainでsession機能未反映。Production env / provisioning / deployment / 実iPad acceptanceは pending
+- session lifetime上限は`min(expires_in, 3600 seconds)`。restoreでTTL延長しない。live pageを60分で強制logoutする機能ではない。server session expiry後のpage reload / 次回restoreで`notConnected`となる契約であり、実時間absolute-expiry境界の実機確認は未実施
+- authorization code flow / refresh tokenは今回の推奨ではない。Photos OAuthはDrive session create / delete lifecycleから隔離したままである
 - Google Photos exportの認可は操作開始時の専用token clientのままである。写真0件ならDrive preflight後にPhotos token requestを開始しない
 - 作品カードとAdmin最上部headerは写真 / 動画件数を表示する
 - 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
@@ -154,7 +158,7 @@ Preview上の実Google PhotosでJPEG 2枚のcaption burn-in v1 / v2を確認（P
 2026-08-21 images-only + caption normalization Production acceptance passed（写真5 / 動画1。user acceptanceは全部OK。動画だけの実機は未実施）
 Production上の実Google Photos新規album書き出しと画像caption burn-in目視を確認（2026-08-21 Production acceptance）
 /admin headerの写真 / 動画件数と、confirmed copyがある選択作品だけ再生
-refresh後のGoogle接続は手動再接続（page-load silent restoreはPreview不成立のため撤去。60分接続維持は未解決）
+Preview上のGoogle Drive session restore / auto workspace validation acceptance（2026-08-22 Preview functional PASS。Production未反映。実時間absolute expiry未確認）
 unused Drive asset physical deleteの実Google Drive動作確認（未参照app-managed JPEG / PNG / WebPのみ。MP4/MOVは対象外）
 明示的publish / immutable revision / rollback impact preview / fresh preflight / verified rollback
 manifest.publication.currentRevisionId authorityと、新しいrollback revision作成
@@ -443,11 +447,12 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. 60分Google接続維持は未解決。Gate 0 FAIL。Phase 1 hosting migration PASS。Phase 2 server-only primitivesは実装済み。session本体は実装済みではない。Redis / cookie / session API / AppProviders wiringは未実装。Phase 3へは進んでいない。Photos OAuthは変更していない
-2. publication write異常系の実Google Drive acceptance
+1. Google Drive short-lived sessionのProduction provisioning / deployment / 実iPad acceptance。Preview functional acceptanceはPASS。Productionはまだ旧mainでsession機能未反映
+2. 実時間でsession absolute expiryを跨いだ実機確認。live page強制logoutではない。expiry後のreload / 次回restoreでnotConnectedとなる契約の境界確認
+3. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
-3. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
+4. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
 ```
 
 publication write異常系の詳細計画は`docs/acceptance/publication-write-abnormal-acceptance-plan.md`を参照。Gate 0承認後にtemporary harnessを専用branchで実装したが、その後完全撤去済みでmainへmergeしていない。repository docsに実Google DriveでA/B/Cを完了した結果記録はない。
@@ -457,8 +462,9 @@ publication write異常系の詳細計画は`docs/acceptance/publication-write-a
 読む順:
 
 ```text
-docs/handoffs/2026-08-21-google-connection-session-design.md
+docs/acceptance/google-session-preview-acceptance.md
 docs/design/google-connection-60-minute-session.md
+docs/handoffs/2026-08-21-google-connection-session-design.md
 docs/handoffs/2026-08-20-google-photos-export-handoff.md
 docs/acceptance/google-photos-export-acceptance.md
 docs/handoffs/2026-08-08-mov-video-5gb-handoff.md

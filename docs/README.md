@@ -5,7 +5,7 @@
 ## まず読む文書
 
 1. [`../README.md`](../README.md) — 製品の現在地、主要機能、ローカル検証方法
-2. [`current-context.md`](current-context.md) — 2026-08-21時点の最新作業引き継ぎと実装境界
+2. [`current-context.md`](current-context.md) — 2026-08-22時点の最新作業引き継ぎと実装境界
 3. [`environment-security.md`](environment-security.md) — runtime environmentとVercel security headerの現行契約
 4. [`release-rollback.md`](release-rollback.md) — Vercel productionのrelease / rollback運用
 
@@ -24,9 +24,9 @@ Currentに記載がない詳細はproduction codeとtestsで確認し、古い�
 
 ## Design in progress
 
-実装前のarchitecture。現行runtime契約ではない。
+architecture reference。Current production contractではない。
 
-- [`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md) — Google接続60分session。Gate 0 FAIL。Phase 1 hosting PASS。session未実装
+- [`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md) — Google接続60分sessionのarchitecture。Phase 1-4.1はfeature branchで実装済み。Preview functional acceptance passed 2026-08-22。Production provisioning / acceptance と real-time absolute-expiry boundary は pending。Gate 0 FAIL等の過去記録は遡及rewriteしない
 
 ## Historical
 
@@ -42,6 +42,7 @@ HistoricalとCurrentが衝突する場合はCurrentを優先します。dated ha
 
 ## Acceptance / evidence
 
+- [`acceptance/google-session-preview-acceptance.md`](acceptance/google-session-preview-acceptance.md) — 2026-08-22 Google Drive short-lived sessionのPreview functional acceptance。Production acceptanceと実時間absolute-expiry境界は未実施
 - [`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md) — 2026-08-21 Google Photos exportのPreview / Production acceptance。Previewのv1 / v2 caption evidenceとProduction確認を区別して記録
 - [`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md) — 2026-08-12 finalization merge前 / Production acceptanceと未確認項目
 - [`acceptance/publication-write-abnormal-acceptance-plan.md`](acceptance/publication-write-abnormal-acceptance-plan.md) — publication write異常系の承認済み試験計画。temporary harnessの履歴を含むが、実Google DriveでのA/B/C完了記録はない

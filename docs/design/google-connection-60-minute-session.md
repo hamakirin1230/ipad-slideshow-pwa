@@ -1,10 +1,11 @@
 # Google connection 60-minute session
 
-Date: 2026-08-21
-Status: Phase 1 hosting migration PASS. 60-minute Google session not implemented.
-Branch: `feature/google-session-backend`
+Date: 2026-08-22
+Status: Phase 1-4.1 implemented on `feature/google-session-phase3-http`. Preview functional acceptance passed 2026-08-22. Production acceptance pending. Real-time absolute-expiry boundary acceptance pending.
+Branch: `feature/google-session-phase3-http`
 
-この文書は、明示的な「Googleへ接続」のあと、page refreshしても最大約60分はGoogle account chooserを出さず Drive 接続を復元するためのarchitectureである。Phase 1 hosting migrationはPreview acceptance済みである。この文書を「60分接続維持は実装済み」とは読まない。session restore、cookie、Redis、token encryptionは未実装である。
+この文書はarchitecture referenceである。Preview functional acceptanceは[`acceptance/google-session-preview-acceptance.md`](../acceptance/google-session-preview-acceptance.md)を参照する。この文書を「Production accepted」または「実時間60分expiry確認済み」とは読まない。本文のarchitecture decisionは遡及rewriteしない。
+
 
 要件は「必ず60分」ではない。Google access tokenの`expires_in`が60分未満なら、その短い方をauthorityにする。silent延長は禁止する。restoreするたびにTTLを延長しない。「60分保証」とは書かない。
 
