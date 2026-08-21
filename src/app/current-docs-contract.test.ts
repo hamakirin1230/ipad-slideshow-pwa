@@ -209,6 +209,9 @@ describe("current documentation contract", () => {
     );
     expect(rootReadme).toContain("60分接続維持は未解決");
     expect(currentContext).toContain("60分接続維持は未解決");
+    expect(currentContext).toContain("実装済みではない");
+    expect(docsIndex).toContain("design/google-connection-60-minute-session.md");
+    expect(docsIndex).toContain("## Design in progress");
     expect(rootReadme).not.toContain("60分tokenを保存");
     expect(currentContext).not.toContain("60分tokenを保存");
     expect(googlePhotosExportAcceptance).not.toContain("60分tokenを保存");

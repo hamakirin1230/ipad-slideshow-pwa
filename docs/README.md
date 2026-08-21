@@ -22,6 +22,12 @@
 
 Currentに記載がない詳細はproduction codeとtestsで確認し、古い文書だけから現在仕様を推測しません。
 
+## Design in progress
+
+実装前のarchitecture。現行runtime契約ではない。
+
+- [`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md) — Google接続60分session。未実装
+
 ## Historical
 
 次はその時点の意思決定、設計、実装状況を保存した記録です。本文に「未実装」、GitHub Pages、npm、旧route、旧schema案などが残っていても、現在仕様へ書き換えません。

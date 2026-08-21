@@ -27,7 +27,7 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 - `include_granted_scopes`はfalse
 - access tokenは非永続で、Drive用とPhotos export用を別refに保持する
 - ページrefresh後のGoogle接続は、明示的な「Googleへ接続」で再接続する。page loadでtoken requestやアカウント選択画面を自動開始しない
-- 60分接続維持は未解決である。authorization code flow / backend方式は別branchの検討対象とする
+- 60分接続維持は未解決である。実装前architectureは[`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md)で検討中であり、実装済みではない。authorization code flow / refresh tokenは今回の推奨ではない
 - Google Photos exportの認可は操作開始時の専用token clientのままである
 - 作品カードとAdmin最上部headerは写真 / 動画件数を表示する
 - 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
@@ -427,7 +427,7 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
 優先候補:
 
 ```text
-1. 60分Google接続維持は未解決。authorization code flow / backend方式は別branchの検討対象
+1. 60分Google接続維持は未解決。design branch `design/google-connection-session` で実装前architectureを検討中。実装済みではない
 2. publication write異常系の実Google Drive acceptance
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
@@ -441,6 +441,8 @@ publication write異常系の詳細計画は`docs/acceptance/publication-write-a
 読む順:
 
 ```text
+docs/handoffs/2026-08-21-google-connection-session-design.md
+docs/design/google-connection-60-minute-session.md
 docs/handoffs/2026-08-20-google-photos-export-handoff.md
 docs/acceptance/google-photos-export-acceptance.md
 docs/handoffs/2026-08-08-mov-video-5gb-handoff.md
