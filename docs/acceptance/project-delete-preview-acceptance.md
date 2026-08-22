@@ -4,8 +4,8 @@ Date: 2026-08-22
 
 Status:
 Preview PASS.
-This document is Preview evidence only.
-Production functional acceptance is not recorded here and has not been performed.
+This document remains Preview evidence only.
+Production acceptance was later performed and is recorded in [`project-delete-production-acceptance.md`](project-delete-production-acceptance.md).
 
 対象機能:
 「作品を削除」
@@ -14,7 +14,7 @@ Production functional acceptance is not recorded here and has not been performed
 - Drive完全成功後だけ、このiPadの同一作品コピーを連動削除する
 - Google Photos exportは削除対象外である
 
-これはPreview上の実iPad destructive acceptanceである。Production acceptedではない。
+これはPreview上の実iPad destructive acceptanceである。Preview観測内容をProduction evidenceへ書き換えない。Production acceptanceは[`project-delete-production-acceptance.md`](project-delete-production-acceptance.md)を参照する。
 
 temporary Preview hostname / URL、deployment ID、access token、session ID、Drive ID、projectId、raw API errorは記録しない。不要なcommit SHAも記録しない。
 
@@ -73,7 +73,7 @@ temporary Preview hostname / URL、deployment ID、access token、session ID、D
 - app shell cacheは削除しない
 - 他projectのconfirmed offline dataは変更しない
 
-Drive project rootのTrash化は、実装契約およびunit testで`PATCH {"trashed":true}`を使う。このPreview acceptanceでは、Google Drive UIでTrashフォルダを目視確認した記録はない。実装契約・unit test済みと、実Drive UIでのTrash目視確認済みを混同しない。
+Drive project rootのTrash化は、実装契約およびunit testで`PATCH {"trashed":true}`を使う。このPreview acceptanceでは、Google Drive UIでTrashフォルダを目視確認した記録はない。実装契約・unit test済みと、実Drive UIでのTrash目視確認済みを混同しない。ProductionでのTrash UI目視確認は[`project-delete-production-acceptance.md`](project-delete-production-acceptance.md)を参照する。
 
 ## Code / test coverage that is not real-device failure injection
 
@@ -90,10 +90,9 @@ Drive project rootのTrash化は、実装契約およびunit testで`PATCH {"tra
 
 ## Not accepted / not verified
 
-- Production provisioning
-- Production deployment
-- Production実iPad acceptance
-- Google Drive UIで削除済みproject rootがTrashにあることの目視確認
+このPreview文書の記録時点では以下を未実施とした。後続のProduction destructive acceptanceは[`project-delete-production-acceptance.md`](project-delete-production-acceptance.md)を参照する。この文書はPreview evidenceとして残す。
+
+- Google Drive UIで削除済みproject rootがTrashにあることの目視確認。このPreview観測では未実施
 - 上記failure pathのreal-device failure injection
 - 実時間でGoogle session absolute expiryを跨いだ実機確認。このproject delete acceptanceとは別件で未確認
 - Google Photos video-only 0-photo実機acceptance。このproject delete acceptanceとは別件で未確認

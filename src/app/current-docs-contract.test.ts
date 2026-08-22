@@ -27,6 +27,9 @@ const googleSessionPreviewAcceptance = readRepoFile(
 const projectDeletePreviewAcceptance = readRepoFile(
   "docs/acceptance/project-delete-preview-acceptance.md",
 );
+const projectDeleteProductionAcceptance = readRepoFile(
+  "docs/acceptance/project-delete-production-acceptance.md",
+);
 const authoritativeDocs = [
   rootReadme,
   docsIndex,
@@ -71,6 +74,9 @@ describe("current documentation contract", () => {
     );
     expect(acceptanceEvidence).toContain(
       "acceptance/project-delete-preview-acceptance.md",
+    );
+    expect(acceptanceEvidence).toContain(
+      "acceptance/project-delete-production-acceptance.md",
     );
   });
 
@@ -352,13 +358,12 @@ describe("current documentation contract", () => {
     expect(rootReadme).not.toContain("session機能未反映");
   });
 
-  it("records project delete Preview acceptance without calling it Production", () => {
+  it("records project delete Preview acceptance as Preview evidence only", () => {
     expect(projectDeletePreviewAcceptance).toContain("Date: 2026-08-22");
     expect(projectDeletePreviewAcceptance).toContain("Preview PASS");
     expect(projectDeletePreviewAcceptance).toContain(
-      "This document is Preview evidence only",
+      "This document remains Preview evidence only",
     );
-    expect(projectDeletePreviewAcceptance).toContain("Production acceptedではない");
     expect(projectDeletePreviewAcceptance).toContain("作品を削除");
     expect(projectDeletePreviewAcceptance).toContain(
       "Drive完全成功後だけ、このiPadの同一作品コピーを連動削除する",
@@ -376,6 +381,9 @@ describe("current documentation contract", () => {
       "Google Drive UIでTrashフォルダを目視確認した記録はない",
     );
     expect(projectDeletePreviewAcceptance).toContain(
+      "このPreview functional acceptanceをProduction confirmationへ昇格させない",
+    );
+    expect(projectDeletePreviewAcceptance).toContain(
       "実時間でGoogle session absolute expiryを跨いだ実機確認",
     );
     expect(projectDeletePreviewAcceptance).toContain(
@@ -383,10 +391,96 @@ describe("current documentation contract", () => {
     );
     expect(projectDeletePreviewAcceptance).not.toContain("vercel.app");
     expect(projectDeletePreviewAcceptance).not.toMatch(/\bdpl_[A-Za-z0-9]+\b/);
-    expect(currentContext).toContain("Preview実装・実機acceptance PASS、Production未確認");
     expect(currentContext).toContain("project-delete-preview-acceptance.md");
     expect(docsIndex).toContain("acceptance/project-delete-preview-acceptance.md");
-    expect(rootReadme).toContain("Preview実機acceptance済み。Production未確認");
     expect(rootReadme).toContain("project-delete-preview-acceptance.md");
+  });
+
+  it("records project delete Production acceptance without promoting failure injection", () => {
+    expect(projectDeleteProductionAcceptance).toContain("Date: 2026-08-22");
+    expect(projectDeleteProductionAcceptance).toContain(
+      "Production destructive acceptance PASS",
+    );
+    expect(projectDeleteProductionAcceptance).toContain("作品を削除");
+    expect(projectDeleteProductionAcceptance).toContain(
+      "Google Drive上の選択中作品だけを削除する",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "project rootは永久DELETEではなくDrive Trashである",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "Drive完全成功後だけ、このiPadの同一作品コピーを削除する",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "Google Photos exportは削除対象外である",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "standaloneの「このiPadのコピーを削除」は、Driveを消さずlocal copyだけ消す別機能として残る",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "他作品へsilent fallback / auto-selectしない",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "automatic retry / repair / rollbackなし",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "Google Drive UIで対象project rootがTrashにあることを目視確認",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "このProduction acceptanceでは、Google Drive UIで削除対象project rootがTrashにあることを目視確認済みである",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      '`status === "completed"` かつ `indexRemoved === true` かつ `projectRootTrashed === true` かつ `authRequired === false`',
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "local clear failure時もDrive成功をrollbackしない",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "このProduction acceptanceではreal-device failure injectionを実施していない",
+    );
+    expect(projectDeleteProductionAcceptance).toContain("preflight block");
+    expect(projectDeleteProductionAcceptance).toContain(
+      "stale owner / selection change",
+    );
+    expect(projectDeleteProductionAcceptance).toContain("index write failure");
+    expect(projectDeleteProductionAcceptance).toContain("trash partialFailure");
+    expect(projectDeleteProductionAcceptance).toContain(
+      "post-index 401 / 403 `authRequired` partialFailure",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "local IndexedDB clear failure",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "ambiguous Drive response",
+    );
+    expect(projectDeleteProductionAcceptance).toContain("retry / rollback禁止");
+    expect(projectDeleteProductionAcceptance).toContain(
+      "Production PASS項目へ昇格させない",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "実時間でGoogle session absolute expiryを跨いだ実機確認",
+    );
+    expect(projectDeleteProductionAcceptance).toContain(
+      "Google Photos video-only 0-photo実機acceptance",
+    );
+    expect(projectDeleteProductionAcceptance).not.toContain("vercel.app");
+    expect(projectDeleteProductionAcceptance).not.toMatch(/\bdpl_[A-Za-z0-9]+\b/);
+    expect(currentContext).toContain("Preview PASS / Production PASS");
+    expect(currentContext).not.toContain("Production未確認");
+    expect(currentContext).toContain(
+      "project-delete-production-acceptance.md",
+    );
+    expect(docsIndex).toContain(
+      "acceptance/project-delete-production-acceptance.md",
+    );
+    expect(rootReadme).toContain("Production実機acceptance済み");
+    expect(rootReadme).not.toContain("Production未確認");
+    expect(rootReadme).toContain(
+      "docs/acceptance/project-delete-production-acceptance.md",
+    );
+    expect(currentContext).toContain(
+      "実時間でsession absolute expiryを跨いだ実機確認",
+    );
+    expect(currentContext).toContain("動画だけの作品の実機acceptanceは未実施");
   });
 });

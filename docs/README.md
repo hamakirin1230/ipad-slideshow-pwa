@@ -42,7 +42,8 @@ HistoricalとCurrentが衝突する場合はCurrentを優先します。dated ha
 
 ## Acceptance / evidence
 
-- [`acceptance/project-delete-preview-acceptance.md`](acceptance/project-delete-preview-acceptance.md) — 2026-08-22 「作品を削除」のPreview destructive acceptance。Production未確認。failure injectionはtest coverageであり実機未実施
+- [`acceptance/project-delete-production-acceptance.md`](acceptance/project-delete-production-acceptance.md) — 2026-08-22 「作品を削除」のProduction destructive acceptance。Google Drive UIでTrash目視確認済み。failure injectionはtest coverageであり実機未実施
+- [`acceptance/project-delete-preview-acceptance.md`](acceptance/project-delete-preview-acceptance.md) — 2026-08-22 「作品を削除」のPreview destructive acceptance。Preview evidenceとして残す。failure injectionはtest coverageであり実機未実施
 - [`acceptance/google-session-production-acceptance.md`](acceptance/google-session-production-acceptance.md) — 2026-08-22 Google Drive short-lived sessionのProduction functional acceptance。実時間absolute-expiry境界は未実施
 - [`acceptance/google-session-preview-acceptance.md`](acceptance/google-session-preview-acceptance.md) — 2026-08-22 Google Drive short-lived sessionのPreview functional acceptance。Preview evidenceとして残す
 - [`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md) — 2026-08-21 Google Photos exportのPreview / Production acceptance。Previewのv1 / v2 caption evidenceとProduction確認を区別して記録
