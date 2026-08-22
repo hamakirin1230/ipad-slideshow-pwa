@@ -115,7 +115,12 @@ import {
   findWorkspaceRootCandidates,
   preflightDriveProjectUnusedAssetDeletion,
   previewDriveProjectUnusedAssets,
+  preflightDriveProjectDeletion,
+  listActiveDriveProjectRootsForProject,
+  readDriveProjectRootMetadataForDeletion,
   readDriveTextFile,
+  trashDriveProjectRootFolder,
+  writeDriveProjectIndexForDeletion,
   reorderDriveProjectSlides,
   saveDriveProjectAsset,
   updateDriveProjectTitle,
@@ -154,6 +159,21 @@ import {
   type DriveProjectUnusedAssetDeleteResult,
   type DriveProjectUnusedAssetDeleteReview,
 } from "@/lib/drive-project-unused-asset-delete";
+import {
+  buildDriveProjectDeleteOwner,
+  prepareDriveProjectDeletion,
+  type DriveProjectDeletePlan,
+  type DriveProjectDeleteReview,
+} from "@/lib/drive-project-delete";
+import {
+  confirmProjectDeleteWorkflow,
+  removeDeletedProjectFromList,
+  sanitizeProjectDeleteDiagnostics,
+  type ProjectDeletePublicResult,
+  type ProjectDeleteUiStatus,
+} from "@/lib/project-delete-app-workflow";
+import { clearLocalOfflineProjectData } from "@/lib/offline-local-project-clear";
+import type { ProjectDeleteLocalCopyStatus } from "@/lib/project-delete-local-finalization";
 import {
   PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
   PICKED_VIDEO_SIZE_LIMIT_BYTES,
@@ -316,6 +336,8 @@ export type AssetCleanupDeleteStatus =
   | "blocked"
   | "cancelled"
   | "error";
+
+export type ProjectDeleteStatus = ProjectDeleteUiStatus;
 
 export type DriveCandidateSummary = {
   name: string;
@@ -611,6 +633,18 @@ type AppContextValue = {
   isAssetCleanupDeleteInFlight: boolean;
   assetCleanupDeleteBlockedReason: string | null;
 
+  projectDeleteStatus: ProjectDeleteStatus;
+  projectDeleteMessage: string | null;
+  projectDeleteDiagnostics: string[];
+  projectDeleteReview: DriveProjectDeleteReview | null;
+  projectDeleteResult: ProjectDeletePublicResult | null;
+  projectDeleteLocalCopyStatus: ProjectDeleteLocalCopyStatus;
+  isProjectDeleteInFlight: boolean;
+  projectDeleteBlockedReason: string | null;
+  prepareProjectDeletion: () => Promise<void>;
+  cancelProjectDeletion: () => void;
+  confirmProjectDeletion: () => Promise<void>;
+
   offlineSyncStatus: OfflineSyncStatus;
   offlineSyncStatusLabel: string;
   offlineSyncMessage: string;
@@ -884,6 +918,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     useRef<DriveProjectUnusedAssetDeletePlan | null>(null);
   const assetCleanupDeleteRequestIdRef = useRef(0);
   const assetCleanupDeleteInFlightRef = useRef(false);
+  const pendingProjectDeletePlanRef =
+    useRef<DriveProjectDeletePlan | null>(null);
+  const projectDeleteRequestIdRef = useRef(0);
+  const projectDeleteInFlightRef = useRef(false);
 
   if (offlineSyncRuntimeRef.current === null) {
     offlineSyncRuntimeRef.current = createDriveOfflineStagingSyncRuntime();
@@ -1061,6 +1099,21 @@ export function AppProviders({ children }: { children: ReactNode }) {
   } | null>(null);
   const [isAssetCleanupDeleteInFlight, setIsAssetCleanupDeleteInFlight] =
     useState(false);
+  const [projectDeleteStatus, setProjectDeleteStatus] =
+    useState<ProjectDeleteStatus>("idle");
+  const [projectDeleteMessage, setProjectDeleteMessage] = useState<
+    string | null
+  >(null);
+  const [projectDeleteDiagnostics, setProjectDeleteDiagnostics] = useState<
+    string[]
+  >([]);
+  const [projectDeleteReview, setProjectDeleteReview] =
+    useState<DriveProjectDeleteReview | null>(null);
+  const [projectDeleteResult, setProjectDeleteResult] =
+    useState<ProjectDeletePublicResult | null>(null);
+  const [projectDeleteLocalCopyStatus, setProjectDeleteLocalCopyStatus] =
+    useState<ProjectDeleteLocalCopyStatus>("notAttempted");
+  const [isProjectDeleteInFlight, setIsProjectDeleteInFlight] = useState(false);
 
   const [offlineSyncStatus, setOfflineSyncStatus] =
     useState<OfflineSyncStatus>("idle");
@@ -1134,6 +1187,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     getAssetCleanupDeletePreflightBlockedReason();
   const assetCleanupDeleteBlockedReason =
     getAssetCleanupDeleteBlockedReason();
+  const projectDeleteBlockedReason = getProjectDeleteBlockedReason();
 
   function setDriveOperationInFlight(value: boolean) {
     driveOperationInFlightRef.current = value;
@@ -1906,6 +1960,80 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return getAssetCleanupPreviewBlockedReason();
   }
 
+  function getProjectDeleteBlockedReason() {
+    if (projectDeleteInFlightRef.current || isProjectDeleteInFlight) {
+      return "作品を削除中です。";
+    }
+
+    if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
+      return "Drive操作中のため、作品を削除できません。";
+    }
+
+    if (assetImportInFlightRef.current || isAssetImportInFlight) {
+      return "素材追加処理中のため、作品を削除できません。";
+    }
+
+    if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
+      return "このiPadへの保存中のため、作品を削除できません。";
+    }
+
+    if (
+      isSlideEditInFlight ||
+      captionUpdateSlideId !== null ||
+      durationUpdateSlideId !== null
+    ) {
+      return "スライド編集中のため、作品を削除できません。";
+    }
+
+    if (
+      assetCleanupPreviewInFlightRef.current ||
+      isAssetCleanupPreviewInFlight ||
+      assetCleanupDeletePreflightInFlightRef.current ||
+      isAssetCleanupDeletePreflightInFlight ||
+      assetCleanupDeleteInFlightRef.current ||
+      isAssetCleanupDeleteInFlight
+    ) {
+      return "未使用素材の確認または削除中のため、作品を削除できません。";
+    }
+
+    if (
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current
+    ) {
+      return "公開またはロールバック処理中のため、作品を削除できません。";
+    }
+
+    if (googlePhotosExportInFlightRef.current || isGooglePhotosExportInFlight) {
+      return "Googleフォトへの書き出し中のため、作品を削除できません。";
+    }
+
+    if (googleStatus !== "connected" || driveFileGranted !== true) {
+      return "Google接続とGoogle Driveへのアクセス許可が必要です。";
+    }
+
+    if (!accessTokenRef.current) {
+      return "Google認証情報を確認できません。Googleへ再接続してください。";
+    }
+
+    if (driveStatus !== "ready" || !workspaceReadyContext) {
+      return "Driveの保存領域を確認してください。";
+    }
+
+    if (projectStatus !== "ready" || !driveProjectReadyContext) {
+      return "Driveプロジェクトを確認してください。";
+    }
+
+    if (
+      !selectedProjectId ||
+      selectedProjectId !== driveProjectReadyContext.projectId
+    ) {
+      return "削除する作品を選択してください。";
+    }
+
+    return null;
+  }
+
   function setSafeOfflineSyncDiagnostics(diagnostics: string[]) {
     setOfflineSyncDiagnostics(sanitizeOfflineSyncDiagnostics(diagnostics));
   }
@@ -1994,6 +2122,27 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setAssetCleanupDeleteReview(null);
     setAssetCleanupDeleteResult(null);
     setAssetCleanupDeleteProgress(null);
+  }
+
+  function invalidatePendingProjectDeletion() {
+    projectDeleteRequestIdRef.current += 1;
+    pendingProjectDeletePlanRef.current = null;
+  }
+
+  function resetProjectDeleteState() {
+    invalidatePendingProjectDeletion();
+    projectDeleteInFlightRef.current = false;
+    setIsProjectDeleteInFlight(false);
+    setProjectDeleteStatus("idle");
+    setProjectDeleteMessage(null);
+    setProjectDeleteDiagnostics([]);
+    setProjectDeleteReview(null);
+    setProjectDeleteResult(null);
+    setProjectDeleteLocalCopyStatus("notAttempted");
+  }
+
+  function setSafeProjectDeleteDiagnostics(diagnostics: string[]) {
+    setProjectDeleteDiagnostics(sanitizeProjectDeleteDiagnostics(diagnostics));
   }
 
   function clearAssetCleanupDeletePreflight() {
@@ -2114,6 +2263,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setSelectedProjectId(null);
     setProjectDiagnostics([]);
     clearProjectReadyDetails();
+    resetProjectDeleteState();
   }
 
   function abortDriveOperation() {
@@ -3881,6 +4031,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   async function selectProject(projectId: string) {
+    invalidatePendingProjectDeletion();
     if (driveOperationInFlightRef.current) {
       return;
     }
@@ -5276,6 +5427,349 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  async function prepareProjectDeletion() {
+    const blockedReason = getProjectDeleteBlockedReason();
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    if (blockedReason || !accessToken || !readyWorkspace || !readyProject) {
+      pendingProjectDeletePlanRef.current = null;
+      setProjectDeleteReview(null);
+      setProjectDeleteResult(null);
+      setProjectDeleteLocalCopyStatus("notAttempted");
+      setProjectDeleteStatus("blocked");
+      setProjectDeleteMessage("作品の削除確認を開始できませんでした。");
+      setSafeProjectDeleteDiagnostics([
+        blockedReason ?? "Driveの保存領域とプロジェクトの状態を確認してください。",
+      ]);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    setProjectDeleteStatus("checking");
+    setProjectDeleteMessage("削除対象の作品を確認しています。");
+    setProjectDeleteResult(null);
+    setProjectDeleteLocalCopyStatus("notAttempted");
+    setSafeProjectDeleteDiagnostics([]);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+    const deleteRequestId = projectDeleteRequestIdRef.current + 1;
+    projectDeleteRequestIdRef.current = deleteRequestId;
+
+    try {
+      const preflight = await runDriveOperationStep(requestId, (signal) =>
+        preflightDriveProjectDeletion({
+          accessToken,
+          workspaceId: readyWorkspace.workspaceId,
+          indexJsonFileId: readyWorkspace.indexJsonFileId,
+          projectsRootFolderId: readyWorkspace.projectsRootFolderId,
+          project: readyProject,
+          signal,
+        }),
+      );
+
+      if (
+        requestId !== driveOperationRequestIdRef.current ||
+        deleteRequestId !== projectDeleteRequestIdRef.current
+      ) {
+        return;
+      }
+
+      const prepared = prepareDriveProjectDeletion({
+        preflightResult: preflight,
+        currentOwner: buildDriveProjectDeleteOwner({
+          workspaceId: readyWorkspace.workspaceId,
+          indexJsonFileId: readyWorkspace.indexJsonFileId,
+          projectsRootFolderId: readyWorkspace.projectsRootFolderId,
+          project: readyProject,
+        }),
+      });
+
+      if (!prepared.ok) {
+        pendingProjectDeletePlanRef.current = null;
+        setProjectDeleteReview(null);
+        setProjectDeleteStatus("blocked");
+        setProjectDeleteMessage("作品の削除確認で停止しました。");
+        setSafeProjectDeleteDiagnostics(prepared.diagnostics);
+        return;
+      }
+
+      pendingProjectDeletePlanRef.current = prepared.plan;
+      setProjectDeleteReview(prepared.review);
+      setProjectDeleteStatus("confirming");
+      setProjectDeleteMessage(
+        "Google Drive上の作品データを削除する前に確認してください。",
+      );
+      setSafeProjectDeleteDiagnostics([]);
+    } catch (error) {
+      if (
+        requestId !== driveOperationRequestIdRef.current ||
+        deleteRequestId !== projectDeleteRequestIdRef.current
+      ) {
+        return;
+      }
+      pendingProjectDeletePlanRef.current = null;
+      setProjectDeleteReview(null);
+      if (
+        error instanceof DriveApiError &&
+        (error.status === 401 || error.status === 403)
+      ) {
+        resetGoogleAfterDriveAuthFailure();
+        setProjectDeleteStatus("error");
+        setProjectDeleteMessage("Google再接続が必要です。");
+        setSafeProjectDeleteDiagnostics([
+          "作品の削除は開始していません。Googleへ再接続してください。",
+        ]);
+        return;
+      }
+      setProjectDeleteStatus("error");
+      setProjectDeleteMessage("作品の削除確認に失敗しました。");
+      setSafeProjectDeleteDiagnostics([
+        "削除前確認中にエラーが発生しました。自動再試行は行いません。",
+      ]);
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+      }
+    }
+  }
+
+  function cancelProjectDeletion() {
+    if (projectDeleteStatus !== "confirming") {
+      return;
+    }
+
+    invalidatePendingProjectDeletion();
+    setProjectDeleteReview(null);
+    setProjectDeleteResult(null);
+    setProjectDeleteLocalCopyStatus("notAttempted");
+    setProjectDeleteStatus("cancelled");
+    setProjectDeleteMessage("作品の削除をキャンセルしました。");
+    setSafeProjectDeleteDiagnostics([
+      "Google Driveへの削除要求は送信していません。",
+    ]);
+  }
+
+  async function confirmProjectDeletion() {
+    if (projectDeleteInFlightRef.current) {
+      return;
+    }
+
+    const plan = pendingProjectDeletePlanRef.current;
+    const blockedReason = getProjectDeleteBlockedReason();
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    if (
+      !plan ||
+      blockedReason ||
+      !accessToken ||
+      !readyWorkspace ||
+      !readyProject
+    ) {
+      pendingProjectDeletePlanRef.current = null;
+      setProjectDeleteReview(null);
+      setProjectDeleteStatus("blocked");
+      setProjectDeleteMessage("削除直前の再検証で停止しました。");
+      setSafeProjectDeleteDiagnostics([
+        blockedReason ?? "最終確認の対象または操作対象が変わりました。",
+      ]);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    projectDeleteInFlightRef.current = true;
+    setIsProjectDeleteInFlight(true);
+    setProjectDeleteStatus("deleting");
+    setProjectDeleteMessage("作品を削除しています。");
+    setProjectDeleteResult(null);
+    setProjectDeleteLocalCopyStatus("notAttempted");
+    setSafeProjectDeleteDiagnostics([]);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+    const deleteRequestId = projectDeleteRequestIdRef.current + 1;
+    projectDeleteRequestIdRef.current = deleteRequestId;
+    let verifiedIndexJsonText: string | null = null;
+
+    try {
+      const outcome = await confirmProjectDeleteWorkflow({
+        plan,
+        currentOwner: buildDriveProjectDeleteOwner({
+          workspaceId: readyWorkspace.workspaceId,
+          indexJsonFileId: readyWorkspace.indexJsonFileId,
+          projectsRootFolderId: readyWorkspace.projectsRootFolderId,
+          project: readyProject,
+        }),
+        executeInput: {
+          runFreshPreflight: () =>
+            runDriveOperationStep(requestId, (signal) =>
+              preflightDriveProjectDeletion({
+                accessToken,
+                workspaceId: readyWorkspace.workspaceId,
+                indexJsonFileId: readyWorkspace.indexJsonFileId,
+                projectsRootFolderId: readyWorkspace.projectsRootFolderId,
+                project: plan.project,
+                signal,
+              }),
+            ),
+          writeIndexJson: (jsonText) =>
+            runDriveOperationStep(requestId, (signal) =>
+              writeDriveProjectIndexForDeletion({
+                accessToken,
+                indexJsonFileId: readyWorkspace.indexJsonFileId,
+                workspaceId: readyWorkspace.workspaceId,
+                jsonText,
+                signal,
+              }),
+            ),
+          readIndexJson: () =>
+            runDriveOperationStep(requestId, async (signal) => {
+              const text = await readDriveTextFile(
+                accessToken,
+                readyWorkspace.indexJsonFileId,
+                signal,
+              );
+              verifiedIndexJsonText = text;
+              return text;
+            }),
+          trashProjectRoot: () =>
+            runDriveOperationStep(requestId, (signal) =>
+              trashDriveProjectRootFolder({
+                accessToken,
+                projectFolderId: plan.project.projectFolderId,
+                signal,
+              }),
+            ),
+          readProjectRootMetadata: () =>
+            runDriveOperationStep(requestId, (signal) =>
+              readDriveProjectRootMetadataForDeletion({
+                accessToken,
+                projectFolderId: plan.project.projectFolderId,
+                signal,
+              }),
+            ),
+          listActiveProjectRoots: () =>
+            runDriveOperationStep(requestId, (signal) =>
+              listActiveDriveProjectRootsForProject({
+                accessToken,
+                projectsRootFolderId: readyWorkspace.projectsRootFolderId,
+                projectId: plan.project.projectId,
+                signal,
+              }),
+            ),
+        },
+        clearLocal: clearLocalOfflineProjectData,
+        isCurrent: () =>
+          requestId === driveOperationRequestIdRef.current &&
+          deleteRequestId === projectDeleteRequestIdRef.current,
+      });
+
+      if (
+        requestId !== driveOperationRequestIdRef.current ||
+        deleteRequestId !== projectDeleteRequestIdRef.current ||
+        !outcome.applyUi
+      ) {
+        return;
+      }
+
+      pendingProjectDeletePlanRef.current = null;
+      setProjectDeleteReview(null);
+
+      if (outcome.kind === "preWriteAuthError") {
+        resetGoogleAfterDriveAuthFailure();
+        setProjectDeleteStatus("error");
+        setProjectDeleteMessage("Google再接続が必要です。");
+        setProjectDeleteLocalCopyStatus("notAttempted");
+        setSafeProjectDeleteDiagnostics([
+          "作品の削除は完了していません。Googleへ再接続してください。",
+        ]);
+        return;
+      }
+
+      if (outcome.kind === "unexpectedError" || !outcome.interpretation) {
+        setProjectDeleteStatus("error");
+        setProjectDeleteMessage("作品の削除に失敗しました。");
+        setProjectDeleteLocalCopyStatus("notAttempted");
+        setSafeProjectDeleteDiagnostics([
+          "削除処理中に予期しない失敗が発生しました。自動再試行は行いません。",
+        ]);
+        return;
+      }
+
+      const interpretation = outcome.interpretation;
+      const nextDriveProjects = interpretation.shouldRemoveDeletedProjectFromList
+        ? removeDeletedProjectFromList(driveProjects, plan.project.projectId)
+        : driveProjects;
+
+      if (interpretation.shouldRemoveDeletedProjectFromList) {
+        setDriveProjects(nextDriveProjects);
+        setSelectedProjectId(null);
+        if (interpretation.shouldClearDeletedProjectReadyState) {
+          clearProjectReadyDetails();
+        }
+        setProjectStatus(nextDriveProjects.length === 0 ? "notCreated" : "ready");
+        setProjectMessage(
+          nextDriveProjects.length === 0
+            ? "プロジェクトはまだ作成されていません。"
+            : "作品を選択してください。",
+        );
+      }
+
+      if (
+        interpretation.shouldUpdateWorkspaceIndexText &&
+        verifiedIndexJsonText
+      ) {
+        setWorkspaceReadyContext({
+          ...readyWorkspace,
+          indexJsonText: verifiedIndexJsonText,
+        });
+      }
+
+      const applyDeleteUi = () => {
+        setProjectDeleteResult(interpretation.publicResult);
+        setProjectDeleteStatus(interpretation.status);
+        setProjectDeleteMessage(interpretation.message);
+        setProjectDeleteLocalCopyStatus(outcome.localCopyStatus);
+        setSafeProjectDeleteDiagnostics(interpretation.diagnostics);
+      };
+
+      if (interpretation.shouldInvalidateGoogleAuth) {
+        applyDeleteUi();
+        resetGoogleAfterDriveAuthFailure();
+        applyDeleteUi();
+        setDriveProjects(nextDriveProjects);
+        setSelectedProjectId(null);
+        setProjectStatus(
+          nextDriveProjects.length === 0 ? "notCreated" : "ready",
+        );
+        setProjectMessage(
+          nextDriveProjects.length === 0
+            ? "プロジェクトはまだ作成されていません。"
+            : "作品を選択してください。",
+        );
+        return;
+      }
+
+      applyDeleteUi();
+    } finally {
+      if (
+        requestId === driveOperationRequestIdRef.current &&
+        deleteRequestId === projectDeleteRequestIdRef.current
+      ) {
+        pendingProjectDeletePlanRef.current = null;
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+        projectDeleteInFlightRef.current = false;
+        setIsProjectDeleteInFlight(false);
+      }
+    }
+  }
+
   async function refreshAssetCleanupPreviewAfterDelete(input: {
     accessToken: string;
     readyWorkspace: DriveWorkspaceReadyContext;
@@ -6494,6 +6988,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
     assetCleanupDeleteProgress,
     isAssetCleanupDeleteInFlight,
     assetCleanupDeleteBlockedReason,
+    projectDeleteStatus,
+    projectDeleteMessage,
+    projectDeleteDiagnostics,
+    projectDeleteReview,
+    projectDeleteResult,
+    projectDeleteLocalCopyStatus,
+    isProjectDeleteInFlight,
+    projectDeleteBlockedReason,
+    prepareProjectDeletion,
+    cancelProjectDeletion,
+    confirmProjectDeletion,
     offlineSyncStatus,
     offlineSyncStatusLabel: offlineSyncStatusLabels[offlineSyncStatus],
     offlineSyncMessage,

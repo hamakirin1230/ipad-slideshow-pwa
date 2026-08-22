@@ -4923,6 +4923,52 @@ export async function listActiveDriveProjectRootsForProject(input: {
   return page.files.filter((file) => file.trashed !== true);
 }
 
+export async function writeDriveProjectIndexForDeletion(input: {
+  accessToken: string;
+  indexJsonFileId: string;
+  workspaceId: string;
+  jsonText: string;
+  signal: AbortSignal;
+}): Promise<void> {
+  const appProperties = buildWorkspaceAppProperties({
+    role: "index",
+    workspaceId: input.workspaceId,
+  });
+
+  try {
+    await updateDriveMultipartJsonFileContent({
+      accessToken: input.accessToken,
+      fileId: input.indexJsonFileId,
+      metadata: {
+        name: INDEX_JSON_NAME,
+        mimeType: JSON_MIME_TYPE,
+        appProperties,
+      },
+      expectedAppProperties: appProperties,
+      jsonText: input.jsonText,
+      fields: CREATE_JSON_FIELDS,
+      signal: input.signal,
+    });
+  } catch (error) {
+    if (isDriveAuthError(error)) {
+      throw error;
+    }
+    throw new DriveProjectDeleteRequestError("indexWriteRejected");
+  }
+}
+
+export async function readDriveProjectRootMetadataForDeletion(input: {
+  accessToken: string;
+  projectFolderId: string;
+  signal: AbortSignal;
+}): Promise<DriveFileCandidate> {
+  return readDriveFileMetadata({
+    accessToken: input.accessToken,
+    fileId: input.projectFolderId,
+    signal: input.signal,
+  });
+}
+
 function validateDriveProjectDeletePreflightInput(input: {
   accessToken: string;
   workspaceId: string;
