@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  confirmProjectDeleteWorkflow,
+  closePendingProjectDeleteConfirmation,
+  executeProjectDeleteDriveWorkflow,
+  finalizeProjectDeleteLocalCopyAfterDriveState,
   interpretDriveProjectDeleteResult,
+  isStrictDriveProjectDeleteCompleted,
+  releaseOwnedProjectDeleteConfirmLocks,
   removeDeletedProjectFromList,
+  shouldDiscardPendingProjectDeleteOnSelect,
   toProjectDeletePublicResult,
 } from "./project-delete-app-workflow";
 import {
@@ -65,16 +70,59 @@ const PLAN: DriveProjectDeletePlan = {
   assetsFolderFingerprint: "assets-fp",
 };
 
+describe("isStrictDriveProjectDeleteCompleted", () => {
+  it("requires completed, indexRemoved, projectRootTrashed, and authRequired=false", () => {
+    expect(isStrictDriveProjectDeleteCompleted(driveResult())).toBe(true);
+    expect(
+      isStrictDriveProjectDeleteCompleted(
+        driveResult({ indexRemoved: false }),
+      ),
+    ).toBe(false);
+    expect(
+      isStrictDriveProjectDeleteCompleted(
+        driveResult({ projectRootTrashed: false }),
+      ),
+    ).toBe(false);
+    expect(
+      isStrictDriveProjectDeleteCompleted(driveResult({ authRequired: true })),
+    ).toBe(false);
+    expect(
+      isStrictDriveProjectDeleteCompleted(
+        driveResult({ status: "partialFailure" }),
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("interpretDriveProjectDeleteResult", () => {
-  it("clears local only after Drive completed", () => {
-    const interpretation = interpretDriveProjectDeleteResult(
-      driveResult({ status: "completed" }),
-    );
+  it("clears local only after strict Drive completed", () => {
+    const interpretation = interpretDriveProjectDeleteResult(driveResult());
     expect(interpretation.shouldClearLocal).toBe(true);
     expect(interpretation.shouldRemoveDeletedProjectFromList).toBe(true);
     expect(interpretation.nextSelectedProjectId).toBeNull();
     expect(interpretation.keepCurrentSelection).toBe(false);
     expect(interpretation.shouldInvalidateGoogleAuth).toBe(false);
+  });
+
+  it("does not clear local or destroy selection on inconsistent completed results", () => {
+    for (const override of [
+      { indexRemoved: false },
+      { projectRootTrashed: false },
+      { authRequired: true },
+    ] as const) {
+      const interpretation = interpretDriveProjectDeleteResult(
+        driveResult(override),
+      );
+      expect(interpretation.shouldClearLocal).toBe(false);
+      expect(interpretation.shouldRemoveDeletedProjectFromList).toBe(false);
+      expect(interpretation.keepCurrentSelection).toBe(true);
+      expect(interpretation.shouldClearDeletedProjectReadyState).toBe(false);
+      expect(interpretation.status).toBe("error");
+      expect(interpretation.diagnostics.join(" ")).not.toContain(ACCESS_TOKEN);
+      expect(interpretation.diagnostics.join(" ")).not.toContain(
+        PROJECT.projectFolderId,
+      );
+    }
   });
 
   it("does not clear local on partialFailure and does not auto-select another project", () => {
@@ -172,17 +220,17 @@ describe("finalizeProjectDeleteLocalCopy", () => {
   });
 });
 
-describe("confirmProjectDeleteWorkflow", () => {
-  it("runs execute with a fresh preflight callback and clears local exactly once on completed", async () => {
+describe("executeProjectDeleteDriveWorkflow", () => {
+  it("runs execute with a fresh preflight callback and does not clear local", async () => {
     const runFreshPreflight = vi.fn(async () => {
       return { status: "ready" as const };
     });
-    const execute = vi.fn(async () => driveResult({ status: "completed" }));
+    const execute = vi.fn(async () => driveResult());
     const clearLocal = vi.fn(async () =>
       localClearResult({ deletedProjects: 1 }),
     );
 
-    const outcome = await confirmProjectDeleteWorkflow({
+    const outcome = await executeProjectDeleteDriveWorkflow({
       plan: PLAN,
       currentOwner: OWNER,
       execute: execute as never,
@@ -200,62 +248,27 @@ describe("confirmProjectDeleteWorkflow", () => {
         }),
         listActiveProjectRoots: async () => [],
       },
-      clearLocal,
       isCurrent: () => true,
     });
 
     expect(execute).toHaveBeenCalledOnce();
     expect(execute.mock.calls[0]![0].runFreshPreflight).toBe(runFreshPreflight);
-    expect(clearLocal).toHaveBeenCalledOnce();
-    expect(clearLocal).toHaveBeenCalledWith(PROJECT_ID);
-    expect(outcome.localCopyStatus).toBe("cleared");
+    expect(clearLocal).not.toHaveBeenCalled();
+    expect(outcome.interpretation?.shouldClearLocal).toBe(true);
     expect(outcome.interpretation?.status).toBe("completed");
     expect(outcome.driveResult?.status).toBe("completed");
   });
 
-  it("returns absent when Drive completed and local records were 0", async () => {
-    const outcome = await confirmProjectDeleteWorkflow({
-      plan: PLAN,
-      currentOwner: OWNER,
-      execute: async () => driveResult({ status: "completed" }),
-      executeInput: unusedExecuteInput(),
-      clearLocal: async () => localClearResult(),
-      isCurrent: () => true,
-    });
-
-    expect(outcome.localCopyStatus).toBe("absent");
-    expect(outcome.driveResult?.status).toBe("completed");
-  });
-
-  it("keeps Drive completed when local clear throws", async () => {
-    const outcome = await confirmProjectDeleteWorkflow({
-      plan: PLAN,
-      currentOwner: OWNER,
-      execute: async () => driveResult({ status: "completed" }),
-      executeInput: unusedExecuteInput(),
-      clearLocal: async () => {
-        throw new Error("local failed");
-      },
-      isCurrent: () => true,
-    });
-
-    expect(outcome.driveResult?.status).toBe("completed");
-    expect(outcome.localCopyStatus).toBe("failed");
-    expect(outcome.interpretation?.shouldRemoveDeletedProjectFromList).toBe(true);
-  });
-
   it("does not clear local on partialFailure, including authRequired", async () => {
-    const clearLocal = vi.fn(async () => localClearResult({ deletedProjects: 1 }));
-    const partial = await confirmProjectDeleteWorkflow({
+    const partial = await executeProjectDeleteDriveWorkflow({
       plan: PLAN,
       currentOwner: OWNER,
       execute: async () =>
         driveResult({ status: "partialFailure", indexRemoved: true }),
       executeInput: unusedExecuteInput(),
-      clearLocal,
       isCurrent: () => true,
     });
-    const authRequired = await confirmProjectDeleteWorkflow({
+    const authRequired = await executeProjectDeleteDriveWorkflow({
       plan: PLAN,
       currentOwner: OWNER,
       execute: async () =>
@@ -265,52 +278,47 @@ describe("confirmProjectDeleteWorkflow", () => {
           authRequired: true,
         }),
       executeInput: unusedExecuteInput(),
-      clearLocal,
       isCurrent: () => true,
     });
 
-    expect(clearLocal).not.toHaveBeenCalled();
-    expect(partial.localCopyStatus).toBe("notAttempted");
+    expect(partial.interpretation?.shouldClearLocal).toBe(false);
     expect(authRequired.interpretation?.shouldInvalidateGoogleAuth).toBe(true);
-    expect(authRequired.localCopyStatus).toBe("notAttempted");
+    expect(authRequired.interpretation?.shouldClearLocal).toBe(false);
   });
 
-  it("does not clear local on pre-write 401/403", async () => {
-    const clearLocal = vi.fn(async () => localClearResult());
-    const outcome = await confirmProjectDeleteWorkflow({
-      plan: PLAN,
-      currentOwner: OWNER,
-      execute: async () => {
-        throw new DriveApiError(401);
-      },
-      executeInput: unusedExecuteInput(),
-      clearLocal,
-      isCurrent: () => true,
-    });
+  it("does not start local clear on pre-write 401/403", async () => {
+    for (const status of [401, 403] as const) {
+      const outcome = await executeProjectDeleteDriveWorkflow({
+        plan: PLAN,
+        currentOwner: OWNER,
+        execute: async () => {
+          throw new DriveApiError(status);
+        },
+        executeInput: unusedExecuteInput(),
+        isCurrent: () => true,
+      });
 
-    expect(outcome.kind).toBe("preWriteAuthError");
-    expect(clearLocal).not.toHaveBeenCalled();
-    expect(outcome.localCopyStatus).toBe("notAttempted");
+      expect(outcome.kind).toBe("preWriteAuthError");
+      expect(outcome.interpretation).toBeNull();
+    }
   });
 
-  it("does not start local clear for a stale request after Drive completed", async () => {
-    const clearLocal = vi.fn(async () => localClearResult({ deletedProjects: 1 }));
+  it("does not apply UI for a stale request after Drive completed", async () => {
     let current = true;
-    const outcome = await confirmProjectDeleteWorkflow({
+    const outcome = await executeProjectDeleteDriveWorkflow({
       plan: PLAN,
       currentOwner: OWNER,
       execute: async () => {
         current = false;
-        return driveResult({ status: "completed" });
+        return driveResult();
       },
       executeInput: unusedExecuteInput(),
-      clearLocal,
       isCurrent: () => current,
     });
 
     expect(outcome.kind).toBe("stale");
-    expect(clearLocal).not.toHaveBeenCalled();
     expect(outcome.applyUi).toBe(false);
+    expect(outcome.interpretation?.shouldClearLocal).toBe(true);
   });
 
   it("does not put token, URL, or Drive IDs into public result diagnostics", () => {
@@ -334,6 +342,197 @@ describe("confirmProjectDeleteWorkflow", () => {
       projectRootTrashed: true,
       authRequired: false,
     });
+  });
+});
+
+describe("finalizeProjectDeleteLocalCopyAfterDriveState", () => {
+  it("applies Drive list/selection state before clearing local exactly once", async () => {
+    const events: string[] = [];
+    let driveProjects = [
+      { projectId: PROJECT_ID, title: "削除対象" },
+      { projectId: OTHER_PROJECT_ID, title: "残す作品" },
+    ];
+    let selectedProjectId: string | null = PROJECT_ID;
+    const clearLocal = vi.fn(async () => {
+      expect(events).toEqual(["drive-state"]);
+      expect(selectedProjectId).toBeNull();
+      expect(driveProjects).toEqual([
+        { projectId: OTHER_PROJECT_ID, title: "残す作品" },
+      ]);
+      events.push("local-clear");
+      return localClearResult({ deletedProjects: 1 });
+    });
+
+    const outcome = await finalizeProjectDeleteLocalCopyAfterDriveState({
+      shouldClearLocal: true,
+      projectId: PROJECT_ID,
+      applyDriveState: () => {
+        events.push("drive-state");
+        driveProjects = removeDeletedProjectFromList(driveProjects, PROJECT_ID);
+        selectedProjectId = null;
+      },
+      isCurrent: () => true,
+      clearLocal,
+    });
+
+    expect(events).toEqual(["drive-state", "local-clear"]);
+    expect(clearLocal).toHaveBeenCalledOnce();
+    expect(clearLocal).toHaveBeenCalledWith(PROJECT_ID);
+    expect(outcome.localCopyStatus).toBe("cleared");
+    expect(outcome.applyLocalCopyUi).toBe(true);
+  });
+
+  it("returns absent when Drive completed and local records were 0", async () => {
+    const outcome = await finalizeProjectDeleteLocalCopyAfterDriveState({
+      shouldClearLocal: true,
+      projectId: PROJECT_ID,
+      applyDriveState: () => undefined,
+      isCurrent: () => true,
+      clearLocal: async () => localClearResult(),
+    });
+
+    expect(outcome.localCopyStatus).toBe("absent");
+  });
+
+  it("keeps Drive completed when local clear throws", async () => {
+    const outcome = await finalizeProjectDeleteLocalCopyAfterDriveState({
+      shouldClearLocal: true,
+      projectId: PROJECT_ID,
+      applyDriveState: () => undefined,
+      isCurrent: () => true,
+      clearLocal: async () => {
+        throw new Error("local failed");
+      },
+    });
+
+    expect(outcome.localCopyStatus).toBe("failed");
+    expect(outcome.localCopyMessage).toContain(
+      "このiPadのコピーを削除できませんでした",
+    );
+  });
+
+  it("does not start local clear unless all strict completed flags are true", async () => {
+    const clearLocal = vi.fn(async () => localClearResult({ deletedProjects: 1 }));
+
+    for (const result of [
+      driveResult({ indexRemoved: false }),
+      driveResult({ projectRootTrashed: false }),
+      driveResult({ authRequired: true }),
+      driveResult({ status: "partialFailure", indexRemoved: true }),
+      driveResult({
+        status: "partialFailure",
+        indexRemoved: true,
+        authRequired: true,
+      }),
+    ]) {
+      const interpretation = interpretDriveProjectDeleteResult(result);
+      await finalizeProjectDeleteLocalCopyAfterDriveState({
+        shouldClearLocal: interpretation.shouldClearLocal,
+        projectId: PROJECT_ID,
+        applyDriveState: () => undefined,
+        isCurrent: () => true,
+        clearLocal,
+      });
+    }
+
+    const allowed = await finalizeProjectDeleteLocalCopyAfterDriveState({
+      shouldClearLocal: interpretDriveProjectDeleteResult(driveResult())
+        .shouldClearLocal,
+      projectId: PROJECT_ID,
+      applyDriveState: () => undefined,
+      isCurrent: () => true,
+      clearLocal,
+    });
+
+    expect(clearLocal).toHaveBeenCalledOnce();
+    expect(allowed.localCopyStatus).toBe("cleared");
+  });
+
+  it("does not start local clear for a stale request after Drive state is applied", async () => {
+    const clearLocal = vi.fn(async () => localClearResult({ deletedProjects: 1 }));
+    let current = true;
+    const outcome = await finalizeProjectDeleteLocalCopyAfterDriveState({
+      shouldClearLocal: true,
+      projectId: PROJECT_ID,
+      applyDriveState: () => {
+        current = false;
+      },
+      isCurrent: () => current,
+      clearLocal,
+    });
+
+    expect(clearLocal).not.toHaveBeenCalled();
+    expect(outcome.localCopyStatus).toBe("notAttempted");
+    expect(outcome.applyLocalCopyUi).toBe(false);
+  });
+});
+
+describe("releaseOwnedProjectDeleteConfirmLocks", () => {
+  it("releases the Drive lock after pre-write 401 even if delete request id was incremented", () => {
+    const released = releaseOwnedProjectDeleteConfirmLocks({
+      ownedDriveRequestId: 5,
+      ownedDeleteRequestId: 3,
+      currentDriveRequestId: 5,
+      currentDeleteRequestId: 4,
+    });
+    expect(released.releaseDriveLock).toBe(true);
+    expect(released.releaseProjectDeleteLock).toBe(false);
+  });
+
+  it("releases the Drive lock after post-index authRequired partialFailure", () => {
+    const released = releaseOwnedProjectDeleteConfirmLocks({
+      ownedDriveRequestId: 8,
+      ownedDeleteRequestId: 2,
+      currentDriveRequestId: 8,
+      currentDeleteRequestId: 3,
+    });
+    expect(released.releaseDriveLock).toBe(true);
+    expect(released.releaseProjectDeleteLock).toBe(false);
+  });
+
+  it("does not release a newer Drive operation lock", () => {
+    const released = releaseOwnedProjectDeleteConfirmLocks({
+      ownedDriveRequestId: 5,
+      ownedDeleteRequestId: 3,
+      currentDriveRequestId: 6,
+      currentDeleteRequestId: 4,
+    });
+    expect(released.releaseDriveLock).toBe(false);
+    expect(released.releaseProjectDeleteLock).toBe(false);
+  });
+});
+
+describe("pending project delete confirmation on selection change", () => {
+  it("does not stale the current delete request when selection cannot actually change", () => {
+    expect(
+      shouldDiscardPendingProjectDeleteOnSelect({
+        driveOperationInFlight: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("closes pending confirmation without discarding settled results", () => {
+    const confirming = closePendingProjectDeleteConfirmation({
+      status: "confirming",
+    });
+    expect(confirming.shouldClearPendingPlan).toBe(true);
+    expect(confirming.shouldClearReview).toBe(true);
+    expect(confirming.shouldResetPendingUi).toBe(true);
+    expect(confirming.nextStatus).toBe("idle");
+    expect(confirming.preserveSettledResult).toBe(false);
+
+    const completed = closePendingProjectDeleteConfirmation({
+      status: "completed",
+    });
+    expect(completed.shouldResetPendingUi).toBe(false);
+    expect(completed.preserveSettledResult).toBe(true);
+    expect(completed.nextStatus).toBe("completed");
+
+    const partialFailure = closePendingProjectDeleteConfirmation({
+      status: "partialFailure",
+    });
+    expect(partialFailure.shouldResetPendingUi).toBe(false);
+    expect(partialFailure.preserveSettledResult).toBe(true);
   });
 });
 

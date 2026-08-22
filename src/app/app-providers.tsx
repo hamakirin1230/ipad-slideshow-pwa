@@ -166,7 +166,10 @@ import {
   type DriveProjectDeleteReview,
 } from "@/lib/drive-project-delete";
 import {
-  confirmProjectDeleteWorkflow,
+  closePendingProjectDeleteConfirmation,
+  executeProjectDeleteDriveWorkflow,
+  finalizeProjectDeleteLocalCopyAfterDriveState,
+  releaseOwnedProjectDeleteConfirmLocks,
   removeDeletedProjectFromList,
   sanitizeProjectDeleteDiagnostics,
   type ProjectDeletePublicResult,
@@ -2129,6 +2132,24 @@ export function AppProviders({ children }: { children: ReactNode }) {
     pendingProjectDeletePlanRef.current = null;
   }
 
+  function discardPendingProjectDeleteConfirmation() {
+    const closed = closePendingProjectDeleteConfirmation({
+      status: projectDeleteStatus,
+    });
+    pendingProjectDeletePlanRef.current = null;
+    if (closed.shouldClearReview) {
+      setProjectDeleteReview(null);
+    }
+    if (closed.shouldResetPendingUi) {
+      projectDeleteRequestIdRef.current += 1;
+      setProjectDeleteStatus("idle");
+      setProjectDeleteMessage(null);
+      setProjectDeleteDiagnostics([]);
+      setProjectDeleteResult(null);
+      setProjectDeleteLocalCopyStatus("notAttempted");
+    }
+  }
+
   function resetProjectDeleteState() {
     invalidatePendingProjectDeletion();
     projectDeleteInFlightRef.current = false;
@@ -4031,10 +4052,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   async function selectProject(projectId: string) {
-    invalidatePendingProjectDeletion();
     if (driveOperationInFlightRef.current) {
       return;
     }
+
+    discardPendingProjectDeleteConfirmation();
 
     const accessToken = accessTokenRef.current;
 
@@ -5594,9 +5616,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const deleteRequestId = projectDeleteRequestIdRef.current + 1;
     projectDeleteRequestIdRef.current = deleteRequestId;
     let verifiedIndexJsonText: string | null = null;
+    const isCurrentRequest = () =>
+      requestId === driveOperationRequestIdRef.current &&
+      deleteRequestId === projectDeleteRequestIdRef.current;
 
     try {
-      const outcome = await confirmProjectDeleteWorkflow({
+      const outcome = await executeProjectDeleteDriveWorkflow({
         plan,
         currentOwner: buildDriveProjectDeleteOwner({
           workspaceId: readyWorkspace.workspaceId,
@@ -5662,17 +5687,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
               }),
             ),
         },
-        clearLocal: clearLocalOfflineProjectData,
-        isCurrent: () =>
-          requestId === driveOperationRequestIdRef.current &&
-          deleteRequestId === projectDeleteRequestIdRef.current,
+        isCurrent: isCurrentRequest,
       });
 
-      if (
-        requestId !== driveOperationRequestIdRef.current ||
-        deleteRequestId !== projectDeleteRequestIdRef.current ||
-        !outcome.applyUi
-      ) {
+      if (!isCurrentRequest() || !outcome.applyUi) {
         return;
       }
 
@@ -5705,39 +5723,44 @@ export function AppProviders({ children }: { children: ReactNode }) {
         ? removeDeletedProjectFromList(driveProjects, plan.project.projectId)
         : driveProjects;
 
-      if (interpretation.shouldRemoveDeletedProjectFromList) {
-        setDriveProjects(nextDriveProjects);
-        setSelectedProjectId(null);
-        if (interpretation.shouldClearDeletedProjectReadyState) {
-          clearProjectReadyDetails();
+      const applyRemovedProjectDriveState = () => {
+        if (interpretation.shouldRemoveDeletedProjectFromList) {
+          setDriveProjects(nextDriveProjects);
+          setSelectedProjectId(null);
+          if (interpretation.shouldClearDeletedProjectReadyState) {
+            clearProjectReadyDetails();
+          }
+          setProjectStatus(
+            nextDriveProjects.length === 0 ? "notCreated" : "ready",
+          );
+          setProjectMessage(
+            nextDriveProjects.length === 0
+              ? "プロジェクトはまだ作成されていません。"
+              : "作品を選択してください。",
+          );
         }
-        setProjectStatus(nextDriveProjects.length === 0 ? "notCreated" : "ready");
-        setProjectMessage(
-          nextDriveProjects.length === 0
-            ? "プロジェクトはまだ作成されていません。"
-            : "作品を選択してください。",
-        );
-      }
 
-      if (
-        interpretation.shouldUpdateWorkspaceIndexText &&
-        verifiedIndexJsonText
-      ) {
-        setWorkspaceReadyContext({
-          ...readyWorkspace,
-          indexJsonText: verifiedIndexJsonText,
-        });
-      }
+        if (
+          interpretation.shouldUpdateWorkspaceIndexText &&
+          verifiedIndexJsonText
+        ) {
+          setWorkspaceReadyContext({
+            ...readyWorkspace,
+            indexJsonText: verifiedIndexJsonText,
+          });
+        }
+      };
 
       const applyDeleteUi = () => {
         setProjectDeleteResult(interpretation.publicResult);
         setProjectDeleteStatus(interpretation.status);
         setProjectDeleteMessage(interpretation.message);
-        setProjectDeleteLocalCopyStatus(outcome.localCopyStatus);
+        setProjectDeleteLocalCopyStatus("notAttempted");
         setSafeProjectDeleteDiagnostics(interpretation.diagnostics);
       };
 
       if (interpretation.shouldInvalidateGoogleAuth) {
+        applyRemovedProjectDriveState();
         applyDeleteUi();
         resetGoogleAfterDriveAuthFailure();
         applyDeleteUi();
@@ -5754,16 +5777,39 @@ export function AppProviders({ children }: { children: ReactNode }) {
         return;
       }
 
-      applyDeleteUi();
+      const localOutcome = await finalizeProjectDeleteLocalCopyAfterDriveState({
+        shouldClearLocal: interpretation.shouldClearLocal,
+        projectId: plan.project.projectId,
+        applyDriveState: () => {
+          applyRemovedProjectDriveState();
+          applyDeleteUi();
+        },
+        isCurrent: isCurrentRequest,
+        clearLocal: clearLocalOfflineProjectData,
+      });
+
+      if (!localOutcome.applyLocalCopyUi) {
+        return;
+      }
+
+      setProjectDeleteLocalCopyStatus(localOutcome.localCopyStatus);
+      if (localOutcome.localCopyMessage) {
+        setProjectDeleteMessage(localOutcome.localCopyMessage);
+      }
     } finally {
-      if (
-        requestId === driveOperationRequestIdRef.current &&
-        deleteRequestId === projectDeleteRequestIdRef.current
-      ) {
-        pendingProjectDeletePlanRef.current = null;
+      const released = releaseOwnedProjectDeleteConfirmLocks({
+        ownedDriveRequestId: requestId,
+        ownedDeleteRequestId: deleteRequestId,
+        currentDriveRequestId: driveOperationRequestIdRef.current,
+        currentDeleteRequestId: projectDeleteRequestIdRef.current,
+      });
+      if (released.releaseDriveLock) {
         clearDriveOperationTimeout();
         driveOperationAbortRef.current = null;
         setDriveOperationInFlight(false);
+      }
+      if (released.releaseProjectDeleteLock) {
+        pendingProjectDeletePlanRef.current = null;
         projectDeleteInFlightRef.current = false;
         setIsProjectDeleteInFlight(false);
       }

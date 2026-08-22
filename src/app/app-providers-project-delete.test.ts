@@ -14,6 +14,10 @@ const confirmSource = source.slice(
   source.indexOf("async function confirmProjectDeletion()"),
   source.indexOf("async function refreshAssetCleanupPreviewAfterDelete"),
 );
+const selectSource = source.slice(
+  source.indexOf("async function selectProject(projectId: string)"),
+  source.indexOf("async function updateSelectedProjectTitle"),
+);
 
 describe("AppProviders project delete workflow wiring", () => {
   it("keeps the pending delete plan in a ref rather than public state", () => {
@@ -45,17 +49,38 @@ describe("AppProviders project delete workflow wiring", () => {
     expect(cancelSource).not.toContain("executeDriveProjectDeletion");
   });
 
-  it("confirm runs execute fresh preflight and clears local only through the workflow", () => {
+  it("confirm runs Drive execute first and only then starts local clear", () => {
     expect(confirmSource).toContain("runFreshPreflight");
     expect(confirmSource).toContain("preflightDriveProjectDeletion");
-    expect(confirmSource).toContain("confirmProjectDeleteWorkflow");
+    expect(confirmSource).toContain("executeProjectDeleteDriveWorkflow");
+    expect(confirmSource).not.toContain("confirmProjectDeleteWorkflow");
+    expect(confirmSource).toContain("finalizeProjectDeleteLocalCopyAfterDriveState");
     expect(confirmSource).toContain("clearLocal: clearLocalOfflineProjectData");
     expect(confirmSource).toContain("setSelectedProjectId(null)");
     expect(confirmSource).not.toContain("checkProject(");
     expect(confirmSource).not.toContain("selectProject(");
+    expect(
+      confirmSource.indexOf("executeProjectDeleteDriveWorkflow"),
+    ).toBeLessThan(
+      confirmSource.indexOf("finalizeProjectDeleteLocalCopyAfterDriveState"),
+    );
+    expect(confirmSource.indexOf("setDriveProjects(")).toBeLessThan(
+      confirmSource.indexOf("finalizeProjectDeleteLocalCopyAfterDriveState"),
+    );
+    expect(confirmSource.indexOf("setSelectedProjectId(null)")).toBeLessThan(
+      confirmSource.indexOf("finalizeProjectDeleteLocalCopyAfterDriveState"),
+    );
+    expect(confirmSource.indexOf("clearProjectReadyDetails()")).toBeLessThan(
+      confirmSource.indexOf("finalizeProjectDeleteLocalCopyAfterDriveState"),
+    );
+    expect(
+      confirmSource.indexOf("setWorkspaceReadyContext({"),
+    ).toBeLessThan(
+      confirmSource.indexOf("finalizeProjectDeleteLocalCopyAfterDriveState"),
+    );
   });
 
-  it("preserves partialFailure after Google auth reset", () => {
+  it("preserves partialFailure after Google auth reset and releases locks independently", () => {
     const authBlock = confirmSource.slice(
       confirmSource.indexOf("shouldInvalidateGoogleAuth"),
     );
@@ -63,8 +88,25 @@ describe("AppProviders project delete workflow wiring", () => {
     expect(authBlock.indexOf("applyDeleteUi();")).toBeLessThan(
       authBlock.indexOf("resetGoogleAfterDriveAuthFailure();"),
     );
-    expect(authBlock).toContain("applyDeleteUi();");
-    expect(confirmSource).toContain("setDriveProjects(nextDriveProjects)");
+    expect(authBlock).toContain("setDriveProjects(nextDriveProjects)");
+    expect(confirmSource).toContain("releaseOwnedProjectDeleteConfirmLocks");
+    expect(confirmSource).toContain("if (released.releaseDriveLock)");
+    expect(confirmSource).toContain("if (released.releaseProjectDeleteLock)");
+    expect(confirmSource).not.toContain(
+      "requestId === driveOperationRequestIdRef.current &&\n        deleteRequestId === projectDeleteRequestIdRef.current",
+    );
+  });
+
+  it("does not stale the current delete request when selectProject cannot change selection", () => {
+    expect(selectSource.indexOf("if (driveOperationInFlightRef.current)")).toBeLessThan(
+      selectSource.indexOf("discardPendingProjectDeleteConfirmation()"),
+    );
+    const inflightGuard = selectSource.slice(
+      0,
+      selectSource.indexOf("discardPendingProjectDeleteConfirmation()"),
+    );
+    expect(inflightGuard).toContain("if (driveOperationInFlightRef.current)");
+    expect(inflightGuard).not.toContain("invalidatePendingProjectDeletion");
   });
 
   it("does not touch Photos export state, tokens, or app shell cache", () => {
