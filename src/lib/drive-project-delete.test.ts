@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildDriveProjectDeleteOwner,
   executeDriveProjectDeletion,
   prepareDriveProjectDeletion,
+  type DriveProjectDeleteResult,
 } from "./drive-project-delete";
 import {
   buildDriveProjectIndexJsonWithoutProject,
@@ -110,8 +112,31 @@ describe("preflightDriveProjectDeletion", () => {
       status: "blocked",
       reason: "duplicateProjectRoot",
     });
+    if (result.status === "blocked") {
+      expect(result.diagnostics.join("")).toContain(
+        "同じ保存場所に同一作品の有効なフォルダが複数あります。",
+      );
+    }
     expect(recordedMethods(fetchMock)).not.toContain("PATCH");
     expect(recordedMethods(fetchMock)).not.toContain("DELETE");
+  });
+
+  it("blocks when no active project root is found", async () => {
+    mockPreflightFetch({ activeRoots: [] });
+    const result = await runPreflight();
+
+    expect(result).toMatchObject({
+      status: "blocked",
+      reason: "duplicateProjectRoot",
+    });
+    if (result.status === "blocked") {
+      expect(result.diagnostics.join("")).toContain(
+        "有効な作品フォルダが見つかりません。",
+      );
+      expect(result.diagnostics.join("")).not.toContain(
+        "同じ保存場所に同一作品の有効なフォルダが複数あります。",
+      );
+    }
   });
 
   it("blocks when the current project summary does not match fresh index", async () => {
@@ -407,6 +432,7 @@ describe("executeDriveProjectDeletion", () => {
       status: "completed",
       indexRemoved: true,
       projectRootTrashed: true,
+      authRequired: false,
     });
     expect(deps.writeIndexJson).toHaveBeenCalledOnce();
     const written = JSON.parse(deps.writeIndexJson.mock.calls[0][0]) as {
@@ -526,6 +552,7 @@ describe("executeDriveProjectDeletion", () => {
       status: "partialFailure",
       indexRemoved: true,
       projectRootTrashed: false,
+      authRequired: false,
     });
     expect(deps.trashProjectRoot).toHaveBeenCalledOnce();
     expect(deps.readProjectRootMetadata).not.toHaveBeenCalled();
@@ -576,7 +603,7 @@ describe("executeDriveProjectDeletion", () => {
     expect(result.status).not.toBe("completed");
   });
 
-  it("rethrows DriveApiError 401/403 from execute preflight", async () => {
+  it("rethrows DriveApiError 401 from execute preflight and does not write", async () => {
     const ready = await readyPreflight();
     const prepared = prepareFromReady(ready);
     const deps = successfulExecuteDeps(ready);
@@ -590,6 +617,133 @@ describe("executeDriveProjectDeletion", () => {
       }),
     ).rejects.toMatchObject({ name: "DriveApiError", status: 401 });
     expect(deps.writeIndexJson).not.toHaveBeenCalled();
+    expect(deps.trashProjectRoot).not.toHaveBeenCalled();
+  });
+
+  it("rethrows DriveApiError 401 from index write and does not trash", async () => {
+    const ready = await readyPreflight();
+    const prepared = prepareFromReady(ready);
+    const deps = successfulExecuteDeps(ready);
+    deps.writeIndexJson.mockRejectedValueOnce(new DriveApiError(401));
+
+    await expect(
+      executeDriveProjectDeletion({
+        plan: prepared.plan,
+        currentOwner: OWNER,
+        ...deps,
+      }),
+    ).rejects.toMatchObject({ name: "DriveApiError", status: 401 });
+    expect(deps.writeIndexJson).toHaveBeenCalledOnce();
+    expect(deps.trashProjectRoot).not.toHaveBeenCalled();
+  });
+
+  it("keeps verified index removal as partialFailure when trash returns 401", async () => {
+    const ready = await readyPreflight();
+    const prepared = prepareFromReady(ready);
+    const deps = successfulExecuteDeps(ready);
+    deps.trashProjectRoot.mockRejectedValueOnce(new DriveApiError(401));
+
+    const result = await executeDriveProjectDeletion({
+      plan: prepared.plan,
+      currentOwner: OWNER,
+      ...deps,
+    });
+
+    expect(result).toMatchObject({
+      status: "partialFailure",
+      indexRemoved: true,
+      projectRootTrashed: false,
+      authRequired: true,
+    });
+    expect(deps.trashProjectRoot).toHaveBeenCalledOnce();
+    expect(deps.readProjectRootMetadata).not.toHaveBeenCalled();
+    expectAuthPartialFailureDiagnostics(result);
+  });
+
+  it("does not guess projectRootTrashed when metadata read returns 401 after trash", async () => {
+    const ready = await readyPreflight();
+    const prepared = prepareFromReady(ready);
+    const deps = successfulExecuteDeps(ready);
+    deps.readProjectRootMetadata.mockRejectedValueOnce(new DriveApiError(401));
+
+    const result = await executeDriveProjectDeletion({
+      plan: prepared.plan,
+      currentOwner: OWNER,
+      ...deps,
+    });
+
+    expect(result).toMatchObject({
+      status: "partialFailure",
+      indexRemoved: true,
+      projectRootTrashed: false,
+      authRequired: true,
+    });
+    expect(deps.trashProjectRoot).toHaveBeenCalledOnce();
+    expect(deps.readProjectRootMetadata).toHaveBeenCalledOnce();
+    expect(deps.listActiveProjectRoots).not.toHaveBeenCalled();
+    expectAuthPartialFailureDiagnostics(result);
+  });
+
+  it("keeps projectRootTrashed true when active-root list returns 401 after trash confirmation", async () => {
+    const ready = await readyPreflight();
+    const prepared = prepareFromReady(ready);
+    const deps = successfulExecuteDeps(ready);
+    deps.listActiveProjectRoots.mockRejectedValueOnce(new DriveApiError(401));
+
+    const result = await executeDriveProjectDeletion({
+      plan: prepared.plan,
+      currentOwner: OWNER,
+      ...deps,
+    });
+
+    expect(result).toMatchObject({
+      status: "partialFailure",
+      indexRemoved: true,
+      projectRootTrashed: true,
+      authRequired: true,
+    });
+    expect(deps.trashProjectRoot).toHaveBeenCalledOnce();
+    expect(deps.listActiveProjectRoots).toHaveBeenCalledOnce();
+    expectAuthPartialFailureDiagnostics(result);
+  });
+
+  it("keeps post-index 403 as authRequired partialFailure without retry", async () => {
+    const ready = await readyPreflight();
+    const prepared = prepareFromReady(ready);
+    const deps = successfulExecuteDeps(ready);
+    deps.trashProjectRoot.mockRejectedValueOnce(new DriveApiError(403));
+
+    const result = await executeDriveProjectDeletion({
+      plan: prepared.plan,
+      currentOwner: OWNER,
+      ...deps,
+    });
+
+    expect(result).toMatchObject({
+      status: "partialFailure",
+      indexRemoved: true,
+      projectRootTrashed: false,
+      authRequired: true,
+    });
+    expect(deps.trashProjectRoot).toHaveBeenCalledOnce();
+    expectAuthPartialFailureDiagnostics(result);
+  });
+
+  it("does not use local clear and does not change AppProviders or UI", () => {
+    const workflow = readFileSync(
+      new URL("./drive-project-delete.ts", import.meta.url),
+      "utf8",
+    );
+    const primitives = readFileSync(
+      new URL("./google-drive.ts", import.meta.url),
+      "utf8",
+    );
+    for (const source of [workflow, primitives]) {
+      expect(source).not.toContain("clearLocalOfflineProjectData");
+      expect(source).not.toContain("offline-local-project-clear");
+    }
+    expect(workflow).not.toContain("AppProviders");
+    expect(workflow).not.toContain("ProjectStatusPanel");
   });
 
   it("does not put token, raw URL, or raw API response into result diagnostics", async () => {
@@ -826,4 +980,15 @@ function projectRootCandidate(
     trashed: false,
     ...override,
   };
+}
+
+function expectAuthPartialFailureDiagnostics(result: DriveProjectDeleteResult) {
+  const serialized = JSON.stringify(result);
+  expect(serialized).not.toContain(ACCESS_TOKEN);
+  expect(serialized).not.toContain(DRIVE_FILES_URL);
+  expect(serialized).not.toContain("DriveApiError");
+  expect(serialized).not.toContain("401");
+  expect(serialized).not.toContain("403");
+  expect(serialized).not.toContain(PROJECT.projectFolderId);
+  expect(serialized).not.toContain(INDEX_FILE_ID);
 }

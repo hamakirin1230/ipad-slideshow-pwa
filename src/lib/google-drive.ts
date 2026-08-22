@@ -4600,12 +4600,19 @@ export async function preflightDriveProjectDeletion(input: {
     projectId: freshProject.projectId,
     signal: input.signal,
   });
+  if (activeRoots.length === 0) {
+    return blockedDriveProjectDelete("duplicateProjectRoot", [
+      "有効な作品フォルダが見つかりません。",
+    ]);
+  }
   if (
-    activeRoots.length !== 1 ||
+    activeRoots.length > 1 ||
     activeRoots[0]?.id !== freshProject.projectFolderId
   ) {
     return blockedDriveProjectDelete("duplicateProjectRoot", [
-      "同じ保存場所に同一作品の有効なフォルダが複数あります。",
+      activeRoots.length > 1
+        ? "同じ保存場所に同一作品の有効なフォルダが複数あります。"
+        : "有効な作品フォルダの状態が想定と一致しません。",
     ]);
   }
 

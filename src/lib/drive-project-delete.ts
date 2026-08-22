@@ -54,6 +54,7 @@ export type DriveProjectDeleteResult = {
   blockedReason?: DriveProjectDeleteBlockedReason;
   indexRemoved: boolean;
   projectRootTrashed: boolean;
+  authRequired: boolean;
   diagnostics: string[];
 };
 
@@ -216,8 +217,8 @@ export async function executeDriveProjectDeletion(input: {
   try {
     await input.trashProjectRoot();
   } catch (error) {
-    rethrowDriveAuthError(error);
-    return partialFailureResult({
+    return postIndexFailureResult({
+      error,
       message: "作品フォルダを削除状態にできませんでした。",
       projectRootTrashed: false,
     });
@@ -229,8 +230,8 @@ export async function executeDriveProjectDeletion(input: {
       input.readProjectRootMetadata,
     );
   } catch (error) {
-    rethrowDriveAuthError(error);
-    return partialFailureResult({
+    return postIndexFailureResult({
+      error,
       message: "作品フォルダの削除状態を確認できませんでした。",
       projectRootTrashed: false,
     });
@@ -247,8 +248,8 @@ export async function executeDriveProjectDeletion(input: {
   try {
     activeRoots = await input.listActiveProjectRoots();
   } catch (error) {
-    rethrowDriveAuthError(error);
-    return partialFailureResult({
+    return postIndexFailureResult({
+      error,
       message: "削除後の作品フォルダを確認できませんでした。",
       projectRootTrashed: true,
     });
@@ -265,6 +266,7 @@ export async function executeDriveProjectDeletion(input: {
     status: "completed",
     indexRemoved: true,
     projectRootTrashed: true,
+    authRequired: false,
     diagnostics: ["Google Drive上の作品を削除しました。"],
   };
 }
@@ -300,6 +302,7 @@ function blockedResult(
     blockedReason: reason,
     indexRemoved: false,
     projectRootTrashed: false,
+    authRequired: false,
     diagnostics: sanitizeDiagnostics(diagnostics),
   };
 }
@@ -309,6 +312,7 @@ function failedResult(message: string): DriveProjectDeleteResult {
     status: "failed",
     indexRemoved: false,
     projectRootTrashed: false,
+    authRequired: false,
     diagnostics: sanitizeDiagnostics([message]),
   };
 }
@@ -316,16 +320,30 @@ function failedResult(message: string): DriveProjectDeleteResult {
 function partialFailureResult(input: {
   message: string;
   projectRootTrashed: boolean;
+  authRequired?: boolean;
 }): DriveProjectDeleteResult {
   return {
     status: "partialFailure",
     indexRemoved: true,
     projectRootTrashed: input.projectRootTrashed,
+    authRequired: input.authRequired === true,
     diagnostics: sanitizeDiagnostics([
       input.message,
       "作品一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
     ]),
   };
+}
+
+function postIndexFailureResult(input: {
+  error: unknown;
+  message: string;
+  projectRootTrashed: boolean;
+}): DriveProjectDeleteResult {
+  return partialFailureResult({
+    message: input.message,
+    projectRootTrashed: input.projectRootTrashed,
+    authRequired: isDriveAuthError(input.error),
+  });
 }
 
 function rethrowDriveAuthError(error: unknown): void {
