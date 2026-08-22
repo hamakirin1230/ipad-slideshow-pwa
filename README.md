@@ -87,8 +87,8 @@ https://ipad-slideshow-pwa.vercel.app/
 - iPadホーム画面PWAで安定して動くことを優先する
 - access tokenは保存しない、表示しない、console出力しない
 - access tokenはProvider内部のメモリ上にだけ保持する
-- ページrefresh後のGoogle接続は、明示的な「Googleへ接続」で再接続する。page loadやGIS readyではtoken requestを開始せず、アカウント選択画面を自動では開かない
-- 60分接続維持は未解決である。実装前architectureは`docs/design/google-connection-60-minute-session.md`。Gate 0はFAIL。Phase 1 hostingはPASS。session本体は実装済みではない
+- 明示的な「Googleへ接続」のあと、page reloadではGIS account chooserを出さず、same-origin session restoreでDrive接続を復元する。page loadやGIS readyではtoken requestを開始せず、アカウント選択画面を自動では開かない
+- Google Drive short-lived sessionは2026-08-22時点でProduction functional acceptance済み。lifetime上限は`min(expires_in, 3600 seconds)`。restoreでTTL延長しない。live pageを60分で強制logoutする機能ではない。実時間absolute-expiry境界は未確認。architectureは`docs/design/google-connection-60-minute-session.md`。Production evidenceは`docs/acceptance/google-session-production-acceptance.md`
 - Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`
 - Google Photos export開始時だけ専用token clientで`https://www.googleapis.com/auth/photoslibrary.appendonly`を要求し、`include_granted_scopes`はfalseにする。Photos exportの認可は操作開始時だけである
 - Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作であり、source Drive素材を更新しない
@@ -175,12 +175,14 @@ GitHub ActionsはCI専用です。正式な本番deploymentはVercelで行い、
 
 ## 次の作業候補
 
-1. 60分Google接続維持は未解決。Gate 0 FAIL。Phase 1 hosting migration PASS。`output:"export"`撤去とApp Router Route HandlerはPreview accepted。session本体は実装済みではない
+1. 実時間でsession absolute expiryを跨いだ実機確認。live pageを60分で強制logoutする機能ではない。Google Drive short-lived sessionのProduction functional acceptanceは2026-08-22 PASS
 2. publication writeのupdate応答不明、current競合、index warningを、承認済みplanに従って専用disposable workspaceと一時的なPreview-only harnessで実Google Drive確認する
 3. MOVのexactly 5GB / 5GB + 1 byteの実ファイル境界と、意図的な再生失敗後のmanual retry実機経路を確認する
 
 ## 最新ハンドオフ
 
+- `docs/acceptance/google-session-production-acceptance.md`
+- `docs/acceptance/google-session-preview-acceptance.md`
 - `docs/handoffs/2026-08-20-google-photos-export-handoff.md`
 - `docs/acceptance/google-photos-export-acceptance.md`
 - `docs/handoffs/2026-08-08-mov-video-5gb-handoff.md`

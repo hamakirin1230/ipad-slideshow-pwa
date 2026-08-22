@@ -26,7 +26,7 @@ Currentに記載がない詳細はproduction codeとtestsで確認し、古い�
 
 architecture reference。Current production contractではない。
 
-- [`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md) — Google接続60分sessionのarchitecture。Phase 1-4.1はfeature branchで実装済み。Preview functional acceptance passed 2026-08-22。Production provisioning / acceptance と real-time absolute-expiry boundary は pending。Gate 0 FAIL等の過去記録は遡及rewriteしない
+- [`design/google-connection-60-minute-session.md`](design/google-connection-60-minute-session.md) — Google接続60分sessionのarchitecture。Preview functional acceptance passed 2026-08-22。Production functional acceptance passed 2026-08-22。real-time absolute-expiry boundary は pending。Gate 0 FAIL等の過去記録は遡及rewriteしない
 
 ## Historical
 
@@ -42,7 +42,8 @@ HistoricalとCurrentが衝突する場合はCurrentを優先します。dated ha
 
 ## Acceptance / evidence
 
-- [`acceptance/google-session-preview-acceptance.md`](acceptance/google-session-preview-acceptance.md) — 2026-08-22 Google Drive short-lived sessionのPreview functional acceptance。Production acceptanceと実時間absolute-expiry境界は未実施
+- [`acceptance/google-session-production-acceptance.md`](acceptance/google-session-production-acceptance.md) — 2026-08-22 Google Drive short-lived sessionのProduction functional acceptance。実時間absolute-expiry境界は未実施
+- [`acceptance/google-session-preview-acceptance.md`](acceptance/google-session-preview-acceptance.md) — 2026-08-22 Google Drive short-lived sessionのPreview functional acceptance。Preview evidenceとして残す
 - [`acceptance/google-photos-export-acceptance.md`](acceptance/google-photos-export-acceptance.md) — 2026-08-21 Google Photos exportのPreview / Production acceptance。Previewのv1 / v2 caption evidenceとProduction確認を区別して記録
 - [`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md) — 2026-08-12 finalization merge前 / Production acceptanceと未確認項目
 - [`acceptance/publication-write-abnormal-acceptance-plan.md`](acceptance/publication-write-abnormal-acceptance-plan.md) — publication write異常系の承認済み試験計画。temporary harnessの履歴を含むが、実Google DriveでのA/B/C完了記録はない

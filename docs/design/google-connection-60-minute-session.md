@@ -1,10 +1,10 @@
 # Google connection 60-minute session
 
 Date: 2026-08-22
-Status: Phase 1-4.1 implemented on `feature/google-session-phase3-http`. Preview functional acceptance passed 2026-08-22. Production acceptance pending. Real-time absolute-expiry boundary acceptance pending.
+Status: Preview functional acceptance passed 2026-08-22. Production functional acceptance passed 2026-08-22. Real-time absolute-expiry boundary acceptance pending.
 Branch: `feature/google-session-phase3-http`
 
-この文書はarchitecture referenceである。Preview functional acceptanceは[`acceptance/google-session-preview-acceptance.md`](../acceptance/google-session-preview-acceptance.md)を参照する。この文書を「Production accepted」または「実時間60分expiry確認済み」とは読まない。本文のarchitecture decisionは遡及rewriteしない。
+この文書はarchitecture referenceである。Preview evidenceは[`acceptance/google-session-preview-acceptance.md`](../acceptance/google-session-preview-acceptance.md)。Production functional acceptanceは[`acceptance/google-session-production-acceptance.md`](../acceptance/google-session-production-acceptance.md)を参照する。この文書を「実時間60分expiry確認済み」とは読まない。本文のarchitecture decisionは遡及rewriteしない。
 
 
 要件は「必ず60分」ではない。Google access tokenの`expires_in`が60分未満なら、その短い方をauthorityにする。silent延長は禁止する。restoreするたびにTTLを延長しない。「60分保証」とは書かない。

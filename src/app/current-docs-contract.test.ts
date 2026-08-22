@@ -18,6 +18,12 @@ const finalizationAcceptance = readRepoFile(
 const googlePhotosExportAcceptance = readRepoFile(
   "docs/acceptance/google-photos-export-acceptance.md",
 );
+const googleSessionProductionAcceptance = readRepoFile(
+  "docs/acceptance/google-session-production-acceptance.md",
+);
+const googleSessionPreviewAcceptance = readRepoFile(
+  "docs/acceptance/google-session-preview-acceptance.md",
+);
 const authoritativeDocs = [
   rootReadme,
   docsIndex,
@@ -56,6 +62,9 @@ describe("current documentation contract", () => {
     );
     expect(acceptanceEvidence).toContain(
       "acceptance/google-session-preview-acceptance.md",
+    );
+    expect(acceptanceEvidence).toContain(
+      "acceptance/google-session-production-acceptance.md",
     );
   });
 
@@ -230,8 +239,9 @@ describe("current documentation contract", () => {
     expect(currentContext).toContain("Phase 3 service / store / HTTP implemented");
     expect(currentContext).toContain("Phase 4 browser restore implemented");
     expect(currentContext).toContain("Preview functional acceptance PASS");
-    expect(currentContext).toContain("Productionはまだ旧mainでsession機能未反映");
+    expect(currentContext).toContain("Production functional acceptance PASS");
     expect(currentContext).toContain("実時間absolute-expiry境界の実機確認は未実施");
+    expect(currentContext).not.toContain("Productionはまだ旧mainでsession機能未反映");
     expect(currentContext).not.toContain("session本体は実装済みではない");
     expect(currentContext).not.toContain("Phase 3へは進んでいない");
     expect(currentContext).toContain("Photos OAuthは変更していない");
@@ -255,18 +265,20 @@ describe("current documentation contract", () => {
     );
     expect(googlePhotosExportAcceptance).toContain("60分接続維持」は未解決");
     expect(googlePhotosExportAcceptance).toContain('prompt: "none"');
-    expect(rootReadme).toContain("refresh後のGoogle接続は、明示的な「Googleへ接続」");
-    expect(rootReadme).toContain("60分接続維持は未解決");
+    expect(rootReadme).toContain("same-origin session restore");
+    expect(rootReadme).toContain("Production functional acceptance済み");
+    expect(rootReadme).not.toContain("60分接続維持は未解決");
+    expect(rootReadme).not.toContain("session本体は実装済みではない");
     expect(currentContext).toContain("page loadでGIS");
     expect(currentContext).toContain("live pageを60分で強制logoutする機能ではない");
     expect(currentContext).toContain("Phase 1 hosting migrationはPASS");
     expect(currentContext).toContain('output:"export"');
     expect(currentContext).not.toContain("Gate 0 PASS");
-    expect(currentContext).not.toContain("Google Drive session Production accepted");
+    expect(currentContext).toContain("google-session-production-acceptance.md");
     expect(docsIndex).toContain("design/google-connection-60-minute-session.md");
     expect(docsIndex).toContain("## Design in progress");
     expect(docsIndex).toContain("Preview functional acceptance passed 2026-08-22");
-    expect(docsIndex).toContain("Production provisioning / acceptance");
+    expect(docsIndex).toContain("Production functional acceptance passed 2026-08-22");
     expect(rootReadme).not.toContain("60分tokenを保存");
     expect(currentContext).not.toContain("60分tokenを保存");
     expect(googlePhotosExportAcceptance).not.toContain("60分tokenを保存");
@@ -274,5 +286,63 @@ describe("current documentation contract", () => {
     expect(currentContext).not.toContain("60分必ず維持");
     expect(rootReadme).not.toContain("best-effort silent restore");
     expect(currentContext).not.toContain("best-effort silent restore");
+  });
+
+  it("records Google Drive session Production acceptance without overstating remaining gaps", () => {
+    expect(googleSessionProductionAcceptance).toContain("Date: 2026-08-22");
+    expect(googleSessionProductionAcceptance).toContain(
+      "Production functional acceptance PASS",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "server-side short-lived Drive session",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "page loadではGIS `requestAccessToken`を呼ばない",
+    );
+    expect(googleSessionProductionAcceptance).toContain("手動connectのみ");
+    expect(googleSessionProductionAcceptance).toContain("`accessTokenRef`のみ");
+    expect(googleSessionProductionAcceptance).toContain(
+      "auto read-only Drive workspace validation",
+    );
+    expect(googleSessionProductionAcceptance).toContain("explicit disconnect");
+    expect(googleSessionProductionAcceptance).toContain(
+      "Photos OAuth / session isolation",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "Production runtime create / restore / delete が200",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "server runtime error / warning / fatalなし",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "実時間でsession absolute expiryを跨いだ実機確認",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "live pageを60分で強制logoutする機能",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "authorization code flow / refresh token",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "同じFree Upstash resourceを共有する",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "`GOOGLE_SESSION_ENCRYPTION_KEY`はenvironment別である",
+    );
+    expect(googleSessionProductionAcceptance).toContain(
+      "Redis / token / key / cookie / session ID / Drive ID / temporary deployment URLの値は記録しない",
+    );
+    expect(googleSessionPreviewAcceptance).toContain(
+      "Preview functional acceptance PASS",
+    );
+    expect(googleSessionPreviewAcceptance).toContain(
+      "This document is Preview evidence only",
+    );
+    expect(currentContext).toContain("同じFree Upstash resourceを共有する");
+    expect(currentContext).toContain(
+      "`GOOGLE_SESSION_ENCRYPTION_KEY`はenvironment別である",
+    );
+    expect(currentContext).not.toContain("session機能未反映");
+    expect(rootReadme).not.toContain("session機能未反映");
   });
 });
