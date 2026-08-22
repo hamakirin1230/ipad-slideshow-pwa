@@ -40,6 +40,7 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
 - `/admin/` から選択中projectの写真だけをGoogle Photosの新規albumへ書き出せる。画像captionはexport画像にburn-inする。font sizeはimageHeight基準。動画slideは作品に残し、このiPadへの保存とPlayer再生はできるが、Google Photosへは書き出さない。Production上の実Google Photosで新規album exportと画像caption burn-inを確認済み。images-only + caption normalizationのPreview確認済み。images-only + caption normalizationのProduction確認済み。動画だけの作品の実機acceptanceは未実施
 - `/admin/` で選択中projectのunused Drive asset cleanup preview / readiness / preflight / confirm previewを表示
+- `/admin/` から選択中作品をGoogle Drive上で削除できる。Drive完全成功後だけこのiPadの同一作品コピーを連動削除する。Preview実機acceptance済み。Production未確認。Google Photos exportは削除対象外
 - cleanup preview / preflight / confirm previewはread-onlyで、Drive file、Player snapshot、IndexedDBを変更しない
 - fresh preflight、明示confirm、順次DELETE、partial failure停止を経た未参照app-managed JPEG / PNG / WebPの物理削除と、実Google Driveでの動作確認
 - `/admin/` からローカル動画をDrive assetとして追加し、動画slideをmanifestへ保存
@@ -78,7 +79,7 @@ https://ipad-slideshow-pwa.vercel.app/
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、Google Photos新規album書き出し、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete。最上部headerと作品カードは写真 / 動画件数を表示し、confirmed copyがある作品だけ「再生」、未保存なら「このiPadに保存」へ誘導する
+- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、選択中作品のGoogle Drive削除（Preview実機acceptance済み。Production未確認）、Google Photos新規album書き出し、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete。最上部headerと作品カードは写真 / 動画件数を表示し、confirmed copyがある作品だけ「再生」、未保存なら「このiPadに保存」へ誘導する
 - `/admin/history` project別公開履歴一覧、current公開状態と未公開編集表示、revision詳細、rollback影響確認、fresh preflightを経たverified rollback実行
 - `/player` 画像／Blob保存済み動画のoffline-first再生、remoteOnly動画のonline Drive streaming、remote video手動retry、project selector、自動送り設定、本番モード、操作ロック、テロップ表示。URLの`projectId`を再生対象のauthorityとする
 
@@ -111,6 +112,7 @@ https://ipad-slideshow-pwa.vercel.app/
 - IndexedDBはiPad端末内のoffline playback用コピーとして扱う
 - Cache StorageはService Workerのapp shell cacheとして扱う
 - iPad側のローカル削除ではGoogle Drive上のデータを削除しない
+- `/admin`の「作品を削除」はGoogle Drive上の選択中作品を削除し、Drive完全成功後だけこのiPadの同一作品コピーを連動削除する。Preview実機acceptance済み。Production未確認。Google Photos exportは削除対象外。evidenceは`docs/acceptance/project-delete-preview-acceptance.md`
 - Drive上の画像順・caption変更をiPad再生へ反映するには、対象projectのoffline syncを実行する
 - Drive上のslide削除・複製をiPad再生へ反映するにも、対象projectのoffline syncを実行する
 - Drive cleanup preview / readiness / preflight / confirm previewはread-onlyで、Player snapshotやIndexedDBを変更しない
@@ -181,6 +183,7 @@ GitHub ActionsはCI専用です。正式な本番deploymentはVercelで行い、
 
 ## 最新ハンドオフ
 
+- `docs/acceptance/project-delete-preview-acceptance.md`
 - `docs/acceptance/google-session-production-acceptance.md`
 - `docs/acceptance/google-session-preview-acceptance.md`
 - `docs/handoffs/2026-08-20-google-photos-export-handoff.md`

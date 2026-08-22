@@ -24,6 +24,9 @@ const googleSessionProductionAcceptance = readRepoFile(
 const googleSessionPreviewAcceptance = readRepoFile(
   "docs/acceptance/google-session-preview-acceptance.md",
 );
+const projectDeletePreviewAcceptance = readRepoFile(
+  "docs/acceptance/project-delete-preview-acceptance.md",
+);
 const authoritativeDocs = [
   rootReadme,
   docsIndex,
@@ -65,6 +68,9 @@ describe("current documentation contract", () => {
     );
     expect(acceptanceEvidence).toContain(
       "acceptance/google-session-production-acceptance.md",
+    );
+    expect(acceptanceEvidence).toContain(
+      "acceptance/project-delete-preview-acceptance.md",
     );
   });
 
@@ -344,5 +350,43 @@ describe("current documentation contract", () => {
     );
     expect(currentContext).not.toContain("session機能未反映");
     expect(rootReadme).not.toContain("session機能未反映");
+  });
+
+  it("records project delete Preview acceptance without calling it Production", () => {
+    expect(projectDeletePreviewAcceptance).toContain("Date: 2026-08-22");
+    expect(projectDeletePreviewAcceptance).toContain("Preview PASS");
+    expect(projectDeletePreviewAcceptance).toContain(
+      "This document is Preview evidence only",
+    );
+    expect(projectDeletePreviewAcceptance).toContain("Production acceptedではない");
+    expect(projectDeletePreviewAcceptance).toContain("作品を削除");
+    expect(projectDeletePreviewAcceptance).toContain(
+      "Drive完全成功後だけ、このiPadの同一作品コピーを連動削除する",
+    );
+    expect(projectDeletePreviewAcceptance).toContain(
+      "Google Photos exportは削除対象外",
+    );
+    expect(projectDeletePreviewAcceptance).toContain(
+      "削除前に、対象作品の「このiPad」保存コピーが実在すること",
+    );
+    expect(projectDeletePreviewAcceptance).toContain(
+      "real-device failure injectionを実施していない",
+    );
+    expect(projectDeletePreviewAcceptance).toContain(
+      "Google Drive UIでTrashフォルダを目視確認した記録はない",
+    );
+    expect(projectDeletePreviewAcceptance).toContain(
+      "実時間でGoogle session absolute expiryを跨いだ実機確認",
+    );
+    expect(projectDeletePreviewAcceptance).toContain(
+      "Google Photos video-only 0-photo実機acceptance",
+    );
+    expect(projectDeletePreviewAcceptance).not.toContain("vercel.app");
+    expect(projectDeletePreviewAcceptance).not.toMatch(/\bdpl_[A-Za-z0-9]+\b/);
+    expect(currentContext).toContain("Preview実装・実機acceptance PASS、Production未確認");
+    expect(currentContext).toContain("project-delete-preview-acceptance.md");
+    expect(docsIndex).toContain("acceptance/project-delete-preview-acceptance.md");
+    expect(rootReadme).toContain("Preview実機acceptance済み。Production未確認");
+    expect(rootReadme).toContain("project-delete-preview-acceptance.md");
   });
 });

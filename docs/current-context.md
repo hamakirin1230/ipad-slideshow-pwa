@@ -50,6 +50,7 @@ but are skipped for Google Photos export.
 - 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
 - PlayerはURLの`projectId`を再生対象のauthorityとし、localStorageの前回作品で上書きしない
 - images-only Preview acceptance passed。images-only + caption normalization Production acceptance passed。動画だけの作品の実機acceptanceは未実施
+- 「作品を削除」は2026-08-22時点でPreview実装・実機acceptance PASS、Production未確認。Preview evidenceは[`acceptance/project-delete-preview-acceptance.md`](acceptance/project-delete-preview-acceptance.md)。Drive完全成功後だけこのiPadの同一作品コピーを連動削除する。Google Photos exportは削除対象外。failure injectionはtest coverageであり実機未実施
 
 ## 最重要方針
 
@@ -161,6 +162,7 @@ Production上の実Google Photos新規album書き出しと画像caption burn-in�
 /admin headerの写真 / 動画件数と、confirmed copyがある選択作品だけ再生
 Preview上のGoogle Drive session restore / auto workspace validation acceptance（2026-08-22 Preview functional PASS。Preview evidence）
 Production上のGoogle Drive session restore / auto workspace validation acceptance（2026-08-22 Production functional PASS。実時間absolute expiry未確認）
+Preview上の選択中作品「作品を削除」destructive acceptance（2026-08-22 Preview PASS。Drive完全成功後のこのiPadコピー連動削除を確認。Production未確認）
 unused Drive asset physical deleteの実Google Drive動作確認（未参照app-managed JPEG / PNG / WebPのみ。MP4/MOVは対象外）
 明示的publish / immutable revision / rollback impact preview / fresh preflight / verified rollback
 manifest.publication.currentRevisionId authorityと、新しいrollback revision作成
@@ -266,10 +268,11 @@ ipad-slideshow-pwa-app-shell-v1
 - unused asset cleanupはpreview + delete-readiness + preflight + confirm + physical delete executionまで実装済み
 - preflightはfresh manifest再読込、参照数再計算、Drive metadata再取得を行う
 - confirm UIは対象件数、合計サイズ、完全削除、取り消し不可、manifest / index / confirmed store非変更を明示する
-- pending delete planはAppProviders内部refだけに保持し、access tokenを含めず永続化しない
+- pending unused-asset delete planはAppProviders内部refだけに保持し、access tokenを含めず永続化しない
 - cleanup previewの診断にもaccess token、Authorization header、Drive download URL、raw API URLを含めない
 - Player反映は従来どおりoffline sync経由で、cleanup preview自体はPlayer snapshotやIndexedDBを変更しない
-- project単位ローカル削除ではDrive上のデータを削除しない
+- project単位ローカル削除ではDrive上のデータを削除しない。これはstandaloneの「このiPadのコピーを削除」である
+- 「作品を削除」は選択中作品のGoogle Driveデータを削除し、Drive完全成功後だけこのiPadの同一作品コピーを連動削除する。Preview実機acceptance PASS、Production未確認
 - app shell cache削除ではIndexedDBのproject / asset / Blobを削除しない
 
 ## MP4/MOVと動画容量の現在地
@@ -454,6 +457,7 @@ Photos Picker複数選択、caption保存、offline sync後のテロップ再生
    承認済みplanに従い、専用disposable workspaceと一時的なPreview-only harnessを使う。
    production sourceへfault hookを残さず、caseごとの停止条件とrecoveryを守る
 3. MOVのexactly 5GB / 5GB + 1 byte境界と、意図的な再生失敗後のmanual retry実機経路
+4. 「作品を削除」Production実機acceptance。Preview PASS済み。failure injectionとDrive UIでのTrash目視は未実施
 ```
 
 publication write異常系の詳細計画は`docs/acceptance/publication-write-abnormal-acceptance-plan.md`を参照。Gate 0承認後にtemporary harnessを専用branchで実装したが、その後完全撤去済みでmainへmergeしていない。repository docsに実Google DriveでA/B/Cを完了した結果記録はない。
@@ -463,6 +467,7 @@ publication write異常系の詳細計画は`docs/acceptance/publication-write-a
 読む順:
 
 ```text
+docs/acceptance/project-delete-preview-acceptance.md
 docs/acceptance/google-session-production-acceptance.md
 docs/acceptance/google-session-preview-acceptance.md
 docs/design/google-connection-60-minute-session.md
