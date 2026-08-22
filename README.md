@@ -185,7 +185,7 @@ GitHub ActionsはCI専用です。正式な本番deploymentはVercelで行い、
 
 - `docs/acceptance/project-delete-production-acceptance.md`
 - `docs/acceptance/project-delete-preview-acceptance.md`
-- `docs/acceptance/google-session-production-acceptance.md
+- `docs/acceptance/google-session-production-acceptance.md`
 - `docs/acceptance/google-session-preview-acceptance.md`
 - `docs/handoffs/2026-08-20-google-photos-export-handoff.md`
 - `docs/acceptance/google-photos-export-acceptance.md`
