@@ -1,10 +1,25 @@
+import { readFileSync } from "node:fs";
+import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectSummary } from "@/app/app-providers";
 import {
+  getProjectDeleteViewState,
+} from "./project-delete-view";
+import {
   getProjectDriveNotReadyNotice,
   ProjectList,
+  SelectedProjectDeleteCard,
 } from "./project-status-panel";
+
+const source = readFileSync(
+  new URL("./project-status-panel.tsx", import.meta.url),
+  "utf8",
+);
+const listSource = source.slice(
+  source.indexOf("export function ProjectList("),
+  source.indexOf("function CreateProjectTitleForm("),
+);
 
 function project(index: number): ProjectSummary {
   return {
@@ -44,6 +59,11 @@ describe("project list presentation", () => {
     expect(html).not.toContain("写真 0");
     expect(html).not.toContain(".646");
     expect(html).not.toContain("この作品を選択");
+    expect(html).not.toContain("作品を削除");
+    expect(html).not.toContain("trash");
+    expect(listSource).not.toContain("Trash");
+    expect(listSource).not.toContain("prepareProjectDeletion");
+    expect(listSource).not.toContain("ProductAlertDialog");
   });
 
   it("shows other counts only when unknown media exists", () => {
@@ -138,3 +158,178 @@ describe("project drive not-ready notice", () => {
     ).toBeNull();
   });
 });
+
+describe("selected project delete controls", () => {
+  it("shows a destructive selected-project delete button", () => {
+    const html = renderDeleteCard({
+      hasSelectedProject: true,
+      selectedProjectTitle: "夏の記録",
+      canStartDeletion: true,
+    });
+
+    expect(html).toContain("作品を削除");
+    expect(html).toContain("夏の記録");
+    expect(html).toContain("data-variant=\"destructive\"");
+    expect(html).toContain("min-h-11");
+    expect(html).not.toContain('disabled=""');
+  });
+
+  it("disables destructive deletion without a selected project", () => {
+    const html = renderDeleteCard({
+      hasSelectedProject: false,
+      selectedProjectTitle: null,
+      canStartDeletion: false,
+      blockedReason: null,
+    });
+
+    expect(html).toContain("作品を削除");
+    expect(html).toContain('disabled=""');
+    expect(html).toContain("先に作品を選択してください。");
+    expect(html).not.toContain("作品を削除しますか？");
+  });
+
+  it("shows the confirmation dialog only while confirming with a review", () => {
+    const html = renderDeleteCard({
+      hasSelectedProject: true,
+      selectedProjectTitle: "夏の記録",
+      canStartDeletion: false,
+      status: "confirming",
+      review: { projectTitle: "夏の記録", remainingProjectCount: 3 },
+    });
+
+    expect(html).toContain("作品を削除しますか？");
+    expect(html).toContain("『夏の記録』を削除します。");
+    expect(html).toContain("Google Drive上の作品データ（スライド、素材、公開履歴）を削除します。");
+    expect(html).toContain("このiPadに保存したコピーがある場合も、Google Driveの削除が完了した後に削除します。");
+    expect(html).toContain("Googleフォトへ書き出した写真は削除されません。");
+    expect(html).toContain("この操作はアプリから元に戻せません。");
+    expect(html).toContain("role=\"alertdialog\"");
+    expect(html).not.toContain("indexRemoved");
+    expect(html).not.toContain("projectRootTrashed");
+    expect(html).not.toContain("access-token");
+    expect(html).not.toContain("https://www.googleapis.com");
+  });
+
+  it("renders completed local-copy outcomes without calling Drive internals", () => {
+    const cleared = renderDeleteCard({
+      status: "completed",
+      localCopyStatus: "cleared",
+      canStartDeletion: false,
+      hasSelectedProject: false,
+    });
+    const absent = renderDeleteCard({
+      status: "completed",
+      localCopyStatus: "absent",
+      canStartDeletion: false,
+      hasSelectedProject: false,
+    });
+    const failed = renderDeleteCard({
+      status: "completed",
+      localCopyStatus: "failed",
+      canStartDeletion: false,
+      hasSelectedProject: false,
+    });
+
+    expect(cleared).toContain("作品を削除しました。このiPadのコピーも削除しました。");
+    expect(cleared).toContain("role=\"status\"");
+    expect(absent).toContain("作品を削除しました。このiPadには保存コピーがありませんでした。");
+    expect(failed).toContain("このiPadのコピーを削除できませんでした");
+    expect(failed).not.toContain("作品の削除に失敗しました");
+    expect(failed).toContain("role=\"alert\"");
+    expect(cleared).not.toContain("indexRemoved");
+    expect(cleared).not.toContain("projectRootTrashed");
+  });
+
+  it("explains partialFailure leftover Drive data without a retry button", () => {
+    const html = renderDeleteCard({
+      status: "partialFailure",
+      localCopyStatus: "notAttempted",
+      message:
+        "作品一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
+      diagnostics: ["Googleへ再接続してください。"],
+      canStartDeletion: false,
+      hasSelectedProject: false,
+    });
+
+    expect(html).toContain("Google Drive上にデータが残っている可能性");
+    expect(html).toContain("このiPadのコピーは削除していません");
+    expect(html).not.toContain("もう一度削除");
+    expect(html).not.toContain("自動再試行");
+  });
+});
+
+describe("project status panel delete wiring", () => {
+  it("wires prepare/cancel/confirm to AppProviders without auto-select", () => {
+    const deleteUsage = source.slice(
+      source.indexOf("<SelectedProjectDeleteCard"),
+      source.indexOf("export function ProjectList"),
+    );
+    expect(deleteUsage).toContain("void prepareProjectDeletion();");
+    expect(deleteUsage).toContain("onCancel={cancelProjectDeletion}");
+    expect(deleteUsage).toContain("void confirmProjectDeletion();");
+    expect(deleteUsage).not.toContain("checkProject(");
+    expect(deleteUsage).not.toContain("selectProject(");
+    expect(source).toContain("shouldAutoCheckProject");
+    expect(source).toContain("ProductAlertDialog");
+    expect(source).toContain("作品の管理");
+    expect(source).toContain("新しい作品を作成");
+    expect(source).toContain("選択中の作品名を変更");
+  });
+
+  it("does not add per-card trash actions or change standalone/photos panels", () => {
+    expect(listSource).not.toContain("作品を削除");
+    expect(source).not.toContain("clearLocalOfflineProjectData(");
+    const confirmedStore = readFileSync(
+      new URL("./offline-confirmed-store-panel.tsx", import.meta.url),
+      "utf8",
+    );
+    const photosExport = readFileSync(
+      new URL("./google-photos-export-panel.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(confirmedStore).toContain("このiPadの保存データを削除しますか？");
+    expect(confirmedStore).not.toContain("prepareProjectDeletion");
+    expect(photosExport).not.toContain("prepareProjectDeletion");
+    expect(photosExport).not.toContain("confirmProjectDeletion");
+  });
+});
+
+function renderDeleteCard(
+  override: Partial<Parameters<typeof SelectedProjectDeleteCard>[0]> & {
+    localCopyStatus?: "notAttempted" | "cleared" | "absent" | "failed";
+    message?: string | null;
+    diagnostics?: string[];
+  } = {},
+) {
+  const status = override.status ?? "idle";
+  const localCopyStatus = override.localCopyStatus ?? "notAttempted";
+  const message = override.message ?? null;
+  const diagnostics = override.diagnostics ?? [];
+  const cardOverride = { ...override };
+  delete cardOverride.localCopyStatus;
+  delete cardOverride.message;
+  delete cardOverride.diagnostics;
+
+  return renderToStaticMarkup(
+    <SelectedProjectDeleteCard
+      hasSelectedProject={true}
+      selectedProjectTitle="夏の記録"
+      canStartDeletion={true}
+      blockedReason={null}
+      status={status}
+      review={null}
+      view={getProjectDeleteViewState({
+        status,
+        localCopyStatus,
+        message,
+        diagnostics,
+      })}
+      isProjectDeleteInFlight={false}
+      triggerRef={createRef<HTMLButtonElement>()}
+      onPrepare={vi.fn()}
+      onCancel={vi.fn()}
+      onConfirm={vi.fn()}
+      {...cardOverride}
+    />,
+  );
+}

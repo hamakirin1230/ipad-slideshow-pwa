@@ -123,13 +123,14 @@ describe("AppProviders project delete workflow wiring", () => {
     }
   });
 
-  it("does not change standalone local copy deletion or admin UI files", () => {
+  it("does not change standalone local copy deletion", () => {
     expect(source).toContain("clearLocalOfflineProjectData");
-    const adminPanel = readFileSync(
-      new URL("./admin/project-status-panel.tsx", import.meta.url),
+    const confirmedStore = readFileSync(
+      new URL("./admin/offline-confirmed-store-panel.tsx", import.meta.url),
       "utf8",
     );
-    expect(adminPanel).not.toContain("prepareProjectDeletion");
-    expect(adminPanel).not.toContain("confirmProjectDeletion");
+    expect(confirmedStore).not.toContain("prepareProjectDeletion");
+    expect(confirmedStore).not.toContain("confirmProjectDeletion");
+    expect(confirmedStore).toContain("このiPadの保存データを削除しますか？");
   });
 });

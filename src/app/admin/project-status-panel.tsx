@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { Check } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
+import { ProductAlertDialog } from "@/components/product-alert-dialog";
 import { ProductDisclosure } from "@/components/product-disclosure";
-import { useAppState, type DriveWorkspaceStatus, type ProjectSummary } from "@/app/app-providers";
+import { useAppState, type DriveWorkspaceStatus, type ProjectDeleteStatus, type ProjectSummary } from "@/app/app-providers";
+import type { DriveProjectDeleteReview } from "@/lib/drive-project-delete";
 import type { GoogleConnectionStatus } from "@/lib/google-auth";
 import { DRIVE_PROJECT_TITLE_MAX_LENGTH } from "@/lib/google-drive";
 import { formatUiDateTime } from "@/lib/ui-format";
@@ -14,6 +16,16 @@ import {
   projectMediaCountsFromSummary,
 } from "@/lib/project-media-counts";
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
+import {
+  buildProjectDeleteConfirmationDescription,
+  canStartProjectDeletion,
+  getProjectDeleteButtonLabel,
+  getProjectDeleteViewClassName,
+  getProjectDeleteViewState,
+  PROJECT_DELETE_DIALOG_CONFIRM_LABEL,
+  PROJECT_DELETE_DIALOG_TITLE,
+  shouldAutoCheckProject,
+} from "./project-delete-view";
 
 export function ProjectStatusPanel() {
   const {
@@ -30,7 +42,18 @@ export function ProjectStatusPanel() {
     selectProject,
     createProject,
     updateSelectedProjectTitle,
+    projectDeleteStatus,
+    projectDeleteMessage,
+    projectDeleteDiagnostics,
+    projectDeleteReview,
+    projectDeleteLocalCopyStatus,
+    isProjectDeleteInFlight,
+    projectDeleteBlockedReason,
+    prepareProjectDeletion,
+    cancelProjectDeletion,
+    confirmProjectDeletion,
   } = useAppState();
+  const projectDeleteTriggerRef = useRef<HTMLButtonElement>(null);
 
   const suggestedProjectTitle = getSuggestedProjectTitle(driveProjects.length);
   const driveNotReadyNotice = getProjectDriveNotReadyNotice({
@@ -48,11 +71,26 @@ export function ProjectStatusPanel() {
     projectSummary !== null &&
     !isDriveOperationInFlight;
 
+  const canStartSelectedProjectDeletion = canStartProjectDeletion({
+    hasSelectedProject: projectSummary !== null && selectedProjectId !== null,
+    blockedReason: projectDeleteBlockedReason,
+    status: projectDeleteStatus,
+    isProjectDeleteInFlight,
+  });
+  const projectDeleteView = getProjectDeleteViewState({
+    status: projectDeleteStatus,
+    localCopyStatus: projectDeleteLocalCopyStatus,
+    message: projectDeleteMessage,
+    diagnostics: projectDeleteDiagnostics,
+  });
+
   useEffect(() => {
     if (
-      driveStatus === "ready" &&
-      projectStatus === "idle" &&
-      !isDriveOperationInFlight
+      shouldAutoCheckProject({
+        driveStatus,
+        projectStatus,
+        isDriveOperationInFlight,
+      })
     ) {
       checkProject();
     }
@@ -138,7 +176,7 @@ export function ProjectStatusPanel() {
           id="project-editing-heading"
           className="text-lg font-semibold text-slate-100"
         >
-          作品を作成・名前を変更
+          作品の管理
         </h3>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <CreateProjectTitleForm
@@ -159,6 +197,30 @@ export function ProjectStatusPanel() {
             updateSelectedProjectTitle={updateSelectedProjectTitle}
           />
         </div>
+
+        <SelectedProjectDeleteCard
+          hasSelectedProject={
+            projectSummary !== null && selectedProjectId !== null
+          }
+          selectedProjectTitle={projectSummary?.title ?? null}
+          canStartDeletion={canStartSelectedProjectDeletion}
+          blockedReason={projectDeleteBlockedReason}
+          status={projectDeleteStatus}
+          review={projectDeleteReview}
+          view={projectDeleteView}
+          isProjectDeleteInFlight={isProjectDeleteInFlight}
+          triggerRef={projectDeleteTriggerRef}
+          onPrepare={() => {
+            void prepareProjectDeletion();
+          }}
+          onCancel={cancelProjectDeletion}
+          onConfirm={() => {
+            if (isProjectDeleteInFlight) {
+              return;
+            }
+            void confirmProjectDeletion();
+          }}
+        />
       </section>
     </div>
   );
@@ -354,6 +416,99 @@ function SelectedProjectTitleForm(input: {
         名前を変更
       </Button>
     </form>
+  );
+}
+
+export function SelectedProjectDeleteCard({
+  hasSelectedProject,
+  selectedProjectTitle,
+  canStartDeletion,
+  blockedReason,
+  status,
+  review,
+  view,
+  isProjectDeleteInFlight,
+  triggerRef,
+  onPrepare,
+  onCancel,
+  onConfirm,
+}: {
+  hasSelectedProject: boolean;
+  selectedProjectTitle: string | null;
+  canStartDeletion: boolean;
+  blockedReason: string | null;
+  status: ProjectDeleteStatus;
+  review: DriveProjectDeleteReview | null;
+  view: ReturnType<typeof getProjectDeleteViewState>;
+  isProjectDeleteInFlight: boolean;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+  onPrepare: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const showConfirmation = status === "confirming" && review !== null;
+  const disabledReason = hasSelectedProject
+    ? blockedReason
+    : "先に作品を選択してください。";
+
+  return (
+    <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-400/5 p-4">
+      <p className="font-semibold text-slate-50">選択中の作品を削除</p>
+      <p className="mt-2 text-sm leading-6 text-slate-400">
+        {hasSelectedProject && selectedProjectTitle
+          ? `『${selectedProjectTitle}』のGoogle Drive上の作品データと、このiPadの保存コピーを削除します。Googleフォトへ書き出した写真は削除しません。`
+          : "選択中の作品のGoogle Drive上のデータと、このiPadの保存コピーを削除します。Googleフォトへ書き出した写真は削除しません。"}
+      </p>
+
+      {view ? (
+        <div
+          className={`mt-4 ${getProjectDeleteViewClassName(view.tone)}`}
+          role={view.liveRole}
+          aria-live={view.liveRole === "status" ? "polite" : undefined}
+        >
+          <p className="font-semibold">{view.title}</p>
+          {view.body.length > 0 ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {view.body.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Button
+        ref={triggerRef}
+        type="button"
+        variant="destructive"
+        className="mt-4 min-h-11 w-full"
+        disabled={!canStartDeletion}
+        onClick={onPrepare}
+      >
+        {getProjectDeleteButtonLabel(status)}
+      </Button>
+      {disabledReason ? (
+        <p className="mt-2 text-xs leading-5 text-slate-400">{disabledReason}</p>
+      ) : null}
+
+      {showConfirmation && review ? (
+        <ProductAlertDialog
+          title={PROJECT_DELETE_DIALOG_TITLE}
+          description={buildProjectDeleteConfirmationDescription(
+            review.projectTitle,
+          )}
+          confirmLabel={PROJECT_DELETE_DIALOG_CONFIRM_LABEL}
+          triggerRef={triggerRef}
+          onCancel={onCancel}
+          onConfirm={() => {
+            if (isProjectDeleteInFlight) {
+              return;
+            }
+            onConfirm();
+          }}
+        />
+      ) : null}
+    </div>
   );
 }
 
