@@ -508,6 +508,65 @@ export type DriveProjectUnusedAssetDeletePreflightResult = {
   diagnostics: string[];
 };
 
+export type DriveProjectDeleteBlockedReason =
+  | "invalidInput"
+  | "invalidIndex"
+  | "projectNotFoundInIndex"
+  | "duplicateProjectInIndex"
+  | "duplicateProjectRoot"
+  | "indexMismatch"
+  | "projectRootNotFound"
+  | "projectRootMetadataMismatch"
+  | "projectRootWrongParent"
+  | "projectRootTrashed"
+  | "manifestNotFound"
+  | "manifestMetadataMismatch"
+  | "manifestWrongParent"
+  | "manifestTrashed"
+  | "manifestContentMismatch"
+  | "assetsFolderNotFound"
+  | "assetsFolderMetadataMismatch"
+  | "assetsFolderWrongParent"
+  | "assetsFolderTrashed"
+  | "planStale"
+  | "ownerMismatch";
+
+export type DriveProjectDeletePreflightReady = {
+  status: "ready";
+  workspaceId: string;
+  indexJsonFileId: string;
+  projectsRootFolderId: string;
+  project: DriveProjectSummary;
+  remainingProjects: DriveProjectSummary[];
+  indexJsonText: string;
+  indexCreatedAt: string;
+  indexUpdatedAt: string;
+  indexFingerprint: string;
+  projectRootFingerprint: string;
+  manifestFingerprint: string;
+  assetsFolderFingerprint: string;
+  diagnostics: string[];
+};
+
+export type DriveProjectDeletePreflightBlocked = {
+  status: "blocked";
+  reason: DriveProjectDeleteBlockedReason;
+  diagnostics: string[];
+};
+
+export type DriveProjectDeletePreflightResult =
+  | DriveProjectDeletePreflightReady
+  | DriveProjectDeletePreflightBlocked;
+
+export type DriveProjectDeleteTrashResult =
+  | {
+      status: "patched";
+      trashed: boolean | null;
+    }
+  | {
+      status: "unconfirmed";
+    };
+
 export type ProjectManifest = {
   app: typeof DRIVE_WORKSPACE_APP_ID;
   role: "projectManifest";
@@ -780,6 +839,20 @@ export class DriveApiError extends Error {
     super("Drive API request failed.");
     this.name = "DriveApiError";
     this.status = status;
+  }
+}
+
+export function isDriveAuthError(error: unknown): error is DriveApiError {
+  return error instanceof DriveApiError && [401, 403].includes(error.status);
+}
+
+export class DriveProjectDeleteRequestError extends Error {
+  readonly reason: "trashRejected" | "unconfirmed" | "indexWriteRejected";
+
+  constructor(reason: "trashRejected" | "unconfirmed" | "indexWriteRejected") {
+    super("Drive project delete request failed.");
+    this.name = "DriveProjectDeleteRequestError";
+    this.reason = reason;
   }
 }
 
@@ -4369,6 +4442,636 @@ export async function validateDriveProjectDetails(input: {
       "index.json の対象project登録とDrive上のproject詳細の整合確認が完了しました。",
     ],
   };
+}
+
+export function driveProjectSummariesEqual(
+  left: DriveProjectSummary,
+  right: DriveProjectSummary,
+) {
+  return (
+    left.projectId === right.projectId &&
+    left.title === right.title &&
+    left.projectFolderId === right.projectFolderId &&
+    left.manifestFileId === right.manifestFileId &&
+    left.assetsFolderId === right.assetsFolderId &&
+    left.manifestPath === right.manifestPath &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt
+  );
+}
+
+export function driveProjectSummaryListsEqual(
+  left: DriveProjectSummary[],
+  right: DriveProjectSummary[],
+) {
+  return (
+    left.length === right.length &&
+    left.every((project, index) =>
+      driveProjectSummariesEqual(project, right[index]!),
+    )
+  );
+}
+
+export function buildDriveProjectIndexFingerprint(input: {
+  createdAt: string;
+  updatedAt: string;
+  projects: DriveProjectSummary[];
+}) {
+  return JSON.stringify({
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+    projects: input.projects.map((project) => [
+      project.projectId,
+      project.title,
+      project.projectFolderId,
+      project.manifestFileId,
+      project.assetsFolderId,
+      project.manifestPath,
+      project.createdAt,
+      project.updatedAt,
+    ]),
+  });
+}
+
+export function buildDriveFileMetadataFingerprint(file: DriveFileCandidate) {
+  return JSON.stringify([
+    file.id,
+    file.name,
+    file.mimeType,
+    file.trashed === true,
+    file.parents ?? [],
+    file.appProperties.app ?? "",
+    file.appProperties.role ?? "",
+    file.appProperties.workspaceId ?? "",
+    file.appProperties.projectId ?? "",
+    file.appProperties.schemaVersion ?? "",
+    file.sizeBytes ?? null,
+    file.modifiedTime ?? null,
+  ]);
+}
+
+export async function preflightDriveProjectDeletion(input: {
+  accessToken: string;
+  workspaceId: string;
+  indexJsonFileId: string;
+  projectsRootFolderId: string;
+  project: DriveProjectSummary;
+  signal: AbortSignal;
+}): Promise<DriveProjectDeletePreflightResult> {
+  const inputDiagnostics = validateDriveProjectDeletePreflightInput(input);
+  if (inputDiagnostics.length > 0) {
+    return blockedDriveProjectDelete("invalidInput", inputDiagnostics);
+  }
+
+  const indexJsonText = await readDriveTextFile(
+    input.accessToken,
+    input.indexJsonFileId,
+    input.signal,
+  );
+  const parsedIndex = parseProjectCreatableIndexJson({
+    indexJsonText,
+    expectedWorkspaceId: input.workspaceId,
+  });
+
+  if (parsedIndex.status !== "creatable") {
+    return blockedDriveProjectDelete("invalidIndex", parsedIndex.diagnostics);
+  }
+
+  const matchingProjects = parsedIndex.index.projects.filter(
+    (project) => project.projectId === input.project.projectId,
+  );
+
+  if (matchingProjects.length === 0) {
+    return blockedDriveProjectDelete("projectNotFoundInIndex", [
+      "fresh index.json に対象作品がありません。",
+    ]);
+  }
+
+  if (matchingProjects.length > 1) {
+    return blockedDriveProjectDelete("duplicateProjectInIndex", [
+      "fresh index.json に同一作品が複数登録されています。",
+    ]);
+  }
+
+  const freshProject = matchingProjects[0]!;
+  if (!driveProjectSummariesEqual(freshProject, input.project)) {
+    return blockedDriveProjectDelete("indexMismatch", [
+      "選択中の作品情報とfresh index.jsonの登録が一致していません。",
+    ]);
+  }
+
+  const indexUpdatedAt = readIndexUpdatedAt(indexJsonText);
+  if (!indexUpdatedAt) {
+    return blockedDriveProjectDelete("invalidIndex", [
+      "index.json の updatedAt を確認できませんでした。",
+    ]);
+  }
+
+  const projectRootResult = await fetchDriveFileMetadataForProjectDelete({
+    accessToken: input.accessToken,
+    fileId: freshProject.projectFolderId,
+    signal: input.signal,
+  });
+  if (projectRootResult.status === "notFound") {
+    return blockedDriveProjectDelete("projectRootNotFound", [
+      "作品フォルダのmetadataを取得できませんでした。",
+    ]);
+  }
+
+  const projectRootBlock = classifyProjectDeleteFileMetadata({
+    file: projectRootResult.file,
+    label: "project folder",
+    expectedId: freshProject.projectFolderId,
+    expectedName: freshProject.projectId,
+    expectedMimeType: DRIVE_FOLDER_MIME_TYPE,
+    expectedRole: "projectRoot",
+    expectedWorkspaceId: input.workspaceId,
+    expectedProjectId: freshProject.projectId,
+    expectedParentId: input.projectsRootFolderId,
+    trashedReason: "projectRootTrashed",
+    wrongParentReason: "projectRootWrongParent",
+    metadataReason: "projectRootMetadataMismatch",
+  });
+  if (projectRootBlock) return projectRootBlock;
+
+  const activeRoots = await listActiveDriveProjectRootsForProject({
+    accessToken: input.accessToken,
+    projectsRootFolderId: input.projectsRootFolderId,
+    projectId: freshProject.projectId,
+    signal: input.signal,
+  });
+  if (
+    activeRoots.length !== 1 ||
+    activeRoots[0]?.id !== freshProject.projectFolderId
+  ) {
+    return blockedDriveProjectDelete("duplicateProjectRoot", [
+      "同じ保存場所に同一作品の有効なフォルダが複数あります。",
+    ]);
+  }
+
+  const manifestMetadataResult = await fetchDriveFileMetadataForProjectDelete({
+    accessToken: input.accessToken,
+    fileId: freshProject.manifestFileId,
+    signal: input.signal,
+  });
+  if (manifestMetadataResult.status === "notFound") {
+    return blockedDriveProjectDelete("manifestNotFound", [
+      "manifest.json のmetadataを取得できませんでした。",
+    ]);
+  }
+
+  const manifestBlock = classifyProjectDeleteFileMetadata({
+    file: manifestMetadataResult.file,
+    label: "manifest.json",
+    expectedId: freshProject.manifestFileId,
+    expectedName: PROJECT_MANIFEST_NAME,
+    expectedMimeType: JSON_MIME_TYPE,
+    expectedRole: "projectManifest",
+    expectedWorkspaceId: input.workspaceId,
+    expectedProjectId: freshProject.projectId,
+    expectedParentId: freshProject.projectFolderId,
+    trashedReason: "manifestTrashed",
+    wrongParentReason: "manifestWrongParent",
+    metadataReason: "manifestMetadataMismatch",
+  });
+  if (manifestBlock) return manifestBlock;
+
+  const manifestJsonText = await readDriveTextFile(
+    input.accessToken,
+    freshProject.manifestFileId,
+    input.signal,
+  );
+  const manifestParseResult = parseDriveProjectManifestJson({
+    manifestJsonText,
+    expectedWorkspaceId: input.workspaceId,
+    project: freshProject,
+  });
+  if (manifestParseResult.status === "invalid") {
+    return blockedDriveProjectDelete("manifestContentMismatch", [
+      "manifest.json の本文が対象作品と一致していません。",
+    ]);
+  }
+
+  const assetsResult = await fetchDriveFileMetadataForProjectDelete({
+    accessToken: input.accessToken,
+    fileId: freshProject.assetsFolderId,
+    signal: input.signal,
+  });
+  if (assetsResult.status === "notFound") {
+    return blockedDriveProjectDelete("assetsFolderNotFound", [
+      "assets folder のmetadataを取得できませんでした。",
+    ]);
+  }
+
+  const assetsBlock = classifyProjectDeleteFileMetadata({
+    file: assetsResult.file,
+    label: "assets/ folder",
+    expectedId: freshProject.assetsFolderId,
+    expectedName: PROJECT_ASSETS_ROOT_NAME,
+    expectedMimeType: DRIVE_FOLDER_MIME_TYPE,
+    expectedRole: "assetsRoot",
+    expectedWorkspaceId: input.workspaceId,
+    expectedProjectId: freshProject.projectId,
+    expectedParentId: freshProject.projectFolderId,
+    trashedReason: "assetsFolderTrashed",
+    wrongParentReason: "assetsFolderWrongParent",
+    metadataReason: "assetsFolderMetadataMismatch",
+  });
+  if (assetsBlock) return assetsBlock;
+
+  const remainingProjects = parsedIndex.index.projects.filter(
+    (project) => project.projectId !== freshProject.projectId,
+  );
+
+  return {
+    status: "ready",
+    workspaceId: input.workspaceId,
+    indexJsonFileId: input.indexJsonFileId,
+    projectsRootFolderId: input.projectsRootFolderId,
+    project: freshProject,
+    remainingProjects,
+    indexJsonText,
+    indexCreatedAt: parsedIndex.index.createdAt,
+    indexUpdatedAt,
+    indexFingerprint: buildDriveProjectIndexFingerprint({
+      createdAt: parsedIndex.index.createdAt,
+      updatedAt: indexUpdatedAt,
+      projects: parsedIndex.index.projects,
+    }),
+    projectRootFingerprint: buildDriveFileMetadataFingerprint(
+      projectRootResult.file,
+    ),
+    manifestFingerprint: buildDriveFileMetadataFingerprint(
+      manifestMetadataResult.file,
+    ),
+    assetsFolderFingerprint: buildDriveFileMetadataFingerprint(
+      assetsResult.file,
+    ),
+    diagnostics: [
+      "fresh index.json と作品フォルダ / manifest.json / assets folder の確認が完了しました。",
+    ],
+  };
+}
+
+export function buildDriveProjectIndexJsonWithoutProject(input: {
+  indexJsonText: string;
+  expectedWorkspaceId: string;
+  removedProject: DriveProjectSummary;
+  expectedRemainingProjects: DriveProjectSummary[];
+  indexUpdatedAt: string;
+}):
+  | { status: "valid"; indexJsonText: string; diagnostics: string[] }
+  | { status: "invalid"; diagnostics: string[] } {
+  const parsedIndex = parseProjectCreatableIndexJson({
+    indexJsonText: input.indexJsonText,
+    expectedWorkspaceId: input.expectedWorkspaceId,
+  });
+
+  if (parsedIndex.status !== "creatable") {
+    return {
+      status: "invalid",
+      diagnostics: parsedIndex.diagnostics,
+    };
+  }
+
+  const matchingProjects = parsedIndex.index.projects.filter(
+    (project) => project.projectId === input.removedProject.projectId,
+  );
+  if (
+    matchingProjects.length !== 1 ||
+    !driveProjectSummariesEqual(matchingProjects[0]!, input.removedProject)
+  ) {
+    return {
+      status: "invalid",
+      diagnostics: ["index.json の対象作品登録が想定と一致していません。"],
+    };
+  }
+
+  const remainingProjects = parsedIndex.index.projects.filter(
+    (project) => project.projectId !== input.removedProject.projectId,
+  );
+  if (
+    !driveProjectSummaryListsEqual(
+      remainingProjects,
+      input.expectedRemainingProjects,
+    )
+  ) {
+    return {
+      status: "invalid",
+      diagnostics: ["index.json の他作品登録が想定と一致していません。"],
+    };
+  }
+
+  const text = stringifyJsonFile({
+    app: DRIVE_WORKSPACE_APP_ID,
+    role: "index",
+    schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
+    workspaceId: input.expectedWorkspaceId,
+    projects: remainingProjects,
+    createdAt: parsedIndex.index.createdAt,
+    updatedAt: input.indexUpdatedAt,
+  });
+  assertJsonTextSizeWithinLimit(text, "index.json");
+
+  return {
+    status: "valid",
+    indexJsonText: text,
+    diagnostics: ["index.json から対象作品だけを除外した本文を作成しました。"],
+  };
+}
+
+export function verifyDriveProjectIndexAfterRemoval(input: {
+  indexJsonText: string;
+  expectedWorkspaceId: string;
+  removedProjectId: string;
+  expectedRemainingProjects: DriveProjectSummary[];
+}):
+  | { status: "valid"; remainingProjects: DriveProjectSummary[] }
+  | { status: "invalid"; diagnostics: string[] } {
+  const parsedIndex = parseProjectCreatableIndexJson({
+    indexJsonText: input.indexJsonText,
+    expectedWorkspaceId: input.expectedWorkspaceId,
+  });
+
+  if (parsedIndex.status !== "creatable") {
+    return {
+      status: "invalid",
+      diagnostics: parsedIndex.diagnostics,
+    };
+  }
+
+  if (
+    parsedIndex.index.projects.some(
+      (project) => project.projectId === input.removedProjectId,
+    )
+  ) {
+    return {
+      status: "invalid",
+      diagnostics: ["index.json から対象作品が除外されていません。"],
+    };
+  }
+
+  if (
+    !driveProjectSummaryListsEqual(
+      parsedIndex.index.projects,
+      input.expectedRemainingProjects,
+    )
+  ) {
+    return {
+      status: "invalid",
+      diagnostics: ["index.json の他作品登録が保持されていません。"],
+    };
+  }
+
+  return {
+    status: "valid",
+    remainingProjects: parsedIndex.index.projects,
+  };
+}
+
+export async function trashDriveProjectRootFolder(input: {
+  accessToken: string;
+  projectFolderId: string;
+  signal: AbortSignal;
+  fetchImpl?: typeof fetch;
+}): Promise<DriveProjectDeleteTrashResult> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const params = new URLSearchParams({
+    fields: "id,trashed",
+  });
+
+  try {
+    const response = await fetchImpl(
+      `${DRIVE_API_FILES_URL}/${encodeURIComponent(input.projectFolderId)}?${params.toString()}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${input.accessToken}`,
+          "Content-Type": "application/json; charset=UTF-8",
+        },
+        body: JSON.stringify({ trashed: true }),
+        signal: input.signal,
+      },
+    );
+
+    if (response.status === 401 || response.status === 403) {
+      throw new DriveApiError(response.status);
+    }
+
+    if (!response.ok) {
+      throw new DriveProjectDeleteRequestError("trashRejected");
+    }
+
+    let trashed: boolean | null = null;
+    try {
+      const body = (await response.json()) as unknown;
+      if (isRecord(body) && typeof body.trashed === "boolean") {
+        trashed = body.trashed;
+      }
+    } catch {
+      trashed = null;
+    }
+
+    return {
+      status: "patched",
+      trashed,
+    };
+  } catch (error) {
+    if (
+      error instanceof DriveApiError ||
+      error instanceof DriveProjectDeleteRequestError
+    ) {
+      throw error;
+    }
+
+    if (isAbortErrorLike(error) || input.signal.aborted) {
+      throw error;
+    }
+
+    return { status: "unconfirmed" };
+  }
+}
+
+export async function listActiveDriveProjectRootsForProject(input: {
+  accessToken: string;
+  projectsRootFolderId: string;
+  projectId: string;
+  signal: AbortSignal;
+}): Promise<DriveFileCandidate[]> {
+  const page = await listDriveFilesReadOnlyPage({
+    accessToken: input.accessToken,
+    query: [
+      `'${escapeDriveQueryValue(input.projectsRootFolderId)}' in parents`,
+      `mimeType = '${DRIVE_FOLDER_MIME_TYPE}'`,
+      "trashed = false",
+      `appProperties has { key='app' and value='${DRIVE_WORKSPACE_APP_ID}' }`,
+      "appProperties has { key='role' and value='projectRoot' }",
+      `appProperties has { key='projectId' and value='${escapeDriveQueryValue(input.projectId)}' }`,
+    ].join(" and "),
+    pageSize: CHILD_ROLE_SEARCH_LIMIT,
+    fields: "id,name,mimeType,trashed,parents,appProperties",
+    signal: input.signal,
+  });
+
+  return page.files.filter((file) => file.trashed !== true);
+}
+
+function validateDriveProjectDeletePreflightInput(input: {
+  accessToken: string;
+  workspaceId: string;
+  indexJsonFileId: string;
+  projectsRootFolderId: string;
+  project: DriveProjectSummary;
+}) {
+  const diagnostics: string[] = [];
+
+  if (!input.accessToken) {
+    diagnostics.push("作品削除前preflight用のaccessTokenがありません。");
+  }
+  if (!isUuidV4(input.workspaceId)) {
+    diagnostics.push(
+      "作品削除前preflight対象のworkspaceIdがUUID形式ではありません。",
+    );
+  }
+  if (!isUuidV4(input.project.projectId)) {
+    diagnostics.push(
+      "作品削除前preflight対象のprojectIdがUUID形式ではありません。",
+    );
+  }
+  if (!isNonEmptyString(input.indexJsonFileId)) {
+    diagnostics.push("作品削除前preflight対象のindex.jsonが空です。");
+  }
+  if (!isNonEmptyString(input.projectsRootFolderId)) {
+    diagnostics.push("作品削除前preflight対象のprojects folderが空です。");
+  }
+  if (!isNonEmptyString(input.project.projectFolderId)) {
+    diagnostics.push("作品削除前preflight対象のproject folderが空です。");
+  }
+  if (!isNonEmptyString(input.project.manifestFileId)) {
+    diagnostics.push("作品削除前preflight対象のmanifest.jsonが空です。");
+  }
+  if (!isNonEmptyString(input.project.assetsFolderId)) {
+    diagnostics.push("作品削除前preflight対象のassets folderが空です。");
+  }
+
+  return diagnostics;
+}
+
+function blockedDriveProjectDelete(
+  reason: DriveProjectDeleteBlockedReason,
+  diagnostics: string[],
+): DriveProjectDeletePreflightBlocked {
+  return {
+    status: "blocked",
+    reason,
+    diagnostics: diagnostics.map((item) =>
+      item
+        .replaceAll(DRIVE_API_FILES_URL, "[内部情報は表示しません]")
+        .replaceAll(DRIVE_API_UPLOAD_FILES_URL, "[内部情報は表示しません]"),
+    ),
+  };
+}
+
+function readIndexUpdatedAt(indexJsonText: string) {
+  const parsed = parseJsonObject(indexJsonText, "index.json");
+  if (parsed.status === "invalid") {
+    return null;
+  }
+  const diagnostics: string[] = [];
+  const updatedAt = readRequiredIsoDateString({
+    body: parsed.value,
+    fileLabel: "index.json",
+    key: "updatedAt",
+    diagnostics,
+  });
+  return diagnostics.length === 0 && updatedAt ? updatedAt : null;
+}
+
+async function fetchDriveFileMetadataForProjectDelete(input: {
+  accessToken: string;
+  fileId: string;
+  signal: AbortSignal;
+}): Promise<{ status: "ok"; file: DriveFileCandidate } | { status: "notFound" }> {
+  try {
+    return {
+      status: "ok",
+      file: await fetchDriveFileMetadata(
+        input.accessToken,
+        input.fileId,
+        input.signal,
+      ),
+    };
+  } catch (error) {
+    if (isDriveAuthError(error)) {
+      throw error;
+    }
+    if (error instanceof DriveApiError && error.status === 404) {
+      return { status: "notFound" };
+    }
+    throw error;
+  }
+}
+
+function classifyProjectDeleteFileMetadata(input: {
+  file: DriveFileCandidate;
+  label: string;
+  expectedId: string;
+  expectedName: string;
+  expectedMimeType: string;
+  expectedRole: Exclude<DriveProjectChangedItemRole, "index">;
+  expectedWorkspaceId: string;
+  expectedProjectId: string;
+  expectedParentId: string;
+  trashedReason: DriveProjectDeleteBlockedReason;
+  wrongParentReason: DriveProjectDeleteBlockedReason;
+  metadataReason: DriveProjectDeleteBlockedReason;
+}): DriveProjectDeletePreflightBlocked | null {
+  if (input.file.trashed === true) {
+    return blockedDriveProjectDelete(input.trashedReason, [
+      `${input.label} はすでに削除済み状態です。`,
+    ]);
+  }
+
+  if (
+    !input.file.parents ||
+    input.file.parents.length !== 1 ||
+    input.file.parents[0] !== input.expectedParentId
+  ) {
+    return blockedDriveProjectDelete(input.wrongParentReason, [
+      `${input.label} の親folderが想定と一致していません。`,
+    ]);
+  }
+
+  const diagnostics: string[] = [];
+  validateProjectDriveFileMetadata({
+    item: input.file,
+    label: input.label,
+    expectedId: input.expectedId,
+    expectedName: input.expectedName,
+    expectedMimeType: input.expectedMimeType,
+    expectedRole: input.expectedRole,
+    expectedWorkspaceId: input.expectedWorkspaceId,
+    expectedProjectId: input.expectedProjectId,
+    expectedParentId: input.expectedParentId,
+    diagnostics,
+  });
+
+  if (diagnostics.length > 0) {
+    return blockedDriveProjectDelete(input.metadataReason, [
+      `${input.label} のmetadataが想定と一致していません。`,
+    ]);
+  }
+
+  return null;
+}
+
+function isAbortErrorLike(error: unknown) {
+  return error instanceof DOMException
+    ? error.name === "AbortError"
+    : typeof error === "object" &&
+        error !== null &&
+        "name" in error &&
+        error.name === "AbortError";
 }
 
 export async function createDriveProject(
