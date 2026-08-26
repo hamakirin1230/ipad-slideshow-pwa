@@ -25,10 +25,26 @@ export function AssetImportPanel() {
     assetImportBlockedReason,
     isAssetImportInFlight,
     startAssetImport,
+    startLocalImageFileImport,
     startLocalVideoFileImport,
     cancelAssetImport,
   } = useAppState();
+  const localImageInputRef = useRef<HTMLInputElement | null>(null);
   const localVideoInputRef = useRef<HTMLInputElement | null>(null);
+
+  function openLocalImageFilePicker() {
+    localImageInputRef.current?.click();
+  }
+
+  function handleLocalImageFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const { files } = event.currentTarget;
+
+    if (files && files.length > 0) {
+      startLocalImageFileImport(files);
+    }
+
+    event.currentTarget.value = "";
+  }
 
   function openLocalVideoFilePicker() {
     localVideoInputRef.current?.click();
@@ -56,6 +72,16 @@ export function AssetImportPanel() {
       {showOperationMessage ? <p className="mt-3">{assetImportMessage}</p> : null}
 
       <div className="mt-4 flex flex-wrap gap-3">
+        <input
+          ref={localImageInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+          multiple
+          className="sr-only"
+          onChange={handleLocalImageFileChange}
+          disabled={!canStartAssetImport}
+        />
+
         <Button
           type="button"
           className="min-h-11"
@@ -64,7 +90,7 @@ export function AssetImportPanel() {
               ? "secondary"
               : "default"
           }
-          onClick={startAssetImport}
+          onClick={openLocalImageFilePicker}
           disabled={!canStartAssetImport}
         >
           {getStartAssetImportButtonLabel(assetImportStatus)}
@@ -90,6 +116,16 @@ export function AssetImportPanel() {
           動画を選ぶ
         </Button>
 
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11"
+          onClick={startAssetImport}
+          disabled={!canStartAssetImport}
+        >
+          Googleフォトから選ぶ
+        </Button>
+
         {isAssetImportInFlight ? (
           <Button
             type="button"
@@ -108,7 +144,7 @@ export function AssetImportPanel() {
 
       <ProductDisclosure label="素材追加の詳細" tone="light" className="mt-4">
         <div className="space-y-2">
-          <p>写真はGoogle Photosから、動画はこの端末のファイルから選びます。</p>
+          <p>写真と動画はこの端末から選べます。Googleフォトから選ぶ場合は、Googleの利用許可画面が開きます。</p>
           <p>対応する動画はMP4またはMOV、1ファイル5GB以下です。大容量動画は本体をこの端末へ保存せず、オンライン時に再生します。</p>
           <p>追加できるスライドは残り{remainingSlideSlots}件、1回に{assetImportMaxBatchCount}件までです。</p>
           <p>途中で失敗しても、Google Driveへ保存済みの素材は自動削除しません。</p>

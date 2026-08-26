@@ -134,6 +134,7 @@ describe("admin and settings touch target contracts", () => {
   it.each([
     [source.system, "onClick={checkDriveWorkspace}", "disabled={!canCheckDriveWorkspace}"],
     [source.system, "onClick={checkProject}", "disabled={!canCheckProject}"],
+    [source.import, "onClick={openLocalImageFilePicker}", "disabled={!canStartAssetImport}"],
     [source.import, "onClick={startAssetImport}", "disabled={!canStartAssetImport}"],
     [source.edit, "onClick={handleDeleteSelectedSlides}", "disabled={!canDeleteSelectedSlides}"],
     [source.cleanup, "onClick={previewUnusedProjectAssets}", "isAssetCleanupPreviewInFlight"],

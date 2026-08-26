@@ -206,6 +206,11 @@ import {
   type SupportedDriveVideoMimeType,
 } from "@/lib/drive-video-policy";
 import {
+  getLocalDriveImageFileValidationCodes,
+  resolveLocalImageFileMimeType,
+  type SupportedDriveImageMimeType,
+} from "@/lib/drive-image-policy";
+import {
   createDriveOfflineStagingSyncRuntime,
   type DriveOfflineStagingSyncRuntime,
   type DriveOfflineStagingSyncRuntimeResult,
@@ -465,6 +470,14 @@ type LocalVideoAssetImportItem = {
   filename: string;
   file: File;
   mimeType: SupportedDriveVideoMimeType | null;
+};
+
+type LocalImageAssetImportItem = {
+  clientItemId: string;
+  sourceMediaItemId: string;
+  filename: string;
+  file: File;
+  mimeType: SupportedDriveImageMimeType | null;
 };
 
 type PendingProjectPublish = {
@@ -731,6 +744,7 @@ type AppContextValue = {
   confirmUnusedAssetDeletion: () => Promise<void>;
   cancelUnusedAssetDeletion: () => void;
   startAssetImport: () => void;
+  startLocalImageFileImport: (files: FileList | File[]) => void;
   startLocalVideoFileImport: (files: FileList | File[]) => void;
   cancelAssetImport: () => void;
   startOfflineSync: () => void;
@@ -2272,7 +2286,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetAssetImportState();
     resetAssetCleanupPreviewState();
     setAssetImportMessage(
-      "写真はGoogle Photos Pickerから、video/mp4またはMOVは端末上のファイルから追加できます。",
+      "写真と動画はこの端末から選べます。Googleフォトから選ぶ場合は、Googleの利用許可画面が開きます。",
     );
   }
 
@@ -3438,6 +3452,379 @@ export function AppProviders({ children }: { children: ReactNode }) {
             setProjectStatus("ready");
             setProjectMessage(
               "プロジェクトへの端末動画の反映を更新後に再確認しました。",
+            );
+          }
+
+          setAssetImportSelection(null);
+          setAssetImportStatus(finalStatus);
+          setAssetImportMessage(finalMessage);
+          setSafeAssetImportDiagnostics(finalDiagnostics);
+        }
+
+        assetImportAbortRef.current = null;
+        setAssetImportInFlightState(false);
+      }
+    }
+  }
+
+  async function startLocalImageFileImport(files: FileList | File[]) {
+    const blockedReason = getAssetImportBlockedReason();
+    const selectedFiles = Array.from(files);
+
+    assetImportRequestIdRef.current += 1;
+    const requestId = assetImportRequestIdRef.current;
+
+    clearAssetImportRuntimeRefs({
+      abort: true,
+      rejectPendingPhotosTokenRequest: true,
+    });
+    setAssetImportInFlightState(false);
+    setAssetImportSelection(null);
+    setAssetImportBatch([]);
+    setSafeAssetImportDiagnostics([]);
+
+    if (blockedReason) {
+      setAssetImportStatus("invalid");
+      setAssetImportMessage("写真ファイル追加を開始できませんでした。");
+      setSafeAssetImportDiagnostics([
+        blockedReason,
+        "Drive保存: 未実行",
+        "プロジェクト反映: 未実行",
+      ]);
+      return;
+    }
+
+    if (selectedFiles.length === 0) {
+      setAssetImportStatus("cancelled");
+      setAssetImportMessage("写真ファイルが選択されませんでした。");
+      setSafeAssetImportDiagnostics([
+        "Local file selection: 0件",
+        "Drive保存: 未実行",
+        "プロジェクト反映: 未実行",
+      ]);
+      return;
+    }
+
+    const accessToken = accessTokenRef.current;
+
+    if (!accessToken) {
+      setAssetImportStatus("invalid");
+      setAssetImportMessage("Googleへ再接続してから写真ファイルを追加してください。");
+      setSafeAssetImportDiagnostics([
+        "Google接続を確認できません。Googleへ再接続してください。",
+        "Drive保存: 未実行",
+        "プロジェクト反映: 未実行",
+      ]);
+      return;
+    }
+
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    if (!readyWorkspace || !readyProject) {
+      setAssetImportStatus("invalid");
+      setAssetImportMessage("Driveプロジェクトの状態を確認できませんでした。");
+      setSafeAssetImportDiagnostics([
+        "Drive保存前に保存領域とプロジェクトの状態を確認できませんでした。",
+        "Drive保存: 未実行",
+        "プロジェクト反映: 未実行",
+      ]);
+      return;
+    }
+
+    if (selectedFiles.length > assetImportMaxBatchCount) {
+      setAssetImportStatus("invalid");
+      setAssetImportMessage("選択できる写真は1回あたりの上限を超えています。");
+      setSafeAssetImportDiagnostics([
+        `Local image file selection: ${selectedFiles.length}件`,
+        `1回の上限 ${assetImportMaxBatchCount} 件を超えたため、Drive保存は実行しません。`,
+        "Drive保存: 未実行",
+        "プロジェクト反映: 未実行",
+      ]);
+      return;
+    }
+
+    assetImportAbortRef.current = new AbortController();
+    setAssetImportInFlightState(true);
+    setAssetImportStatus("validatingLocalFiles");
+    setAssetImportMessage("選択された写真ファイルを確認しています。");
+
+    const abortSignal = assetImportAbortRef.current.signal;
+    const localItems: LocalImageAssetImportItem[] = selectedFiles.map((file) => {
+      const sourceMediaItemId = `localFile:${crypto.randomUUID()}`;
+      const mimeType = resolveLocalImageFileMimeTypeFromFile(file);
+
+      return {
+        clientItemId: crypto.randomUUID(),
+        sourceMediaItemId,
+        filename: sanitizeLocalFileNameForDisplay(file.name, "untitled.jpg"),
+        file,
+        mimeType,
+      };
+    });
+    const batchItems: AssetImportBatchItem[] = localItems.map((item) => ({
+      clientItemId: item.clientItemId,
+      mediaItemIdPart: formatIdPart(item.sourceMediaItemId),
+      filename: item.filename,
+      sourceMimeType: item.mimeType ?? "MIME不明",
+      sourceCreateTime: null,
+      status: "selected",
+    }));
+
+    setAssetImportBatch(batchItems);
+
+    const savedAssetsForManifest: Array<{
+      clientItemId: string;
+      savedAsset: DriveProjectSavedAsset;
+      source: {
+        source: "localFile";
+        filename: string | null;
+        mediaType: "PHOTO";
+        sourceMimeType: string;
+        sourceMediaItemId: string;
+        sourceCreateTime: string | null;
+      };
+    }> = [];
+    const batchDiagnostics = [
+      `Local image file selection: ${selectedFiles.length}件`,
+    ];
+    let finalStatus: AssetImportStatus | null = null;
+    let finalMessage = "";
+    let finalDiagnostics: string[] = [];
+    let finalProject: DriveProjectSummary | null = null;
+    let finalProjectDetails: ProjectDetails | null = null;
+    let finalWorkspaceReadyContext: DriveWorkspaceReadyContext | null = null;
+
+    try {
+      for (const [index, localItem] of localItems.entries()) {
+        if (requestId !== assetImportRequestIdRef.current) {
+          return;
+        }
+
+        const validationDiagnostics = validateLocalImageFile(localItem);
+        const itemDiagnostics = [
+          `filename: ${localItem.filename}`,
+          `MIME: ${localItem.mimeType ?? "MIME不明"}`,
+          `size: ${localItem.file.size} bytes`,
+        ];
+
+        if (validationDiagnostics.length > 0 || !localItem.mimeType) {
+          updateAssetImportBatchItem(localItem.clientItemId, {
+            status: "failed",
+            errorMessage: validationDiagnostics[0],
+          });
+          batchDiagnostics.push(
+            `item ${index + 1}: ${validationDiagnostics[0]}`,
+            ...itemDiagnostics,
+            ...validationDiagnostics,
+          );
+          continue;
+        }
+
+        try {
+          batchDiagnostics.push(
+            `item ${index + 1}: local image file selected.`,
+            ...itemDiagnostics,
+          );
+
+          updateAssetImportBatchItem(localItem.clientItemId, {
+            status: "downloaded",
+            downloadedContentType: localItem.mimeType ?? undefined,
+            downloadedSizeBytes: localItem.file.size,
+          });
+
+          setAssetImportStatus("uploadingToDrive");
+          setAssetImportMessage(
+            `Driveへ写真ファイルを順次保存しています。${index + 1} / ${localItems.length}`,
+          );
+          updateAssetImportBatchItem(localItem.clientItemId, { status: "uploading" });
+
+          const savedAsset = await saveDriveProjectAsset({
+            accessToken,
+            workspaceId: readyWorkspace.workspaceId,
+            project: readyProject,
+            blob: localItem.file,
+            mimeType: localItem.mimeType,
+            sizeBytes: localItem.file.size,
+            source: "localFile",
+            signal: abortSignal,
+          });
+
+          updateAssetImportBatchItem(localItem.clientItemId, {
+            status: "savedToDrive",
+            driveFilename: savedAsset.driveFilename,
+            assetId: savedAsset.assetId,
+            assetIdPart: savedAsset.assetIdPart,
+            assetFileId: savedAsset.assetFileId,
+            assetFileIdPart: savedAsset.assetFileIdPart,
+          });
+
+          savedAssetsForManifest.push({
+            clientItemId: localItem.clientItemId,
+            savedAsset,
+            source: {
+              source: "localFile",
+              filename: localItem.filename,
+              mediaType: "PHOTO",
+              sourceMimeType: localItem.mimeType,
+              sourceMediaItemId: localItem.sourceMediaItemId,
+              sourceCreateTime: null,
+            },
+          });
+
+          batchDiagnostics.push(...savedAsset.diagnostics);
+        } catch (itemError) {
+          if (isAbortError(itemError)) {
+            throw itemError;
+          }
+
+          updateAssetImportBatchItem(localItem.clientItemId, {
+            status: "failed",
+            errorMessage: getAssetImportItemErrorMessage(itemError),
+          });
+          batchDiagnostics.push(
+            `item ${index + 1}: ${getAssetImportItemErrorMessage(itemError)}`,
+            ...itemDiagnostics,
+            ...getAssetImportItemFailureDiagnostics(itemError),
+          );
+        }
+      }
+
+      if (savedAssetsForManifest.length === 0) {
+        finalStatus = "error";
+        finalMessage =
+          "選択された写真ファイルをDriveに保存できませんでした。成功したitemはありません。";
+        finalDiagnostics = [
+          ...batchDiagnostics,
+          "Drive保存: 成功0件",
+          "プロジェクト反映: 未実行",
+        ];
+        return;
+      }
+
+      setAssetImportStatus("updatingManifest");
+      setAssetImportMessage(
+        `プロジェクトへ端末写真の成功分 ${savedAssetsForManifest.length} 件をまとめて反映しています。`,
+      );
+
+      const manifestAppendResult = await appendDriveProjectAssetsToManifest({
+        accessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        indexJsonFileId: readyWorkspace.indexJsonFileId,
+        project: readyProject,
+        savedAssets: savedAssetsForManifest.map((item) => ({
+          savedAsset: item.savedAsset,
+          source: item.source,
+        })),
+        signal: abortSignal,
+      });
+
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      for (const savedItem of savedAssetsForManifest) {
+        const addedSlide = manifestAppendResult.addedSlides.find(
+          (slide) => slide.assetId === savedItem.savedAsset.assetId,
+        );
+        updateAssetImportBatchItem(savedItem.clientItemId, {
+          status: "manifestUpdated",
+          slideIdPart: formatIdPart(addedSlide?.slideId),
+        });
+      }
+
+      const nextProjectDetails = toProjectDetails(manifestAppendResult.details);
+
+      finalProject = manifestAppendResult.project;
+      finalProjectDetails = nextProjectDetails;
+      finalWorkspaceReadyContext = {
+        ...readyWorkspace,
+        indexJsonText: manifestAppendResult.indexJsonText,
+      };
+      finalStatus = "completed";
+      finalMessage =
+        "端末の写真ファイルのDrive保存、プロジェクトへの一括反映、一覧の更新、更新後の再確認が完了しました。";
+      finalDiagnostics = [
+        ...batchDiagnostics,
+        ...manifestAppendResult.diagnostics,
+        "Drive保存: 完了",
+        "プロジェクト反映: 完了",
+        "プロジェクト一覧の更新: 完了",
+        "更新後再検証: 完了",
+      ];
+    } catch (error) {
+      if (requestId !== assetImportRequestIdRef.current) {
+        return;
+      }
+
+      if (error instanceof DriveProjectAssetSaveError) {
+        finalStatus = error.status === "invalidProject" ? "invalid" : "error";
+        finalMessage = error.possibleCreatedAsset
+          ? "Drive保存結果の確認に失敗しました。Drive上に素材ファイルが作成済みの可能性があります。"
+          : "Driveへの素材保存に失敗しました。";
+        finalDiagnostics = buildAssetImportDriveSaveFailureDiagnostics(error);
+      } else if (error instanceof DriveProjectManifestBatchAppendError) {
+        finalStatus = "error";
+        finalMessage =
+          "Drive保存後のプロジェクトへの一括反映に失敗しました。Drive上に中間状態が残っている可能性があります。";
+        finalDiagnostics = buildAssetImportManifestBatchAppendFailureDiagnostics(
+          error,
+        );
+      } else if (isAbortError(error)) {
+        finalStatus = "cancelled";
+        finalMessage = "素材追加を中止しました。";
+        finalDiagnostics = [
+          "素材追加処理を中止しました。",
+          "Drive保存: 未実行",
+          "プロジェクト反映: 未実行",
+        ];
+      } else {
+        finalStatus = "error";
+        finalMessage = "local写真ファイル追加処理に失敗しました。";
+        finalDiagnostics = [
+          "local写真ファイル追加処理中に予期しないエラーが発生しました。",
+          "Drive保存やプロジェクトへの反映が途中まで進んだかは、この画面だけでは判断できません。",
+          "Drive状態を再確認してください。",
+        ];
+      }
+    } finally {
+      if (requestId === assetImportRequestIdRef.current) {
+        if (finalStatus) {
+          if (
+            finalProject &&
+            finalProjectDetails &&
+            finalWorkspaceReadyContext
+          ) {
+            const updatedProject = finalProject;
+            const updatedProjectDetails = finalProjectDetails;
+            setWorkspaceReadyContext(finalWorkspaceReadyContext);
+            setSelectedProjectId(updatedProject.projectId);
+            setDriveProjectReadyContext(updatedProject);
+            setProjectDetails(updatedProjectDetails);
+            const nextProjectSummary = toProjectSummary(
+              updatedProject,
+              updatedProjectDetails,
+            );
+            setProjectSummary(nextProjectSummary);
+            setDriveProjects((currentProjects) => {
+              if (
+                !currentProjects.some(
+                  (currentProject) =>
+                    currentProject.projectId === updatedProject.projectId,
+                )
+              ) {
+                return [...currentProjects, nextProjectSummary];
+              }
+
+              return currentProjects.map((currentProject) =>
+                currentProject.projectId === updatedProject.projectId
+                  ? nextProjectSummary
+                  : currentProject,
+              );
+            });
+            setProjectStatus("ready");
+            setProjectMessage(
+              "プロジェクトへの端末写真の反映を更新後に再確認しました。",
             );
           }
 
@@ -7096,6 +7483,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     confirmUnusedAssetDeletion,
     cancelUnusedAssetDeletion,
     startAssetImport,
+    startLocalImageFileImport,
     startLocalVideoFileImport,
     cancelAssetImport,
     startOfflineSync,
@@ -7626,6 +8014,31 @@ function resolveLocalVideoFileMimeType(
   });
 }
 
+function resolveLocalImageFileMimeTypeFromFile(
+  file: File,
+): SupportedDriveImageMimeType | null {
+  return resolveLocalImageFileMimeType({
+    name: file.name,
+    type: file.type,
+  });
+}
+
+function validateLocalImageFile(item: LocalImageAssetImportItem) {
+  return getLocalDriveImageFileValidationCodes({
+    size: item.file.size,
+    mimeType: item.mimeType,
+  }).map((code) => {
+    switch (code) {
+      case "unsupportedMimeType":
+        return "JPEG、PNG、またはWebPの写真のみ追加できます。";
+      case "emptyFile":
+        return "0 byteの写真ファイルは追加できません。";
+      case "fileTooLarge":
+        return "photo は10MB以下のみ追加できます。";
+    }
+  });
+}
+
 function validateLocalVideoFile(item: LocalVideoAssetImportItem) {
   return getLocalDriveVideoFileValidationCodes({
     size: item.file.size,
@@ -7657,14 +8070,17 @@ function buildLocalVideoOfflineScopeDiagnostics(item: LocalVideoAssetImportItem)
   return diagnostics;
 }
 
-function sanitizeLocalFileNameForDisplay(fileName: string) {
+function sanitizeLocalFileNameForDisplay(
+  fileName: string,
+  fallbackFileName = "untitled.mp4",
+) {
   const sanitized = fileName
     .trim()
     .replace(/[\\/]/g, "_")
     .replace(/[\u0000-\u001f\u007f]/g, "");
 
   if (!sanitized) {
-    return "untitled.mp4";
+    return fallbackFileName;
   }
 
   return sanitized.slice(0, 160);
