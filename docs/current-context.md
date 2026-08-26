@@ -1,8 +1,8 @@
 # iPad用スライドショーPWA 現在の引き継ぎ
 
-Date: 2026-08-22
+Date: 2026-08-26
 
-このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-22時点の実装・運用状態を正とします。
+このファイルは、次にCodexで作業を再開するときの入口です。古い第4-1時点の制約ではなく、2026-08-26時点の実装・運用状態を正とします。
 
 docs全体のCurrent / Historical分類は[`docs/README.md`](README.md)を参照してください。
 runtime environmentとVercel security headerの現行契約は[`environment-security.md`](environment-security.md)を参照してください。
@@ -12,6 +12,18 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 ## Product-ready finalization status
 
 2026-08-12、`finalization/product-ready`をmainへmergeし、Vercel Production反映後の実iPad smoke checkを完了した。ProductionのHome、Settings / Google接続、Admin、Historyのrollback preview、Player playback、existing installed PWAはOK。PWA new installは未確認のまま保持する。product-ready finalization Production acceptanceは完了しており、過去のaccepted evidenceとして保持する。remaining exclusionsは[`acceptance/product-ready-finalization-acceptance.md`](acceptance/product-ready-finalization-acceptance.md)を参照する。
+
+## PWA home screen install
+
+2026-08-26、トップ `/` の「ホーム画面に追加」案内と新PWA iconはPreview実iPad acceptance PASS。Production実機acceptanceは未記録。Preview evidenceは[`acceptance/pwa-home-screen-install-preview-acceptance.md`](acceptance/pwa-home-screen-install-preview-acceptance.md)。
+
+- `/` に「ホーム画面に追加」guide実装済み
+- iPadOS 16.4以降を対象とする
+- Safari / Chrome / Edgeのbrowser別copy
+- Preview実iPad acceptance PASS
+- 新PWA icon Preview目視PASS
+- standalone起動時install guide非表示PASS
+- Production実機acceptanceは未記録
 
 ## Google Photos export
 
@@ -164,6 +176,7 @@ Preview上のGoogle Drive session restore / auto workspace validation acceptance
 Production上のGoogle Drive session restore / auto workspace validation acceptance（2026-08-22 Production functional PASS。実時間absolute expiry未確認）
 Preview上の選択中作品「作品を削除」destructive acceptance（2026-08-22 Preview PASS。Preview evidence。Drive完全成功後のこのiPadコピー連動削除を確認）
 Production上の選択中作品「作品を削除」destructive acceptance（2026-08-22 Production PASS。Drive完全成功後のこのiPadコピー連動削除とGoogle Drive UI Trash目視確認済み。failure injectionはtest coverageであり実機未実施）
+Preview上の「ホーム画面に追加」案内 / browser別copy / 新PWA icon acceptance（2026-08-26 Preview PASS。Preview evidence。standalone起動時install guide非表示。Production未実施）
 unused Drive asset physical deleteの実Google Drive動作確認（未参照app-managed JPEG / PNG / WebPのみ。MP4/MOVは対象外）
 明示的publish / immutable revision / rollback impact preview / fresh preflight / verified rollback
 manifest.publication.currentRevisionId authorityと、新しいrollback revision作成
@@ -467,6 +480,7 @@ publication write異常系の詳細計画は`docs/acceptance/publication-write-a
 読む順:
 
 ```text
+docs/acceptance/pwa-home-screen-install-preview-acceptance.md
 docs/acceptance/project-delete-production-acceptance.md
 docs/acceptance/project-delete-preview-acceptance.md
 docs/acceptance/google-session-production-acceptance.md

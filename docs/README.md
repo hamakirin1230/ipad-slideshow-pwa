@@ -5,7 +5,7 @@
 ## まず読む文書
 
 1. [`../README.md`](../README.md) — 製品の現在地、主要機能、ローカル検証方法
-2. [`current-context.md`](current-context.md) — 2026-08-22時点の最新作業引き継ぎと実装境界
+2. [`current-context.md`](current-context.md) — 2026-08-26時点の最新作業引き継ぎと実装境界
 3. [`environment-security.md`](environment-security.md) — runtime environmentとVercel security headerの現行契約
 4. [`release-rollback.md`](release-rollback.md) — Vercel productionのrelease / rollback運用
 
@@ -42,6 +42,7 @@ HistoricalとCurrentが衝突する場合はCurrentを優先します。dated ha
 
 ## Acceptance / evidence
 
+- [`acceptance/pwa-home-screen-install-preview-acceptance.md`](acceptance/pwa-home-screen-install-preview-acceptance.md) — 2026-08-26 「ホーム画面に追加」guide / browser別copy / 新PWA iconのPreview実iPad acceptance。Production acceptanceは未実施
 - [`acceptance/project-delete-production-acceptance.md`](acceptance/project-delete-production-acceptance.md) — 2026-08-22 「作品を削除」のProduction destructive acceptance。Google Drive UIでTrash目視確認済み。failure injectionはtest coverageであり実機未実施
 - [`acceptance/project-delete-preview-acceptance.md`](acceptance/project-delete-preview-acceptance.md) — 2026-08-22 「作品を削除」のPreview destructive acceptance。Preview evidenceとして残す。failure injectionはtest coverageであり実機未実施
 - [`acceptance/google-session-production-acceptance.md`](acceptance/google-session-production-acceptance.md) — 2026-08-22 Google Drive short-lived sessionのProduction functional acceptance。実時間absolute-expiry境界は未実施
