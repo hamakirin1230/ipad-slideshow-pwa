@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, LifeBuoy, Pencil, Play, Settings2 } from "lucide-react";
+import { HomeScreenInstallGuide } from "@/components/home-screen-install-guide";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
@@ -47,6 +48,8 @@ export default function Home() {
               </Link>
             </Button>
           </div>
+
+          <HomeScreenInstallGuide />
         </section>
 
         <div className="mt-20 flex flex-col gap-2 border-t border-white/8 pt-6 text-sm sm:mt-24 sm:flex-row sm:items-center sm:gap-6">
