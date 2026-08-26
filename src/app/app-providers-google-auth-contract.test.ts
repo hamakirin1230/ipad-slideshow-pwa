@@ -308,3 +308,71 @@ describe("restored google session auto-checks drive workspace", () => {
     );
   });
 });
+
+describe("Photos Picker OAuth error_callback classification", () => {
+  it("passes GIS error_callback into Photos classification without retrying", () => {
+    const photosError = extractFunction(
+      providers,
+      "handlePhotosTokenErrorCallback",
+    );
+    const photosRequest = extractFunction(providers, "requestPhotosAccessToken");
+    const photosResponse = extractFunction(
+      providers,
+      "handlePhotosTokenResponse",
+    );
+
+    expect(providers).toContain("handlePhotosTokenErrorCallback(error)");
+    expect(photosError).toContain("getPhotosPickerOauthPopupFailureCopy(error)");
+    expect(photosError).toContain("uiMessage: copy.message");
+    expect(photosError).toContain("copy.diagnostic");
+    expect(photosError).not.toContain("requestAccessToken");
+    expect(photosError).not.toContain("JSON.stringify");
+    expect(photosError).not.toContain("console.");
+    expect(photosError).not.toContain("error.type");
+    expect(photosError).not.toContain("popup_failed_to_open");
+    expect(photosError).not.toContain("popup_closed");
+
+    expect(photosRequest).toContain("scope: DRIVE_AND_PHOTOS_PICKER_SCOPES");
+    expect(photosRequest).toContain("include_granted_scopes: true");
+    expect(photosRequest).toContain('prompt: "consent"');
+    expect(photosResponse).toContain('tokenResponse.error === "access_denied"');
+    expect(photosResponse).toContain(
+      "Google Photosの利用許可がキャンセルされました。",
+    );
+    expect(providers).toContain(
+      'error.status === "cancelled"\n            ? "Google Photosの利用許可がキャンセルされました。"',
+    );
+  });
+
+  it("does not change Drive OAuth popup handling or Photos export OAuth", () => {
+    const connect = extractFunction(providers, "connectGoogle");
+    const photosExportError = extractFunction(
+      providers,
+      "handlePhotosExportTokenErrorCallback",
+    );
+    const photosExportRequest = extractFunction(
+      providers,
+      "requestPhotosExportAccessToken",
+    );
+    const driveInitStart = providers.indexOf(
+      "tokenClientRef.current = oauth2.initTokenClient({",
+    );
+    const exportInitStart = providers.indexOf(
+      "photosExportTokenClientRef.current = oauth2.initTokenClient({",
+    );
+    const driveInit = providers.slice(driveInitStart, exportInitStart);
+
+    expect(providers).toContain("getGoogleAuthPopupFailureMessage(error)");
+    expect(driveInit).toContain("scope: DRIVE_FILE_SCOPE");
+    expect(driveInit).toContain('prompt: "select_account"');
+    expect(driveInit).toContain("include_granted_scopes: false");
+    expect(connect).toContain('prompt: "select_account"');
+    expect(connect).not.toContain("getPhotosPickerOauthPopupFailureCopy");
+    expect(photosExportError).not.toContain("getPhotosPickerOauthPopupFailureCopy");
+    expect(photosExportError).not.toContain("uiMessage");
+    expect(photosExportRequest).toContain("scope: GOOGLE_PHOTOS_EXPORT_SCOPE");
+    expect(photosExportRequest).toContain("include_granted_scopes: false");
+    expect(photosExportRequest).toContain('prompt: "consent"');
+    expect(providers).toContain("window.open(\"about:blank\", \"_blank\")");
+  });
+});

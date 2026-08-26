@@ -17,6 +17,7 @@ import {
   type GoogleTokenError,
   type GoogleTokenResponse,
   getGoogleClientId,
+  getPhotosPickerOauthPopupFailureCopy,
   hasGoogleClientId,
   hasGrantedDriveFileAndPhotosPickerScopes,
   hasGrantedDriveFileScope,
@@ -504,16 +505,19 @@ type PhotosTokenRequestFailureStatus = "cancelled" | "error";
 class PhotosTokenRequestError extends Error {
   readonly status: PhotosTokenRequestFailureStatus;
   readonly diagnostics: string[];
+  readonly uiMessage: string | null;
 
   constructor(input: {
     status: PhotosTokenRequestFailureStatus;
     message: string;
     diagnostics: string[];
+    uiMessage?: string;
   }) {
     super(input.message);
     this.name = "PhotosTokenRequestError";
     this.status = input.status;
     this.diagnostics = [...input.diagnostics];
+    this.uiMessage = input.uiMessage ?? null;
   }
 }
 
@@ -1487,7 +1491,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return true;
   }
 
-  function handlePhotosTokenErrorCallback() {
+  function handlePhotosTokenErrorCallback(error?: GoogleTokenError) {
     const pendingRequest = pendingPhotosTokenRequestRef.current;
 
     if (!pendingRequest) {
@@ -1499,15 +1503,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return false;
     }
 
+    const copy = getPhotosPickerOauthPopupFailureCopy(error);
+
     clearTimeout(pendingRequest.timeoutId);
     pendingPhotosTokenRequestRef.current = null;
     tokenRequestKindRef.current = null;
     pendingRequest.reject(
       new PhotosTokenRequestError({
-        status: "cancelled",
+        status: "error",
         message: "Photos permission did not complete.",
+        uiMessage: copy.message,
         diagnostics: [
-          "Google Photosの利用許可が完了しませんでした。",
+          copy.diagnostic,
           "Drive保存: 未実行",
           "プロジェクト反映: 未実行",
         ],
@@ -2462,7 +2469,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         queueDriveWorkspaceAutoCheckRef.current();
       },
       error_callback: (error) => {
-        if (handlePhotosTokenErrorCallback()) {
+        if (handlePhotosTokenErrorCallback(error)) {
           return;
         }
 
@@ -2953,9 +2960,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       if (error instanceof PhotosTokenRequestError) {
         finalStatus = error.status;
         finalMessage =
-          error.status === "cancelled"
+          error.uiMessage ??
+          (error.status === "cancelled"
             ? "Google Photosの利用許可がキャンセルされました。"
-            : "Google Photosの利用許可を確認できませんでした。";
+            : "Google Photosの利用許可を確認できませんでした。");
         finalDiagnostics = error.diagnostics;
       } else if (error instanceof PhotosPickerSelectionError) {
         finalStatus = error.status;
