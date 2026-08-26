@@ -455,27 +455,29 @@ export function DriveProjectWorkspacePanel() {
                                     {formatOptionalBytes(slide.fileSize)}
                                   </p>
                                 </div>
-                                <SlideReorderControls
-                                  slideId={slide.slideId}
-                                  isFirst={index === 0}
-                                  isLast={index === orderedSlides.length - 1}
-                                  isDisabled={
-                                    isSlideEditInFlight ||
-                                    slideReorderBlockedReason !== null
-                                  }
-                                  onMove={moveProjectSlide}
-                                />
-                                <SlideSingleActions
-                                  slideId={slide.slideId}
-                                  isDisabled={areSlideActionsDisabled}
-                                  isDuplicating={isSlideDuplicateInFlight}
-                                  isDuplicateLimitReached={
-                                    slideCount !== null &&
-                                    slideCount >= PROJECT_SLIDE_MAX_COUNT
-                                  }
-                                  onDuplicate={duplicateProjectSlide}
-                                />
-                                <div className="space-y-2">
+                                <div className="flex flex-wrap items-start gap-2 xl:contents">
+                                  <SlideReorderControls
+                                    slideId={slide.slideId}
+                                    isFirst={index === 0}
+                                    isLast={index === orderedSlides.length - 1}
+                                    isDisabled={
+                                      isSlideEditInFlight ||
+                                      slideReorderBlockedReason !== null
+                                    }
+                                    onMove={moveProjectSlide}
+                                  />
+                                  <SlideSingleActions
+                                    slideId={slide.slideId}
+                                    isDisabled={areSlideActionsDisabled}
+                                    isDuplicating={isSlideDuplicateInFlight}
+                                    isDuplicateLimitReached={
+                                      slideCount !== null &&
+                                      slideCount >= PROJECT_SLIDE_MAX_COUNT
+                                    }
+                                    onDuplicate={duplicateProjectSlide}
+                                  />
+                                </div>
+                                <div className="space-y-1.5 sm:space-y-2">
                                   <SlideDurationEditor
                                     key={`${slide.slideId}:${slide.durationSeconds}:${slide.durationMs ?? "none"}`}
                                     slideId={slide.slideId}
@@ -633,8 +635,8 @@ function SortableSlideRow({
       style={style}
       className={
         isDragging
-          ? "grid gap-2 bg-white px-3 py-2 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
-          : "grid gap-2 bg-white px-3 py-2 text-sm xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
+          ? "grid gap-1.5 bg-white px-3 py-1.5 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 sm:gap-2 sm:py-2 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
+          : "grid gap-1.5 bg-white px-3 py-1.5 text-sm sm:gap-2 sm:py-2 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
       }
     >
       {children({ dragHandle })}
@@ -667,7 +669,7 @@ function SlideDurationEditor({
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
         <input
           type="number"
           min={DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS}
@@ -734,7 +736,7 @@ function SlideCaptionEditor({
   const isTooLong = captionLength > SLIDE_CAPTION_MAX_LENGTH;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
       <textarea
         value={draftCaption}
         onChange={(event) => setDraftCaption(event.target.value)}
@@ -778,12 +780,12 @@ function SlideSingleActions({
   onDuplicate: (slideId: string) => Promise<boolean>;
 }) {
   return (
-    <div className="space-y-2">
+    <div>
       <Button
         type="button"
         size="sm"
         variant="secondary"
-        className="min-h-11"
+        className="min-h-11 min-w-11 px-2.5"
         disabled={isDisabled || isDuplicateLimitReached}
         title={
           isDuplicateLimitReached
@@ -797,7 +799,7 @@ function SlideSingleActions({
         {isDuplicating ? "複製中" : "複製"}
       </Button>
       {isDuplicateLimitReached ? (
-        <p className="text-xs leading-5 text-slate-500">
+        <p className="mt-1 text-xs leading-5 text-slate-500">
           スライド数が上限の50件に達しているため、複製できません。
         </p>
       ) : null}
@@ -819,26 +821,30 @@ function SlideReorderControls({
   onMove: (slideId: string, direction: "up" | "down") => void;
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Button
         type="button"
         size="sm"
         variant="secondary"
-        className="min-h-11"
+        className="min-h-11 min-w-11 px-0 sm:w-auto sm:px-2.5"
         disabled={isDisabled || isFirst}
+        aria-label="このスライドを上へ移動"
+        title="このスライドを上へ移動"
         onClick={() => onMove(slideId, "up")}
       >
-        ↑ 上へ
+        ↑<span className="hidden sm:inline"> 上へ</span>
       </Button>
       <Button
         type="button"
         size="sm"
         variant="secondary"
-        className="min-h-11"
+        className="min-h-11 min-w-11 px-0 sm:w-auto sm:px-2.5"
         disabled={isDisabled || isLast}
+        aria-label="このスライドを下へ移動"
+        title="このスライドを下へ移動"
         onClick={() => onMove(slideId, "down")}
       >
-        ↓ 下へ
+        ↓<span className="hidden sm:inline"> 下へ</span>
       </Button>
     </div>
   );

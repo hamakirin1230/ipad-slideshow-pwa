@@ -57,8 +57,31 @@ describe("compact slide editing rows", () => {
       "min-h-11",
     );
     expect(
+      openingButton(source, 'onClick={() => onMove(slideId, "up")}'),
+    ).toContain("min-w-11");
+    expect(
+      openingButton(source, 'onClick={() => onMove(slideId, "down")}'),
+    ).toContain("min-h-11");
+    expect(
       openingButton(source, "onClick={handleDeleteSelectedSlides}"),
     ).toContain("min-h-11");
+  });
+
+  it("compacts mobile reorder controls while keeping desktop labels", () => {
+    const reorder = functionBody("SlideReorderControls");
+    const duplicate = functionBody("SlideSingleActions");
+
+    expect(reorder).toContain('aria-label="このスライドを上へ移動"');
+    expect(reorder).toContain('aria-label="このスライドを下へ移動"');
+    expect(reorder).toContain("min-h-11 min-w-11 px-0 sm:w-auto sm:px-2.5");
+    expect(reorder).toContain('<span className="hidden sm:inline"> 上へ</span>');
+    expect(reorder).toContain('<span className="hidden sm:inline"> 下へ</span>');
+    expect(reorder).toContain("flex flex-wrap items-center gap-2");
+    expect(reorder).not.toContain("flex-col");
+    expect(source).toContain("flex flex-wrap items-start gap-2 xl:contents");
+    expect(duplicate).toContain("void onDuplicate(slideId)");
+    expect(duplicate).toContain("min-h-11 min-w-11 px-2.5");
+    expect(duplicate).not.toContain("w-full");
   });
 });
 
