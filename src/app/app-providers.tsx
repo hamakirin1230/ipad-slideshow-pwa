@@ -2286,7 +2286,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     resetAssetImportState();
     resetAssetCleanupPreviewState();
     setAssetImportMessage(
-      "写真と動画はこの端末から選べます。Googleフォトから選ぶ場合は、Googleの利用許可画面が開きます。",
+      "写真と動画はこの端末から選べます。",
     );
   }
 

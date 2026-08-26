@@ -48,16 +48,16 @@ describe("AssetImportPanel device photo picker", () => {
     expect(source).toContain("openLocalImageFilePicker");
     expect(source).toContain("onClick={openLocalImageFilePicker}");
     expect(source).toContain("getStartAssetImportButtonLabel(assetImportStatus)");
+    expect(source).toContain('return "写真を選ぶ"');
     expect(photoButton).toContain("onClick={openLocalImageFilePicker}");
     expect(photoButton).not.toContain("startAssetImport");
   });
 
-  it("keeps Googleフォトから選ぶ on the existing Photos Picker entry", () => {
-    expect(source).toContain("Googleフォトから選ぶ");
-    expect(source).toContain("onClick={startAssetImport}");
-    expect(source).toContain(
-      "写真と動画はこの端末から選べます。Googleフォトから選ぶ場合は、Googleの利用許可画面が開きます。",
-    );
+  it("removes the Googleフォトから選ぶ button and Photos selection copy", () => {
+    expect(source).not.toContain("Googleフォトから選ぶ");
+    expect(source).not.toContain("onClick={startAssetImport}");
+    expect(source).not.toContain("Googleの利用許可画面が開きます");
+    expect(source).toContain("写真と動画はこの端末から選べます。");
   });
 
   it("does not change the local video file input path", () => {

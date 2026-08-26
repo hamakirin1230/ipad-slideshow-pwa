@@ -24,7 +24,6 @@ export function AssetImportPanel() {
     canStartAssetImport,
     assetImportBlockedReason,
     isAssetImportInFlight,
-    startAssetImport,
     startLocalImageFileImport,
     startLocalVideoFileImport,
     cancelAssetImport,
@@ -116,16 +115,6 @@ export function AssetImportPanel() {
           動画を選ぶ
         </Button>
 
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-11"
-          onClick={startAssetImport}
-          disabled={!canStartAssetImport}
-        >
-          Googleフォトから選ぶ
-        </Button>
-
         {isAssetImportInFlight ? (
           <Button
             type="button"
@@ -144,7 +133,7 @@ export function AssetImportPanel() {
 
       <ProductDisclosure label="素材追加の詳細" tone="light" className="mt-4">
         <div className="space-y-2">
-          <p>写真と動画はこの端末から選べます。Googleフォトから選ぶ場合は、Googleの利用許可画面が開きます。</p>
+          <p>写真と動画はこの端末から選べます。</p>
           <p>対応する動画はMP4またはMOV、1ファイル5GB以下です。大容量動画は本体をこの端末へ保存せず、オンライン時に再生します。</p>
           <p>追加できるスライドは残り{remainingSlideSlots}件、1回に{assetImportMaxBatchCount}件までです。</p>
           <p>途中で失敗しても、Google Driveへ保存済みの素材は自動削除しません。</p>

@@ -135,7 +135,7 @@ describe("admin and settings touch target contracts", () => {
     [source.system, "onClick={checkDriveWorkspace}", "disabled={!canCheckDriveWorkspace}"],
     [source.system, "onClick={checkProject}", "disabled={!canCheckProject}"],
     [source.import, "onClick={openLocalImageFilePicker}", "disabled={!canStartAssetImport}"],
-    [source.import, "onClick={startAssetImport}", "disabled={!canStartAssetImport}"],
+    [source.import, "onClick={openLocalVideoFilePicker}", "disabled={!canStartAssetImport}"],
     [source.edit, "onClick={handleDeleteSelectedSlides}", "disabled={!canDeleteSelectedSlides}"],
     [source.cleanup, "onClick={previewUnusedProjectAssets}", "isAssetCleanupPreviewInFlight"],
     [source.offlineSync, "onClick={startOfflineSync}", "disabled={!canStartOfflineSync || isOfflineSyncInFlight}"],
