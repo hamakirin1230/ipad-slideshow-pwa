@@ -456,8 +456,8 @@ export function SelectedProjectDeleteCard({
       <p className="font-semibold text-slate-50">選択中の作品を削除</p>
       <p className="mt-2 text-sm leading-6 text-slate-400">
         {hasSelectedProject && selectedProjectTitle
-          ? `『${selectedProjectTitle}』のGoogle Drive上の作品データと、このiPadの保存コピーを削除します。Googleフォトへ書き出した写真は削除しません。`
-          : "選択中の作品のGoogle Drive上のデータと、このiPadの保存コピーを削除します。Googleフォトへ書き出した写真は削除しません。"}
+          ? `『${selectedProjectTitle}』のGoogle Drive上の作品データと、この端末の保存コピーを削除します。Googleフォトへ書き出した写真は削除しません。`
+          : "選択中の作品のGoogle Drive上のデータと、この端末の保存コピーを削除します。Googleフォトへ書き出した写真は削除しません。"}
       </p>
 
       {view ? (

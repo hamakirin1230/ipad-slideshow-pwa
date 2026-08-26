@@ -109,7 +109,7 @@ export function AssetImportPanel() {
       <ProductDisclosure label="素材追加の詳細" tone="light" className="mt-4">
         <div className="space-y-2">
           <p>写真はGoogle Photosから、動画はこの端末のファイルから選びます。</p>
-          <p>対応する動画はMP4またはMOV、1ファイル5GB以下です。大容量動画は本体をこのiPadへ保存せず、オンライン時に再生します。</p>
+          <p>対応する動画はMP4またはMOV、1ファイル5GB以下です。大容量動画は本体をこの端末へ保存せず、オンライン時に再生します。</p>
           <p>追加できるスライドは残り{remainingSlideSlots}件、1回に{assetImportMaxBatchCount}件までです。</p>
           <p>途中で失敗しても、Google Driveへ保存済みの素材は自動削除しません。</p>
           <p className="text-xs">現在の状態: {assetImportStatusLabel}</p>

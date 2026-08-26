@@ -1,7 +1,7 @@
 {
   "name": "スライドショー",
   "short_name": "スライドショー",
-  "description": "iPadで安定して再生するためのスライドショーPWAです。",
+  "description": "写真や動画を端末で安定して再生するためのスライドショーPWAです。",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

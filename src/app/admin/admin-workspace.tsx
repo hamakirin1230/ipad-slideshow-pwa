@@ -33,7 +33,7 @@ const workspaceTabs = [
   { id: "project", label: "作品" },
   { id: "edit", label: "スライド" },
   { id: "publish", label: "公開" },
-  { id: "device", label: "このiPad" },
+  { id: "device", label: "この端末" },
 ] as const;
 
 type WorkspaceTab = (typeof workspaceTabs)[number]["id"];
@@ -189,7 +189,7 @@ export function AdminWorkspace() {
                 className="min-h-11 bg-sky-300 text-slate-950 hover:bg-sky-200"
                 onClick={() => selectTab("device")}
               >
-                このiPadに保存
+                この端末に保存
               </Button>
             ) : null}
           </div>
@@ -254,13 +254,13 @@ export function AdminWorkspace() {
             <div className="space-y-8">
               <div>
                 <h2 className="mt-2 text-2xl font-semibold">
-                  このiPadで再生できるようにする
+                  この端末で再生できるようにする
                 </h2>
               </div>
               <OfflineSyncPanel />
-              <ProductDisclosure label="このiPadの保存データを管理">
+              <ProductDisclosure label="この端末の保存データを管理">
                 <p className="mb-5">
-                  公開とは別に、選択中の作品をこのiPadへ明示的に保存します。
+                  公開とは別に、選択中の作品をこの端末へ明示的に保存します。
                 </p>
                 <OfflineConfirmedStorePanel />
               </ProductDisclosure>

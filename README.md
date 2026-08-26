@@ -1,8 +1,8 @@
 # スライドショー
 
-iPadで安定して本番再生するためのスライドショーPWAです。
+写真や動画を端末で安定して再生するためのスライドショーPWAです。
 
-PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、iPad側ではDriveから取得した再生用コピーをIndexedDBに保存して、offline-firstで再生します。大容量動画は端末へ本体保存せず、online時にDrive streamingで再生します。最優先は、学校現場・イベント現場で本番中に止まらないことです。
+PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、端末側ではDriveから取得した再生用コピーをIndexedDBに保存して、offline-firstで再生します。大容量動画は端末へ本体保存せず、online時にDrive streamingで再生します。最優先は、学校現場・イベント現場で本番中に止まらないことです。
 
 ## Documentation
 
@@ -38,9 +38,9 @@ PC側でGoogle Drive上のworkspace / project / manifest / assetsを管理し、
 - `/admin/` drag handle表示を「≡」のみへ簡略化し、aria-label / titleは維持
 - `/player/` のcaptionテロップ下帯をiPad PWAでも残るように背景指定を強化
 - Google Photos Pickerのユーザー認証・選択待ちアプリ側timeoutを30分に延長
-- `/admin/` から選択中projectの写真だけをGoogle Photosの新規albumへ書き出せる。画像captionはexport画像にburn-inする。font sizeはimageHeight基準。動画slideは作品に残し、このiPadへの保存とPlayer再生はできるが、Google Photosへは書き出さない。Production上の実Google Photosで新規album exportと画像caption burn-inを確認済み。images-only + caption normalizationのPreview確認済み。images-only + caption normalizationのProduction確認済み。動画だけの作品の実機acceptanceは未実施
+- `/admin/` から選択中projectの写真だけをGoogle Photosの新規albumへ書き出せる。画像captionはexport画像にburn-inする。font sizeはimageHeight基準。動画slideは作品に残し、この端末への保存とPlayer再生はできるが、Google Photosへは書き出さない。Production上の実Google Photosで新規album exportと画像caption burn-inを確認済み。images-only + caption normalizationのPreview確認済み。images-only + caption normalizationのProduction確認済み。動画だけの作品の実機acceptanceは未実施
 - `/admin/` で選択中projectのunused Drive asset cleanup preview / readiness / preflight / confirm previewを表示
-- `/admin/` から選択中作品をGoogle Drive上で削除できる。Drive完全成功後だけこのiPadの同一作品コピーを連動削除する。Preview実機acceptance済み。Production実機acceptance済み。Google Photos exportは削除対象外
+- `/admin/` から選択中作品をGoogle Drive上で削除できる。Drive完全成功後だけこの端末の同一作品コピーを連動削除する。Preview実機acceptance済み。Production実機acceptance済み。Google Photos exportは削除対象外
 - cleanup preview / preflight / confirm previewはread-onlyで、Drive file、Player snapshot、IndexedDBを変更しない
 - fresh preflight、明示confirm、順次DELETE、partial failure停止を経た未参照app-managed JPEG / PNG / WebPの物理削除と、実Google Driveでの動作確認
 - `/admin/` からローカル動画をDrive assetとして追加し、動画slideをmanifestへ保存
@@ -79,20 +79,20 @@ https://ipad-slideshow-pwa.vercel.app/
 
 - `/` トップ画面
 - `/settings` Google接続、Drive workspace確認、IndexedDB疎通確認
-- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、選択中作品のGoogle Drive削除（Preview実機acceptance済み。Production実機acceptance済み）、Google Photos新規album書き出し、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete。最上部headerと作品カードは写真 / 動画件数を表示し、confirmed copyがある作品だけ「再生」、未保存なら「このiPadに保存」へ誘導する
+- `/admin` Drive project、画像／ローカル動画追加、slide順・テロップ・動画duration override編集、選択中作品のGoogle Drive削除（Preview実機acceptance済み。Production実機acceptance済み）、Google Photos新規album書き出し、offline / remoteOnly状態確認、offline sync、confirmed store、storage管理、unused Drive asset cleanup preview / explicit physical delete。最上部headerと作品カードは写真 / 動画件数を表示し、confirmed copyがある作品だけ「再生」、未保存なら「この端末に保存」へ誘導する
 - `/admin/history` project別公開履歴一覧、current公開状態と未公開編集表示、revision詳細、rollback影響確認、fresh preflightを経たverified rollback実行
 - `/player` 画像／Blob保存済み動画のoffline-first再生、remoteOnly動画のonline Drive streaming、remote video手動retry、project selector、自動送り設定、本番モード、操作ロック、テロップ表示。URLの`projectId`を再生対象のauthorityとする
 
 ## 重要な運用方針
 
-- iPadホーム画面PWAで安定して動くことを優先する
+- ホーム画面PWAで安定して動くことを優先する
 - access tokenは保存しない、表示しない、console出力しない
 - access tokenはProvider内部のメモリ上にだけ保持する
 - 明示的な「Googleへ接続」のあと、page reloadではGIS account chooserを出さず、same-origin session restoreでDrive接続を復元する。page loadやGIS readyではtoken requestを開始せず、アカウント選択画面を自動では開かない
 - Google Drive short-lived sessionは2026-08-22時点でProduction functional acceptance済み。lifetime上限は`min(expires_in, 3600 seconds)`。restoreでTTL延長しない。live pageを60分で強制logoutする機能ではない。実時間absolute-expiry境界は未確認。architectureは`docs/design/google-connection-60-minute-session.md`。Production evidenceは`docs/acceptance/google-session-production-acceptance.md`
 - Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`
 - Google Photos export開始時だけ専用token clientで`https://www.googleapis.com/auth/photoslibrary.appendonly`を要求し、`include_granted_scopes`はfalseにする。Photos exportの認可は操作開始時だけである
-- Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作であり、source Drive素材を更新しない
+- Google Photos exportはDrive publish / offline sync / 「この端末に保存」と別操作であり、source Drive素材を更新しない
 - Google Photos exportは自動retryしない
 - Client SecretとAPIキーは作らない、使わない
 - Drive上のworkspace / project / manifest / assetsをsource of truthにする
@@ -101,20 +101,20 @@ https://ipad-slideshow-pwa.vercel.app/
 - `manifest.publication.currentRevisionId`をcurrent published revisionの正本とし、最新日時から推測しない
 - publish / rollbackはimmutable revisionを作成し、rollbackでも過去revisionを書き換えず新しいrevisionを作る
 - rollbackはasset本体を複製、削除、復元せず、検証済み参照とfresh metadataをrevisionへ記録する
-- publish / rollback成功だけではiPad confirmed snapshotやplayer sessionは変わらない
-- iPadへ反映するには対象projectの明示的なoffline syncとconfirmed promotionが必要
+- publish / rollback成功だけでは端末の confirmed snapshotやplayer sessionは変わらない
+- 端末へ反映するには対象projectの明示的なoffline syncとconfirmed promotionが必要
 - confirmed snapshotはoffline sync時点のpublication provenanceを保持し、公開版一致、未公開編集あり、未公開、要確認、旧形式を区別する
 - publication provenanceの確認失敗だけではcurrent manifestの同期や再生を止めず、sanitized warningとして扱う
 - Goal 6以前のlegacy snapshotは再生可能なまま旧形式と表示し、次回の明示的offline sync成功時にprovenance付きrecordへ自然に置換する
 - revision fileや部分失敗で残ったorphanは自動削除せず、履歴確認と明示的な回復判断を優先する
 - Drive file ID、operation ID、canonical hash全文、checksum値をUIへ表示しない
 - Photos Pickerから追加したslideは現在のDrive `manifest.json.slides[]` の末尾へ選択順でappendする
-- IndexedDBはiPad端末内のoffline playback用コピーとして扱う
+- IndexedDBは端末内のoffline playback用コピーとして扱う
 - Cache StorageはService Workerのapp shell cacheとして扱う
-- iPad側のローカル削除ではGoogle Drive上のデータを削除しない
-- `/admin`の「作品を削除」はGoogle Drive上の選択中作品を削除し、Drive完全成功後だけこのiPadの同一作品コピーを連動削除する。Preview実機acceptance済み。Production実機acceptance済み。Google Photos exportは削除対象外。Preview evidenceは`docs/acceptance/project-delete-preview-acceptance.md`。Production evidenceは`docs/acceptance/project-delete-production-acceptance.md`
-- Drive上の画像順・caption変更をiPad再生へ反映するには、対象projectのoffline syncを実行する
-- Drive上のslide削除・複製をiPad再生へ反映するにも、対象projectのoffline syncを実行する
+- 端末側のローカル削除ではGoogle Drive上のデータを削除しない
+- `/admin`の「作品を削除」はGoogle Drive上の選択中作品を削除し、Drive完全成功後だけこの端末の同一作品コピーを連動削除する。Preview実機acceptance済み。Production実機acceptance済み。Google Photos exportは削除対象外。Preview evidenceは`docs/acceptance/project-delete-preview-acceptance.md`。Production evidenceは`docs/acceptance/project-delete-production-acceptance.md`
+- Drive上の画像順・caption変更を再生へ反映するには、対象projectのoffline syncを実行する
+- Drive上のslide削除・複製を再生へ反映するにも、対象projectのoffline syncを実行する
 - Drive cleanup preview / readiness / preflight / confirm previewはread-onlyで、Player snapshotやIndexedDBを変更しない
 - unused Drive assetの物理削除は、fresh preflightと明示confirmを通った未参照JPEG / PNG / WebPだけを対象とし、MP4/MOVは対象外にする
 - offline保存対象assetの上限は50 MiBとし、これは端末ストレージ全体の上限ではない

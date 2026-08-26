@@ -78,7 +78,7 @@ export function interpretDriveProjectDeleteResult(
         status: "error",
         message: "作品の削除結果を確定できませんでした。",
         diagnostics: sanitizeProjectDeleteDiagnostics([
-          "作品の削除結果を確定できませんでした。このiPadのコピーは変更していません。",
+          "作品の削除結果を確定できませんでした。この端末のコピーは変更していません。",
         ]),
         publicResult,
         shouldClearLocal: false,

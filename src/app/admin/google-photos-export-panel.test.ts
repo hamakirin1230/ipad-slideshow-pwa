@@ -71,7 +71,7 @@ describe("google photos export review UI", () => {
       "同じ素材を使うスライドも、それぞれ1件として容量に含みます。",
     );
     expect(source.panel).not.toMatch(/重複スライドも別アイテムとして書き出す/);
-    expect(source.panel).toContain("このiPadに保存");
+    expect(source.panel).toContain("この端末に保存");
   });
 
   it("asks the user to review again after the export source changes", () => {

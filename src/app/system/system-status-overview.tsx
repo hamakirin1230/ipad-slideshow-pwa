@@ -187,7 +187,7 @@ export function SystemStatusOverview() {
         <UtilityLink href="/admin">作品を選ぶ</UtilityLink>
       </StatusSection>
 
-      <StatusSection title="このiPad">
+      <StatusSection title="この端末">
         <StatusRow
           label="端末内データベース（IndexedDB）"
           status={getDeviceDatabaseStatus(deviceState)}
@@ -431,7 +431,7 @@ function getDeviceDatabaseStatus(state: DeviceStatusState) {
 }
 
 function getDeviceDatabaseDescription(state: DeviceStatusState) {
-  if (state.status === "ready") return "このiPadに再生データを保存できます。";
+  if (state.status === "ready") return "この端末に再生データを保存できます。";
   if (state.status === "error") return "端末の保存領域を読み込めませんでした。";
   return "「端末状態を確認」で利用可否を確認します。";
 }
@@ -489,25 +489,25 @@ function getPublicationCopy(status: OfflinePublicationProvenanceViewStatus): {
     case "unpublishedChanges":
       return {
         label: "未公開の変更あり",
-        message: "公開後に編集した内容がこのiPadに保存されています。",
+        message: "公開後に編集した内容がこの端末に保存されています。",
         tone: "attention",
       };
     case "unpublished":
       return {
         label: "未公開",
-        message: "まだ公開していない内容がこのiPadに保存されています。",
+        message: "まだ公開していない内容がこの端末に保存されています。",
         tone: "attention",
       };
     case "needsInspection":
       return {
         label: "確認が必要",
-        message: "公開内容との一致を確認できません。このiPadへの保存をもう一度実行してください。",
+        message: "公開内容との一致を確認できません。この端末への保存をもう一度実行してください。",
         tone: "danger",
       };
     case "legacyUnknown":
       return {
         label: "再保存を推奨",
-        message: "以前の形式で保存されています。このiPadへの保存で状態を更新できます。",
+        message: "以前の形式で保存されています。この端末への保存で状態を更新できます。",
         tone: "attention",
       };
   }

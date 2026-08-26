@@ -282,7 +282,7 @@ function ProjectPublishPanelSession() {
                     <Button asChild variant="outline" className="min-h-11 border-white/15 bg-white/5 text-slate-100">
                       <Link href={playerHref}>
                         <Play className="size-4" aria-hidden="true" />
-                        このiPadの作品を再生
+                        この端末の作品を再生
                       </Link>
                     </Button>
                   ) : (
@@ -293,7 +293,7 @@ function ProjectPublishPanelSession() {
                       disabled
                     >
                       <Play className="size-4" aria-hidden="true" />
-                      このiPadの作品を再生
+                      この端末の作品を再生
                     </Button>
                   )}
                   <Button asChild variant="ghost" className="min-h-11 text-slate-300 hover:bg-white/8 hover:text-white">
@@ -309,7 +309,7 @@ function ProjectPublishPanelSession() {
 
           <ProductDisclosure label="公開について">
             <p>公開すると、現在保存されている内容を公開履歴へ記録し、Google Drive上の公開版を切り替えます。</p>
-            <p className="mt-2">このiPadへの保存は自動では行われません。「このiPad」から別に実行してください。</p>
+            <p className="mt-2">この端末への保存は自動では行われません。「この端末」から別に実行してください。</p>
           </ProductDisclosure>
         </CardContent>
       </Card>
@@ -373,7 +373,7 @@ function PublishReview({
           </ul>
         )}
         <p className="mt-3 text-slate-300">
-          公開後、このiPadへの反映には「このiPadに保存」が別途必要です。
+          公開後、この端末への反映には「この端末に保存」が別途必要です。
         </p>
       </div>
 
@@ -390,7 +390,7 @@ function PublishReview({
           htmlFor="project-publish-confirmation"
           className="cursor-pointer text-slate-100"
         >
-          公開後も、このiPadへの反映には「このiPadに保存」が必要であることを確認しました。
+          公開後も、この端末への反映には「この端末に保存」が必要であることを確認しました。
         </label>
       </div>
 

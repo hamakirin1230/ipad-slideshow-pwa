@@ -52,7 +52,7 @@ export function buildProjectDeleteConfirmationDescription(projectTitle: string) 
     `『${projectTitle}』を削除します。`,
     "",
     "Google Drive上の作品データ（スライド、素材、公開履歴）を削除します。",
-    "このiPadに保存したコピーがある場合も、Google Driveの削除が完了した後に削除します。",
+    "この端末に保存したコピーがある場合も、Google Driveの削除が完了した後に削除します。",
     "Googleフォトへ書き出した写真は削除されません。",
     "この操作はアプリから元に戻せません。",
   ].join("\n");
@@ -98,7 +98,7 @@ export function getProjectDeleteViewState(input: {
       liveRole: "alert",
       title: PROJECT_DELETE_LOCAL_COPY_MESSAGES.failed,
       body: [
-        "Google Drive上の作品は削除済みです。端末保存データから、このiPadのコピーを再度削除できます。",
+        "Google Drive上の作品は削除済みです。端末保存データから、この端末のコピーを再度削除できます。",
       ],
     };
   }
@@ -112,7 +112,7 @@ export function getProjectDeleteViewState(input: {
         message ??
         "作品一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
       body: [
-        "このiPadのコピーは削除していません。",
+        "この端末のコピーは削除していません。",
         "自動では再試行しません。",
         ...diagnostics,
       ],

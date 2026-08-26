@@ -768,7 +768,7 @@ describe("workflow error and success labels", () => {
 
   it("defines the required offline sync guidance", () => {
     expect(PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE).toBe(
-      "このiPadへ反映するには「このiPadに保存」を実行してください。",
+      "この端末へ反映するには「この端末に保存」を実行してください。",
     );
   });
 });

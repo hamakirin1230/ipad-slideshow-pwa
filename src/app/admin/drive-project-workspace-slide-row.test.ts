@@ -16,7 +16,7 @@ describe("compact slide editing rows", () => {
     expect(duration).toContain('aria-label="スライドの表示時間"');
     expect(duration).toContain("<span className=\"text-sm text-slate-700\">秒</span>");
     expect(duration).not.toContain("画像スライドの自動送り秒数として保存します。");
-    expect(duration).not.toContain("このiPadへの保存後に再生へ反映");
+    expect(duration).not.toContain("この端末への保存後に再生へ反映");
     expect(duration).not.toContain("動画は現在、再生終了で次へ進みます");
     expect(duration).toContain("未保存");
     expect(duration).toContain("表示時間を入力してください。");

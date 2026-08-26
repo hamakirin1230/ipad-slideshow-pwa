@@ -56,7 +56,7 @@ describe("focused product experience contract", () => {
     for (const category of [
       "Google Drive",
       "作品",
-      "このiPad",
+      "この端末",
       "公開・同期",
     ]) {
       expect(systemOverviewSource).toContain(`title="${category}"`);

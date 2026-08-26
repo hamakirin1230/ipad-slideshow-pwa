@@ -52,7 +52,7 @@ describe("project delete confirmation copy", () => {
     expect(description).toContain("スライド");
     expect(description).toContain("素材");
     expect(description).toContain("公開履歴");
-    expect(description).toContain("このiPad");
+    expect(description).toContain("この端末");
     expect(description).toContain("Googleフォトへ書き出した写真は削除されません。");
     expect(description).toContain("アプリから元に戻せません。");
     expect(description).not.toContain("indexRemoved");
@@ -70,7 +70,7 @@ describe("project delete result view", () => {
         message: null,
         diagnostics: [],
       })?.title,
-    ).toBe("作品を削除しました。このiPadのコピーも削除しました。");
+    ).toBe("作品を削除しました。この端末のコピーも削除しました。");
     expect(
       getProjectDeleteViewState({
         status: "completed",
@@ -78,7 +78,7 @@ describe("project delete result view", () => {
         message: null,
         diagnostics: [],
       })?.title,
-    ).toBe("作品を削除しました。このiPadには保存コピーがありませんでした。");
+    ).toBe("作品を削除しました。この端末には保存コピーがありませんでした。");
     expect(
       getProjectDeleteViewState({
         status: "completed",
@@ -98,7 +98,7 @@ describe("project delete result view", () => {
     });
     expect(view?.tone).toBe("warning");
     expect(view?.liveRole).toBe("alert");
-    expect(view?.title).toContain("このiPadのコピーを削除できませんでした");
+    expect(view?.title).toContain("この端末のコピーを削除できませんでした");
     expect(view?.title).not.toContain("作品の削除に失敗しました");
     expect(view?.body.join(" ")).toContain("端末保存データ");
   });
@@ -113,7 +113,7 @@ describe("project delete result view", () => {
     });
     expect(view?.liveRole).toBe("alert");
     expect(view?.title).toContain("Google Drive上にデータが残っている可能性");
-    expect(view?.body.join(" ")).toContain("このiPadのコピーは削除していません");
+    expect(view?.body.join(" ")).toContain("この端末のコピーは削除していません");
     expect(view?.body.join(" ")).toContain("自動では再試行しません");
     expect(view?.body.join(" ")).toContain("Googleへ再接続してください。");
   });

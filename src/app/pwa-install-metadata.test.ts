@@ -80,6 +80,9 @@ describe("PWA install metadata", () => {
       "apple-mobile-web-app-capable": "yes",
     });
     expect(manifest.short_name).toBe(manifest.name);
+    expect(metadata.description).toBe(
+      "写真や動画を端末で安定して再生するためのスライドショーPWAです。",
+    );
     expect(metadata.description).toBe(manifest.description);
     expect(metadata.manifest).toBe("/manifest.json");
   });

@@ -3,9 +3,9 @@
 import { ChevronDown, Share } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import {
-  detectPwaInstallGuideBrowser,
+  detectPwaInstallGuideTarget,
   getPwaInstallGuideCopy,
-  type PwaInstallGuideBrowser,
+  type PwaInstallGuideTarget,
 } from "@/lib/pwa-install-browser";
 import {
   isStandalonePwaDisplay,
@@ -39,14 +39,16 @@ export function HomeScreenInstallGuide() {
   const headingId = useId();
   const [displayResolved, setDisplayResolved] = useState(false);
   const [standalone, setStandalone] = useState(false);
-  const [guideBrowser, setGuideBrowser] =
-    useState<PwaInstallGuideBrowser>("other");
+  const [guideTarget, setGuideTarget] = useState<PwaInstallGuideTarget>({
+    platform: "other",
+    browser: "other",
+  });
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     function applyStandaloneSignals() {
       setStandalone(isStandalonePwaDisplay(readBrowserStandaloneSignals()));
-      setGuideBrowser(detectPwaInstallGuideBrowser(navigator.userAgent));
+      setGuideTarget(detectPwaInstallGuideTarget(navigator.userAgent));
       setDisplayResolved(true);
     }
 
@@ -82,7 +84,7 @@ export function HomeScreenInstallGuide() {
     return null;
   }
 
-  const copy = getPwaInstallGuideCopy(guideBrowser);
+  const copy = getPwaInstallGuideCopy(guideTarget);
 
   return (
     <div className="mt-4 min-w-0 max-w-xl">
@@ -108,21 +110,24 @@ export function HomeScreenInstallGuide() {
         className="mt-2 rounded-xl bg-white/[0.035] px-4 py-4 text-sm leading-6 text-slate-300"
       >
         <h2 id={headingId} className="text-base font-semibold text-slate-50">
-          iPadにアプリとして追加
+          {copy.heading}
         </h2>
         {copy.openedInLabel ? (
           <p className="mt-1 text-slate-400">{copy.openedInLabel}</p>
         ) : null}
         <ol className="mt-3 list-decimal space-y-2 pl-5">
-          <li>
-            <span className="inline-flex min-w-0 items-start gap-2">
-              <ShareHintIcon />
-              <span>{copy.step1}</span>
-            </span>
-          </li>
-          <li>{copy.step2}</li>
-          <li>{copy.step3}</li>
-          <li>{copy.step4}</li>
+          {copy.steps.map((step, index) => (
+            <li key={step}>
+              {index === 0 && copy.showShareIconOnFirstStep ? (
+                <span className="inline-flex min-w-0 items-start gap-2">
+                  <ShareHintIcon />
+                  <span>{step}</span>
+                </span>
+              ) : (
+                step
+              )}
+            </li>
+          ))}
         </ol>
         {copy.footer ? (
           <p className="mt-3 text-slate-400">{copy.footer}</p>

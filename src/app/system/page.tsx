@@ -9,7 +9,7 @@ export default function SystemPage() {
             サポート
           </h1>
           <p className="mt-3 text-base leading-7 text-slate-400">
-            接続やこのiPadの状態を確認できます
+            接続やこの端末の状態を確認できます
           </p>
         </header>
 

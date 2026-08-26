@@ -273,8 +273,8 @@ export function DriveProjectWorkspacePanel() {
       <ProductDisclosure label="使い方を見る">
         <div className="space-y-2">
           <p>写真や動画を追加し、スライドをドラッグして並び替えます。</p>
-          <p>変更を再生に反映するには、あとで「このiPad」から保存してください。公開は別の操作です。</p>
-          <p>大容量動画は本体をこのiPadへ保存せず、オンライン時に再生します。対応形式や上限は素材追加の詳細で確認できます。</p>
+          <p>変更を再生に反映するには、あとで「この端末」から保存してください。公開は別の操作です。</p>
+          <p>大容量動画は本体をこの端末へ保存せず、オンライン時に再生します。対応形式や上限は素材追加の詳細で確認できます。</p>
         </div>
       </ProductDisclosure>
 
@@ -518,7 +518,7 @@ export function DriveProjectWorkspacePanel() {
               </div>
             )}
             <p className="mt-3 text-xs leading-5 text-slate-500">
-              スライド順、テロップ、表示時間の変更を再生に反映するには、この作品をこのiPadに保存してください。
+              スライド順、テロップ、表示時間の変更を再生に反映するには、この作品をこの端末に保存してください。
             </p>
             {slideEditMessage ? (
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -575,7 +575,7 @@ export function DriveProjectWorkspacePanel() {
       {pendingDeleteSlideIds ? (
         <ProductAlertDialog
           title="選択したスライドを削除しますか？"
-          description={`選択した${pendingDeleteSlideIds.length}件のスライドをこの作品から削除します。\nGoogle Drive上の素材ファイルは削除しません。\nこのiPadへの反映には、保存をもう一度実行してください。`}
+          description={`選択した${pendingDeleteSlideIds.length}件のスライドをこの作品から削除します。\nGoogle Drive上の素材ファイルは削除しません。\nこの端末への反映には、保存をもう一度実行してください。`}
           confirmLabel="スライドを削除"
           triggerRef={deleteTriggerRef}
           onCancel={() => setPendingDeleteSlideIds(null)}

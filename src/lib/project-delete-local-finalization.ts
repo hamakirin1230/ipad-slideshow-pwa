@@ -8,10 +8,10 @@ export type ProjectDeleteLocalCopyStatus =
   | "failed";
 
 export const PROJECT_DELETE_LOCAL_COPY_MESSAGES = {
-  cleared: "作品を削除しました。このiPadのコピーも削除しました。",
-  absent: "作品を削除しました。このiPadには保存コピーがありませんでした。",
+  cleared: "作品を削除しました。この端末のコピーも削除しました。",
+  absent: "作品を削除しました。この端末には保存コピーがありませんでした。",
   failed:
-    "作品は削除しましたが、このiPadのコピーを削除できませんでした。端末保存データから再度削除できます。",
+    "作品は削除しましたが、この端末のコピーを削除できませんでした。端末保存データから再度削除できます。",
 } as const;
 
 export function totalDeletedLocalOfflineRecords(

@@ -42,7 +42,7 @@ describe("offline sync stale view", () => {
       "Drive上の内容が同期中に変更されました。再度同期してください",
     );
     expect(view.retentionMessage).toContain(
-      "今回の結果はこのiPadの保存データへ反映していません",
+      "今回の結果はこの端末の保存データへ反映していません",
     );
     expect(view.retentionMessage).toContain(
       "以前の保存データと状態を維持しています",
@@ -58,7 +58,7 @@ describe("offline sync stale view", () => {
 
     expect(view.message).toContain("より新しい保存処理が優先された");
     expect(view.message).toContain(
-      "今回の結果はこのiPadへ反映していません",
+      "今回の結果はこの端末へ反映していません",
     );
     expect(view.retentionMessage).toContain(
       "以前の保存データを維持しています",

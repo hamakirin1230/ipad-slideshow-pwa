@@ -19,7 +19,9 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 
 - `/` に「ホーム画面に追加」guide実装済み
 - iPadOS 16.4以降を対象とする
-- Safari / Chrome / Edgeのbrowser別copy
+- iPadOS Safari / Chrome / Edgeのbrowser別copy
+- Android Chrome向けメニューcopyを実装済み。正式acceptance docsは未追加
+- UAは案内copy選択専用。standalone判定は `display-mode: standalone` または `navigator.standalone`
 - Preview実iPad acceptance PASS
 - 新PWA icon Preview目視PASS
 - standalone起動時install guide非表示PASS
@@ -32,12 +34,12 @@ runtime environmentとVercel security headerの現行契約は[`environment-secu
 現行仕様:
 
 Google Photos export is images-only.
-Video slides remain in the project and can be saved/played on this iPad,
+Video slides remain in the project and can be saved/played on this device,
 but are skipped for Google Photos export.
 
-- Google Photos exportはDrive publish / offline sync / 「このiPadに保存」と別操作
+- Google Photos exportはDrive publish / offline sync / 「この端末に保存」と別操作
 - 書き出し対象は`image/jpeg` / `image/png` / `image/webp`だけ
-- 作品自体は写真と動画を保持できる。動画slideの削除、Drive動画の削除、「このiPadに保存」やPlayer再生の制限ではない
+- 作品自体は写真と動画を保持できる。動画slideの削除、Drive動画の削除、「この端末に保存」やPlayer再生の制限ではない
 - `video/mp4` / `video/quicktime`はunsupported errorにせず、export対象外としてskipする。動画が存在してもexport全体をblockしない
 - album順は元project内の写真相対順を維持する
 - 動画だけの作品はexportを開始しない。空albumは作らない。表示は「Googleフォトへ書き出せる写真がありません。」Photos OAuth token request / upload / album作成へ進まない
@@ -59,23 +61,23 @@ but are skipped for Google Photos export.
 - authorization code flow / refresh tokenは今回の推奨ではない。Photos OAuthはDrive session create / delete lifecycleから隔離したままである
 - Google Photos exportの認可は操作開始時の専用token clientのままである。写真0件ならDrive preflight後にPhotos token requestを開始しない
 - 作品カードとAdmin最上部headerは写真 / 動画件数を表示する
-- 選択中作品にこのiPadのconfirmed copyがあるときだけ「再生」し、未保存なら「このiPadに保存」へ誘導する。自動offline syncはしない
+- 選択中作品にこの端末のconfirmed copyがあるときだけ「再生」し、未保存なら「この端末に保存」へ誘導する。自動offline syncはしない
 - PlayerはURLの`projectId`を再生対象のauthorityとし、localStorageの前回作品で上書きしない
 - images-only Preview acceptance passed。images-only + caption normalization Production acceptance passed。動画だけの作品の実機acceptanceは未実施
-- 「作品を削除」は2026-08-22時点でPreview PASS / Production PASS。Preview evidenceは[`acceptance/project-delete-preview-acceptance.md`](acceptance/project-delete-preview-acceptance.md)。Production evidenceは[`acceptance/project-delete-production-acceptance.md`](acceptance/project-delete-production-acceptance.md)。Drive完全成功後だけこのiPadの同一作品コピーを連動削除する。Google Photos exportは削除対象外。failure injectionはtest coverageであり実機未実施
+- 「作品を削除」は2026-08-22時点でPreview PASS / Production PASS。Preview evidenceは[`acceptance/project-delete-preview-acceptance.md`](acceptance/project-delete-preview-acceptance.md)。Production evidenceは[`acceptance/project-delete-production-acceptance.md`](acceptance/project-delete-production-acceptance.md)。Drive完全成功後だけこの端末の同一作品コピーを連動削除する。Google Photos exportは削除対象外。failure injectionはtest coverageであり実機未実施
 
 ## 最重要方針
 
-- iPadホーム画面PWAで安定して動くことを最優先にする
+- ホーム画面PWAで安定して動くことを最優先にする
 - 本番中に止まらないことを最優先にする
-- 最終的にオフラインのiPadだけでスライドショーを本番再生できるようにする
+- 最終的にオフラインの端末だけでスライドショーを本番再生できるようにする
 - Vercel productionを現在の本番運用対象にする
 - Google OAuth scopeは原則`https://www.googleapis.com/auth/drive.file`のみ。Googleフォトへ書き出すときは専用token clientで`photoslibrary.appendonly`だけをその操作の開始時に要求し、`include_granted_scopes`はfalseにする
 - access tokenは保存しない、表示しない、console出力しない
 - access tokenはlocalStorage / IndexedDB / Cookie / docs / logsに出さない
 - Client Secretは作らない、使わない
 - APIキーは作らない、使わない
-- iPadホーム画面PWAで確認できないものは、本番完了扱いにしない
+- ホーム画面PWAで確認できないものは、本番完了扱いにしない
 - package managerは`pnpm@10.34.4`に固定し、local validationはpnpm 10で実行する
 
 ## 現在の公開先
@@ -118,10 +120,10 @@ production App Routerに存在する主要route:
 - publish / rollbackはimmutable revisionを作成し、current published revisionは`manifest.publication.currentRevisionId`をauthorityとする
 - rollbackは過去revisionへpointerを戻さず、過去内容から新しいrollback revisionを作る
 - save / publish / rollbackだけではoffline dataを更新せず、端末反映には明示的offline syncが必要
-- Googleフォトへ書き出すはDrive publish / offline sync / このiPadに保存とは別操作であり、Drive publicationとoffline storeは変更しない
+- Googleフォトへ書き出すはDrive publish / offline sync / この端末に保存とは別操作であり、Drive publicationとoffline storeは変更しない
 - Google Photos export is images-only。写真だけを新しいalbumへ書き出し、動画slideはskipする
 - Googleフォトへ書き出す画像captionはexport用画像へburn-inする。font sizeはimageHeight基準
-- 動画は作品とDriveと「このiPadに保存」/ Playerに残る。Google Photosへはuploadしない
+- 動画は作品とDriveと「この端末に保存」/ Playerに残る。Google Photosへはuploadしない
 - publication writeのin-flight guardは同一tab内の直列化であり、既知のmulti-tab raceは未解決
 - temporary publication acceptance fault harnessは専用branchで実装後に完全撤去され、production sourceには存在しない
 
@@ -285,8 +287,8 @@ ipad-slideshow-pwa-app-shell-v1
 - pending unused-asset delete planはAppProviders内部refだけに保持し、access tokenを含めず永続化しない
 - cleanup previewの診断にもaccess token、Authorization header、Drive download URL、raw API URLを含めない
 - Player反映は従来どおりoffline sync経由で、cleanup preview自体はPlayer snapshotやIndexedDBを変更しない
-- project単位ローカル削除ではDrive上のデータを削除しない。これはstandaloneの「このiPadのコピーを削除」である
-- 「作品を削除」は選択中作品のGoogle Driveデータを削除し、Drive完全成功後だけこのiPadの同一作品コピーを連動削除する。Preview PASS / Production PASS
+- project単位ローカル削除ではDrive上のデータを削除しない。これはstandaloneの「この端末のコピーを削除」である
+- 「作品を削除」は選択中作品のGoogle Driveデータを削除し、Drive完全成功後だけこの端末の同一作品コピーを連動削除する。Preview PASS / Production PASS
 - app shell cache削除ではIndexedDBのproject / asset / Blobを削除しない
 
 ## MP4/MOVと動画容量の現在地
@@ -378,7 +380,7 @@ lock解除後もproduction modeは維持
 captionはplain text、保存時trim、上限80文字
 /admin/の本編スライド順でslideごとにテロップ編集・個別保存
 caption更新はDrive manifest.jsonをsource of truthにする
-caption更新後、iPad再生に反映するには対象projectのoffline syncが必要
+caption更新後、再生に反映するには対象projectのoffline syncが必要
 /player/ではnormal / production / lock中の全てでテロップoverlayを表示
 テロップoverlayはpointer-events-noneでswipe操作を邪魔しない
 テロップ下帯はiPad PWAでbackdrop-filterが効かなくても残るよう、rgba背景をinline styleで指定する
@@ -408,7 +410,7 @@ prefers-reduced-motionでは短いfadeに落とす
 reorder保存先はDrive manifest.json.slides[]の配列順
 reorderではasset file / assetId / assetFileId / caption / durationSecondsを変更しない
 index.json.projects[].updatedAtも更新し、更新後にmanifest / indexを再読込して再検証
-画像順変更後、iPad再生に反映するには対象projectのoffline syncが必要
+画像順変更後、再生に反映するには対象projectのoffline syncが必要
 ```
 
 ## Admin slide drag-and-drop・一括削除・複製
@@ -438,7 +440,7 @@ delete / duplicate / drag reorderではmanifest.json.updatedAtとindex.json.proj
 更新後にmanifest / indexを再読込して保存結果を再検証する
 不整合時は自動修復しない
 project未ready、offline sync中、素材追加中、caption保存中、title保存中、Drive操作中、slide edit保存中はslide edit不可
-slide削除・複製・並び替え後、iPad再生に反映するには対象projectのoffline syncが必要
+slide削除・複製・並び替え後、再生に反映するには対象projectのoffline syncが必要
 ```
 
 ## 直近の検証済み

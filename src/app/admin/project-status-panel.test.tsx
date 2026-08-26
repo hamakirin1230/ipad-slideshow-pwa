@@ -200,7 +200,7 @@ describe("selected project delete controls", () => {
     expect(html).toContain("作品を削除しますか？");
     expect(html).toContain("『夏の記録』を削除します。");
     expect(html).toContain("Google Drive上の作品データ（スライド、素材、公開履歴）を削除します。");
-    expect(html).toContain("このiPadに保存したコピーがある場合も、Google Driveの削除が完了した後に削除します。");
+    expect(html).toContain("この端末に保存したコピーがある場合も、Google Driveの削除が完了した後に削除します。");
     expect(html).toContain("Googleフォトへ書き出した写真は削除されません。");
     expect(html).toContain("この操作はアプリから元に戻せません。");
     expect(html).toContain("role=\"alertdialog\"");
@@ -230,10 +230,10 @@ describe("selected project delete controls", () => {
       hasSelectedProject: false,
     });
 
-    expect(cleared).toContain("作品を削除しました。このiPadのコピーも削除しました。");
+    expect(cleared).toContain("作品を削除しました。この端末のコピーも削除しました。");
     expect(cleared).toContain("role=\"status\"");
-    expect(absent).toContain("作品を削除しました。このiPadには保存コピーがありませんでした。");
-    expect(failed).toContain("このiPadのコピーを削除できませんでした");
+    expect(absent).toContain("作品を削除しました。この端末には保存コピーがありませんでした。");
+    expect(failed).toContain("この端末のコピーを削除できませんでした");
     expect(failed).not.toContain("作品の削除に失敗しました");
     expect(failed).toContain("role=\"alert\"");
     expect(cleared).not.toContain("indexRemoved");
@@ -252,7 +252,7 @@ describe("selected project delete controls", () => {
     });
 
     expect(html).toContain("Google Drive上にデータが残っている可能性");
-    expect(html).toContain("このiPadのコピーは削除していません");
+    expect(html).toContain("この端末のコピーは削除していません");
     expect(html).not.toContain("もう一度削除");
     expect(html).not.toContain("自動再試行");
   });
@@ -287,7 +287,7 @@ describe("project status panel delete wiring", () => {
       new URL("./google-photos-export-panel.tsx", import.meta.url),
       "utf8",
     );
-    expect(confirmedStore).toContain("このiPadの保存データを削除しますか？");
+    expect(confirmedStore).toContain("この端末の保存データを削除しますか？");
     expect(confirmedStore).not.toContain("prepareProjectDeletion");
     expect(photosExport).not.toContain("prepareProjectDeletion");
     expect(photosExport).not.toContain("confirmProjectDeletion");

@@ -226,7 +226,7 @@ export function DriveSettingsPanel() {
         ) : null}
 
         <p className="mt-5">
-          Google認証情報は画面やログへ表示せず、端末へ永続保存しません。作品の編集、公開、このiPadへの保存は「つくる」から明示的に実行します。
+          Google認証情報は画面やログへ表示せず、端末へ永続保存しません。作品の編集、公開、この端末への保存は「つくる」から明示的に実行します。
         </p>
       </ProductDisclosure>
     </section>

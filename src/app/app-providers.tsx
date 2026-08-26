@@ -818,13 +818,13 @@ const assetImportStatusLabels: Record<AssetImportStatus, string> = {
 };
 
 const offlineSyncStatusLabels: Record<OfflineSyncStatus, string> = {
-  idle: "このiPadへの保存待ち",
-  syncing: "このiPadに保存中",
-  ready: "このiPadへの保存完了",
+  idle: "この端末への保存待ち",
+  syncing: "この端末に保存中",
+  ready: "この端末への保存完了",
   stale: "今回の保存結果が古い",
-  failed: "このiPadへの保存失敗",
-  cancelled: "このiPadへの保存中止",
-  blocked: "このiPadへの保存を開始できない",
+  failed: "この端末への保存失敗",
+  cancelled: "この端末への保存中止",
+  blocked: "この端末への保存を開始できない",
 };
 
 const initialDriveMessage =
@@ -837,7 +837,7 @@ const initialAssetImportMessage =
   "Driveプロジェクトを確認した後に、素材を追加できます。";
 
 const initialOfflineSyncMessage =
-  "Google Driveの作品を確認した後に、このiPadへ保存できます。";
+  "Google Driveの作品を確認した後に、この端末へ保存できます。";
 
 const initialSlideReorderMessage =
   "Driveプロジェクトを確認した後に、スライドの順番を変更できます。";
@@ -1214,16 +1214,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
   function getGoogleAuthPopupFailureMessage(error?: GoogleTokenError) {
     switch (error?.type) {
       case "popup_failed_to_open":
-        return "Google認証のポップアップを開けませんでした。iPadのポップアップ許可、またはSafari側に残った認証画面を確認してください。";
+        return "Google認証のポップアップを開けませんでした。ポップアップ許可、または残っている認証画面を確認してください。";
 
       case "popup_closed":
-        return "Google認証画面が完了前に閉じられました。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。";
+        return "Google認証画面が完了前に閉じられました。残っているGoogle認証画面があれば閉じてから、認証状態をリセットして再試行してください。";
 
       case "unknown":
-        return "Google認証で不明なpopupエラーが発生しました。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。";
+        return "Google認証で不明なpopupエラーが発生しました。残っているGoogle認証画面があれば閉じてから、認証状態をリセットして再試行してください。";
 
       default:
-        return "Google認証のポップアップを開けない、または認証画面が閉じられた可能性があります。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。";
+        return "Google認証のポップアップを開けない、または認証画面が閉じられた可能性があります。残っているGoogle認証画面があれば閉じてから、認証状態をリセットして再試行してください。";
     }
   }
 
@@ -1701,7 +1701,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "このiPadへの保存中のため、素材追加は開始できません。";
+      return "この端末への保存中のため、素材追加は開始できません。";
     }
 
     if (
@@ -1748,19 +1748,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function getOfflineSyncBlockedReason() {
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "このiPadへの保存を実行中です。";
+      return "この端末への保存を実行中です。";
     }
 
     if (isSlideEditInFlight) {
-      return "スライド編集中のため、このiPadへの保存は開始できません。";
+      return "スライド編集中のため、この端末への保存は開始できません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
-      return "素材追加処理中のため、このiPadへの保存は開始できません。";
+      return "素材追加処理中のため、この端末への保存は開始できません。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
-      return "Google Driveの操作中のため、このiPadへの保存は開始できません。";
+      return "Google Driveの操作中のため、この端末への保存は開始できません。";
     }
 
     if (googleStatus !== "connected" || driveFileGranted !== true) {
@@ -1804,7 +1804,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "このiPadへの保存中のため、スライド編集はできません。";
+      return "この端末への保存中のため、スライド編集はできません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
@@ -1870,7 +1870,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "このiPadへの保存中のため、未使用素材の確認は開始できません。";
+      return "この端末への保存中のため、未使用素材の確認は開始できません。";
     }
 
     if (
@@ -1977,7 +1977,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "このiPadへの保存中のため、作品を削除できません。";
+      return "この端末への保存中のため、作品を削除できません。";
     }
 
     if (
@@ -2415,7 +2415,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setDriveFileGranted(null);
           setGoogleStatus("error");
           setGoogleMessage(
-            "Google認証でエラーが返されました。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。",
+            "Google認証でエラーが返されました。残っているGoogle認証画面があれば閉じてから、認証状態をリセットして再試行してください。",
           );
           abortDriveOperation();
           resetDriveState();
@@ -2534,7 +2534,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setDriveFileGranted(null);
     setGoogleStatus("connecting");
     setGoogleMessage(
-      "Googleアカウント選択と許可確認を行っています。iPadで認証画面が戻らない場合は、App SwitcherでGoogle認証画面やSafariを閉じてから、認証状態をリセットしてください。",
+      "Googleアカウント選択と許可確認を行っています。認証画面が戻らない場合は、残っている認証画面を閉じてから、認証状態をリセットしてください。",
     );
     resetDriveState();
     tokenRequestKindRef.current = "drive";
@@ -2549,7 +2549,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setDriveFileGranted(null);
       setGoogleStatus("error");
       setGoogleMessage(
-        "Google認証が時間内に完了しませんでした。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。",
+        "Google認証が時間内に完了しませんでした。残っているGoogle認証画面があれば閉じてから、認証状態をリセットして再試行してください。",
       );
       abortDriveOperation();
       resetDriveState();
@@ -2566,7 +2566,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setDriveFileGranted(null);
       setGoogleStatus("error");
       setGoogleMessage(
-        "Google認証要求を開始できませんでした。iPadのApp SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、認証状態をリセットして再試行してください。",
+        "Google認証要求を開始できませんでした。残っているGoogle認証画面があれば閉じてから、認証状態をリセットして再試行してください。",
       );
       resetDriveState();
     }
@@ -2586,7 +2586,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
     setGoogleMessage(
       hasClientId
-        ? "Google認証状態をリセットしました。iPadの場合は、App SwitcherでGoogle認証画面やSafariが残っていれば閉じてから、もう一度Google接続を開始してください。"
+        ? "Google認証状態をリセットしました。残っているGoogle認証画面があれば閉じてから、もう一度Google接続を開始してください。"
         : "NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。",
     );
     googleSessionControllerRef.current?.deleteAfterLocalDisconnect();
@@ -2943,7 +2943,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "プロジェクト反映: 成功分完了",
         "プロジェクト一覧の更新: 完了",
         "更新後再検証: 完了",
-        "テロップ変更を再生に反映するには、この作品をこのiPadに保存してください。",
+        "テロップ変更を再生に反映するには、この作品をこの端末に保存してください。",
       ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
@@ -3363,7 +3363,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "プロジェクト反映: 完了",
         "プロジェクト一覧の更新: 完了",
         "更新後再検証: 完了",
-        "保存対象のMP4/MOVを再生に反映するには、この作品をこのiPadに保存してください。",
+        "保存対象のMP4/MOVを再生に反映するには、この作品をこの端末に保存してください。",
       ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
@@ -3540,16 +3540,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!runtime) {
       setOfflineSyncStatus("failed");
-      setOfflineSyncMessage("このiPadへの保存処理を準備できませんでした。");
+      setOfflineSyncMessage("この端末への保存処理を準備できませんでした。");
       setSafeOfflineSyncDiagnostics([
-        "このiPadへの保存処理を準備できていません。",
+        "この端末への保存処理を準備できていません。",
       ]);
       return;
     }
 
     if (blockedReason) {
       setOfflineSyncStatus("blocked");
-      setOfflineSyncMessage("このiPadへの保存を開始できませんでした。");
+      setOfflineSyncMessage("この端末への保存を開始できませんでした。");
       setSafeOfflineSyncDiagnostics([blockedReason]);
       return;
     }
@@ -3560,7 +3560,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!accessToken || !readyContext || !readyProject) {
       setOfflineSyncStatus("blocked");
-      setOfflineSyncMessage("このiPadへの保存に必要な確認済み情報が不足しています。");
+      setOfflineSyncMessage("この端末への保存に必要な確認済み情報が不足しています。");
       setSafeOfflineSyncDiagnostics([
         "Google接続、Driveの保存領域、選択中プロジェクトのいずれかを確認できませんでした。",
         "Drive状態とプロジェクト状態を再確認してください。",
@@ -3632,7 +3632,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setOfflineSyncMessage(OFFLINE_SYNC_CANCELLED_MESSAGE);
     setOfflineSyncProgress(null);
     setSafeOfflineSyncDiagnostics([
-      "ユーザー操作によりこのiPadへの保存を中止しました。",
+      "ユーザー操作によりこの端末への保存を中止しました。",
       "Driveからの取得、一時保存、端末保存データの更新のどこまで進んだかは、この状態だけでは判断しません。",
       "必要に応じて Drive状態とプロジェクト状態を再確認してください。",
     ]);
@@ -4403,7 +4403,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
       applyProjectReadyState(result.project, toProjectDetails(result.details));
       setCaptionUpdateMessage(
-        "テロップを保存しました。再生へ反映するには、この作品をこのiPadに保存してください。",
+        "テロップを保存しました。再生へ反映するには、この作品をこの端末に保存してください。",
       );
       setCaptionUpdateDiagnostics(result.diagnostics);
     } catch (error) {
@@ -4518,7 +4518,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
       applyProjectReadyState(result.project, toProjectDetails(result.details));
       setDurationUpdateMessage(
-        "表示時間を保存しました。再生へ反映するには、この作品をこのiPadに保存してください。",
+        "表示時間を保存しました。再生へ反映するには、この作品をこの端末に保存してください。",
       );
       setDurationUpdateDiagnostics(result.diagnostics);
     } catch (error) {
@@ -4703,19 +4703,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
       setSlideReorderStatus("completed");
       setSlideReorderMessage(
-        "スライドの順番を保存しました。再生へ反映するには、この作品をこのiPadに保存してください。",
+        "スライドの順番を保存しました。再生へ反映するには、この作品をこの端末に保存してください。",
       );
       setSlideReorderDiagnostics([
         ...result.diagnostics,
-        "iPad再生への反映には、このプロジェクトの端末同期が必要です。",
+        "再生への反映には、このプロジェクトの端末同期が必要です。",
       ]);
       setSlideEditStatus("completed");
       setSlideEditMessage(
-        "スライドの順番を保存しました。再生へ反映するには、この作品をこのiPadに保存してください。",
+        "スライドの順番を保存しました。再生へ反映するには、この作品をこの端末に保存してください。",
       );
       setSlideEditDiagnostics([
         ...result.diagnostics,
-        "iPad再生への反映には、このプロジェクトの端末同期が必要です。",
+        "再生への反映には、このプロジェクトの端末同期が必要です。",
       ]);
       return true;
     } catch (error) {
@@ -4840,12 +4840,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
       setSlideEditStatus("completed");
       setSlideEditMessage(
-        "選択したスライドを削除しました。再生へ反映するには、この作品をこのiPadに保存してください。",
+        "選択したスライドを削除しました。再生へ反映するには、この作品をこの端末に保存してください。",
       );
       setSlideEditDiagnostics([
         ...result.diagnostics,
         "Drive上の素材ファイルは削除していません。",
-        "iPad再生への反映には、このプロジェクトの端末同期が必要です。",
+        "再生への反映には、このプロジェクトの端末同期が必要です。",
       ]);
       return true;
     } catch (error) {
@@ -4957,13 +4957,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
       setSlideEditStatus("completed");
       setSlideEditMessage(
-        "スライドを複製しました。再生へ反映するには、この作品をこのiPadに保存してください。",
+        "スライドを複製しました。再生へ反映するには、この作品をこの端末に保存してください。",
       );
       setSlideEditDiagnostics([
         ...result.diagnostics,
         "新しいスライドをプロジェクトへ追加しました。",
         "Drive上の素材ファイルはコピーしていません。",
-        "iPad再生への反映には、このプロジェクトの端末同期が必要です。",
+        "再生への反映には、このプロジェクトの端末同期が必要です。",
       ]);
       return true;
     } catch (error) {
@@ -7188,13 +7188,13 @@ function buildOfflineSyncResultMessage(
       return "端末保存データの更新に失敗しました。以前の再生用データを維持しています。";
 
     case "orchestrationPreconditionFailed":
-      return "このiPadへの保存の前提条件を満たしていません。";
+      return "この端末への保存の前提条件を満たしていません。";
 
     case "orchestrationUnexpectedFailure":
-      return "このiPadへの保存中に予期しない失敗が発生しました。";
+      return "この端末への保存中に予期しない失敗が発生しました。";
 
     case "syncAlreadyInFlight":
-      return "このiPadへの保存はすでに実行中です。";
+      return "この端末への保存はすでに実行中です。";
 
     case "syncRuntimeCancelled":
       return OFFLINE_SYNC_CANCELLED_MESSAGE;
@@ -7226,7 +7226,7 @@ function buildOfflineSyncResultDiagnostics(
         `更新したプロジェクト: ${result.promotion.promotedProjects}`,
         `更新した素材情報: ${result.promotion.promotedAssets}`,
         `更新した素材本体: ${result.promotion.promotedAssetBlobs}`,
-        "大容量動画は本体を保存しませんが、オンライン再生用の情報をこのiPadに残し、オンライン時はGoogle Driveから再生します。",
+        "大容量動画は本体を保存しませんが、オンライン再生用の情報をこの端末に残し、オンライン時はGoogle Driveから再生します。",
         "本体が未保存でも、Google Driveからの削除や保存失敗を意味しません。MP4/MOV以外の動画形式は未対応です。",
         result.publicationProvenance.message,
       ];
@@ -7248,13 +7248,13 @@ function buildOfflineSyncResultDiagnostics(
       return ["確認済みデータへの切り替えに失敗しました。以前の再生用データを維持しています。"];
 
     case "orchestrationPreconditionFailed":
-      return ["このiPadへの保存の前提条件を確認してください。"];
+      return ["この端末への保存の前提条件を確認してください。"];
 
     case "orchestrationUnexpectedFailure":
-      return ["このiPadへの保存中に予期しない失敗が発生しました。"];
+      return ["この端末への保存中に予期しない失敗が発生しました。"];
 
     case "syncAlreadyInFlight":
-      return ["このiPadへの保存はすでに実行中です。"];
+      return ["この端末への保存はすでに実行中です。"];
 
     case "syncRuntimeCancelled":
       return [OFFLINE_SYNC_CANCELLED_MESSAGE];
@@ -7651,7 +7651,7 @@ function buildLocalVideoOfflineScopeDiagnostics(item: LocalVideoAssetImportItem)
       "理由: MP4/MOVはoffline保存上限を超えるとremoteOnlyとして保持されます。",
     );
   } else {
-    diagnostics.push("このiPadへの保存: MP4/MOVは上限以下の場合に保存対象です。");
+    diagnostics.push("この端末への保存: MP4/MOVは上限以下の場合に保存対象です。");
   }
 
   return diagnostics;

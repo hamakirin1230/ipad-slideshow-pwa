@@ -38,9 +38,12 @@ describe("home screen install guidance contract", () => {
 
   it("uses user agent only for guide copy selection, not standalone detection", () => {
     expect(standaloneHelperSource).not.toContain("userAgent");
-    expect(standaloneHelperSource).toContain("displayModeStandalone");
-    expect(standaloneHelperSource).toContain("navigatorStandalone");
-    expect(standaloneHelperSource).not.toContain("detectPwaInstallGuideBrowser");
+    expect(standaloneHelperSource).toContain(
+      "return displayModeStandalone === true || navigatorStandalone === true;",
+    );
+    expect(standaloneHelperSource).not.toContain("detectPwaInstallGuide");
+    expect(standaloneHelperSource).not.toContain("Android");
+    expect(browserHelperSource).toContain("detectPwaInstallGuideTarget");
     expect(browserHelperSource).toContain("detectPwaInstallGuideBrowser");
     expect(browserHelperSource).toContain("getPwaInstallGuideCopy");
     expect(browserHelperSource).toContain("userAgent");
@@ -48,14 +51,14 @@ describe("home screen install guidance contract", () => {
       "isStandalonePwaDisplay(readBrowserStandaloneSignals())",
     );
     expect(guideSource).toContain(
-      "detectPwaInstallGuideBrowser(navigator.userAgent)",
+      "detectPwaInstallGuideTarget(navigator.userAgent)",
     );
-    expect(guideSource).toContain("getPwaInstallGuideCopy(guideBrowser)");
+    expect(guideSource).toContain("getPwaInstallGuideCopy(guideTarget)");
+    expect(guideSource).not.toContain("getPwaInstallGuideCopy(guideBrowser)");
   });
 
-  it("uses shared iPad install copy without claiming install completion", () => {
+  it("uses shared install copy without claiming install completion", () => {
     expect(guideSource).toContain("ホーム画面に追加");
-    expect(guideSource).toContain("iPadにアプリとして追加");
     expect(browserHelperSource).toContain("Safariの共有ボタンをタップ");
     expect(browserHelperSource).toContain("Chromeの共有ボタンをタップ");
     expect(browserHelperSource).toContain("Edgeの共有メニューを開く");
@@ -66,6 +69,7 @@ describe("home screen install guidance contract", () => {
     );
     expect(browserHelperSource).toContain("画面の内容を確認する");
     expect(browserHelperSource).toContain("「追加」をタップ");
+    expect(browserHelperSource).toContain("Chrome右上の「︙」メニューを開く");
     expect(guideSource).toContain("aria-expanded={open}");
     expect(guideSource).toContain("aria-controls={panelId}");
     expect(guideSource).toContain("閉じる");

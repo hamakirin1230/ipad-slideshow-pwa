@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "スライドショー",
-  description: "iPadで安定して再生するためのスライドショーPWAです。",
+  description: "写真や動画を端末で安定して再生するためのスライドショーPWAです。",
   applicationName: "スライドショー",
   manifest: "/manifest.json",
   icons: {
