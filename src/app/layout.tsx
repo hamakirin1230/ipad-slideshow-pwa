@@ -34,9 +34,9 @@ export const metadata: Metadata = {
       },
     ],
     apple: {
-      url: "/icons/icon-192.png",
+      url: "/icons/icon-180.png",
       type: "image/png",
-      sizes: "192x192",
+      sizes: "180x180",
     },
   },
   appleWebApp: {

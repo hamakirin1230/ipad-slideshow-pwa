@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="¹é¤É·çü">
+  <defs>
+    <linearGradient id="bg" x1="18%" y1="0%" x2="88%" y2="100%">
+      <stop offset="0%" stop-color="#7dd3fc"/>
+      <stop offset="48%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+    <linearGradient id="photoBack" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fdba74"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <linearGradient id="photoMid" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5eead4"/>
+      <stop offset="100%" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="photoFront" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#7dd3fc"/>
+      <stop offset="55%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0c4a6e"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <g transform="translate(256 256)">
+    <g transform="translate(-42 -8) rotate(-16)">
+      <rect x="-112" y="-82" width="224" height="168" rx="18" fill="#0f172a" opacity="0.18"/>
+      <rect x="-116" y="-88" width="224" height="168" rx="18" fill="#f8fafc"/>
+      <rect x="-100" y="-72" width="192" height="136" rx="10" fill="url(#photoBack)"/>
+      <circle cx="-48" cy="-28" r="22" fill="#ffedd5"/>
+    </g>
+
+    <g transform="translate(48 -4) rotate(13)">
+      <rect x="-108" y="-78" width="224" height="168" rx="18" fill="#0f172a" opacity="0.18"/>
+      <rect x="-112" y="-84" width="224" height="168" rx="18" fill="#f8fafc"/>
+      <rect x="-96" y="-68" width="192" height="136" rx="10" fill="url(#photoMid)"/>
+      <path d="M-96 28 C-40 4, 40 4, 96 28 L96 68 L-96 68 Z" fill="#115e59"/>
+    </g>
+
+    <g transform="translate(0 18) rotate(-3)">
+      <rect x="-122" y="-90" width="252" height="196" rx="20" fill="#0f172a" opacity="0.22"/>
+      <rect x="-126" y="-96" width="252" height="196" rx="20" fill="#ffffff"/>
+      <rect x="-108" y="-78" width="216" height="148" rx="12" fill="url(#photoFront)"/>
+      <circle cx="-40" cy="-30" r="24" fill="#fde047"/>
+      <path d="M-108 40 C-40 12, 40 18, 108 46 L108 70 L-108 70 Z" fill="#075985"/>
+    </g>
+
+    <circle r="62" fill="#0f172a"/>
+    <circle r="58" fill="#0f172a"/>
+    <circle r="62" fill="none" stroke="#e0f2fe" stroke-width="5"/>
+    <polygon points="-18,-32 -18,32 40,0" fill="#f8fafc"/>
+  </g>
+</svg>

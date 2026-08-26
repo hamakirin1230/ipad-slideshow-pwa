@@ -141,9 +141,15 @@ describe("PWA install metadata", () => {
     );
 
     expect(appleIcons).toContainEqual({
-      url: "/icons/icon-192.png",
+      url: "/icons/icon-180.png",
       type: "image/png",
-      sizes: "192x192",
+      sizes: "180x180",
+    });
+    expect(
+      readPngDimensions(new URL("../../public/icons/icon-180.png", import.meta.url)),
+    ).toEqual({
+      width: 180,
+      height: 180,
     });
   });
 });
