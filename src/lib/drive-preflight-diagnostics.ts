@@ -162,13 +162,26 @@ export function findFirstSlideContext(
   }[],
   assetId: string,
 ): { slideIndex: number; assetName: string; mimeType: string } | null {
-  const slideIndex = slides.findIndex((slide) => slide.assetId === assetId);
-  if (slideIndex < 0) return null;
-  const slide = slides[slideIndex];
-  if (!slide) return null;
-  return {
-    slideIndex,
-    assetName: slide.assetName,
-    mimeType: slide.mimeType,
-  };
+  return findAllSlideContexts(slides, assetId)[0] ?? null;
+}
+
+export function findAllSlideContexts(
+  slides: readonly {
+    assetId: string;
+    assetName: string;
+    mimeType: string;
+  }[],
+  assetId: string,
+): { slideIndex: number; assetName: string; mimeType: string }[] {
+  return slides.flatMap((slide, slideIndex) =>
+    slide.assetId === assetId
+      ? [
+          {
+            slideIndex,
+            assetName: slide.assetName,
+            mimeType: slide.mimeType,
+          },
+        ]
+      : [],
+  );
 }

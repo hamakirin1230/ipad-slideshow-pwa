@@ -15,6 +15,8 @@ import {
   createPrepareReviewFailure,
   createRandomHexSuffix,
   getProjectPublishAssetDiagnosticLabel,
+  getProjectPublishDiagnosticTargets,
+  formatProjectPublishTrashedAssetTarget,
   getProjectPublishFailureDisplayMessage,
   getManifestCommitLabel,
   getProjectPublishModeLabel,
@@ -603,6 +605,7 @@ describe("fresh publish review preparation", () => {
       ok: false,
       code: "trashedAsset",
       diagnosticCode: "trashedAsset",
+      diagnosticTargets: ["スライド 1 / image.jpg / image/jpeg"],
       diagnostics: {
         issueCodes: ["trashedAsset"],
         assetDiagnostics: [
@@ -617,6 +620,77 @@ describe("fresh publish review preparation", () => {
     });
     expect(JSON.stringify(result)).not.toContain("image-file");
     expect(JSON.stringify(result)).not.toContain(IMAGE_ASSET_ID);
+    expect(JSON.stringify(result)).not.toContain(PROJECT_ID);
+    expect(JSON.stringify(result)).not.toContain(WORKSPACE_ID);
+  });
+
+  it("shows a 1-origin slide number for a trashed middle video", async () => {
+    const metadata = buildMetadata();
+    metadata.get("video-file")!.trashed = true;
+    const result = await prepare({ metadata });
+    expect(result).toMatchObject({
+      ok: false,
+      diagnosticCode: "trashedAsset",
+      diagnosticTargets: ["スライド 2 / video.mp4 / video/mp4"],
+    });
+    if (result.ok) return;
+    expect(result.diagnosticTargets).toEqual([
+      "スライド 2 / video.mp4 / video/mp4",
+    ]);
+    expect(JSON.stringify(result.diagnosticTargets)).not.toContain("video-file");
+    expect(JSON.stringify(result.diagnosticTargets)).not.toContain(VIDEO_ASSET_ID);
+  });
+
+  it("lists every trashed asset target without Drive IDs", async () => {
+    const metadata = buildMetadata();
+    metadata.get("image-file")!.trashed = true;
+    metadata.get("video-file")!.trashed = true;
+    const result = await prepare({ metadata });
+    expect(result).toMatchObject({
+      ok: false,
+      diagnosticCode: "trashedAsset",
+      diagnosticTargets: [
+        "スライド 1 / image.jpg / image/jpeg",
+        "スライド 2 / video.mp4 / video/mp4",
+      ],
+    });
+    if (result.ok) return;
+    expect(result.message).toBe(
+      "公開対象に削除済みのアセットが含まれています。",
+    );
+    const serialized = JSON.stringify(result.diagnosticTargets);
+    for (const forbidden of [
+      "image-file",
+      "video-file",
+      IMAGE_ASSET_ID,
+      VIDEO_ASSET_ID,
+      PROJECT_ID,
+      WORKSPACE_ID,
+      "https://",
+      "fnv1a64",
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("lists every slide that reuses the same trashed asset", async () => {
+    const manifest = buildManifest();
+    manifest.slides.push({
+      ...manifest.slides[0]!,
+      slideId: "88888888-8888-4888-8888-888888888888",
+      caption: "Reuse",
+    });
+    const metadata = buildMetadata();
+    metadata.get("image-file")!.trashed = true;
+    const result = await prepare({ manifest, metadata });
+    expect(result).toMatchObject({
+      ok: false,
+      diagnosticCode: "trashedAsset",
+      diagnosticTargets: [
+        "スライド 1 / image.jpg / image/jpeg",
+        "スライド 3 / image.jpg / image/jpeg",
+      ],
+    });
   });
 
   it("allows image-video-image with MP4 in the middle", async () => {
@@ -835,6 +909,79 @@ describe("workflow error and success labels", () => {
     ).toBe(
       "公開前確認を完了できませんでした。現在の状態を再確認して、もう一度お試しください。",
     );
+  });
+
+  it("formats trashed asset targets as 1-origin slide / name / mime", () => {
+    expect(
+      formatProjectPublishTrashedAssetTarget({
+        slideIndex: 2,
+        assetName: "IMG_3770.MOV",
+        mimeType: "video/quicktime",
+      }),
+    ).toBe("スライド 3 / IMG_3770.MOV / video/quicktime");
+    expect(
+      getProjectPublishDiagnosticTargets({
+        diagnosticCode: "trashedAsset",
+        diagnostics: {
+          issueCodes: ["trashedAsset", "trashedAsset"],
+          assetDiagnostics: [
+            {
+              slideIndex: 2,
+              assetName: "IMG_3770.MOV",
+              mimeType: "video/quicktime",
+              kind: "trashedAsset",
+            },
+            {
+              slideIndex: 0,
+              assetName: "image.jpg",
+              mimeType: "image/jpeg",
+              kind: "trashedAsset",
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      "スライド 3 / IMG_3770.MOV / video/quicktime",
+      "スライド 1 / image.jpg / image/jpeg",
+    ]);
+  });
+
+  it("does not put Drive IDs into trashed asset target lines", () => {
+    const lines = getProjectPublishDiagnosticTargets({
+      diagnosticCode: "trashedAsset",
+      diagnostics: {
+        issueCodes: ["trashedAsset"],
+        assetDiagnostics: [
+          {
+            slideIndex: 2,
+            assetName: "https://drive.example.invalid/private-file",
+            mimeType: "video/quicktime",
+            kind: "trashedAsset",
+          },
+        ],
+      },
+    });
+    const serialized = JSON.stringify(lines);
+    expect(lines[0]).toContain("スライド 3");
+    expect(serialized).not.toContain("https://");
+    expect(serialized).not.toContain("private-file");
+    expect(serialized).not.toContain(PROJECT_ID);
+    expect(
+      getProjectPublishDiagnosticTargets({
+        diagnosticCode: "assetMimeTypeMismatch",
+        diagnostics: {
+          issueCodes: ["assetMimeTypeMismatch"],
+          assetDiagnostics: [
+            {
+              slideIndex: 0,
+              assetName: "image.jpg",
+              mimeType: "image/jpeg",
+              kind: "assetMimeTypeMismatch",
+            },
+          ],
+        },
+      }),
+    ).toEqual([]);
   });
 
   it("labels an already prepared revision as verified", () => {

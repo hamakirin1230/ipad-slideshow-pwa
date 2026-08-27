@@ -98,6 +98,11 @@ describe("production diagnostics presentation boundary", () => {
     }
     expect(source.publish).toContain("公開前確認を完了できませんでした。");
     expect(source.publish).toContain("getProjectPublishFailureDisplayMessage");
+    expect(source.publish).toContain("diagnosticTargets");
+    expect(source.publish).toContain("対象:");
+    expect(source.publish).toContain(
+      "sanitizeUserFacingDiagnostic(state.error.diagnosticTargets[0]!)",
+    );
 
     for (const forbidden of [
       "revision: {rollbackOutcome.revisionId}",

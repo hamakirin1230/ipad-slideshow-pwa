@@ -48,6 +48,7 @@ type PublishUiState =
       phase: "preflight" | "publish";
       error: {
         diagnosticCode?: ProjectPublishDiagnosticCode;
+        diagnosticTargets?: string[];
         recoverability?: SanitizedPublishError["recoverability"];
         canRetry: boolean;
       };
@@ -127,6 +128,10 @@ function ProjectPublishPanelSession() {
             error: {
               ...(result.diagnosticCode
                 ? { diagnosticCode: result.diagnosticCode }
+                : {}),
+              ...(result.diagnosticTargets &&
+              result.diagnosticTargets.length > 0
+                ? { diagnosticTargets: result.diagnosticTargets }
                 : {}),
               canRetry: false,
             },
@@ -530,6 +535,28 @@ function PublishError({
               state.error.diagnosticCode,
             )}
           </p>
+        ) : null}
+        {state.error.diagnosticTargets &&
+        state.error.diagnosticTargets.length > 0 ? (
+          <div className="mt-2">
+            {state.error.diagnosticTargets.length === 1 ? (
+              <p>
+                対象:{" "}
+                {sanitizeUserFacingDiagnostic(state.error.diagnosticTargets[0]!)}
+              </p>
+            ) : (
+              <>
+                <p>対象 {state.error.diagnosticTargets.length}件:</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {state.error.diagnosticTargets.map((target, index) => (
+                    <li key={`${index}:${target}`}>
+                      {sanitizeUserFacingDiagnostic(target)}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
         ) : null}
       </div>
       <div className="flex flex-col gap-3 sm:flex-row">

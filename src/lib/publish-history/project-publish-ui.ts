@@ -4,6 +4,7 @@ import type {
 } from "./project-publish-preflight";
 import type { ProjectPublishWorkflowResult } from "./project-publish-workflow";
 import type { SafeSlideDiagnostic } from "../drive-preflight-diagnostics";
+import { sanitizeUserFacingDiagnostic } from "../user-facing-diagnostics";
 
 export type ProjectPublishWarning = {
   code: string;
@@ -84,6 +85,7 @@ export type PrepareProjectPublishReviewResult =
       message: string;
       diagnosticCode?: ProjectPublishDiagnosticCode;
       diagnostics?: ProjectPublishInternalDiagnostics;
+      diagnosticTargets?: string[];
     };
 
 export type SanitizedPublishSuccess = {
@@ -157,6 +159,10 @@ export function createPrepareReviewFailure(input?: {
   diagnosticCode?: ProjectPublishDiagnosticCode;
   diagnostics?: ProjectPublishInternalDiagnostics;
 }): Extract<PrepareProjectPublishReviewResult, { ok: false }> {
+  const diagnosticTargets = getProjectPublishDiagnosticTargets({
+    diagnosticCode: input?.diagnosticCode,
+    diagnostics: input?.diagnostics,
+  });
   return {
     ok: false,
     code: input?.code ?? "preflightFailed",
@@ -167,7 +173,36 @@ export function createPrepareReviewFailure(input?: {
       ? { diagnosticCode: input.diagnosticCode }
       : {}),
     ...(input?.diagnostics ? { diagnostics: input.diagnostics } : {}),
+    ...(diagnosticTargets.length > 0 ? { diagnosticTargets } : {}),
   };
+}
+
+export function formatProjectPublishTrashedAssetTarget(
+  item: Pick<SafeSlideDiagnostic<string>, "slideIndex" | "assetName" | "mimeType">,
+): string {
+  return sanitizeUserFacingDiagnostic(
+    `スライド ${item.slideIndex + 1} / ${item.assetName} / ${item.mimeType}`,
+  );
+}
+
+export function getProjectPublishDiagnosticTargets(input: {
+  diagnosticCode?: ProjectPublishDiagnosticCode;
+  diagnostics?: ProjectPublishInternalDiagnostics;
+}): string[] {
+  if (input.diagnosticCode !== "trashedAsset") {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const item of input.diagnostics?.assetDiagnostics ?? []) {
+    if (item.kind !== "trashedAsset") continue;
+    const line = formatProjectPublishTrashedAssetTarget(item);
+    if (seen.has(line)) continue;
+    seen.add(line);
+    lines.push(line);
+  }
+  return lines;
 }
 
 export function getProjectPublishAssetDiagnosticCode(

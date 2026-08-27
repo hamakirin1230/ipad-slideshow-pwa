@@ -1,5 +1,6 @@
 import {
   buildSafeSlideDiagnostic,
+  findAllSlideContexts,
   findFirstSlideContext,
   type SafeSlideDiagnostic,
 } from "../drive-preflight-diagnostics";
@@ -685,12 +686,32 @@ function validateAssets(
     };
 
     if (asset.trashed) {
-      pushAssetIssue(
-        "trashedAsset",
-        "error",
-        "公開対象に削除済みのアセットが含まれています。",
-        `${path}.trashed`,
-      );
+      const contexts = findAllSlideContexts(manifest.slides, asset.assetId);
+      if (contexts.length === 0) {
+        pushAssetIssue(
+          "trashedAsset",
+          "error",
+          "公開対象に削除済みのアセットが含まれています。",
+          `${path}.trashed`,
+        );
+      } else {
+        for (const context of contexts) {
+          issues.push(
+            issue(
+              "trashedAsset",
+              "error",
+              "公開対象に削除済みのアセットが含まれています。",
+              `${path}.trashed`,
+              buildSafeSlideDiagnostic({
+                slideIndex: context.slideIndex,
+                assetName: context.assetName,
+                mimeType: context.mimeType,
+                kind: "trashedAsset",
+              }),
+            ),
+          );
+        }
+      }
     }
     if (asset.role !== "asset") {
       pushAssetIssue(
