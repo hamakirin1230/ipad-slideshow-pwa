@@ -179,7 +179,6 @@ import { clearLocalOfflineProjectData } from "@/lib/offline-local-project-clear"
 import type { ProjectDeleteLocalCopyStatus } from "@/lib/project-delete-local-finalization";
 import {
   PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
-  PICKED_VIDEO_SIZE_LIMIT_BYTES,
   assertPickedMediaItemDownloadReady,
   createPhotosPickerSession,
   deletePhotosPickerSession,
@@ -197,8 +196,9 @@ import {
   type PhotosPickerSessionSnapshot,
 } from "@/lib/google-photos-picker";
 import {
-  DRIVE_VIDEO_OFFLINE_MAX_BYTES,
+  DRIVE_VIDEO_MAX_BYTES,
   DRIVE_VIDEO_UPLOAD_TYPE,
+  getDriveVideoStorageDisposition,
   getLocalDriveVideoFileValidationCodes,
   isDriveVideoFileSizeWithinLimit,
   isSupportedDriveVideoMimeType,
@@ -2735,7 +2735,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setAssetImportStatus("waitingForSelection");
       setAssetImportMessage(
-        `Photos Pickerで写真またはvideo/mp4動画を最大${assetImportMaxBatchCount}件選択してください。`,
+        `Photos Pickerで写真またはMP4/MOV動画を最大${assetImportMaxBatchCount}件選択してください。`,
       );
 
       const waitResult = await waitForPhotosPickerSelection({
@@ -2825,7 +2825,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             mediaType: pickedMediaItem.type,
             expectedMimeType: pickedMediaItem.mediaFile.mimeType,
             ...(pickedMediaItem.type === "VIDEO"
-              ? { sizeLimitBytes: PICKED_VIDEO_SIZE_LIMIT_BYTES }
+              ? { sizeLimitBytes: DRIVE_VIDEO_MAX_BYTES }
               : {}),
             signal: abortSignal,
           });
@@ -2849,6 +2849,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
             blob: downloadResult.blob,
             mimeType: downloadResult.downloadedContentType,
             sizeBytes: downloadResult.downloadedSizeBytes,
+            ...(pickedMediaItem.type === "VIDEO"
+              ? { uploadType: DRIVE_VIDEO_UPLOAD_TYPE }
+              : {}),
             signal: abortSignal,
           });
 
@@ -2877,6 +2880,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
             ...pickedMediaItem.diagnostics,
             ...downloadResult.diagnostics,
             ...savedAsset.diagnostics,
+            ...(pickedMediaItem.type === "VIDEO"
+              ? buildDriveVideoOfflineScopeDiagnostics({
+                  mimeType: downloadResult.downloadedContentType,
+                  sizeBytes: downloadResult.downloadedSizeBytes,
+                })
+              : []),
           );
         } catch (itemError) {
           if (isAbortError(itemError)) {
@@ -3297,7 +3306,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
           batchDiagnostics.push(
             ...savedAsset.diagnostics,
-            ...buildLocalVideoOfflineScopeDiagnostics(localItem),
+            ...buildDriveVideoOfflineScopeDiagnostics({
+              mimeType: localItem.mimeType,
+              sizeBytes: localItem.file.size,
+            }),
           );
         } catch (itemError) {
           if (isAbortError(itemError)) {
@@ -8055,15 +8067,19 @@ function validateLocalVideoFile(item: LocalVideoAssetImportItem) {
   });
 }
 
-function buildLocalVideoOfflineScopeDiagnostics(item: LocalVideoAssetImportItem) {
+function buildDriveVideoOfflineScopeDiagnostics(input: {
+  mimeType: string;
+  sizeBytes: number;
+}) {
   const diagnostics: string[] = [];
+  const disposition = getDriveVideoStorageDisposition(input);
 
-  if (item.file.size > DRIVE_VIDEO_OFFLINE_MAX_BYTES) {
+  if (disposition === "remoteOnly") {
     diagnostics.push(
       "offline保存: 対象外",
       "理由: MP4/MOVはoffline保存上限を超えるとremoteOnlyとして保持されます。",
     );
-  } else {
+  } else if (disposition === "offlineEligible") {
     diagnostics.push("この端末への保存: MP4/MOVは上限以下の場合に保存対象です。");
   }
 
