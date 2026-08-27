@@ -97,6 +97,16 @@ describe("shouldOfferGooglePhotosPicker", () => {
     ).toBe(false);
   });
 
+  it("keeps Google Photos picker hidden on mobile surfaces", () => {
+    for (const input of [
+      { userAgent: IPHONE_SAFARI, maxTouchPoints: 5 },
+      { userAgent: IPAD_SAFARI, maxTouchPoints: 5 },
+      { userAgent: ANDROID_CHROME, maxTouchPoints: 5 },
+    ]) {
+      expect(shouldOfferGooglePhotosPicker(input)).toBe(false);
+    }
+  });
+
   it("keeps the SSR snapshot hidden to avoid hydration mismatch", () => {
     expect(getGooglePhotosPickerServerAvailability()).toBe(false);
     expect(source).toContain("detectPwaInstallGuidePlatform");

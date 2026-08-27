@@ -134,7 +134,7 @@ export function AssetImportPanel() {
             onClick={startAssetImport}
             disabled={!canStartAssetImport}
           >
-            Googleフォトから選ぶ
+            Googleフォトから写真を選ぶ
           </Button>
         ) : null}
 
@@ -157,8 +157,10 @@ export function AssetImportPanel() {
       <ProductDisclosure label="素材追加の詳細" tone="light" className="mt-4">
         <div className="space-y-2">
           <p>写真と動画はこの端末から選べます。</p>
+          <p>Googleフォトから追加できるのは写真のみです。動画は「動画を選ぶ」から追加してください。</p>
+          <p>macOS/Windowsでは、動画をローカルまたはGoogle Drive等から選べます。</p>
           {offerGooglePhotosPicker ? (
-            <p>Googleフォトから選ぶ場合は、Googleの利用許可画面が開きます。</p>
+            <p>Googleフォトから写真を選ぶ場合は、Googleの利用許可画面が開きます。</p>
           ) : null}
           <p>対応する動画はMP4またはMOV、1ファイル5GB以下です。大容量動画は本体をこの端末へ保存せず、オンライン時に再生します。</p>
           <p>追加できるスライドは残り{remainingSlideSlots}件、1回に{assetImportMaxBatchCount}件までです。</p>

@@ -66,7 +66,7 @@ describe("AssetImportPanel device photo picker", () => {
     );
   });
 
-  it("offers Googleフォトから選ぶ only after a hydration-safe client snapshot", () => {
+  it("offers Googleフォトから写真を選ぶ only after a hydration-safe client snapshot", () => {
     expect(source).toContain("useSyncExternalStore(");
     expect(source).toContain("subscribeGooglePhotosPickerAvailability");
     expect(source).toContain("readGooglePhotosPickerClientAvailability");
@@ -75,10 +75,30 @@ describe("AssetImportPanel device photo picker", () => {
     expect(source).not.toContain("userAgent");
     expect(source).toContain("{offerGooglePhotosPicker ? (");
     expect(source).toContain("onClick={startAssetImport}");
-    expect(source).toContain("Googleフォトから選ぶ");
-    expect(source).not.toContain("Googleフォトから写真を選ぶ");
-    expect(source).toContain("Googleの利用許可画面が開きます");
+    expect(source).toContain("Googleフォトから写真を選ぶ");
+    expect(source).not.toContain(">Googleフォトから選ぶ<");
+    expect(source).toContain("Googleフォトから追加できるのは写真のみです。");
+    expect(source).toContain("動画は「動画を選ぶ」から追加してください。");
+    expect(source).toContain(
+      "macOS/Windowsでは、動画をローカルまたはGoogle Drive等から選べます。",
+    );
+    expect(source).toContain(
+      "Googleフォトから写真を選ぶ場合は、Googleの利用許可画面が開きます。",
+    );
     expect(source).toContain("写真と動画はこの端末から選べます。");
+  });
+
+  it("hides the Google Photos button unless the desktop snapshot is true", () => {
+    const photosButtonStart = source.indexOf("{offerGooglePhotosPicker ? (");
+    const photosButton = source.slice(
+      photosButtonStart,
+      source.indexOf("</Button>", photosButtonStart),
+    );
+
+    expect(photosButtonStart).toBeGreaterThan(source.indexOf("動画を選ぶ"));
+    expect(photosButton).toContain("onClick={startAssetImport}");
+    expect(photosButton).toContain("Googleフォトから写真を選ぶ");
+    expect(source).toContain("getGooglePhotosPickerServerAvailability");
   });
 
   it("does not persist tokens or expose picker internals from the import panel", () => {

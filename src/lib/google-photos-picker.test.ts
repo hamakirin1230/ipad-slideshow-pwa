@@ -1,14 +1,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveLocalDriveVideoMimeType } from "./drive-video-policy";
 import {
-  DRIVE_VIDEO_MAX_BYTES,
-  DRIVE_VIDEO_OFFLINE_MAX_BYTES,
-  getDriveVideoStorageDisposition,
-  resolveLocalDriveVideoMimeType,
-} from "./drive-video-policy";
-import { buildDriveProjectAssetStorageFilename } from "./google-drive";
-import {
+  PHOTOS_PICKER_PHOTO_ONLY_MESSAGE,
   fetchAndValidatePickedPhoto,
   isPhotosDownloadedAssetMimeType,
   normalizePickedMediaItem,
@@ -20,11 +15,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function videoItem(input: {
-  mimeType: string;
-  filename?: string | null;
-  sizeBytes?: number;
-}) {
+function videoItem(input: { mimeType: string; filename?: string | null }) {
   return {
     id: "media-item-1",
     type: "VIDEO",
@@ -32,9 +23,6 @@ function videoItem(input: {
       baseUrl: "https://photos.example/base",
       mimeType: input.mimeType,
       filename: input.filename,
-      ...(typeof input.sizeBytes === "number"
-        ? { sizeBytes: input.sizeBytes }
-        : {}),
     },
   };
 }
@@ -51,117 +39,80 @@ function photoItem(input: { mimeType: string; filename?: string | null }) {
   };
 }
 
-async function downloadPickedMedia(input: {
-  mediaType: "PHOTO" | "VIDEO";
-  expectedMimeType: string;
-  contentType: string;
-  body?: Blob;
-  contentLength?: string;
-}) {
-  const body =
-    input.body ??
-    new Blob(["media-bytes"], {
-      type: input.contentType,
-    });
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(
-      async () =>
-        new Response(body, {
-          status: 200,
-          headers: {
-            "Content-Type": input.contentType,
-            ...(input.contentLength
-              ? { "Content-Length": input.contentLength }
-              : {}),
-          },
-        }),
-    ),
-  );
+function expectPhotosPickerVideoRejected(error: unknown) {
+  expect(error).toBeInstanceOf(PhotosPickerSelectionError);
+  if (!(error instanceof PhotosPickerSelectionError)) {
+    return;
+  }
 
-  return fetchAndValidatePickedPhoto({
-    accessToken: "token",
-    baseUrl: "https://photos.example/base",
-    mediaType: input.mediaType,
-    expectedMimeType: input.expectedMimeType,
-    signal: new AbortController().signal,
-  });
+  expect(error.status).toBe("invalid");
+  expect(error.message).toBe(PHOTOS_PICKER_PHOTO_ONLY_MESSAGE);
+  expect(error.diagnostics).toContain(PHOTOS_PICKER_PHOTO_ONLY_MESSAGE);
+  expect(error.diagnostics).toContain("Drive保存: 未実行");
+  expect(error.diagnostics).toContain("manifest反映: 未実行");
+  expect(error.diagnostics.join("\n")).not.toContain("photos.example");
+  expect(error.diagnostics.join("\n")).not.toContain("token");
+  expect(error.diagnostics.join("\n")).not.toContain("pickerUri");
+  expect(error.diagnostics.join("\n")).not.toContain("projectId");
+  expect(error.diagnostics.join("\n")).not.toMatch(/\bsession\b/i);
 }
 
-describe("Google Photos Picker video/quicktime import", () => {
-  it("keeps selected video/mp4 on the Drive save path", () => {
-    const item = normalizePickedMediaItem(
-      videoItem({
-        mimeType: "video/mp4",
-        filename: "clip.mp4",
-        sizeBytes: 1_024,
-      }),
-    );
-
-    expect(item.type).toBe("VIDEO");
-    expect(item.mediaFile.mimeType).toBe("video/mp4");
-    expect(item.mediaFile.filename).toBe("clip.mp4");
-    expect(item.diagnostics.join("\n")).toContain(
-      "video/mp4 を素材追加対象として処理します。",
-    );
-  });
-
-  it("accepts selected video/quicktime and keeps IMG_3770.MOV", () => {
-    const item = normalizePickedMediaItem(
-      videoItem({
-        mimeType: "video/quicktime",
-        filename: "IMG_3770.MOV",
-        sizeBytes: 2_048,
-      }),
-    );
-
-    expect(item.type).toBe("VIDEO");
-    expect(item.mediaFile.mimeType).toBe("video/quicktime");
-    expect(item.mediaFile.filename).toBe("IMG_3770.MOV");
-    expect(item.diagnostics).toContain("Picker video MIME: video/quicktime");
-    expect(item.diagnostics).not.toContain(
-      "Original filename extension differed from Picker MIME; Picker metadata was accepted pending download validation.",
-    );
-  });
-
-  it("resolves MOV from an empty or octet-stream MIME using the filename", () => {
-    expect(
-      normalizePickedMediaItem(
-        videoItem({
-          mimeType: "application/octet-stream",
-          filename: "IMG_3770.MOV",
-        }),
-      ).mediaFile.mimeType,
-    ).toBe("video/quicktime");
-    expect(
-      normalizePickedMediaItem({
-        id: "media-item-1",
-        type: "VIDEO",
-        mediaFile: {
-          baseUrl: "https://photos.example/base",
-          mimeType: "   ",
-          filename: "IMG_3770.MOV",
+function stubPhotoDownload(contentType: string) {
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(new Blob(["photo-bytes"], { type: contentType }), {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
         },
-      }).mediaFile.mimeType,
-    ).toBe("video/quicktime");
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+describe("Google Photos Picker photo-only import", () => {
+  it.each([
+    ["image/jpeg", "IMG_0001.JPG"],
+    ["image/png", "IMG_0001.PNG"],
+    ["image/webp", "IMG_0001.webp"],
+  ] as const)("accepts selected PHOTO %s", (mimeType, filename) => {
+    const item = normalizePickedMediaItem(photoItem({ mimeType, filename }));
+
+    expect(item.type).toBe("PHOTO");
+    expect(item.mediaFile.mimeType).toBe(mimeType);
+    expect(item.mediaFile.filename).toBe(filename);
+    expect(isPhotosDownloadedAssetMimeType(item.mediaFile.mimeType)).toBe(true);
   });
 
-  it("accepts Picker VIDEO with IMG_3770.MOV and video/mp4 metadata", () => {
-    const item = normalizePickedMediaItem(
-      videoItem({
-        mimeType: "video/mp4",
-        filename: "IMG_3770.MOV",
-        sizeBytes: 2_048,
-      }),
-    );
+  it.each(["video/mp4", "video/quicktime"] as const)(
+    "rejects selected VIDEO %s before download",
+    (mimeType) => {
+      try {
+        normalizePickedMediaItem(
+          videoItem({
+            mimeType,
+            filename:
+              mimeType === "video/quicktime" ? "IMG_3770.MOV" : "clip.mp4",
+          }),
+        );
+        throw new Error("expected VIDEO rejection");
+      } catch (error) {
+        expectPhotosPickerVideoRejected(error);
+      }
+    },
+  );
 
-    expect(item.type).toBe("VIDEO");
-    expect(item.mediaFile.mimeType).toBe("video/mp4");
-    expect(item.mediaFile.filename).toBe("IMG_3770.MOV");
-    expect(item.diagnostics).toContain("Picker video MIME: video/mp4");
-    expect(item.diagnostics).toContain(
-      "Original filename extension differed from Picker MIME; Picker metadata was accepted pending download validation.",
-    );
+  it("does not treat PHOTO items as videos", () => {
+    const item = normalizePickedMediaItem(photoItem({ mimeType: "image/jpeg" }));
+
+    expect(item.type).toBe("PHOTO");
+    expect(item.mediaFile.mimeType).toBe("image/jpeg");
+    expect(() =>
+      normalizePickedMediaItem(
+        photoItem({ mimeType: "video/quicktime", filename: "IMG_3770.MOV" }),
+      ),
+    ).toThrow(PhotosPickerSelectionError);
   });
 
   it("keeps local video MIME/extension mismatch rejection unchanged", () => {
@@ -177,218 +128,83 @@ describe("Google Photos Picker video/quicktime import", () => {
         type: "video/quicktime",
       }),
     ).toBeNull();
-  });
-
-  it("still rejects unsupported video MIME types before Drive save", () => {
-    expect(() =>
-      normalizePickedMediaItem(
-        videoItem({
-          mimeType: "video/webm",
-          filename: "clip.webm",
-        }),
-      ),
-    ).toThrow(PhotosPickerSelectionError);
-  });
-
-  it("lets a Google Photos MOV over 50 MiB proceed as remoteOnly", () => {
-    const item = normalizePickedMediaItem(
-      videoItem({
-        mimeType: "video/quicktime",
-        filename: "IMG_3770.MOV",
-        sizeBytes: DRIVE_VIDEO_OFFLINE_MAX_BYTES + 1,
-      }),
-    );
-
-    expect(item.mediaFile.mimeType).toBe("video/quicktime");
     expect(
-      getDriveVideoStorageDisposition({
-        mimeType: item.mediaFile.mimeType,
-        sizeBytes: item.mediaFile.sizeBytes,
+      resolveLocalDriveVideoMimeType({
+        name: "clip.mp4",
+        type: "video/mp4",
       }),
-    ).toBe("remoteOnly");
-  });
-
-  it("keeps a Google Photos MOV at 50 MiB offlineEligible", () => {
-    const item = normalizePickedMediaItem(
-      videoItem({
-        mimeType: "video/quicktime",
-        filename: "IMG_3770.MOV",
-        sizeBytes: DRIVE_VIDEO_OFFLINE_MAX_BYTES,
-      }),
-    );
-
+    ).toBe("video/mp4");
     expect(
-      getDriveVideoStorageDisposition({
-        mimeType: item.mediaFile.mimeType,
-        sizeBytes: item.mediaFile.sizeBytes,
+      resolveLocalDriveVideoMimeType({
+        name: "IMG_3770.MOV",
+        type: "video/quicktime",
       }),
-    ).toBe("offlineEligible");
-  });
-
-  it("rejects Google Photos video above the 5 GiB Drive limit", () => {
-    expect(() =>
-      normalizePickedMediaItem(
-        videoItem({
-          mimeType: "video/quicktime",
-          filename: "IMG_3770.MOV",
-          sizeBytes: DRIVE_VIDEO_MAX_BYTES + 1,
-        }),
-      ),
-    ).toThrow(PhotosPickerSelectionError);
-  });
-
-  it("does not treat PHOTO items as videos", () => {
-    const item = normalizePickedMediaItem(
-      photoItem({ mimeType: "image/jpeg" }),
-    );
-
-    expect(item.type).toBe("PHOTO");
-    expect(item.mediaFile.mimeType).toBe("image/jpeg");
-    expect(() =>
-      normalizePickedMediaItem(
-        photoItem({ mimeType: "video/quicktime", filename: "IMG_3770.MOV" }),
-      ),
-    ).toThrow(PhotosPickerSelectionError);
+    ).toBe("video/quicktime");
   });
 });
 
 describe("Google Photos Picker downloaded media validation", () => {
-  it("accepts downloaded video/mp4 when the picker MIME matches", async () => {
-    const result = await downloadPickedMedia({
-      mediaType: "VIDEO",
-      expectedMimeType: "video/mp4",
-      contentType: "video/mp4",
-    });
+  it.each(["image/jpeg", "image/png", "image/webp"] as const)(
+    "accepts downloaded PHOTO %s",
+    async (contentType) => {
+      const fetchMock = stubPhotoDownload(contentType);
+      const result = await fetchAndValidatePickedPhoto({
+        accessToken: "token",
+        baseUrl: "https://photos.example/base",
+        mediaType: "PHOTO",
+        expectedMimeType: contentType,
+        signal: new AbortController().signal,
+      });
 
-    expect(result.downloadedContentType).toBe("video/mp4");
-    expect(result.sizeLimitBytes).toBe(DRIVE_VIDEO_MAX_BYTES);
-    expect(isPhotosDownloadedAssetMimeType(result.downloadedContentType)).toBe(
-      true,
-    );
-  });
+      expect(result.downloadedContentType).toBe(contentType);
+      expect(isPhotosDownloadedAssetMimeType(result.downloadedContentType)).toBe(
+        true,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain("=w2732-h2732");
+    },
+  );
 
-  it("accepts downloaded video/quicktime when the picker MIME matches", async () => {
-    const result = await downloadPickedMedia({
-      mediaType: "VIDEO",
-      expectedMimeType: "video/quicktime",
-      contentType: "video/quicktime",
-    });
+  it.each(["video/mp4", "video/quicktime"] as const)(
+    "rejects VIDEO %s before fetch and Drive save",
+    async (contentType) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
 
-    expect(result.downloadedContentType).toBe("video/quicktime");
-    expect(
-      getDriveVideoStorageDisposition({
-        mimeType: result.downloadedContentType,
-        sizeBytes: result.downloadedSizeBytes,
-      }),
-    ).toBe("offlineEligible");
-  });
+      try {
+        await fetchAndValidatePickedPhoto({
+          accessToken: "token",
+          baseUrl: "https://photos.example/base",
+          mediaType: "VIDEO",
+          expectedMimeType: contentType,
+          signal: new AbortController().signal,
+        });
+        throw new Error("expected VIDEO rejection");
+      } catch (error) {
+        expectPhotosPickerVideoRejected(error);
+      }
 
-  it("does not reject a video/quicktime Content-Length above 50 MiB within 5 GiB", async () => {
-    const result = await downloadPickedMedia({
-      mediaType: "VIDEO",
-      expectedMimeType: "video/quicktime",
-      contentType: "video/quicktime",
-      contentLength: String(DRIVE_VIDEO_OFFLINE_MAX_BYTES + 1),
-    });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
-    expect(result.downloadedContentType).toBe("video/quicktime");
-  });
-
-  it("rejects a video Content-Length above 5 GiB before Drive save", async () => {
-    await expect(
-      downloadPickedMedia({
-        mediaType: "VIDEO",
-        expectedMimeType: "video/quicktime",
-        contentType: "video/quicktime",
-        contentLength: String(DRIVE_VIDEO_MAX_BYTES + 1),
-      }),
-    ).rejects.toBeInstanceOf(PhotosPickerSelectionError);
-  });
-
-  it("uses downloaded video/mp4 as the Drive save and storage MIME", async () => {
-    const result = await downloadPickedMedia({
-      mediaType: "VIDEO",
-      expectedMimeType: "video/mp4",
-      contentType: "video/mp4",
-    });
-
-    expect(result.downloadedContentType).toBe("video/mp4");
-    expect(result.diagnostics).toContain("Picker video MIME: video/mp4");
-    expect(result.diagnostics).toContain("Downloaded video MIME: video/mp4");
-    expect(
-      buildDriveProjectAssetStorageFilename({
-        assetId: "asset-id",
-        mimeType: result.downloadedContentType,
-      }),
-    ).toBe("asset-id.mp4");
-  });
-
-  it("uses downloaded video/quicktime as the Drive save and storage MIME", async () => {
-    const result = await downloadPickedMedia({
-      mediaType: "VIDEO",
-      expectedMimeType: "video/quicktime",
-      contentType: "video/quicktime",
-    });
-
-    expect(result.downloadedContentType).toBe("video/quicktime");
-    expect(
-      buildDriveProjectAssetStorageFilename({
-        assetId: "asset-id",
-        mimeType: result.downloadedContentType,
-      }),
-    ).toBe("asset-id.mov");
-  });
-
-  it("prefers downloaded MIME when Picker metadata and download are both supported videos", async () => {
-    const result = await downloadPickedMedia({
-      mediaType: "VIDEO",
-      expectedMimeType: "video/mp4",
-      contentType: "video/quicktime",
-    });
-
-    expect(result.downloadedContentType).toBe("video/quicktime");
-    expect(result.diagnostics).toContain(
-      "Picker metadata MIME differed from downloaded Content-Type; downloaded MIME is used for Drive save.",
-    );
-    expect(
-      buildDriveProjectAssetStorageFilename({
-        assetId: "asset-id",
-        mimeType: result.downloadedContentType,
-      }),
-    ).toBe("asset-id.mov");
-  });
-
-  it("rejects unsupported downloaded video MIME", async () => {
-    await expect(
-      downloadPickedMedia({
-        mediaType: "VIDEO",
-        expectedMimeType: "video/webm",
-        contentType: "video/webm",
-      }),
-    ).rejects.toBeInstanceOf(PhotosPickerSelectionError);
-  });
-
-  it("keeps PHOTO jpeg downloads working and rejects video bytes as PHOTO", async () => {
-    const photo = await downloadPickedMedia({
-      mediaType: "PHOTO",
-      expectedMimeType: "image/jpeg",
-      contentType: "image/jpeg",
-    });
-
-    expect(photo.downloadedContentType).toBe("image/jpeg");
+  it("rejects video bytes downloaded as PHOTO", async () => {
+    stubPhotoDownload("video/quicktime");
 
     await expect(
-      downloadPickedMedia({
+      fetchAndValidatePickedPhoto({
+        accessToken: "token",
+        baseUrl: "https://photos.example/base",
         mediaType: "PHOTO",
         expectedMimeType: "image/jpeg",
-        contentType: "video/quicktime",
+        signal: new AbortController().signal,
       }),
     ).rejects.toBeInstanceOf(PhotosPickerSelectionError);
   });
 });
 
-describe("Google Photos Picker MOV manifest contract", () => {
-  it("does not persist tokens or expose picker internals from the MOV import path", () => {
+describe("Google Photos Picker photo-only security contract", () => {
+  it("does not persist tokens or keep Photos-only video helpers", () => {
     const source = readFileSync(
       fileURLToPath(new URL("./google-photos-picker.ts", import.meta.url)),
       "utf8",
@@ -398,50 +214,11 @@ describe("Google Photos Picker MOV manifest contract", () => {
     expect(source).not.toContain("sessionStorage");
     expect(source).not.toContain("indexedDB");
     expect(source).not.toContain("document.cookie");
-    expect(source).toContain("resolveLocalDriveVideoMimeType");
-    expect(source).toContain("isSupportedDriveVideoMimeType");
-    expect(source).toContain("DRIVE_VIDEO_MAX_BYTES");
-  });
-
-  it("maps a saved video/quicktime asset to a video slide with .mov storage", () => {
-    const googleDrive = readFileSync(
-      fileURLToPath(new URL("./google-drive.ts", import.meta.url)),
-      "utf8",
-    );
-    const builderStart = googleDrive.indexOf(
-      "function buildDriveProjectManifestSlide(",
-    );
-    const builder = googleDrive.slice(
-      builderStart,
-      googleDrive.indexOf("function parseDriveProjectManifestJson(", builderStart),
-    );
-
-    expect(builder).toContain(
-      'isVideoMimeType(input.savedAsset.driveMimeType) ? "video" : "image"',
-    );
-    expect(builder).toContain("mimeType: input.savedAsset.driveMimeType");
-    expect(builder).toContain(
-      "assetName: input.source.filename ?? input.savedAsset.driveFilename",
-    );
-    expect(builder).toContain("sourceMimeType: input.source.sourceMimeType");
-    expect(builder).toContain("fileSize: input.savedAsset.driveSizeBytes");
-    expect(
-      buildDriveProjectAssetStorageFilename({
-        assetId: "asset-id",
-        mimeType: "video/quicktime",
-      }),
-    ).toBe("asset-id.mov");
-    expect(
-      buildDriveProjectAssetStorageFilename({
-        assetId: "asset-id",
-        mimeType: "video/mp4",
-      }),
-    ).toBe("asset-id.mp4");
-    expect(
-      getDriveVideoStorageDisposition({
-        mimeType: "video/quicktime",
-        sizeBytes: DRIVE_VIDEO_OFFLINE_MAX_BYTES + 1,
-      }),
-    ).toBe("remoteOnly");
+    expect(source).not.toContain("resolveLocalDriveVideoMimeType");
+    expect(source).not.toContain("isSupportedDriveVideoMimeType");
+    expect(source).not.toContain("DRIVE_VIDEO_MAX_BYTES");
+    expect(source).not.toContain("PICKED_VIDEO_DOWNLOAD_SUFFIX");
+    expect(source).not.toContain("resolvePickedVideoMimeType");
+    expect(source).toContain("PHOTOS_PICKER_PHOTO_ONLY_MESSAGE");
   });
 });

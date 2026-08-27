@@ -179,6 +179,7 @@ import { clearLocalOfflineProjectData } from "@/lib/offline-local-project-clear"
 import type { ProjectDeleteLocalCopyStatus } from "@/lib/project-delete-local-finalization";
 import {
   PHOTOS_PICKER_MAX_APP_WAIT_SECONDS,
+  PHOTOS_PICKER_PHOTO_ONLY_MESSAGE,
   assertPickedMediaItemDownloadReady,
   createPhotosPickerSession,
   deletePhotosPickerSession,
@@ -196,7 +197,6 @@ import {
   type PhotosPickerSessionSnapshot,
 } from "@/lib/google-photos-picker";
 import {
-  DRIVE_VIDEO_MAX_BYTES,
   DRIVE_VIDEO_UPLOAD_TYPE,
   getDriveVideoStorageDisposition,
   getLocalDriveVideoFileValidationCodes,
@@ -2735,7 +2735,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setAssetImportStatus("waitingForSelection");
       setAssetImportMessage(
-        `Photos Pickerで写真またはMP4/MOV動画を最大${assetImportMaxBatchCount}件選択してください。`,
+        `Photos Pickerで写真を最大${assetImportMaxBatchCount}件選択してください。`,
       );
 
       const waitResult = await waitForPhotosPickerSelection({
@@ -2812,6 +2812,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
         const clientItemId = batchItems[index].clientItemId;
 
         try {
+          if (pickedMediaItem.type === "VIDEO") {
+            throw new PhotosPickerSelectionError({
+              status: "invalid",
+              message: PHOTOS_PICKER_PHOTO_ONLY_MESSAGE,
+              diagnostics: [
+                "Picked media item type was VIDEO.",
+                PHOTOS_PICKER_PHOTO_ONLY_MESSAGE,
+                "Drive保存: 未実行",
+                "manifest反映: 未実行",
+              ],
+            });
+          }
+
           assertPickedMediaItemDownloadReady(pickedMediaItem);
 
           updateAssetImportBatchItem(clientItemId, { status: "downloading" });
@@ -2824,9 +2837,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
             baseUrl: pickedMediaItem.mediaFile.baseUrl,
             mediaType: pickedMediaItem.type,
             expectedMimeType: pickedMediaItem.mediaFile.mimeType,
-            ...(pickedMediaItem.type === "VIDEO"
-              ? { sizeLimitBytes: DRIVE_VIDEO_MAX_BYTES }
-              : {}),
             signal: abortSignal,
           });
 
@@ -2849,9 +2859,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
             blob: downloadResult.blob,
             mimeType: downloadResult.downloadedContentType,
             sizeBytes: downloadResult.downloadedSizeBytes,
-            ...(pickedMediaItem.type === "VIDEO"
-              ? { uploadType: DRIVE_VIDEO_UPLOAD_TYPE }
-              : {}),
             signal: abortSignal,
           });
 
@@ -2870,10 +2877,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
             source: {
               filename: pickedMediaItem.mediaFile.filename ?? null,
               mediaType: pickedMediaItem.type,
-              sourceMimeType:
-                pickedMediaItem.type === "VIDEO"
-                  ? downloadResult.downloadedContentType
-                  : pickedMediaItem.mediaFile.mimeType,
+              sourceMimeType: pickedMediaItem.mediaFile.mimeType,
               sourceMediaItemId: pickedMediaItem.id,
               sourceCreateTime: pickedMediaItem.createTime,
             },
@@ -2883,12 +2887,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
             ...pickedMediaItem.diagnostics,
             ...downloadResult.diagnostics,
             ...savedAsset.diagnostics,
-            ...(pickedMediaItem.type === "VIDEO"
-              ? buildDriveVideoOfflineScopeDiagnostics({
-                  mimeType: downloadResult.downloadedContentType,
-                  sizeBytes: downloadResult.downloadedSizeBytes,
-                })
-              : []),
           );
         } catch (itemError) {
           if (isAbortError(itemError)) {
@@ -2989,7 +2987,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
           error.status === "cancelled"
             ? "Photos Pickerでの選択がキャンセルされました。"
             : error.status === "invalid"
-              ? "Photos Pickerの選択結果に問題があります。"
+              ? error.message === PHOTOS_PICKER_PHOTO_ONLY_MESSAGE
+                ? PHOTOS_PICKER_PHOTO_ONLY_MESSAGE
+                : "Photos Pickerの選択結果に問題があります。"
               : "Photos Picker処理に失敗しました。";
         finalDiagnostics = error.diagnostics;
       } else if (error instanceof PhotosPickerApiError) {
@@ -8106,6 +8106,12 @@ function sanitizeLocalFileNameForDisplay(
 }
 
 function getAssetImportItemErrorMessage(error: unknown) {
+  if (error instanceof PhotosPickerSelectionError) {
+    return error.message === PHOTOS_PICKER_PHOTO_ONLY_MESSAGE
+      ? PHOTOS_PICKER_PHOTO_ONLY_MESSAGE
+      : getUserFacingOperationFailureMessage("assetImport", error);
+  }
+
   if (error instanceof PhotosPickerApiError) {
     return `Photos API error: ${error.operation}`;
   }

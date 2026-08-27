@@ -117,26 +117,60 @@ describe("local image file import contract", () => {
     expect(implementation).not.toContain("startLocalImageFileImport");
   });
 
-  it("keeps Google Photos Picker on startAssetImport", () => {
+  it("keeps Google Photos Picker on startAssetImport as photos-only", () => {
     const implementation = extractAssetImport();
+    const videoRejectIndex = implementation.indexOf(
+      'pickedMediaItem.type === "VIDEO"',
+    );
+    const downloadIndex = implementation.indexOf("fetchAndValidatePickedPhoto");
+    const uploadIndex = implementation.indexOf("saveDriveProjectAsset({");
+    const manifestIndex = implementation.indexOf(
+      "appendDriveProjectAssetsToManifest({",
+    );
 
     expect(implementation).toContain("requestPhotosAccessToken");
     expect(implementation).toContain("createPhotosPickerSession");
-    expect(implementation).toContain('mediaType: "PHOTO" | "VIDEO"');
     expect(implementation).toContain("fetchAndValidatePickedPhoto");
-    expect(implementation).toContain("currentAssetImportAccessTokenRef.current = photosAccessToken");
-    expect(implementation).toContain("sizeLimitBytes: DRIVE_VIDEO_MAX_BYTES");
-    expect(implementation).toContain("uploadType: DRIVE_VIDEO_UPLOAD_TYPE");
-    expect(implementation).toContain("buildDriveVideoOfflineScopeDiagnostics({");
-    expect(providers).toContain("function buildDriveVideoOfflineScopeDiagnostics");
-    expect(providers).toContain("getDriveVideoStorageDisposition");
-    expect(implementation).toContain("写真またはMP4/MOV動画");
-    expect(implementation).toMatch(
-      /sourceMimeType:\s*pickedMediaItem\.type === "VIDEO"\s*\? downloadResult\.downloadedContentType/,
+    expect(implementation).toContain(
+      "currentAssetImportAccessTokenRef.current = photosAccessToken",
+    );
+    expect(implementation).toContain("PHOTOS_PICKER_PHOTO_ONLY_MESSAGE");
+    expect(implementation).toContain("Photos Pickerで写真を最大");
+    expect(videoRejectIndex).toBeGreaterThanOrEqual(0);
+    expect(videoRejectIndex).toBeLessThan(downloadIndex);
+    expect(videoRejectIndex).toBeLessThan(uploadIndex);
+    expect(videoRejectIndex).toBeLessThan(manifestIndex);
+    expect(implementation).not.toContain("sizeLimitBytes: DRIVE_VIDEO_MAX_BYTES");
+    expect(implementation).not.toContain("uploadType: DRIVE_VIDEO_UPLOAD_TYPE");
+    expect(implementation).not.toContain(
+      "buildDriveVideoOfflineScopeDiagnostics({",
     );
     expect(implementation).not.toContain("resolveLocalDriveVideoMimeType");
     expect(implementation).not.toContain("PICKED_VIDEO_SIZE_LIMIT_BYTES");
     expect(implementation).not.toContain("localStorage");
     expect(implementation).not.toContain("sessionStorage");
+    expect(providers).toContain("PHOTOS_PICKER_PHOTO_ONLY_MESSAGE");
+    expect(providers).toContain(
+      "error.message === PHOTOS_PICKER_PHOTO_ONLY_MESSAGE",
+    );
+  });
+
+  it("keeps local mp4 and mov import on startLocalVideoFileImport", () => {
+    const implementation = extractLocalVideoImport();
+    const validate = providers.slice(
+      providers.indexOf("function validateLocalVideoFile("),
+      providers.indexOf("function buildDriveVideoOfflineScopeDiagnostics("),
+    );
+
+    expect(implementation).toContain("validateLocalVideoFile(");
+    expect(implementation).toContain("uploadType: DRIVE_VIDEO_UPLOAD_TYPE");
+    expect(implementation).toContain('mediaType: "VIDEO"');
+    expect(implementation).toContain("buildDriveVideoOfflineScopeDiagnostics({");
+    expect(providers).toContain("resolveLocalDriveVideoMimeType");
+    expect(providers).toContain("isSupportedDriveVideoMimeType");
+    expect(validate).toContain("video/mp4またはMOVファイルのみ追加できます。");
+    expect(implementation.indexOf("validateLocalVideoFile(")).toBeLessThan(
+      implementation.indexOf("saveDriveProjectAsset({"),
+    );
   });
 });

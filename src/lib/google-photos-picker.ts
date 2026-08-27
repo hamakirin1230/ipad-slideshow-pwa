@@ -1,28 +1,18 @@
-import {
-  DRIVE_VIDEO_MAX_BYTES,
-  getLocalDriveVideoFileValidationCodes,
-  isSupportedDriveVideoMimeType,
-  resolveLocalDriveVideoMimeType,
-  SUPPORTED_DRIVE_VIDEO_MIME_TYPES,
-  type SupportedDriveVideoMimeType,
-} from "./drive-video-policy";
-
 const PHOTOS_PICKER_API_BASE_URL = "https://photospicker.googleapis.com/v1";
 const PICKED_PHOTO_SIZE_SUFFIX = "=w2732-h2732";
-const PICKED_VIDEO_DOWNLOAD_SUFFIX = "=dv";
-const ALLOWED_PICKED_VIDEO_MIME_LABEL = "video/mp4 と MOV";
 
 export const PICKED_PHOTO_SIZE_LIMIT_BYTES = 10 * 1024 * 1024;
 export const PHOTOS_PICKER_DEFAULT_POLL_INTERVAL_SECONDS = 3;
 export const PHOTOS_PICKER_MIN_POLL_INTERVAL_SECONDS = 1;
 export const PHOTOS_PICKER_DEFAULT_TIMEOUT_SECONDS = 30 * 60;
 export const PHOTOS_PICKER_MAX_APP_WAIT_SECONDS = 30 * 60;
+export const PHOTOS_PICKER_PHOTO_ONLY_MESSAGE =
+  "Googleフォトからは写真のみ追加できます。動画は「動画を選ぶ」から追加してください。";
 
 export type PhotosDownloadedAssetMimeType =
   | "image/jpeg"
   | "image/png"
-  | "image/webp"
-  | SupportedDriveVideoMimeType;
+  | "image/webp";
 
 export type PhotosPickedMediaItemType = "PHOTO" | "VIDEO";
 export type PhotosPickedVideoProcessingStatus =
@@ -223,7 +213,6 @@ const allowedDownloadedAssetMimeTypes = new Set<PhotosDownloadedAssetMimeType>([
   "image/jpeg",
   "image/png",
   "image/webp",
-  ...SUPPORTED_DRIVE_VIDEO_MIME_TYPES,
 ]);
 
 export async function createPhotosPickerSession(
@@ -419,20 +408,21 @@ export async function fetchAndValidatePickedPhoto(input: {
   sizeLimitBytes?: number;
 }): Promise<PhotosPickedPhotoDownloadResult> {
   const mediaType = input.mediaType ?? "PHOTO";
+
+  if (mediaType === "VIDEO") {
+    throw createPhotosPickerVideoRejectedError();
+  }
+
   const expectedMimeType = input.expectedMimeType
     ? normalizeContentType(input.expectedMimeType)
     : undefined;
-  const sizeLimitBytes =
-    input.sizeLimitBytes ??
-    (mediaType === "VIDEO"
-      ? DRIVE_VIDEO_MAX_BYTES
-      : PICKED_PHOTO_SIZE_LIMIT_BYTES);
+  const sizeLimitBytes = input.sizeLimitBytes ?? PICKED_PHOTO_SIZE_LIMIT_BYTES;
   const diagnostics: string[] = [];
 
   let response: Response;
 
   try {
-    response = await fetch(buildPickedMediaDownloadUrl(input.baseUrl, mediaType), {
+    response = await fetch(buildPickedMediaDownloadUrl(input.baseUrl), {
       method: "GET",
       headers: {
         Authorization: `Bearer ${input.accessToken}`,
@@ -448,12 +438,8 @@ export async function fetchAndValidatePickedPhoto(input: {
       diagnostics: [
         "Downloaded media fetch failed before receiving a response.",
         `Media type: ${mediaType}`,
-        mediaType === "VIDEO"
-          ? `Expected downloaded Content-Type: ${SUPPORTED_DRIVE_VIDEO_MIME_TYPES.join(" or ")}`
-          : "Expected downloaded Content-Type: image/jpeg, image/png, or image/webp",
-        mediaType === "VIDEO"
-          ? "Video download parameter: dv"
-          : "Photo download parameter: w2732-h2732",
+        "Expected downloaded Content-Type: image/jpeg, image/png, or image/webp",
+        "Photo download parameter: w2732-h2732",
         ...formatSafeFetchErrorDiagnostics(error),
         "Drive保存: 未実行",
         "manifest反映: 未実行",
@@ -484,9 +470,7 @@ export async function fetchAndValidatePickedPhoto(input: {
         normalizedContentType
           ? `Downloaded Content-Type was ${normalizedContentType}.`
           : "Downloaded Content-Type was empty.",
-        mediaType === "VIDEO"
-          ? `Allowed downloaded Content-Type for VIDEO: ${SUPPORTED_DRIVE_VIDEO_MIME_TYPES.join(", ")}.`
-          : "Allowed downloaded Content-Type for PHOTO: image/jpeg, image/png, image/webp.",
+        "Allowed downloaded Content-Type for PHOTO: image/jpeg, image/png, image/webp.",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ],
@@ -513,9 +497,7 @@ export async function fetchAndValidatePickedPhoto(input: {
       diagnostics: [
         `Content-Length bytes: ${contentLengthBytes}`,
         `Size limit bytes: ${sizeLimitBytes}`,
-        mediaType === "VIDEO"
-          ? "動画ファイルは5GB以下にしてください。"
-          : "photo は10MB以下のみ追加できます。",
+        "photo は10MB以下のみ追加できます。",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ],
@@ -524,19 +506,6 @@ export async function fetchAndValidatePickedPhoto(input: {
 
   const blob = await response.blob();
 
-  if (mediaType === "VIDEO" && blob.size === 0) {
-    throw new PhotosPickerSelectionError({
-      status: "invalid",
-      message: "Downloaded media was empty.",
-      diagnostics: [
-        "Downloaded size bytes: 0",
-        "0 byteの動画ファイルは追加できません。",
-        "Drive保存: 未実行",
-        "manifest反映: 未実行",
-      ],
-    });
-  }
-
   if (blob.size > sizeLimitBytes) {
     throw new PhotosPickerSelectionError({
       status: "invalid",
@@ -544,29 +513,11 @@ export async function fetchAndValidatePickedPhoto(input: {
       diagnostics: [
         `Downloaded size bytes: ${blob.size}`,
         `Size limit bytes: ${sizeLimitBytes}`,
-        mediaType === "VIDEO"
-          ? "動画ファイルは5GB以下にしてください。"
-          : "photo は10MB以下のみ追加できます。",
+        "photo は10MB以下のみ追加できます。",
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ],
     });
-  }
-
-  if (mediaType === "VIDEO") {
-    diagnostics.push(
-      `Picker video MIME: ${expectedMimeType || "unspecified"}`,
-      `Downloaded video MIME: ${downloadedContentType}`,
-    );
-
-    if (
-      expectedMimeType &&
-      expectedMimeType !== downloadedContentType
-    ) {
-      diagnostics.push(
-        "Picker metadata MIME differed from downloaded Content-Type; downloaded MIME is used for Drive save.",
-      );
-    }
   }
 
   return {
@@ -683,13 +634,17 @@ export function normalizePickedMediaItem(
     });
   }
 
-  if (mediaItem.type !== "PHOTO" && mediaItem.type !== "VIDEO") {
+  if (mediaItem.type === "VIDEO") {
+    throw createPhotosPickerVideoRejectedError();
+  }
+
+  if (mediaItem.type !== "PHOTO") {
     throw new PhotosPickerSelectionError({
       status: "invalid",
       message: "Picked media item type was not supported.",
       diagnostics: [
         `Picked media item type was ${formatDiagnosticValue(mediaItem.type)}.`,
-        `現在追加できる素材はPHOTOと${ALLOWED_PICKED_VIDEO_MIME_LABEL}のVIDEOです。`,
+        PHOTOS_PICKER_PHOTO_ONLY_MESSAGE,
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ],
@@ -713,10 +668,6 @@ export function normalizePickedMediaItem(
   const mimeType = rawMimeType ? normalizeContentType(rawMimeType) : null;
   const filename = readNonEmptyString(mediaItem.mediaFile.filename);
   const sizeBytes = readOptionalMediaFileSizeBytes(mediaItem.mediaFile);
-  const videoProcessingStatus =
-    mediaItem.type === "VIDEO"
-      ? readPickedVideoProcessingStatus(mediaItem.mediaFile)
-      : null;
 
   if (!baseUrl) {
     throw new PhotosPickerSelectionError({
@@ -730,7 +681,7 @@ export function normalizePickedMediaItem(
     });
   }
 
-  if (!mimeType && mediaItem.type !== "VIDEO") {
+  if (!mimeType) {
     throw new PhotosPickerSelectionError({
       status: "invalid",
       message: "Picked media item mediaFile did not include mimeType.",
@@ -742,78 +693,14 @@ export function normalizePickedMediaItem(
     });
   }
 
-  let resolvedMimeType = mimeType ?? "";
-
-  if (mediaItem.type === "VIDEO") {
-    const resolvedVideoMimeType = resolvePickedVideoMimeType({
-      filename,
-      mimeType,
-    });
-
-    if (!resolvedVideoMimeType) {
-      throw new PhotosPickerSelectionError({
-        status: "invalid",
-        message: "Picked video MIME type was not supported.",
-        diagnostics: [
-          "Picked media item type was VIDEO.",
-          `Picked media item MIME type was ${mimeType ?? "empty"}.`,
-          `この動画形式は未対応です。現在追加できる動画は ${ALLOWED_PICKED_VIDEO_MIME_LABEL} です。`,
-          "Drive保存: 未実行",
-          "manifest反映: 未実行",
-        ],
-      });
-    }
-
-    resolvedMimeType = resolvedVideoMimeType;
-    diagnostics.push(`Picker video MIME: ${resolvedVideoMimeType}`);
-
-    if (
-      didPickerVideoFilenameDifferFromMimeType({
-        filename,
-        mimeType: resolvedVideoMimeType,
-      })
-    ) {
-      diagnostics.push(
-        "Original filename extension differed from Picker MIME; Picker metadata was accepted pending download validation.",
-      );
-    }
-
-    if (typeof sizeBytes === "number") {
-      const sizeCode = getLocalDriveVideoFileValidationCodes({
-        size: sizeBytes,
-        mimeType: resolvedVideoMimeType,
-      }).find((code) => code !== "unsupportedMimeType");
-
-      if (sizeCode) {
-        throw new PhotosPickerSelectionError({
-          status: "invalid",
-          message:
-            sizeCode === "emptyFile"
-              ? "Picked video was empty."
-              : "Picked video exceeded the size limit.",
-          diagnostics: [
-            "Picked media item type was VIDEO.",
-            `Picked media item size bytes: ${sizeBytes}`,
-            `Size limit bytes: ${DRIVE_VIDEO_MAX_BYTES}`,
-            sizeCode === "emptyFile"
-              ? "0 byteの動画ファイルは追加できません。"
-              : "動画ファイルは5GB以下にしてください。",
-            "Drive保存: 未実行",
-            "manifest反映: 未実行",
-          ],
-        });
-      }
-    }
-  }
-
-  if (mediaItem.type === "PHOTO" && mimeType?.startsWith("video/")) {
+  if (mimeType.startsWith("video/")) {
     throw new PhotosPickerSelectionError({
       status: "invalid",
       message: "Picked photo MIME type was not supported.",
       diagnostics: [
         "Picked media item type was PHOTO.",
         `Picked media item MIME type was ${mimeType}.`,
-        "PHOTOとして選択されたmedia itemにvideo MIME typeが含まれているため追加しません。",
+        PHOTOS_PICKER_PHOTO_ONLY_MESSAGE,
         "Drive保存: 未実行",
         "manifest反映: 未実行",
       ],
@@ -832,62 +719,23 @@ export function normalizePickedMediaItem(
 
   return {
     id,
-    type: mediaItem.type,
+    type: "PHOTO",
     mediaFile: {
       baseUrl,
-      mimeType: resolvedMimeType,
+      mimeType,
       filename,
       ...(typeof sizeBytes === "number" ? { sizeBytes } : {}),
-      ...(videoProcessingStatus
-        ? { videoProcessingStatus }
-        : {}),
     },
     createTime,
-    diagnostics:
-      mediaItem.type === "VIDEO"
-        ? [
-            ...diagnostics,
-            "Picked media item type was VIDEO.",
-            `Picked video processingStatus was ${videoProcessingStatus ?? "UNKNOWN"}.`,
-            `${resolvedMimeType} を素材追加対象として処理します。`,
-          ]
-        : diagnostics,
+    diagnostics,
   };
 }
 
 export function assertPickedMediaItemDownloadReady(
   mediaItem: PhotosPickedMediaItem,
 ) {
-  if (mediaItem.type !== "VIDEO") {
-    return;
-  }
-
-  if (mediaItem.mediaFile.videoProcessingStatus === "PROCESSING") {
-    throw new PhotosPickerSelectionError({
-      status: "invalid",
-      message:
-        "Google Photos側でvideo processingが完了していないため、まだ追加できません。少し待って再試行してください。",
-      diagnostics: [
-        ...mediaItem.diagnostics,
-        "Google Photos側でvideo processingが完了していないため、まだ追加できません。少し待って再試行してください。",
-        "Drive保存: 未実行",
-        "manifest反映: 未実行",
-      ],
-    });
-  }
-
-  if (mediaItem.mediaFile.videoProcessingStatus === "FAILED") {
-    throw new PhotosPickerSelectionError({
-      status: "invalid",
-      message:
-        "Google Photos側でvideo processingが失敗しているため、この動画は追加できません。",
-      diagnostics: [
-        ...mediaItem.diagnostics,
-        "Google Photos側でvideo processingが失敗しているため、この動画は追加できません。",
-        "Drive保存: 未実行",
-        "manifest反映: 未実行",
-      ],
-    });
+  if (mediaItem.type === "VIDEO") {
+    throw createPhotosPickerVideoRejectedError();
   }
 }
 
@@ -912,15 +760,10 @@ function isAllowedDownloadedAssetMimeType(input: {
   contentType: PhotosDownloadedAssetMimeType;
   expectedMimeType?: string;
 } {
-  if (input.mediaType === "VIDEO") {
-    const expectedMimeTypeIsSupportedVideo =
-      input.expectedMimeType === undefined ||
-      isSupportedDriveVideoMimeType(input.expectedMimeType);
+  void input.expectedMimeType;
 
-    return (
-      expectedMimeTypeIsSupportedVideo &&
-      isSupportedDriveVideoMimeType(input.contentType)
-    );
+  if (input.mediaType === "VIDEO") {
+    return false;
   }
 
   return (
@@ -930,35 +773,17 @@ function isAllowedDownloadedAssetMimeType(input: {
   );
 }
 
-function resolvePickedVideoMimeType(input: {
-  filename: string | null;
-  mimeType: string | null;
-}): SupportedDriveVideoMimeType | null {
-  if (input.mimeType && isSupportedDriveVideoMimeType(input.mimeType)) {
-    return input.mimeType;
-  }
-
-  return resolveLocalDriveVideoMimeType({
-    name: input.filename ?? "",
-    type: input.mimeType ?? "",
+function createPhotosPickerVideoRejectedError() {
+  return new PhotosPickerSelectionError({
+    status: "invalid",
+    message: PHOTOS_PICKER_PHOTO_ONLY_MESSAGE,
+    diagnostics: [
+      "Picked media item type was VIDEO.",
+      PHOTOS_PICKER_PHOTO_ONLY_MESSAGE,
+      "Drive保存: 未実行",
+      "manifest反映: 未実行",
+    ],
   });
-}
-
-function didPickerVideoFilenameDifferFromMimeType(input: {
-  filename: string | null;
-  mimeType: SupportedDriveVideoMimeType;
-}): boolean {
-  const filename = (input.filename ?? "").trim().toLowerCase();
-
-  if (filename.endsWith(".mp4")) {
-    return input.mimeType !== "video/mp4";
-  }
-
-  if (filename.endsWith(".mov")) {
-    return input.mimeType !== "video/quicktime";
-  }
-
-  return false;
 }
 
 export function parseGoogleDurationSeconds(value: unknown): number | null {
@@ -1078,14 +903,7 @@ function normalizePickingSessionResponse(
   };
 }
 
-function buildPickedMediaDownloadUrl(
-  baseUrl: string,
-  mediaType: PhotosPickedMediaItemType,
-) {
-  if (mediaType === "VIDEO") {
-    return `${baseUrl}${PICKED_VIDEO_DOWNLOAD_SUFFIX}`;
-  }
-
+function buildPickedMediaDownloadUrl(baseUrl: string) {
   return `${baseUrl}${PICKED_PHOTO_SIZE_SUFFIX}`;
 }
 
@@ -1147,32 +965,6 @@ function readOptionalMediaFileSizeBytes(mediaFile: Record<string, unknown>) {
   }
 
   return undefined;
-}
-
-function readPickedVideoProcessingStatus(
-  mediaFile: Record<string, unknown>,
-): PhotosPickedVideoProcessingStatus {
-  const mediaFileMetadata = isRecord(mediaFile.mediaFileMetadata)
-    ? mediaFile.mediaFileMetadata
-    : null;
-  const videoMetadata =
-    mediaFileMetadata && isRecord(mediaFileMetadata.videoMetadata)
-      ? mediaFileMetadata.videoMetadata
-      : null;
-  const rawStatus = readNonEmptyString(videoMetadata?.processingStatus);
-
-  switch (rawStatus?.toUpperCase()) {
-    case "READY":
-      return "READY";
-    case "PROCESSING":
-      return "PROCESSING";
-    case "FAILED":
-      return "FAILED";
-    case "UNSPECIFIED":
-      return "UNSPECIFIED";
-    default:
-      return "UNKNOWN";
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
