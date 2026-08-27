@@ -53,11 +53,44 @@ describe("AssetImportPanel device photo picker", () => {
     expect(photoButton).not.toContain("startAssetImport");
   });
 
-  it("removes the Googleフォトから選ぶ button and Photos selection copy", () => {
-    expect(source).not.toContain("Googleフォトから選ぶ");
-    expect(source).not.toContain("onClick={startAssetImport}");
-    expect(source).not.toContain("Googleの利用許可画面が開きます");
+  it("keeps local photo and video buttons on every device", () => {
+    expect(source).toContain("onClick={openLocalImageFilePicker}");
+    expect(source).toContain("onClick={openLocalVideoFilePicker}");
+    expect(source).toContain('return "写真を選ぶ"');
+    expect(source).toContain("動画を選ぶ");
+    expect(source.indexOf("onClick={openLocalImageFilePicker}")).toBeLessThan(
+      source.indexOf("{offerGooglePhotosPicker ? ("),
+    );
+    expect(source.indexOf("onClick={openLocalVideoFilePicker}")).toBeLessThan(
+      source.indexOf("{offerGooglePhotosPicker ? ("),
+    );
+  });
+
+  it("offers Googleフォトから選ぶ only after a hydration-safe client snapshot", () => {
+    expect(source).toContain("useSyncExternalStore(");
+    expect(source).toContain("subscribeGooglePhotosPickerAvailability");
+    expect(source).toContain("readGooglePhotosPickerClientAvailability");
+    expect(source).toContain("getGooglePhotosPickerServerAvailability");
+    expect(source).not.toContain("navigator");
+    expect(source).not.toContain("userAgent");
+    expect(source).toContain("{offerGooglePhotosPicker ? (");
+    expect(source).toContain("onClick={startAssetImport}");
+    expect(source).toContain("Googleフォトから選ぶ");
+    expect(source).not.toContain("Googleフォトから写真を選ぶ");
+    expect(source).toContain("Googleの利用許可画面が開きます");
     expect(source).toContain("写真と動画はこの端末から選べます。");
+  });
+
+  it("does not persist tokens or expose picker internals from the import panel", () => {
+    expect(source).not.toContain("localStorage");
+    expect(source).not.toContain("sessionStorage");
+    expect(source).not.toContain("indexedDB");
+    expect(source).not.toContain("document.cookie");
+    expect(source).not.toContain("pickerUri");
+    expect(source).not.toContain("access_token");
+    expect(source).not.toContain("accessToken");
+    expect(source).not.toContain("photosAccessToken");
+    expect(source).not.toContain("sessionId");
   });
 
   it("does not change the local video file input path", () => {

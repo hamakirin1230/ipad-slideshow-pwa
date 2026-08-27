@@ -122,5 +122,10 @@ describe("local image file import contract", () => {
 
     expect(implementation).toContain("requestPhotosAccessToken");
     expect(implementation).toContain("createPhotosPickerSession");
+    expect(implementation).toContain('mediaType: "PHOTO" | "VIDEO"');
+    expect(implementation).toContain("fetchAndValidatePickedPhoto");
+    expect(implementation).toContain("currentAssetImportAccessTokenRef.current = photosAccessToken");
+    expect(implementation).not.toContain("localStorage");
+    expect(implementation).not.toContain("sessionStorage");
   });
 });
