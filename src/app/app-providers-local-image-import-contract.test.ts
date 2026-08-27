@@ -131,6 +131,10 @@ describe("local image file import contract", () => {
     expect(providers).toContain("function buildDriveVideoOfflineScopeDiagnostics");
     expect(providers).toContain("getDriveVideoStorageDisposition");
     expect(implementation).toContain("写真またはMP4/MOV動画");
+    expect(implementation).toMatch(
+      /sourceMimeType:\s*pickedMediaItem\.type === "VIDEO"\s*\? downloadResult\.downloadedContentType/,
+    );
+    expect(implementation).not.toContain("resolveLocalDriveVideoMimeType");
     expect(implementation).not.toContain("PICKED_VIDEO_SIZE_LIMIT_BYTES");
     expect(implementation).not.toContain("localStorage");
     expect(implementation).not.toContain("sessionStorage");

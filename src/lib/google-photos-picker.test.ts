@@ -5,6 +5,7 @@ import {
   DRIVE_VIDEO_MAX_BYTES,
   DRIVE_VIDEO_OFFLINE_MAX_BYTES,
   getDriveVideoStorageDisposition,
+  resolveLocalDriveVideoMimeType,
 } from "./drive-video-policy";
 import { buildDriveProjectAssetStorageFilename } from "./google-drive";
 import {
@@ -117,12 +118,10 @@ describe("Google Photos Picker video/quicktime import", () => {
     expect(item.type).toBe("VIDEO");
     expect(item.mediaFile.mimeType).toBe("video/quicktime");
     expect(item.mediaFile.filename).toBe("IMG_3770.MOV");
-    expect(
-      buildDriveProjectAssetStorageFilename({
-        assetId: "asset-id",
-        mimeType: item.mediaFile.mimeType,
-      }),
-    ).toBe("asset-id.mov");
+    expect(item.diagnostics).toContain("Picker video MIME: video/quicktime");
+    expect(item.diagnostics).not.toContain(
+      "Original filename extension differed from Picker MIME; Picker metadata was accepted pending download validation.",
+    );
   });
 
   it("resolves MOV from an empty or octet-stream MIME using the filename", () => {
@@ -147,24 +146,37 @@ describe("Google Photos Picker video/quicktime import", () => {
     ).toBe("video/quicktime");
   });
 
-  it("rejects conflicting MIME and extension instead of guessing", () => {
-    expect(() =>
-      normalizePickedMediaItem(
-        videoItem({
-          mimeType: "video/mp4",
-          filename: "IMG_3770.MOV",
-        }),
-      ),
-    ).toThrow(PhotosPickerSelectionError);
+  it("accepts Picker VIDEO with IMG_3770.MOV and video/mp4 metadata", () => {
+    const item = normalizePickedMediaItem(
+      videoItem({
+        mimeType: "video/mp4",
+        filename: "IMG_3770.MOV",
+        sizeBytes: 2_048,
+      }),
+    );
 
-    expect(() =>
-      normalizePickedMediaItem(
-        videoItem({
-          mimeType: "video/quicktime",
-          filename: "clip.mp4",
-        }),
-      ),
-    ).toThrow(PhotosPickerSelectionError);
+    expect(item.type).toBe("VIDEO");
+    expect(item.mediaFile.mimeType).toBe("video/mp4");
+    expect(item.mediaFile.filename).toBe("IMG_3770.MOV");
+    expect(item.diagnostics).toContain("Picker video MIME: video/mp4");
+    expect(item.diagnostics).toContain(
+      "Original filename extension differed from Picker MIME; Picker metadata was accepted pending download validation.",
+    );
+  });
+
+  it("keeps local video MIME/extension mismatch rejection unchanged", () => {
+    expect(
+      resolveLocalDriveVideoMimeType({
+        name: "IMG_3770.MOV",
+        type: "video/mp4",
+      }),
+    ).toBeNull();
+    expect(
+      resolveLocalDriveVideoMimeType({
+        name: "clip.mp4",
+        type: "video/quicktime",
+      }),
+    ).toBeNull();
   });
 
   it("still rejects unsupported video MIME types before Drive save", () => {
@@ -293,14 +305,57 @@ describe("Google Photos Picker downloaded media validation", () => {
     ).rejects.toBeInstanceOf(PhotosPickerSelectionError);
   });
 
-  it("rejects downloaded MIME that does not match the picked video MIME", async () => {
-    await expect(
-      downloadPickedMedia({
-        mediaType: "VIDEO",
-        expectedMimeType: "video/quicktime",
-        contentType: "video/mp4",
+  it("uses downloaded video/mp4 as the Drive save and storage MIME", async () => {
+    const result = await downloadPickedMedia({
+      mediaType: "VIDEO",
+      expectedMimeType: "video/mp4",
+      contentType: "video/mp4",
+    });
+
+    expect(result.downloadedContentType).toBe("video/mp4");
+    expect(result.diagnostics).toContain("Picker video MIME: video/mp4");
+    expect(result.diagnostics).toContain("Downloaded video MIME: video/mp4");
+    expect(
+      buildDriveProjectAssetStorageFilename({
+        assetId: "asset-id",
+        mimeType: result.downloadedContentType,
       }),
-    ).rejects.toBeInstanceOf(PhotosPickerSelectionError);
+    ).toBe("asset-id.mp4");
+  });
+
+  it("uses downloaded video/quicktime as the Drive save and storage MIME", async () => {
+    const result = await downloadPickedMedia({
+      mediaType: "VIDEO",
+      expectedMimeType: "video/quicktime",
+      contentType: "video/quicktime",
+    });
+
+    expect(result.downloadedContentType).toBe("video/quicktime");
+    expect(
+      buildDriveProjectAssetStorageFilename({
+        assetId: "asset-id",
+        mimeType: result.downloadedContentType,
+      }),
+    ).toBe("asset-id.mov");
+  });
+
+  it("prefers downloaded MIME when Picker metadata and download are both supported videos", async () => {
+    const result = await downloadPickedMedia({
+      mediaType: "VIDEO",
+      expectedMimeType: "video/mp4",
+      contentType: "video/quicktime",
+    });
+
+    expect(result.downloadedContentType).toBe("video/quicktime");
+    expect(result.diagnostics).toContain(
+      "Picker metadata MIME differed from downloaded Content-Type; downloaded MIME is used for Drive save.",
+    );
+    expect(
+      buildDriveProjectAssetStorageFilename({
+        assetId: "asset-id",
+        mimeType: result.downloadedContentType,
+      }),
+    ).toBe("asset-id.mov");
   });
 
   it("rejects unsupported downloaded video MIME", async () => {
@@ -376,6 +431,12 @@ describe("Google Photos Picker MOV manifest contract", () => {
         mimeType: "video/quicktime",
       }),
     ).toBe("asset-id.mov");
+    expect(
+      buildDriveProjectAssetStorageFilename({
+        assetId: "asset-id",
+        mimeType: "video/mp4",
+      }),
+    ).toBe("asset-id.mp4");
     expect(
       getDriveVideoStorageDisposition({
         mimeType: "video/quicktime",

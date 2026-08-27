@@ -2870,7 +2870,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
             source: {
               filename: pickedMediaItem.mediaFile.filename ?? null,
               mediaType: pickedMediaItem.type,
-              sourceMimeType: pickedMediaItem.mediaFile.mimeType,
+              sourceMimeType:
+                pickedMediaItem.type === "VIDEO"
+                  ? downloadResult.downloadedContentType
+                  : pickedMediaItem.mediaFile.mimeType,
               sourceMediaItemId: pickedMediaItem.id,
               sourceCreateTime: pickedMediaItem.createTime,
             },

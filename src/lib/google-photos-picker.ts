@@ -553,6 +553,22 @@ export async function fetchAndValidatePickedPhoto(input: {
     });
   }
 
+  if (mediaType === "VIDEO") {
+    diagnostics.push(
+      `Picker video MIME: ${expectedMimeType || "unspecified"}`,
+      `Downloaded video MIME: ${downloadedContentType}`,
+    );
+
+    if (
+      expectedMimeType &&
+      expectedMimeType !== downloadedContentType
+    ) {
+      diagnostics.push(
+        "Picker metadata MIME differed from downloaded Content-Type; downloaded MIME is used for Drive save.",
+      );
+    }
+  }
+
   return {
     blob,
     downloadedContentType,
@@ -729,9 +745,9 @@ export function normalizePickedMediaItem(
   let resolvedMimeType = mimeType ?? "";
 
   if (mediaItem.type === "VIDEO") {
-    const resolvedVideoMimeType = resolveLocalDriveVideoMimeType({
-      name: filename ?? "",
-      type: mimeType ?? "",
+    const resolvedVideoMimeType = resolvePickedVideoMimeType({
+      filename,
+      mimeType,
     });
 
     if (!resolvedVideoMimeType) {
@@ -749,6 +765,18 @@ export function normalizePickedMediaItem(
     }
 
     resolvedMimeType = resolvedVideoMimeType;
+    diagnostics.push(`Picker video MIME: ${resolvedVideoMimeType}`);
+
+    if (
+      didPickerVideoFilenameDifferFromMimeType({
+        filename,
+        mimeType: resolvedVideoMimeType,
+      })
+    ) {
+      diagnostics.push(
+        "Original filename extension differed from Picker MIME; Picker metadata was accepted pending download validation.",
+      );
+    }
 
     if (typeof sizeBytes === "number") {
       const sizeCode = getLocalDriveVideoFileValidationCodes({
@@ -885,10 +913,13 @@ function isAllowedDownloadedAssetMimeType(input: {
   expectedMimeType?: string;
 } {
   if (input.mediaType === "VIDEO") {
+    const expectedMimeTypeIsSupportedVideo =
+      input.expectedMimeType === undefined ||
+      isSupportedDriveVideoMimeType(input.expectedMimeType);
+
     return (
-      isSupportedDriveVideoMimeType(input.contentType) &&
-      (input.expectedMimeType === undefined ||
-        input.expectedMimeType === input.contentType)
+      expectedMimeTypeIsSupportedVideo &&
+      isSupportedDriveVideoMimeType(input.contentType)
     );
   }
 
@@ -897,6 +928,37 @@ function isAllowedDownloadedAssetMimeType(input: {
     input.contentType === "image/png" ||
     input.contentType === "image/webp"
   );
+}
+
+function resolvePickedVideoMimeType(input: {
+  filename: string | null;
+  mimeType: string | null;
+}): SupportedDriveVideoMimeType | null {
+  if (input.mimeType && isSupportedDriveVideoMimeType(input.mimeType)) {
+    return input.mimeType;
+  }
+
+  return resolveLocalDriveVideoMimeType({
+    name: input.filename ?? "",
+    type: input.mimeType ?? "",
+  });
+}
+
+function didPickerVideoFilenameDifferFromMimeType(input: {
+  filename: string | null;
+  mimeType: SupportedDriveVideoMimeType;
+}): boolean {
+  const filename = (input.filename ?? "").trim().toLowerCase();
+
+  if (filename.endsWith(".mp4")) {
+    return input.mimeType !== "video/mp4";
+  }
+
+  if (filename.endsWith(".mov")) {
+    return input.mimeType !== "video/quicktime";
+  }
+
+  return false;
 }
 
 export function parseGoogleDurationSeconds(value: unknown): number | null {
