@@ -95,7 +95,8 @@ export function DriveProjectWorkspacePanel() {
     activeDragSlideId: null,
   }));
   const slideListStateRef = useRef(slideListState);
-  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+  const deleteTriggerRef = useRef<HTMLElement | null>(null);
+  const bulkDeleteButtonRef = useRef<HTMLButtonElement>(null);
   const [pendingDeleteSlideIds, setPendingDeleteSlideIds] = useState<string[] | null>(null);
 
   const { orderedSlideIds, selectedSlideIds, activeDragSlideId } = slideListState;
@@ -182,12 +183,28 @@ export function DriveProjectWorkspacePanel() {
       return;
     }
 
+    deleteTriggerRef.current = bulkDeleteButtonRef.current;
     setPendingDeleteSlideIds(Array.from(selectedSlideIds));
+  }
+
+  function handleDeleteSingleSlide(slideId: string, trigger: HTMLElement) {
+    if (areSlideActionsDisabled) {
+      return;
+    }
+
+    deleteTriggerRef.current = trigger;
+    setPendingDeleteSlideIds([slideId]);
   }
 
   async function confirmDeleteSelectedSlides() {
     const slideIdsToDelete = pendingDeleteSlideIds;
-    if (!slideIdsToDelete || !canDeleteSelectedSlides) return;
+    if (
+      !slideIdsToDelete ||
+      slideIdsToDelete.length === 0 ||
+      areSlideActionsDisabled
+    ) {
+      return;
+    }
     setPendingDeleteSlideIds(null);
     const ok = await deleteProjectSlides(slideIdsToDelete);
 
@@ -336,7 +353,7 @@ export function DriveProjectWorkspacePanel() {
                       選択解除
                     </Button>
                     <Button
-                      ref={deleteTriggerRef}
+                      ref={bulkDeleteButtonRef}
                       type="button"
                       size="sm"
                       variant="destructive"
@@ -470,11 +487,13 @@ export function DriveProjectWorkspacePanel() {
                                     slideId={slide.slideId}
                                     isDisabled={areSlideActionsDisabled}
                                     isDuplicating={isSlideDuplicateInFlight}
+                                    isDeleting={isSlideDeleteInFlight}
                                     isDuplicateLimitReached={
                                       slideCount !== null &&
                                       slideCount >= PROJECT_SLIDE_MAX_COUNT
                                     }
                                     onDuplicate={duplicateProjectSlide}
+                                    onDelete={handleDeleteSingleSlide}
                                   />
                                 </div>
                                 <div className="space-y-1.5 sm:space-y-2">
@@ -576,8 +595,16 @@ export function DriveProjectWorkspacePanel() {
 
       {pendingDeleteSlideIds ? (
         <ProductAlertDialog
-          title="選択したスライドを削除しますか？"
-          description={`選択した${pendingDeleteSlideIds.length}件のスライドをこの作品から削除します。\nGoogle Drive上の素材ファイルは削除しません。\nこの端末への反映には、保存をもう一度実行してください。`}
+          title={
+            pendingDeleteSlideIds.length === 1
+              ? "このスライドを削除しますか？"
+              : "選択したスライドを削除しますか？"
+          }
+          description={
+            pendingDeleteSlideIds.length === 1
+              ? "このスライドを作品から削除します。\nGoogle Drive上の素材ファイルは削除しません。\nこの端末への反映には、保存をもう一度実行してください。"
+              : `選択した${pendingDeleteSlideIds.length}件のスライドをこの作品から削除します。\nGoogle Drive上の素材ファイルは削除しません。\nこの端末への反映には、保存をもう一度実行してください。`
+          }
           confirmLabel="スライドを削除"
           triggerRef={deleteTriggerRef}
           onCancel={() => setPendingDeleteSlideIds(null)}
@@ -770,34 +797,54 @@ function SlideSingleActions({
   slideId,
   isDisabled,
   isDuplicating,
+  isDeleting,
   isDuplicateLimitReached,
   onDuplicate,
+  onDelete,
 }: {
   slideId: string;
   isDisabled: boolean;
   isDuplicating: boolean;
+  isDeleting: boolean;
   isDuplicateLimitReached: boolean;
   onDuplicate: (slideId: string) => Promise<boolean>;
+  onDelete: (slideId: string, trigger: HTMLElement) => void;
 }) {
   return (
     <div>
-      <Button
-        type="button"
-        size="sm"
-        variant="secondary"
-        className="min-h-11 min-w-11 px-2.5"
-        disabled={isDisabled || isDuplicateLimitReached}
-        title={
-          isDuplicateLimitReached
-            ? "スライド数が上限の50件に達しているため、複製できません。"
-            : "スライドを複製"
-        }
-        onClick={() => {
-          void onDuplicate(slideId);
-        }}
-      >
-        {isDuplicating ? "複製中" : "複製"}
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="min-h-11 min-w-11 px-2.5"
+          disabled={isDisabled || isDuplicateLimitReached}
+          title={
+            isDuplicateLimitReached
+              ? "スライド数が上限の50件に達しているため、複製できません。"
+              : "スライドを複製"
+          }
+          onClick={() => {
+            void onDuplicate(slideId);
+          }}
+        >
+          {isDuplicating ? "複製中" : "複製"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          className="min-h-11 min-w-11 px-2.5"
+          disabled={isDisabled}
+          aria-label="このスライドを削除"
+          title="このスライドを削除"
+          onClick={(event) => {
+            onDelete(slideId, event.currentTarget);
+          }}
+        >
+          {isDeleting ? "削除中" : "削除"}
+        </Button>
+      </div>
       {isDuplicateLimitReached ? (
         <p className="mt-1 text-xs leading-5 text-slate-500">
           スライド数が上限の50件に達しているため、複製できません。

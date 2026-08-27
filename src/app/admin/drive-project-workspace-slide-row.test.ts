@@ -51,6 +51,7 @@ describe("compact slide editing rows", () => {
     expect(source).toContain('onClick={() => onMove(slideId, "down")}');
     expect(source).toContain("onClick={handleDeleteSelectedSlides}");
     expect(source).toContain("void onDuplicate(slideId)");
+    expect(source).toContain("onDelete(slideId, event.currentTarget)");
     expect(source).toContain("updateProjectSlideDuration");
     expect(source).toContain("updateProjectSlideCaption");
     expect(openingButton(source, 'onClick={() => onMove(slideId, "up")}')).toContain(
@@ -64,6 +65,9 @@ describe("compact slide editing rows", () => {
     ).toContain("min-h-11");
     expect(
       openingButton(source, "onClick={handleDeleteSelectedSlides}"),
+    ).toContain("min-h-11");
+    expect(
+      openingButton(source, "onDelete(slideId, event.currentTarget)"),
     ).toContain("min-h-11");
   });
 
@@ -82,6 +86,34 @@ describe("compact slide editing rows", () => {
     expect(duplicate).toContain("void onDuplicate(slideId)");
     expect(duplicate).toContain("min-h-11 min-w-11 px-2.5");
     expect(duplicate).not.toContain("w-full");
+  });
+
+  it("adds a single-slide delete action beside duplicate without replacing bulk delete", () => {
+    const actions = functionBody("SlideSingleActions");
+
+    expect(actions).toContain("void onDuplicate(slideId)");
+    expect(actions).toContain("onDelete(slideId, event.currentTarget)");
+    expect(actions).toContain('aria-label="このスライドを削除"');
+    expect(actions).toContain('title="このスライドを削除"');
+    expect(actions).toContain('variant="destructive"');
+    expect(actions).toContain("flex flex-wrap items-center gap-2");
+    expect(actions).not.toContain("flex-col");
+    expect(openingButton(actions, "onDelete(slideId, event.currentTarget)")).toContain(
+      "min-h-11",
+    );
+    expect(openingButton(actions, "onDelete(slideId, event.currentTarget)")).toContain(
+      "min-w-11",
+    );
+    expect(source).toContain("function handleDeleteSingleSlide(");
+    expect(source).toContain("setPendingDeleteSlideIds([slideId])");
+    expect(source).toContain("const ok = await deleteProjectSlides(slideIdsToDelete)");
+    expect(source).toContain("onClick={handleDeleteSelectedSlides}");
+    expect(source).toContain('disabled={!canDeleteSelectedSlides}');
+    expect(source).toContain("選択したスライドを削除");
+    expect(source).toContain("onDuplicate={duplicateProjectSlide}");
+    expect(source).toContain("onDelete={handleDeleteSingleSlide}");
+    expect(source).toContain("<ProductAlertDialog");
+    expect(source).not.toContain("window.confirm");
   });
 });
 

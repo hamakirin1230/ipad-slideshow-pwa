@@ -100,6 +100,8 @@ describe("production diagnostics presentation boundary", () => {
     expect(source.publish).toContain("getProjectPublishFailureDisplayMessage");
     expect(source.publish).toContain("diagnosticTargets");
     expect(source.publish).toContain("対象:");
+    expect(source.publish).toContain("対象 {state.error.diagnosticTargets.length}件:");
+    expect(source.publish).toContain("getProjectPublishAssetDiagnosticLabel");
     expect(source.publish).toContain(
       "sanitizeUserFacingDiagnostic(state.error.diagnosticTargets[0]!)",
     );
