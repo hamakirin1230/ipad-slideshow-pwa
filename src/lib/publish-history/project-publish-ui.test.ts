@@ -24,11 +24,13 @@ import {
   mapPublishWorkflowError,
   pendingProjectPublishOwnerMatches,
   PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES,
+  PROJECT_PUBLISH_PREFLIGHT_DIAGNOSTIC_CODES,
   PROJECT_PUBLISH_DRIVE_SUCCESS_MESSAGE,
   PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE,
   shouldDiscardPendingPlan,
   type PendingProjectPublishOwner,
   type ProjectPublishAssetDiagnosticCode,
+  type ProjectPublishDiagnosticCode,
   type ProjectPublishReview,
 } from "./project-publish-ui";
 import { getProjectManifestContentCanonicalHash } from "./project-publish-revision";
@@ -488,7 +490,20 @@ describe("fresh publish review preparation", () => {
       ok: false,
       code: "invalidAssetMetadata",
       diagnosticCode: "assetParentMismatch",
+      diagnostics: {
+        issueCodes: ["assetParentMismatch"],
+        assetDiagnostics: [
+          {
+            slideIndex: 0,
+            assetName: "image.jpg",
+            mimeType: "image/jpeg",
+            kind: "assetParentMismatch",
+          },
+        ],
+      },
     });
+    expect(JSON.stringify(result)).not.toContain("wrong-folder");
+    expect(JSON.stringify(result)).not.toContain("image-file");
   });
 
   it("diagnoses a mismatched asset file ID", async () => {
@@ -547,6 +562,17 @@ describe("fresh publish review preparation", () => {
       code: "invalidAssetMetadata",
       message: "公開対象のアセット情報が一致しません。",
       diagnosticCode: "assetAppMismatch",
+      diagnostics: {
+        issueCodes: ["assetAppMismatch"],
+        assetDiagnostics: [
+          {
+            slideIndex: 0,
+            assetName: "image.jpg",
+            mimeType: "image/jpeg",
+            kind: "assetAppMismatch",
+          },
+        ],
+      },
     });
     for (const forbidden of [
       "token-never-returned",
@@ -573,7 +599,89 @@ describe("fresh publish review preparation", () => {
     const metadata = buildMetadata();
     metadata.get("image-file")!.trashed = true;
     const result = await prepare({ metadata });
-    expect(result).toMatchObject({ ok: false, code: "trashedAsset" });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "trashedAsset",
+      diagnosticCode: "trashedAsset",
+      diagnostics: {
+        issueCodes: ["trashedAsset"],
+        assetDiagnostics: [
+          {
+            slideIndex: 0,
+            assetName: "image.jpg",
+            mimeType: "image/jpeg",
+            kind: "trashedAsset",
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("image-file");
+    expect(JSON.stringify(result)).not.toContain(IMAGE_ASSET_ID);
+  });
+
+  it("allows image-video-image with MP4 in the middle", async () => {
+    const manifest = buildManifest();
+    const metadata = buildMetadata();
+    const third = {
+      ...manifest.slides[0],
+      slideId: "88888888-8888-4888-8888-888888888888",
+      assetId: "77777777-7777-4777-8777-777777777777",
+      assetFileId: "image-file-b",
+      assetName: "image-b.jpg",
+    };
+    manifest.slides = [manifest.slides[0], manifest.slides[1], third];
+    metadata.set(
+      "image-file-b",
+      file(
+        "image-file-b",
+        "image-b.jpg",
+        "image/jpeg",
+        "asset",
+        project.assetsFolderId,
+        {
+          sizeBytes: 1200,
+          checksum: "image-b-checksum",
+          appProperties: { assetId: third.assetId },
+        },
+      ),
+    );
+    const result = await prepare({ manifest, metadata });
+    expect(result.ok && result.review.slideCount).toBe(3);
+  });
+
+  it("allows image-video-image with MOV in the middle", async () => {
+    const manifest = buildManifest();
+    const metadata = buildMetadata();
+    manifest.slides[1].mimeType = "video/quicktime";
+    manifest.slides[1].sourceMimeType = "video/quicktime";
+    manifest.slides[1].assetName = "video.mov";
+    metadata.get("video-file")!.mimeType = "video/quicktime";
+    metadata.get("video-file")!.name = "video.mov";
+    const third = {
+      ...manifest.slides[0],
+      slideId: "88888888-8888-4888-8888-888888888888",
+      assetId: "77777777-7777-4777-8777-777777777777",
+      assetFileId: "image-file-b",
+      assetName: "image-b.jpg",
+    };
+    manifest.slides = [manifest.slides[0], manifest.slides[1], third];
+    metadata.set(
+      "image-file-b",
+      file(
+        "image-file-b",
+        "image-b.jpg",
+        "image/jpeg",
+        "asset",
+        project.assetsFolderId,
+        {
+          sizeBytes: 1200,
+          checksum: "image-b-checksum",
+          appProperties: { assetId: third.assetId },
+        },
+      ),
+    );
+    const result = await prepare({ manifest, metadata });
+    expect(result.ok && result.review.slideCount).toBe(3);
   });
 });
 
@@ -581,6 +689,14 @@ describe("review and warning mapping", () => {
   it("provides a fixed label for every allowed asset diagnostic", () => {
     for (const code of PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES) {
       expect(getProjectPublishAssetDiagnosticLabel(code)).not.toBe("");
+    }
+  });
+
+  it("provides a fixed label for every requested preflight diagnostic", () => {
+    for (const code of PROJECT_PUBLISH_PREFLIGHT_DIAGNOSTIC_CODES) {
+      expect(
+        getProjectPublishAssetDiagnosticLabel(code as ProjectPublishDiagnosticCode),
+      ).not.toBe("");
     }
   });
 
@@ -710,8 +826,15 @@ describe("workflow error and success labels", () => {
     },
   );
 
-  it("labels a created revision", () => {
-    expect(getRevisionPreparationLabel("created")).toContain("作成");
+  it("keeps the sanitized preflight UI message unchanged", () => {
+    expect(
+      getProjectPublishFailureDisplayMessage({
+        phase: "preflight",
+        error: { message: "raw token image-file" },
+      }),
+    ).toBe(
+      "公開前確認を完了できませんでした。現在の状態を再確認して、もう一度お試しください。",
+    );
   });
 
   it("labels an already prepared revision as verified", () => {

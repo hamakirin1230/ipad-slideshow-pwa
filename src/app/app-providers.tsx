@@ -6819,7 +6819,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         return createGooglePhotosExportAuthorizationError("aborted");
       }
       if (!source.ok) {
-        return source;
+        return toGooglePhotosExportReviewResult(source);
       }
       const imageOnlyError = assertGooglePhotosExportPlanIsImageOnly(source.plan);
       if (imageOnlyError) {

@@ -3,6 +3,7 @@ import type {
   ProjectPublishPreflightSummary,
 } from "./project-publish-preflight";
 import type { ProjectPublishWorkflowResult } from "./project-publish-workflow";
+import type { SafeSlideDiagnostic } from "../drive-preflight-diagnostics";
 
 export type ProjectPublishWarning = {
   code: string;
@@ -25,8 +26,42 @@ export const PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES = [
   "assetMediaTypeMismatch",
 ] as const;
 
+export const PROJECT_PUBLISH_PREFLIGHT_DIAGNOSTIC_CODES = [
+  "invalidManifest",
+  "manifestProjectMismatch",
+  "manifestWorkspaceMismatch",
+  "invalidSourceManifestState",
+  "invalidExpectedCurrentState",
+  "manifestHashMismatch",
+  "manifestModifiedTimeMismatch",
+  "missingAssetMetadata",
+  "unexpectedAssetMetadata",
+  "duplicateAssetId",
+  "duplicateDriveFileReference",
+  "trashedAsset",
+  "invalidAssetMetadata",
+  "remoteOnlyMismatch",
+  "historyStateInvalid",
+  "currentRevisionConflict",
+  "missingAssetChecksum",
+  "missingAssetSize",
+  "missingAssetModifiedTime",
+] as const;
+
 export type ProjectPublishAssetDiagnosticCode =
   (typeof PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES)[number];
+
+export type ProjectPublishPreflightDiagnosticCode =
+  (typeof PROJECT_PUBLISH_PREFLIGHT_DIAGNOSTIC_CODES)[number];
+
+export type ProjectPublishDiagnosticCode =
+  | ProjectPublishAssetDiagnosticCode
+  | ProjectPublishPreflightDiagnosticCode;
+
+export type ProjectPublishInternalDiagnostics = {
+  issueCodes: string[];
+  assetDiagnostics: SafeSlideDiagnostic<string>[];
+};
 
 export type ProjectPublishReview = {
   projectId: string;
@@ -47,7 +82,8 @@ export type PrepareProjectPublishReviewResult =
       ok: false;
       code: string;
       message: string;
-      diagnosticCode?: ProjectPublishAssetDiagnosticCode;
+      diagnosticCode?: ProjectPublishDiagnosticCode;
+      diagnostics?: ProjectPublishInternalDiagnostics;
     };
 
 export type SanitizedPublishSuccess = {
@@ -118,7 +154,8 @@ export function mapPublishPreflightIssue(
 export function createPrepareReviewFailure(input?: {
   code?: string;
   message?: string;
-  diagnosticCode?: ProjectPublishAssetDiagnosticCode;
+  diagnosticCode?: ProjectPublishDiagnosticCode;
+  diagnostics?: ProjectPublishInternalDiagnostics;
 }): Extract<PrepareProjectPublishReviewResult, { ok: false }> {
   return {
     ok: false,
@@ -129,37 +166,79 @@ export function createPrepareReviewFailure(input?: {
     ...(input?.diagnosticCode
       ? { diagnosticCode: input.diagnosticCode }
       : {}),
+    ...(input?.diagnostics ? { diagnostics: input.diagnostics } : {}),
   };
 }
 
 export function getProjectPublishAssetDiagnosticCode(
   value: string,
-): ProjectPublishAssetDiagnosticCode | undefined {
-  return PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES.find(
-    (code) => code === value,
-  );
+): ProjectPublishDiagnosticCode | undefined {
+  return PROJECT_PUBLISH_DIAGNOSTIC_CODES.find((code) => code === value);
 }
 
 export function getProjectPublishAssetDiagnosticLabel(
-  code: ProjectPublishAssetDiagnosticCode,
+  code: ProjectPublishDiagnosticCode,
 ): string {
-  const labels: Record<ProjectPublishAssetDiagnosticCode, string> = {
-    assetFileIdMismatch: "素材ファイル参照不一致",
-    assetMimeTypeMismatch: "素材形式不一致",
-    assetParentCountMismatch: "保存場所の件数不一致",
-    assetParentMismatch: "保存場所不一致",
-    assetAppMismatch: "アプリ管理情報不一致",
-    assetRoleMismatch: "素材の管理種別不一致",
-    assetSchemaVersionMismatch: "保存形式のバージョン不一致",
-    assetWorkspaceMismatch: "Drive保存領域の情報不一致",
-    assetProjectMismatch: "プロジェクト情報不一致",
-    assetIdMismatch: "素材情報不一致",
-    assetFileReferenceMismatch: "プロジェクト設定の素材参照不一致",
-    assetSizeMismatch: "ファイルサイズ不一致",
-    assetMediaTypeMismatch: "画像・動画分類不一致",
-  };
-  return labels[code];
+  return PROJECT_PUBLISH_DIAGNOSTIC_LABELS[code];
 }
+
+export function buildProjectPublishInternalDiagnostics(input: {
+  issueCodes: readonly string[];
+  slides?: readonly SafeSlideDiagnostic<string>[];
+}): ProjectPublishInternalDiagnostics {
+  return {
+    issueCodes: [...input.issueCodes],
+    assetDiagnostics: (input.slides ?? []).map((slide) => ({
+      slideIndex: slide.slideIndex,
+      assetName: slide.assetName,
+      mimeType: slide.mimeType,
+      kind: slide.kind,
+    })),
+  };
+}
+
+const PROJECT_PUBLISH_DIAGNOSTIC_CODES = [
+  ...PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES,
+  ...PROJECT_PUBLISH_PREFLIGHT_DIAGNOSTIC_CODES,
+] as const;
+
+const PROJECT_PUBLISH_DIAGNOSTIC_LABELS: Record<
+  ProjectPublishDiagnosticCode,
+  string
+> = {
+  assetFileIdMismatch: "素材ファイル参照不一致",
+  assetMimeTypeMismatch: "素材形式不一致",
+  assetParentCountMismatch: "保存場所の件数不一致",
+  assetParentMismatch: "保存場所不一致",
+  assetAppMismatch: "アプリ管理情報不一致",
+  assetRoleMismatch: "素材の管理種別不一致",
+  assetSchemaVersionMismatch: "保存形式のバージョン不一致",
+  assetWorkspaceMismatch: "Drive保存領域の情報不一致",
+  assetProjectMismatch: "プロジェクト情報不一致",
+  assetIdMismatch: "素材情報不一致",
+  assetFileReferenceMismatch: "プロジェクト設定の素材参照不一致",
+  assetSizeMismatch: "ファイルサイズ不一致",
+  assetMediaTypeMismatch: "画像・動画分類不一致",
+  invalidManifest: "マニフェスト不正",
+  manifestProjectMismatch: "マニフェストの作品不一致",
+  manifestWorkspaceMismatch: "マニフェストの保存領域不一致",
+  invalidSourceManifestState: "マニフェスト状態不正",
+  invalidExpectedCurrentState: "公開前の期待状態不正",
+  manifestHashMismatch: "マニフェスト内容不一致",
+  manifestModifiedTimeMismatch: "マニフェスト更新日時不一致",
+  missingAssetMetadata: "素材情報不足",
+  unexpectedAssetMetadata: "想定外の素材情報",
+  duplicateAssetId: "素材識別の重複",
+  duplicateDriveFileReference: "素材ファイル参照の重複",
+  trashedAsset: "削除済み素材",
+  invalidAssetMetadata: "素材情報不正",
+  remoteOnlyMismatch: "remoteOnly状態不一致",
+  historyStateInvalid: "公開履歴状態不正",
+  currentRevisionConflict: "現在の公開版不一致",
+  missingAssetChecksum: "素材checksum未確認",
+  missingAssetSize: "素材サイズ未確認",
+  missingAssetModifiedTime: "素材更新日時未確認",
+};
 
 export function mapPublishWorkflowError(
   result: Extract<ProjectPublishWorkflowResult, { ok: false }>,

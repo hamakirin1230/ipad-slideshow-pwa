@@ -155,6 +155,16 @@ describe("google photos export review UI", () => {
     );
     expect(source.providers).not.toContain("setPhotosExportAccessToken");
   });
+
+  it("keeps sanitized export errors and does not render internal diagnostics", () => {
+    expect(source.panel).toContain("{uiState.error.message}");
+    expect(source.panel).not.toContain("diagnostics");
+    expect(source.panel).not.toContain("assetDiagnostics");
+    expect(source.panel).not.toContain("issueCodes");
+    expect(source.providers).toContain(
+      "return toGooglePhotosExportReviewResult(source);",
+    );
+  });
 });
 
 function read(relativePath: string) {

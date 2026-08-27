@@ -8,6 +8,7 @@ import type {
 import { GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES } from "./contract";
 import { prepareGooglePhotosExportSourceWithAdapter } from "./drive-source";
 import type { GooglePhotosExportSourceAdapter } from "./drive-source";
+import { toGooglePhotosExportReviewResult } from "./workflow";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
@@ -322,10 +323,253 @@ describe("google photos export drive source", () => {
     expect(result).toMatchObject({
       ok: false,
       error: { kind: "drivePreflightFailed" },
+      diagnostics: { kind: "selectedProjectMismatch" },
     });
     expect(JSON.stringify(result)).not.toContain("other-project");
   });
 });
+
+describe("google photos export drive source diagnostics", () => {
+  it("classifies projectRoot metadata mismatch", async () => {
+    const files = defaultFiles();
+    files["project-folder"] = {
+      ...files["project-folder"]!,
+      appProperties: {
+        ...files["project-folder"]!.appProperties,
+        schemaVersion: "2",
+      },
+    };
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ files }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        kind: "drivePreflightFailed",
+        message:
+          "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+      },
+      diagnostics: {
+        kind: "projectRootMetadataMismatch",
+        locationKind: "projectRoot",
+        locationDetail: "schemaVersionMismatch",
+      },
+    });
+    expectSensitiveFree(result);
+  });
+
+  it("classifies manifest metadata mismatch", async () => {
+    const files = defaultFiles();
+    files["manifest-file"] = {
+      ...files["manifest-file"]!,
+      appProperties: {
+        ...files["manifest-file"]!.appProperties,
+        role: "other",
+      },
+    };
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ files }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      diagnostics: {
+        kind: "manifestMetadataMismatch",
+        locationKind: "projectManifest",
+        locationDetail: "roleMismatch",
+      },
+    });
+    expectSensitiveFree(result);
+  });
+
+  it("classifies assetsRoot metadata mismatch", async () => {
+    const files = defaultFiles();
+    files["assets-folder"] = {
+      ...files["assets-folder"]!,
+      parents: ["wrong-parent"],
+    };
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ files }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      diagnostics: {
+        kind: "assetsRootMetadataMismatch",
+        locationKind: "assetsRoot",
+        locationDetail: "parentMismatch",
+      },
+    });
+    expectSensitiveFree(result);
+  });
+
+  it.each([
+    ["assetFileIdMismatch", (file: DriveFileCandidate) => {
+      file.id = "different-file";
+    }],
+    ["trashedAsset", (file: DriveFileCandidate) => {
+      file.trashed = true;
+    }],
+    ["assetMimeTypeMismatch", (file: DriveFileCandidate) => {
+      file.mimeType = "image/png";
+    }],
+    ["assetAppMismatch", (file: DriveFileCandidate) => {
+      file.appProperties.app = "other-app";
+    }],
+    ["assetRoleMismatch", (file: DriveFileCandidate) => {
+      file.appProperties.role = "other";
+    }],
+    ["assetSchemaVersionMismatch", (file: DriveFileCandidate) => {
+      file.appProperties.schemaVersion = "2";
+    }],
+    ["assetWorkspaceMismatch", (file: DriveFileCandidate) => {
+      file.appProperties.workspaceId = "other-workspace";
+    }],
+    ["assetProjectMismatch", (file: DriveFileCandidate) => {
+      file.appProperties.projectId = "other-project";
+    }],
+    ["assetIdMismatch", (file: DriveFileCandidate) => {
+      file.appProperties.assetId = "other-asset";
+    }],
+    ["assetParentCountMismatch", (file: DriveFileCandidate) => {
+      file.parents = ["assets-folder", "extra"];
+    }],
+    ["assetParentMismatch", (file: DriveFileCandidate) => {
+      file.parents = ["wrong-folder"];
+    }],
+  ] as const)("classifies slide asset %s", async (kind, mutate) => {
+    const files = defaultFiles();
+    mutate(files["image-file"]!);
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ files }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "drivePreflightFailed" },
+      diagnostics: {
+        kind,
+        slide: {
+          slideIndex: 0,
+          assetName: "beach.jpg",
+          mimeType: "image/jpeg",
+          kind,
+        },
+      },
+    });
+    expectSensitiveFree(result);
+  });
+
+  it("keeps the sanitized UI error message for drive preflight failure", async () => {
+    const files = defaultFiles();
+    files["image-file"]!.trashed = true;
+    const result = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ files }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toBe(
+      "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+    );
+  });
+
+  it("skips the middle video in image-video-image for both MP4 and MOV", async () => {
+    const mp4 = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ manifest: imageVideoImageManifest("video/mp4") }),
+    );
+    expect(mp4.ok).toBe(true);
+    if (!mp4.ok) return;
+    expect(mp4.plan.items.map((item) => item.slideIndex)).toEqual([0, 2]);
+    expect(mp4.plan.skippedVideoCount).toBe(1);
+
+    const files = defaultFiles();
+    files["video-file"] = file(
+      "video-file",
+      "clip.mov",
+      "video/quicktime",
+      "asset",
+      {
+        sizeBytes: 1500,
+        appProperties: assetProperties(VIDEO_ASSET_ID),
+      },
+    );
+    const mov = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({
+        manifest: imageVideoImageManifest("video/quicktime"),
+        files,
+      }),
+    );
+    expect(mov.ok).toBe(true);
+    if (!mov.ok) return;
+    expect(mov.plan.items.map((item) => item.mimeType)).toEqual([
+      "image/jpeg",
+      "image/jpeg",
+    ]);
+    expect(mov.plan.skippedVideoCount).toBe(1);
+    expect(JSON.stringify(mov.plan.items)).not.toContain("video/quicktime");
+  });
+
+  it("strips internal diagnostics from the public review result", async () => {
+    const files = defaultFiles();
+    files["image-file"]!.trashed = true;
+    const source = await prepareGooglePhotosExportSourceWithAdapter(
+      input(),
+      createAdapter({ files }),
+    );
+    const publicResult = toGooglePhotosExportReviewResult(source);
+    expect(publicResult).toEqual({
+      ok: false,
+      error: {
+        kind: "drivePreflightFailed",
+        message:
+          "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+      },
+    });
+    expect(publicResult).not.toHaveProperty("diagnostics");
+  });
+});
+
+function imageVideoImageManifest(
+  videoMimeType: "video/mp4" | "video/quicktime",
+) {
+  const manifest = buildManifest();
+  const [photoA, photoB, video] = manifest.slides;
+  if (!photoA || !photoB || !video) throw new Error("fixture missing");
+  video.mimeType = videoMimeType;
+  video.sourceMimeType = videoMimeType;
+  video.assetName = videoMimeType === "video/quicktime" ? "clip.mov" : "clip.mp4";
+  manifest.slides = [photoA, video, photoB];
+  return manifest;
+}
+
+function expectSensitiveFree(result: unknown) {
+  const serialized = JSON.stringify(result);
+  for (const forbidden of [
+    "drive-token-secret",
+    "image-file",
+    "video-file",
+    "manifest-file",
+    "assets-folder",
+    "project-folder",
+    IMAGE_ASSET_ID,
+    VIDEO_ASSET_ID,
+    WORKSPACE_ID,
+    PROJECT_ID,
+    "other-workspace",
+    "other-project",
+    "other-asset",
+    "different-file",
+    "wrong-folder",
+    "wrong-parent",
+    "accessToken",
+  ]) {
+    expect(serialized).not.toContain(forbidden);
+  }
+}
 
 function input(
   overrides: Partial<Parameters<typeof prepareGooglePhotosExportSourceWithAdapter>[0]> = {},

@@ -1,3 +1,8 @@
+import {
+  buildSafeSlideDiagnostic,
+  findFirstSlideContext,
+  type SafeSlideDiagnostic,
+} from "../drive-preflight-diagnostics";
 import { getDriveVideoStorageDisposition } from "../drive-video-policy";
 import {
   parseProjectManifest,
@@ -124,11 +129,15 @@ export type ProjectPublishPreflightIssueCode =
   | "remoteOnlyAsset"
   | "publishedAtMatchesPreviousRevision";
 
+export type ProjectPublishSlideDiagnostic =
+  SafeSlideDiagnostic<ProjectPublishPreflightIssueCode>;
+
 export type ProjectPublishPreflightIssue = {
   code: ProjectPublishPreflightIssueCode;
   severity: "error" | "warning";
   path?: string;
   message: string;
+  slide?: ProjectPublishSlideDiagnostic;
 };
 
 export type ProjectPublishPreflightSummary = {
@@ -605,11 +614,13 @@ function validateAssets(
     if (typeof assetId === "string") {
       if (assetIds.has(assetId)) {
         issues.push(
-          issue(
+          assetIssue(
             "duplicateAssetId",
             "error",
             "公開対象のassetIdが重複しています。",
             `${path}.assetId`,
+            manifest,
+            assetId,
           ),
         );
       }
@@ -618,11 +629,13 @@ function validateAssets(
     if (typeof driveFileId === "string") {
       if (driveFileIds.has(driveFileId)) {
         issues.push(
-          issue(
+          assetIssue(
             "duplicateDriveFileReference",
             "error",
             "公開対象のDrive file参照が重複しています。",
             `${path}.driveFileId`,
+            manifest,
+            typeof assetId === "string" ? assetId : undefined,
           ),
         );
       }
@@ -632,11 +645,13 @@ function validateAssets(
     const structurallyValid = isValidAssetMetadataShape(asset);
     if (!structurallyValid) {
       issues.push(
-        issue(
+        assetIssue(
           "invalidAssetMetadata",
           "error",
           "公開対象のアセット情報が正しくありません。",
           path,
+          manifest,
+          typeof assetId === "string" ? assetId : undefined,
         ),
       );
       return;
@@ -645,74 +660,76 @@ function validateAssets(
     const expectation = expectations.get(asset.assetId);
     if (!expectation) {
       issues.push(
-        issue(
+        assetIssue(
           "unexpectedAssetMetadata",
           "error",
           "マニフェストから参照されていないアセット情報が含まれています。",
           path,
+          manifest,
+          asset.assetId,
         ),
       );
       return;
     }
 
+    const pushAssetIssue = (
+      code: ProjectPublishPreflightIssueCode,
+      severity: ProjectPublishPreflightIssue["severity"],
+      message: string,
+      issuePath: string,
+      target: ProjectPublishPreflightIssue[] = issues,
+    ) => {
+      target.push(
+        assetIssue(code, severity, message, issuePath, manifest, asset.assetId),
+      );
+    };
+
     if (asset.trashed) {
-      issues.push(
-        issue(
-          "trashedAsset",
-          "error",
-          "公開対象に削除済みのアセットが含まれています。",
-          `${path}.trashed`,
-        ),
+      pushAssetIssue(
+        "trashedAsset",
+        "error",
+        "公開対象に削除済みのアセットが含まれています。",
+        `${path}.trashed`,
       );
     }
     if (asset.role !== "asset") {
-      issues.push(
-        issue(
-          "assetRoleMismatch",
-          "error",
-          "公開対象のアセットroleが一致しません。",
-          path,
-        ),
+      pushAssetIssue(
+        "assetRoleMismatch",
+        "error",
+        "公開対象のアセットroleが一致しません。",
+        path,
       );
     }
     if (asset.workspaceId !== input.workspaceId) {
-      issues.push(
-        issue(
-          "assetWorkspaceMismatch",
-          "error",
-          "公開対象のアセットworkspaceが一致しません。",
-          path,
-        ),
+      pushAssetIssue(
+        "assetWorkspaceMismatch",
+        "error",
+        "公開対象のアセットworkspaceが一致しません。",
+        path,
       );
     }
     if (asset.projectId !== input.projectId) {
-      issues.push(
-        issue(
-          "assetProjectMismatch",
-          "error",
-          "公開対象のアセットprojectが一致しません。",
-          path,
-        ),
+      pushAssetIssue(
+        "assetProjectMismatch",
+        "error",
+        "公開対象のアセットprojectが一致しません。",
+        path,
       );
     }
     if (asset.driveFileId !== expectation.driveFileId) {
-      issues.push(
-        issue(
-          "assetFileReferenceMismatch",
-          "error",
-          "公開対象のアセットfile参照が一致しません。",
-          path,
-        ),
+      pushAssetIssue(
+        "assetFileReferenceMismatch",
+        "error",
+        "公開対象のアセットfile参照が一致しません。",
+        path,
       );
     }
     if (asset.mimeType !== expectation.mimeType) {
-      issues.push(
-        issue(
-          "assetMimeTypeMismatch",
-          "error",
-          "公開対象のアセットMIME typeが一致しません。",
-          path,
-        ),
+      pushAssetIssue(
+        "assetMimeTypeMismatch",
+        "error",
+        "公開対象のアセットMIME typeが一致しません。",
+        path,
       );
     }
     if (
@@ -720,23 +737,19 @@ function validateAssets(
       asset.sizeBytes !== null &&
       asset.sizeBytes !== expectation.fileSize
     ) {
-      issues.push(
-        issue(
-          "assetSizeMismatch",
-          "error",
-          "公開対象のアセットsizeが一致しません。",
-          path,
-        ),
+      pushAssetIssue(
+        "assetSizeMismatch",
+        "error",
+        "公開対象のアセットsizeが一致しません。",
+        path,
       );
     }
     if (!mimeMatchesAssetType(asset.mimeType, expectation.assetType)) {
-      issues.push(
-        issue(
-          "assetMediaTypeMismatch",
-          "error",
-          "公開対象のアセットimage/video分類が一致しません。",
-          path,
-        ),
+      pushAssetIssue(
+        "assetMediaTypeMismatch",
+        "error",
+        "公開対象のアセットimage/video分類が一致しません。",
+        path,
       );
     }
 
@@ -747,54 +760,48 @@ function validateAssets(
         sizeBytes: asset.sizeBytes,
       }) === "remoteOnly";
     if (asset.remoteOnly !== expectedRemoteOnly) {
-      issues.push(
-        issue(
-          "remoteOnlyMismatch",
-          "error",
-          "アセットのremoteOnly状態が検証済みmetadataと一致しません。",
-          `${path}.remoteOnly`,
-        ),
+      pushAssetIssue(
+        "remoteOnlyMismatch",
+        "error",
+        "アセットのremoteOnly状態が検証済みmetadataと一致しません。",
+        `${path}.remoteOnly`,
       );
     }
 
     if (asset.sizeBytes === null) {
-      warnings.push(
-        issue(
-          "missingAssetSize",
-          "warning",
-          "サイズを確認できないアセットが含まれています。",
-          `${path}.sizeBytes`,
-        ),
+      pushAssetIssue(
+        "missingAssetSize",
+        "warning",
+        "サイズを確認できないアセットが含まれています。",
+        `${path}.sizeBytes`,
+        warnings,
       );
     }
     if (asset.modifiedTime === null) {
-      warnings.push(
-        issue(
-          "missingAssetModifiedTime",
-          "warning",
-          "更新日時を確認できないアセットが含まれています。",
-          `${path}.modifiedTime`,
-        ),
+      pushAssetIssue(
+        "missingAssetModifiedTime",
+        "warning",
+        "更新日時を確認できないアセットが含まれています。",
+        `${path}.modifiedTime`,
+        warnings,
       );
     }
     if (asset.checksum === null) {
-      warnings.push(
-        issue(
-          "missingAssetChecksum",
-          "warning",
-          "checksumを確認できないアセットが含まれています。",
-          `${path}.checksum`,
-        ),
+      pushAssetIssue(
+        "missingAssetChecksum",
+        "warning",
+        "checksumを確認できないアセットが含まれています。",
+        `${path}.checksum`,
+        warnings,
       );
     }
     if (asset.remoteOnly) {
-      warnings.push(
-        issue(
-          "remoteOnlyAsset",
-          "warning",
-          "remoteOnlyのアセットが含まれています。",
-          `${path}.remoteOnly`,
-        ),
+      pushAssetIssue(
+        "remoteOnlyAsset",
+        "warning",
+        "remoteOnlyのアセットが含まれています。",
+        `${path}.remoteOnly`,
+        warnings,
       );
     }
 
@@ -812,11 +819,13 @@ function validateAssets(
   for (const expectation of expectations.values()) {
     if (!usableAssets.has(expectation.assetId)) {
       issues.push(
-        issue(
+        assetIssue(
           "missingAssetMetadata",
           "error",
           "公開対象のアセット情報が不足しています。",
           "assets",
+          manifest,
+          expectation.assetId,
         ),
       );
     }
@@ -841,6 +850,12 @@ function collectManifestAssetExpectations(
       fileSize: typeof slide.fileSize === "number" ? slide.fileSize : null,
     };
     const existing = expectations.get(slide.assetId);
+    const slideContext = buildSafeSlideDiagnostic({
+      slideIndex: index,
+      assetName: slide.assetName,
+      mimeType: slide.mimeType,
+      kind: "invalidManifest",
+    });
     if (
       existing &&
       (existing.driveFileId !== expectation.driveFileId ||
@@ -854,6 +869,7 @@ function collectManifestAssetExpectations(
           "error",
           "同じassetIdのマニフェスト参照が一致しません。",
           `manifest.slides[${index}]`,
+          slideContext,
         ),
       );
     } else if (!existing) {
@@ -868,6 +884,7 @@ function collectManifestAssetExpectations(
           "error",
           "複数のassetIdが同じDrive fileを参照しています。",
           `manifest.slides[${index}]`,
+          { ...slideContext, kind: "duplicateDriveFileReference" },
         ),
       );
     }
@@ -959,6 +976,38 @@ function issue(
   severity: ProjectPublishPreflightIssue["severity"],
   message: string,
   path?: string,
+  slide?: ProjectPublishSlideDiagnostic,
 ): ProjectPublishPreflightIssue {
-  return { code, severity, message, ...(path ? { path } : {}) };
+  return {
+    code,
+    severity,
+    message,
+    ...(path ? { path } : {}),
+    ...(slide ? { slide } : {}),
+  };
+}
+
+function assetIssue(
+  code: ProjectPublishPreflightIssueCode,
+  severity: ProjectPublishPreflightIssue["severity"],
+  message: string,
+  path: string,
+  manifest: ProjectManifest,
+  assetId: string | undefined,
+): ProjectPublishPreflightIssue {
+  const context = assetId ? findFirstSlideContext(manifest.slides, assetId) : null;
+  return issue(
+    code,
+    severity,
+    message,
+    path,
+    context
+      ? buildSafeSlideDiagnostic({
+          slideIndex: context.slideIndex,
+          assetName: context.assetName,
+          mimeType: context.mimeType,
+          kind: code,
+        })
+      : undefined,
+  );
 }

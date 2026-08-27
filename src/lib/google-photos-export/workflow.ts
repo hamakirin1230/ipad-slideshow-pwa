@@ -51,8 +51,7 @@ export type PrepareGooglePhotosExportReviewResult =
   | { ok: false; error: SanitizedGooglePhotosExportError };
 
 export type InternalGooglePhotosExportPreparationResult =
-  | Extract<GooglePhotosExportSourceResult, { ok: true }>
-  | Extract<PrepareGooglePhotosExportReviewResult, { ok: false }>;
+  GooglePhotosExportSourceResult;
 
 export async function prepareGooglePhotosExportReviewInDrive(input: {
   accessToken: string;
@@ -96,7 +95,7 @@ export function toGooglePhotosExportReviewResult(
   result: InternalGooglePhotosExportPreparationResult,
 ): PrepareGooglePhotosExportReviewResult {
   if (!result.ok) {
-    return result;
+    return { ok: false, error: result.error };
   }
   return {
     ok: true,

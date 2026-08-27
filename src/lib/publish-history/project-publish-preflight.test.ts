@@ -792,3 +792,76 @@ describe("revision and security guarantees", () => {
     error.mockRestore();
   });
 });
+
+const IMAGE_B_ASSET_ID = "77777777-7777-4777-8777-777777777777";
+const IMAGE_B_SLIDE_ID = "88888888-8888-4888-8888-888888888888";
+const IMAGE_B_DRIVE_FILE_ID = "drive-file-image-b";
+
+function withImageVideoImage(
+  input: ProjectPublishPreflightInput,
+  videoMimeType: "video/mp4" | "video/quicktime",
+) {
+  const imageB = {
+    ...input.manifest.slides[0],
+    slideId: IMAGE_B_SLIDE_ID,
+    assetId: IMAGE_B_ASSET_ID,
+    assetFileId: IMAGE_B_DRIVE_FILE_ID,
+    assetName: "image-b.jpg",
+  };
+  const video = input.manifest.slides[1];
+  if (!video) throw new Error("video fixture missing");
+  video.mimeType = videoMimeType;
+  video.sourceMimeType = videoMimeType;
+  video.assetName = videoMimeType === "video/quicktime" ? "video-a.mov" : "video-a.mp4";
+  input.manifest.slides = [input.manifest.slides[0], video, imageB];
+  input.assets[1].mimeType = videoMimeType;
+  input.assets.push({
+    ...input.assets[0],
+    assetId: IMAGE_B_ASSET_ID,
+    driveFileId: IMAGE_B_DRIVE_FILE_ID,
+    checksum: "checksum-image-b",
+  });
+  const hash = getProjectManifestCanonicalHash(input.manifest);
+  input.sourceManifest.canonicalHash = hash;
+  input.expectedCurrent.manifestCanonicalHash = hash;
+  return input;
+}
+
+describe("publish preflight diagnostics", () => {
+  it("diagnoses assetMimeTypeMismatch with slide context", () => {
+    const input = buildInput();
+    input.assets[0].mimeType = "image/png";
+    const issues = expectIssue(input, "assetMimeTypeMismatch");
+    expect(issues[0]?.slide).toEqual({
+      slideIndex: 0,
+      assetName: "image-a.jpg",
+      mimeType: "image/jpeg",
+      kind: "assetMimeTypeMismatch",
+    });
+    expect(JSON.stringify(issues)).not.toContain(IMAGE_DRIVE_FILE_ID);
+    expect(JSON.stringify(issues)).not.toContain(PROJECT_ID);
+    expect(JSON.stringify(issues)).not.toContain(WORKSPACE_ID);
+  });
+
+  it("allows image-video-image with video/mp4 in the middle", () => {
+    const result = expectSuccess(withImageVideoImage(buildInput(), "video/mp4"));
+    expect(result.summary.slideCount).toBe(3);
+    expect(result.plan.revisionFile.body.manifest.slides.map((slide) => slide.mimeType)).toEqual([
+      "image/jpeg",
+      "video/mp4",
+      "image/jpeg",
+    ]);
+  });
+
+  it("allows image-video-image with video/quicktime in the middle", () => {
+    const result = expectSuccess(
+      withImageVideoImage(buildInput(), "video/quicktime"),
+    );
+    expect(result.summary.slideCount).toBe(3);
+    expect(result.plan.revisionFile.body.manifest.slides.map((slide) => slide.mimeType)).toEqual([
+      "image/jpeg",
+      "video/quicktime",
+      "image/jpeg",
+    ]);
+  });
+});

@@ -5,6 +5,16 @@ import {
   type ProjectManifest,
 } from "../google-drive";
 import {
+  buildSafeSlideDiagnostic,
+  classifyManagedDriveFileMismatch,
+  classifyPhotosExportAssetMetadataMismatch,
+  DRIVE_PREFLIGHT_APP_ID,
+  DRIVE_PREFLIGHT_SCHEMA_VERSION,
+  type DriveManagedFileMismatchDetail,
+  type DriveManagedFileRole,
+  type SafeSlideDiagnostic,
+} from "../drive-preflight-diagnostics";
+import {
   buildGooglePhotosAlbumTitle,
   buildGooglePhotosExportFileName,
   createSanitizedGooglePhotosExportError,
@@ -20,10 +30,49 @@ import {
   type SanitizedGooglePhotosExportError,
 } from "./contract";
 
-const APP_ID = "ipad-slideshow-pwa";
-const SCHEMA_VERSION = "1";
+const APP_ID = DRIVE_PREFLIGHT_APP_ID;
+const SCHEMA_VERSION = DRIVE_PREFLIGHT_SCHEMA_VERSION;
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const JSON_MIME_TYPE = "application/json";
+
+export type GooglePhotosExportPreflightDiagnosticKind =
+  | "selectedProjectMismatch"
+  | "projectRootMetadataMismatch"
+  | "manifestMetadataMismatch"
+  | "assetsRootMetadataMismatch"
+  | "manifestJsonParseFailure"
+  | "invalidManifest"
+  | "manifestProjectMismatch"
+  | "manifestWorkspaceMismatch"
+  | "invalidSlideCount"
+  | "slideAssetMetadataReadFailure"
+  | "assetFileIdMismatch"
+  | "trashedAsset"
+  | "assetMimeTypeMismatch"
+  | "assetAppMismatch"
+  | "assetRoleMismatch"
+  | "assetSchemaVersionMismatch"
+  | "assetWorkspaceMismatch"
+  | "assetProjectMismatch"
+  | "assetIdMismatch"
+  | "assetParentCountMismatch"
+  | "assetParentMismatch"
+  | "assetSizeMissing"
+  | "assetSizeInvalid"
+  | "unsupportedMedia"
+  | "duplicateSlidesUnsupported"
+  | "noExportablePhotos"
+  | "driveReadFailed";
+
+export type GooglePhotosExportSlideDiagnostic =
+  SafeSlideDiagnostic<GooglePhotosExportPreflightDiagnosticKind>;
+
+export type GooglePhotosExportPreflightDiagnostics = {
+  kind: GooglePhotosExportPreflightDiagnosticKind;
+  locationKind?: DriveManagedFileRole;
+  locationDetail?: DriveManagedFileMismatchDetail;
+  slide?: GooglePhotosExportSlideDiagnostic;
+};
 
 export type GooglePhotosExportSourceAdapter = {
   readMetadata: (input: {
@@ -40,7 +89,11 @@ export type GooglePhotosExportSourceAdapter = {
 
 export type GooglePhotosExportSourceResult =
   | { ok: true; plan: GooglePhotosExportPlan }
-  | { ok: false; error: SanitizedGooglePhotosExportError };
+  | {
+      ok: false;
+      error: SanitizedGooglePhotosExportError;
+      diagnostics: GooglePhotosExportPreflightDiagnostics;
+    };
 
 export async function prepareGooglePhotosExportSourceWithAdapter(
   input: {
@@ -55,10 +108,9 @@ export async function prepareGooglePhotosExportSourceWithAdapter(
   adapter: GooglePhotosExportSourceAdapter,
 ): Promise<GooglePhotosExportSourceResult> {
   if (input.selectedProjectId !== input.project.projectId) {
-    return fail(
-      "drivePreflightFailed",
-      "選択中の作品が変わったため、書き出し前確認を中止しました。",
-    );
+    return fail("drivePreflightFailed", {
+      kind: "selectedProjectMismatch",
+    }, "選択中の作品が変わったため、書き出し前確認を中止しました。");
   }
 
   try {
@@ -86,56 +138,79 @@ export async function prepareGooglePhotosExportSourceWithAdapter(
         ),
       ]);
 
-    if (
-      !matchesManagedFile(projectFolder, {
+    const projectRootMismatch = classifyManagedDriveFileMismatch(
+      projectFolder,
+      {
         id: input.project.projectFolderId,
         name: input.project.projectId,
         mimeType: FOLDER_MIME_TYPE,
         role: "projectRoot",
         parentId: input.projectsRootFolderId,
+        app: APP_ID,
+        schemaVersion: SCHEMA_VERSION,
         workspaceId: input.workspaceId,
         projectId: input.project.projectId,
-      }) ||
-      !matchesManagedFile(manifestFile, {
+      },
+    );
+    if (projectRootMismatch) {
+      return failManagedFile("projectRoot", projectRootMismatch);
+    }
+
+    const manifestMetadataMismatch = classifyManagedDriveFileMismatch(
+      manifestFile,
+      {
         id: input.project.manifestFileId,
         name: "manifest.json",
         mimeType: JSON_MIME_TYPE,
         role: "projectManifest",
         parentId: input.project.projectFolderId,
+        app: APP_ID,
+        schemaVersion: SCHEMA_VERSION,
         workspaceId: input.workspaceId,
         projectId: input.project.projectId,
-      }) ||
-      !matchesManagedFile(assetsFolder, {
-        id: input.project.assetsFolderId,
-        name: "assets",
-        mimeType: FOLDER_MIME_TYPE,
-        role: "assetsRoot",
-        parentId: input.project.projectFolderId,
-        workspaceId: input.workspaceId,
-        projectId: input.project.projectId,
-      })
-    ) {
-      return fail("drivePreflightFailed");
+      },
+    );
+    if (manifestMetadataMismatch) {
+      return failManagedFile("projectManifest", manifestMetadataMismatch);
+    }
+
+    const assetsRootMismatch = classifyManagedDriveFileMismatch(assetsFolder, {
+      id: input.project.assetsFolderId,
+      name: "assets",
+      mimeType: FOLDER_MIME_TYPE,
+      role: "assetsRoot",
+      parentId: input.project.projectFolderId,
+      app: APP_ID,
+      schemaVersion: SCHEMA_VERSION,
+      workspaceId: input.workspaceId,
+      projectId: input.project.projectId,
+    });
+    if (assetsRootMismatch) {
+      return failManagedFile("assetsRoot", assetsRootMismatch);
     }
 
     let parsedJson: unknown;
     try {
       parsedJson = JSON.parse(manifestText);
     } catch {
-      return fail("drivePreflightFailed");
+      return fail("drivePreflightFailed", { kind: "manifestJsonParseFailure" });
     }
 
     if (hasUnsupportedExportMimeType(parsedJson)) {
-      return fail("unsupportedMedia");
+      return fail("unsupportedMedia", { kind: "unsupportedMedia" });
     }
 
     const parsed = parseProjectManifest(parsedJson);
-    if (
-      !parsed.ok ||
-      parsed.value.projectId !== input.project.projectId ||
-      parsed.value.workspaceId !== input.workspaceId
-    ) {
-      return fail("drivePreflightFailed");
+    if (!parsed.ok) {
+      return fail("drivePreflightFailed", { kind: "invalidManifest" });
+    }
+    if (parsed.value.projectId !== input.project.projectId) {
+      return fail("drivePreflightFailed", { kind: "manifestProjectMismatch" });
+    }
+    if (parsed.value.workspaceId !== input.workspaceId) {
+      return fail("drivePreflightFailed", {
+        kind: "manifestWorkspaceMismatch",
+      });
     }
 
     return buildPlanFromManifest({
@@ -148,7 +223,7 @@ export async function prepareGooglePhotosExportSourceWithAdapter(
       signal: input.signal,
     });
   } catch {
-    return fail("drivePreflightFailed");
+    return fail("drivePreflightFailed", { kind: "driveReadFailed" });
   }
 }
 
@@ -165,14 +240,16 @@ async function buildPlanFromManifest(input: {
     input.manifest.slides.length === 0 ||
     input.manifest.slides.length > GOOGLE_PHOTOS_EXPORT_MAX_SLIDE_COUNT
   ) {
-    return fail("drivePreflightFailed");
+    return fail("drivePreflightFailed", { kind: "invalidSlideCount" });
   }
 
   const photoAssetFileIds = input.manifest.slides
     .filter((slide) => isGooglePhotosExportMimeType(slide.mimeType))
     .map((slide) => slide.assetFileId);
   if (new Set(photoAssetFileIds).size !== photoAssetFileIds.length) {
-    return fail("duplicateSlidesUnsupported");
+    return fail("duplicateSlidesUnsupported", {
+      kind: "duplicateSlidesUnsupported",
+    });
   }
 
   const items: GooglePhotosExportPlan["items"] = [];
@@ -180,7 +257,10 @@ async function buildPlanFromManifest(input: {
   let skippedVideoCount = 0;
   for (const [slideIndex, slide] of input.manifest.slides.entries()) {
     if (!isDriveProjectExportableMimeType(slide.mimeType)) {
-      return fail("unsupportedMedia");
+      return fail("unsupportedMedia", {
+        kind: "unsupportedMedia",
+        slide: slideDiagnostic(slideIndex, slide, "unsupportedMedia"),
+      });
     }
 
     let metadata: DriveFileCandidate;
@@ -191,40 +271,55 @@ async function buildPlanFromManifest(input: {
         signal: input.signal,
       });
     } catch {
-      return fail("drivePreflightFailed");
+      return fail("drivePreflightFailed", {
+        kind: "slideAssetMetadataReadFailure",
+        slide: slideDiagnostic(
+          slideIndex,
+          slide,
+          "slideAssetMetadataReadFailure",
+        ),
+      });
     }
 
-    if (
-      metadata.id !== slide.assetFileId ||
-      metadata.trashed === true ||
-      metadata.mimeType !== slide.mimeType ||
-      metadata.appProperties.app !== APP_ID ||
-      metadata.appProperties.role !== "asset" ||
-      metadata.appProperties.schemaVersion !== SCHEMA_VERSION ||
-      metadata.appProperties.workspaceId !== input.workspaceId ||
-      metadata.appProperties.projectId !== input.project.projectId ||
-      metadata.appProperties.assetId !== slide.assetId ||
-      metadata.parents?.length !== 1 ||
-      metadata.parents[0] !== input.project.assetsFolderId
-    ) {
-      return fail("drivePreflightFailed");
+    const assetMismatch = classifyPhotosExportAssetMetadataMismatch({
+      metadata,
+      expected: {
+        fileId: slide.assetFileId,
+        mimeType: slide.mimeType,
+        parentId: input.project.assetsFolderId,
+        app: APP_ID,
+        role: "asset",
+        schemaVersion: SCHEMA_VERSION,
+        workspaceId: input.workspaceId,
+        projectId: input.project.projectId,
+        assetId: slide.assetId,
+      },
+    });
+    if (assetMismatch) {
+      return fail("drivePreflightFailed", {
+        kind: assetMismatch,
+        slide: slideDiagnostic(slideIndex, slide, assetMismatch),
+      });
     }
 
     if (isGooglePhotosExportSkippedVideoMimeType(slide.mimeType)) {
       const skippedSizeBytes = metadata.sizeBytes ?? slide.fileSize ?? null;
-      if (
-        typeof skippedSizeBytes !== "number" ||
-        !Number.isSafeInteger(skippedSizeBytes) ||
-        skippedSizeBytes <= 0
-      ) {
-        return fail("drivePreflightFailed");
+      const sizeKind = classifyExportSize(skippedSizeBytes);
+      if (sizeKind) {
+        return fail("drivePreflightFailed", {
+          kind: sizeKind,
+          slide: slideDiagnostic(slideIndex, slide, sizeKind),
+        });
       }
       skippedVideoCount += 1;
       continue;
     }
 
     if (!isGooglePhotosExportMimeType(slide.mimeType)) {
-      return fail("unsupportedMedia");
+      return fail("unsupportedMedia", {
+        kind: "unsupportedMedia",
+        slide: slideDiagnostic(slideIndex, slide, "unsupportedMedia"),
+      });
     }
 
     const sizeBytes = metadata.sizeBytes ?? slide.fileSize ?? null;
@@ -235,16 +330,30 @@ async function buildPlanFromManifest(input: {
         sizeBytes,
       })
     ) {
+      const sizeKind = classifyExportSize(sizeBytes) ?? "assetSizeInvalid";
       return isOversizedExportImage(slide.mimeType, sizeBytes)
-        ? fail("unsupportedMedia")
-        : fail("drivePreflightFailed");
+        ? fail("unsupportedMedia", {
+            kind: "unsupportedMedia",
+            slide: slideDiagnostic(slideIndex, slide, "unsupportedMedia"),
+          })
+        : fail("drivePreflightFailed", {
+            kind: sizeKind,
+            slide: slideDiagnostic(slideIndex, slide, sizeKind),
+          });
     }
 
     const fingerprint = googlePhotosExportContentFingerprint(metadata);
     if (fingerprint) {
       const existingFileId = seenContentFingerprints.get(fingerprint);
       if (existingFileId && existingFileId !== metadata.id) {
-        return fail("duplicateSlidesUnsupported");
+        return fail("duplicateSlidesUnsupported", {
+          kind: "duplicateSlidesUnsupported",
+          slide: slideDiagnostic(
+            slideIndex,
+            slide,
+            "duplicateSlidesUnsupported",
+          ),
+        });
       }
       seenContentFingerprints.set(fingerprint, metadata.id);
     }
@@ -266,7 +375,7 @@ async function buildPlanFromManifest(input: {
   }
 
   if (items.length === 0) {
-    return fail("noExportablePhotos");
+    return fail("noExportablePhotos", { kind: "noExportablePhotos" });
   }
 
   const projectTitle = input.manifest.title.trim() || "名称未設定";
@@ -307,33 +416,6 @@ function hasUnsupportedExportMimeType(value: unknown) {
   });
 }
 
-function matchesManagedFile(
-  file: DriveFileCandidate,
-  expected: {
-    id: string;
-    name: string;
-    mimeType: string;
-    role: string;
-    parentId: string;
-    workspaceId: string;
-    projectId: string;
-  },
-) {
-  return (
-    file.id === expected.id &&
-    file.name === expected.name &&
-    file.mimeType === expected.mimeType &&
-    file.trashed !== true &&
-    file.parents?.length === 1 &&
-    file.parents[0] === expected.parentId &&
-    file.appProperties.app === APP_ID &&
-    file.appProperties.role === expected.role &&
-    file.appProperties.schemaVersion === SCHEMA_VERSION &&
-    file.appProperties.workspaceId === expected.workspaceId &&
-    file.appProperties.projectId === expected.projectId
-  );
-}
-
 function googlePhotosExportContentFingerprint(metadata: DriveFileCandidate) {
   const checksum = metadata.checksum?.trim();
   if (!checksum) {
@@ -362,12 +444,56 @@ function isOversizedExportImage(
   return sizeBytes > GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES;
 }
 
+function classifyExportSize(
+  sizeBytes: number | null,
+): "assetSizeMissing" | "assetSizeInvalid" | null {
+  if (typeof sizeBytes !== "number") {
+    return "assetSizeMissing";
+  }
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
+    return "assetSizeInvalid";
+  }
+  return null;
+}
+
+function slideDiagnostic(
+  slideIndex: number,
+  slide: Pick<ProjectManifest["slides"][number], "assetName" | "mimeType">,
+  kind: GooglePhotosExportPreflightDiagnosticKind,
+): GooglePhotosExportSlideDiagnostic {
+  return buildSafeSlideDiagnostic({
+    slideIndex,
+    assetName: slide.assetName,
+    mimeType: slide.mimeType,
+    kind,
+  });
+}
+
+function failManagedFile(
+  role: DriveManagedFileRole,
+  detail: DriveManagedFileMismatchDetail,
+): GooglePhotosExportSourceResult {
+  const kind =
+    role === "projectRoot"
+      ? "projectRootMetadataMismatch"
+      : role === "projectManifest"
+        ? "manifestMetadataMismatch"
+        : "assetsRootMetadataMismatch";
+  return fail("drivePreflightFailed", {
+    kind,
+    locationKind: role,
+    locationDetail: detail,
+  });
+}
+
 function fail(
   kind: SanitizedGooglePhotosExportError["kind"],
+  diagnostics: GooglePhotosExportPreflightDiagnostics,
   message?: string,
 ): GooglePhotosExportSourceResult {
   return {
     ok: false,
     error: createSanitizedGooglePhotosExportError(kind, message),
+    diagnostics,
   };
 }

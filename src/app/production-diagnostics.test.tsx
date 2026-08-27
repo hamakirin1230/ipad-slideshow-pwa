@@ -91,9 +91,13 @@ describe("production diagnostics presentation boundary", () => {
       "value={review.revisionId}",
       "value={result.revisionId}",
       "{state.error.message}",
+      "assetDiagnostics",
+      "issueCodes",
     ]) {
       expect(source.publish).not.toContain(forbidden);
     }
+    expect(source.publish).toContain("公開前確認を完了できませんでした。");
+    expect(source.publish).toContain("getProjectPublishFailureDisplayMessage");
 
     for (const forbidden of [
       "revision: {rollbackOutcome.revisionId}",

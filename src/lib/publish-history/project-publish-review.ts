@@ -1,5 +1,13 @@
 import { getDriveVideoStorageDisposition } from "../drive-video-policy";
 import {
+  buildSafeSlideDiagnostic,
+  classifyManagedDriveFileMismatch,
+  classifyPublishAssetMetadataMismatch,
+  findFirstSlideContext,
+  DRIVE_PREFLIGHT_APP_ID,
+  DRIVE_PREFLIGHT_SCHEMA_VERSION,
+} from "../drive-preflight-diagnostics";
+import {
   readDriveFileMetadata,
   readDriveTextFile,
   parseProjectManifest,
@@ -18,11 +26,14 @@ import {
   type ListProjectPublishRevisionsResult,
 } from "./project-publish-revision-loader";
 import {
+  buildProjectPublishInternalDiagnostics,
   buildProjectPublishReview,
   createPrepareReviewFailure,
   createRandomHexSuffix,
   getProjectPublishAssetDiagnosticCode,
   type PrepareProjectPublishReviewResult,
+  type ProjectPublishDiagnosticCode,
+  type ProjectPublishInternalDiagnostics,
   type ProjectPublishReview,
 } from "./project-publish-ui";
 import {
@@ -30,8 +41,8 @@ import {
 } from "./project-publish-revision";
 import type { ProjectPublishWritePlan } from "./project-publish-write-plan";
 
-const APP_ID = "ipad-slideshow-pwa";
-const SCHEMA_VERSION = "1";
+const APP_ID = DRIVE_PREFLIGHT_APP_ID;
+const SCHEMA_VERSION = DRIVE_PREFLIGHT_SCHEMA_VERSION;
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const JSON_MIME_TYPE = "application/json";
 
@@ -204,6 +215,12 @@ export async function prepareProjectPublishReviewWithAdapter(
         code: issue?.code ?? "preflightFailed",
         message: issue?.message,
         ...(diagnosticCode ? { diagnosticCode } : {}),
+        diagnostics: buildProjectPublishInternalDiagnostics({
+          issueCodes: preflight.issues.map((item) => item.code),
+          slides: preflight.issues.flatMap((item) =>
+            item.slide ? [item.slide] : [],
+          ),
+        }),
       });
     }
 
@@ -243,15 +260,18 @@ function validateProjectLocation(input: {
     workspaceId: input.workspaceId,
     projectId: input.project.projectId,
   };
-  const validProjectFolder = metadataMatches(input.projectFolder, {
-    id: input.project.projectFolderId,
-    name: input.project.projectId,
-    mimeType: FOLDER_MIME_TYPE,
-    role: "projectRoot",
-    parentId: input.projectsRootFolderId,
-    ...common,
-  });
-  const validManifest = metadataMatches(input.manifestFile, {
+  const projectFolderMismatch = classifyManagedDriveFileMismatch(
+    input.projectFolder,
+    {
+      id: input.project.projectFolderId,
+      name: input.project.projectId,
+      mimeType: FOLDER_MIME_TYPE,
+      role: "projectRoot",
+      parentId: input.projectsRootFolderId,
+      ...common,
+    },
+  );
+  const manifestMismatch = classifyManagedDriveFileMismatch(input.manifestFile, {
     id: input.project.manifestFileId,
     name: "manifest.json",
     mimeType: JSON_MIME_TYPE,
@@ -259,58 +279,42 @@ function validateProjectLocation(input: {
     parentId: input.project.projectFolderId,
     ...common,
   });
-  const validAssetsFolder = metadataMatches(input.assetsFolder, {
-    id: input.project.assetsFolderId,
-    name: "assets",
-    mimeType: FOLDER_MIME_TYPE,
-    role: "assetsRoot",
-    parentId: input.project.projectFolderId,
-    ...common,
-  });
+  const assetsFolderMismatch = classifyManagedDriveFileMismatch(
+    input.assetsFolder,
+    {
+      id: input.project.assetsFolderId,
+      name: "assets",
+      mimeType: FOLDER_MIME_TYPE,
+      role: "assetsRoot",
+      parentId: input.project.projectFolderId,
+      ...common,
+    },
+  );
 
   if (
-    !validProjectFolder ||
-    !validManifest ||
-    !validAssetsFolder ||
+    projectFolderMismatch ||
+    manifestMismatch ||
+    assetsFolderMismatch ||
     !input.manifestFile.modifiedTime
   ) {
     return createPrepareReviewFailure({
       code: "invalidProjectLocation",
       message:
         "公開対象のDriveプロジェクト情報が正しくありません。プロジェクト状態を再確認してください。",
+      diagnostics: buildProjectPublishInternalDiagnostics({
+        issueCodes: [
+          projectFolderMismatch
+            ? "projectRootMetadataMismatch"
+            : manifestMismatch
+              ? "manifestMetadataMismatch"
+              : assetsFolderMismatch
+                ? "assetsRootMetadataMismatch"
+                : "manifestModifiedTimeMismatch",
+        ],
+      }),
     });
   }
   return null;
-}
-
-function metadataMatches(
-  file: DriveFileCandidate,
-  expected: {
-    id: string;
-    name: string;
-    mimeType: string;
-    role: string;
-    parentId: string;
-    app: string;
-    schemaVersion: string;
-    workspaceId: string;
-    projectId: string;
-  },
-) {
-  const properties = file.appProperties;
-  return (
-    file.id === expected.id &&
-    file.name === expected.name &&
-    file.mimeType === expected.mimeType &&
-    file.trashed !== true &&
-    file.parents?.length === 1 &&
-    file.parents[0] === expected.parentId &&
-    properties.app === expected.app &&
-    properties.role === expected.role &&
-    properties.schemaVersion === expected.schemaVersion &&
-    properties.workspaceId === expected.workspaceId &&
-    properties.projectId === expected.projectId
-  );
 }
 
 function parseFreshManifest(
@@ -329,13 +333,44 @@ function parseFreshManifest(
     return createPrepareReviewFailure({
       code: "invalidManifest",
       message: "現在のマニフェストを確認できませんでした。",
+      diagnosticCode: "invalidManifest",
+      diagnostics: buildProjectPublishInternalDiagnostics({
+        issueCodes: ["invalidManifest"],
+      }),
     });
   }
   const parsed = parseProjectManifest(parsedJson);
+  if (!parsed.ok) {
+    return createPrepareReviewFailure({
+      code: "invalidManifest",
+      message: "現在のマニフェストを確認できませんでした。",
+      diagnosticCode: "invalidManifest",
+      diagnostics: buildProjectPublishInternalDiagnostics({
+        issueCodes: ["invalidManifest"],
+      }),
+    });
+  }
+  if (parsed.value.workspaceId !== input.workspaceId) {
+    return createPrepareReviewFailure({
+      code: "invalidManifest",
+      message: "現在のマニフェストを確認できませんでした。",
+      diagnosticCode: "manifestWorkspaceMismatch",
+      diagnostics: buildProjectPublishInternalDiagnostics({
+        issueCodes: ["manifestWorkspaceMismatch"],
+      }),
+    });
+  }
+  if (parsed.value.projectId !== input.project.projectId) {
+    return createPrepareReviewFailure({
+      code: "invalidManifest",
+      message: "現在のマニフェストを確認できませんでした。",
+      diagnosticCode: "manifestProjectMismatch",
+      diagnostics: buildProjectPublishInternalDiagnostics({
+        issueCodes: ["manifestProjectMismatch"],
+      }),
+    });
+  }
   if (
-    !parsed.ok ||
-    parsed.value.workspaceId !== input.workspaceId ||
-    parsed.value.projectId !== input.project.projectId ||
     parsed.value.title !== input.project.title ||
     parsed.value.createdAt !== input.project.createdAt ||
     parsed.value.updatedAt !== input.project.updatedAt
@@ -343,6 +378,10 @@ function parseFreshManifest(
     return createPrepareReviewFailure({
       code: "invalidManifest",
       message: "現在のマニフェストを確認できませんでした。",
+      diagnosticCode: "invalidManifest",
+      diagnostics: buildProjectPublishInternalDiagnostics({
+        issueCodes: ["invalidManifest"],
+      }),
     });
   }
   return { ok: true, manifest: parsed.value };
@@ -460,6 +499,10 @@ async function loadReferencedAssetMetadata(input: {
       return createPrepareReviewFailure({
         code: "invalidManifest",
         message: "現在のマニフェストのasset参照が正しくありません。",
+        diagnosticCode: "invalidManifest",
+        diagnostics: buildProjectPublishInternalDiagnostics({
+          issueCodes: ["invalidManifest"],
+        }),
       });
     }
     references.set(slide.assetId, slide);
@@ -477,22 +520,45 @@ async function loadReferencedAssetMetadata(input: {
   );
   const assets: ProjectPublishAssetMetadataInput[] = [];
   for (const { slide, metadata } of loaded) {
-    const diagnosticCode = classifyReferencedAssetMetadataMismatch({
+    const diagnosticCode = classifyPublishAssetMetadataMismatch({
       metadata,
       expected: {
         fileId: slide.assetFileId,
         mimeType: slide.mimeType,
         parentId: input.input.project.assetsFolderId,
+        app: APP_ID,
+        role: "asset",
+        schemaVersion: SCHEMA_VERSION,
         workspaceId: input.input.workspaceId,
         projectId: input.input.project.projectId,
         assetId: slide.assetId,
       },
     });
     if (diagnosticCode) {
+      const slideContext = findFirstSlideContext(
+        input.manifest.slides,
+        slide.assetId,
+      );
       return createPrepareReviewFailure({
         code: "invalidAssetMetadata",
         message: "公開対象のアセット情報が一致しません。",
         diagnosticCode,
+        diagnostics: buildAssetSlideDiagnostics(
+          diagnosticCode,
+          slideContext
+            ? {
+                slideIndex: slideContext.slideIndex,
+                assetName: slide.assetName,
+                mimeType: slide.mimeType,
+              }
+            : {
+                slideIndex: input.manifest.slides.findIndex(
+                  (candidate) => candidate.assetId === slide.assetId,
+                ),
+                assetName: slide.assetName,
+                mimeType: slide.mimeType,
+              },
+        ),
       });
     }
 
@@ -519,60 +585,23 @@ async function loadReferencedAssetMetadata(input: {
   return { ok: true, assets };
 }
 
-type ReferencedAssetMetadataMismatchCode =
-  | "assetFileIdMismatch"
-  | "assetMimeTypeMismatch"
-  | "assetParentCountMismatch"
-  | "assetParentMismatch"
-  | "assetAppMismatch"
-  | "assetRoleMismatch"
-  | "assetSchemaVersionMismatch"
-  | "assetWorkspaceMismatch"
-  | "assetProjectMismatch"
-  | "assetIdMismatch";
-
-function classifyReferencedAssetMetadataMismatch(input: {
-  metadata: DriveFileCandidate;
-  expected: {
-    fileId: string;
+function buildAssetSlideDiagnostics(
+  kind: ProjectPublishDiagnosticCode,
+  slide: {
+    slideIndex: number;
+    assetName: string;
     mimeType: string;
-    parentId: string;
-    workspaceId: string;
-    projectId: string;
-    assetId: string;
-  };
-}): ReferencedAssetMetadataMismatchCode | null {
-  if (input.metadata.id !== input.expected.fileId) {
-    return "assetFileIdMismatch";
-  }
-  if (input.metadata.mimeType !== input.expected.mimeType) {
-    return "assetMimeTypeMismatch";
-  }
-  if (input.metadata.parents?.length !== 1) {
-    return "assetParentCountMismatch";
-  }
-  if (input.metadata.parents[0] !== input.expected.parentId) {
-    return "assetParentMismatch";
-  }
-  if (input.metadata.appProperties.app !== APP_ID) {
-    return "assetAppMismatch";
-  }
-  if (input.metadata.appProperties.role !== "asset") {
-    return "assetRoleMismatch";
-  }
-  if (input.metadata.appProperties.schemaVersion !== SCHEMA_VERSION) {
-    return "assetSchemaVersionMismatch";
-  }
-  if (
-    input.metadata.appProperties.workspaceId !== input.expected.workspaceId
-  ) {
-    return "assetWorkspaceMismatch";
-  }
-  if (input.metadata.appProperties.projectId !== input.expected.projectId) {
-    return "assetProjectMismatch";
-  }
-  if (input.metadata.appProperties.assetId !== input.expected.assetId) {
-    return "assetIdMismatch";
-  }
-  return null;
+  },
+): ProjectPublishInternalDiagnostics {
+  return buildProjectPublishInternalDiagnostics({
+    issueCodes: [kind],
+    slides: [
+      buildSafeSlideDiagnostic({
+        slideIndex: slide.slideIndex < 0 ? 0 : slide.slideIndex,
+        assetName: slide.assetName,
+        mimeType: slide.mimeType,
+        kind,
+      }),
+    ],
+  });
 }

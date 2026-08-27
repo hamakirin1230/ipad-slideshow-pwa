@@ -29,7 +29,7 @@ import {
   PROJECT_PUBLISH_DRIVE_SUCCESS_MESSAGE,
   PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE,
   type ProjectPublishReview,
-  type ProjectPublishAssetDiagnosticCode,
+  type ProjectPublishDiagnosticCode,
   type SanitizedPublishError,
   type SanitizedPublishSuccess,
 } from "@/lib/publish-history/project-publish-ui";
@@ -47,7 +47,7 @@ type PublishUiState =
       status: "error";
       phase: "preflight" | "publish";
       error: {
-        diagnosticCode?: ProjectPublishAssetDiagnosticCode;
+        diagnosticCode?: ProjectPublishDiagnosticCode;
         recoverability?: SanitizedPublishError["recoverability"];
         canRetry: boolean;
       };
