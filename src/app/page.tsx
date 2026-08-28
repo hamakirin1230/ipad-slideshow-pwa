@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { ArrowRight, LifeBuoy, Pencil, Play, Settings2 } from "lucide-react";
+import { LifeBuoy, Settings2 } from "lucide-react";
+import { HomeLaunchActions } from "@/app/home-launch-actions";
 import { HomeScreenInstallGuide } from "@/components/home-screen-install-guide";
-import { Button } from "@/components/ui/button";
 
 export default function Home() {
   return (
@@ -21,33 +21,10 @@ export default function Home() {
             スライドショー
           </h1>
           <p className="mt-6 max-w-xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
-            大切な写真や動画を、すぐに編集して、心地よく再生できます。
+            写真の保存にGoogleアカウント（Drive）を使います。このアプリの新規登録はありません。
           </p>
 
-          <div className="mt-10 flex flex-col gap-3 sm:flex-row">
-            <Button
-              asChild
-              className="min-h-14 justify-between gap-8 rounded-xl bg-sky-300 px-6 text-base font-semibold text-slate-950 hover:bg-sky-200"
-            >
-              <Link href="/player">
-                <span className="flex items-center gap-3">
-                  <Play className="size-5 fill-current" aria-hidden="true" />
-                  再生する
-                </span>
-                <ArrowRight className="size-5" aria-hidden="true" />
-              </Link>
-            </Button>
-            <Button
-              asChild
-              variant="outline"
-              className="min-h-14 gap-3 rounded-xl border-white/15 bg-white/5 px-6 text-base text-slate-50 hover:bg-white/10"
-            >
-              <Link href="/admin">
-                <Pencil className="size-5" aria-hidden="true" />
-                つくる
-              </Link>
-            </Button>
-          </div>
+          <HomeLaunchActions />
 
           <HomeScreenInstallGuide />
         </section>

@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const homeSource = readFileSync(new URL("./page.tsx", import.meta.url), "utf8");
+const homeSource = [
+  readFileSync(new URL("./page.tsx", import.meta.url), "utf8"),
+  readFileSync(new URL("./home-launch-actions.tsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../lib/home-launch-action.ts", import.meta.url), "utf8"),
+].join("\n");
 const settingsSource = readFileSync(
   new URL("./settings/page.tsx", import.meta.url),
   "utf8",
@@ -24,12 +28,14 @@ const terminologyUiSource = [
 
 describe("production task copy", () => {
   it("keeps Home focused on playback and editing", () => {
-    for (const href of ["/player", "/admin", "/settings", "/system"]) {
-      expect(homeSource).toContain(`href="${href}"`);
-    }
+    expect(homeSource).toContain('href: "/player"');
+    expect(homeSource).toContain('href: "/admin"');
+    expect(homeSource).toContain('href="/settings"');
+    expect(homeSource).toContain('href="/system"');
 
     expect(homeSource).toContain("再生する");
     expect(homeSource).toContain("つくる");
+    expect(homeSource).toContain("Googleアカウントでつなぐ");
     expect(homeSource).not.toContain("編集する");
     expect(homeSource).not.toContain("次の開発候補");
     expect(homeSource).not.toContain("nextStepItems");
@@ -42,6 +48,10 @@ describe("production task copy", () => {
     expect(settingsSource).not.toContain("<OfflineDbCheckPanel />");
     expect(settingsSource).toContain('href="/system"');
     expect(settingsSource).toContain("接続で困ったとき");
+    expect(driveSettingsSource).toContain("Googleアカウントでつなぐ");
+    expect(driveSettingsSource).toContain("つぎへ：アルバムをつくる");
+    expect(driveSettingsSource).toContain("showConnectButton");
+    expect(driveSettingsSource).toContain("disabled={!canConnect}");
     expect(settingsSource).not.toContain("futureItems");
     expect(settingsSource).not.toContain("notImplementedItems");
     expect(settingsSource).not.toContain("まだ未実装");

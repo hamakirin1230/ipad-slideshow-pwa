@@ -124,6 +124,8 @@ export function ProjectStatusPanel() {
         </div>
       ) : null}
 
+      {driveNotReadyNotice ? null : (
+        <>
       {driveStatus === "ready" &&
       (projectStatus === "invalid" || projectStatus === "error") ? (
         <div
@@ -227,6 +229,8 @@ export function ProjectStatusPanel() {
           }}
         />
       </section>
+        </>
+      )}
     </div>
   );
 }
@@ -538,7 +542,7 @@ export function getProjectDriveNotReadyNotice(input: {
   if (input.googleStatus !== "connected") {
     return {
       title: "Google Driveへの接続が必要です",
-      body: "設定を完了すると、アルバムを選べます。",
+      body: "設定で「Googleアカウントでつなぐ」を押してください。",
     };
   }
 

@@ -12,7 +12,7 @@ export default function SettingsPage() {
             <p className="text-xs font-semibold tracking-[0.18em] text-sky-300">SETTINGS</p>
             <h1 className="mt-3 text-4xl font-semibold tracking-tight">設定</h1>
             <p className="mt-2 max-w-2xl text-slate-300">
-              Google接続と、スライドショーを保存するGoogle Driveの準備を行います。
+              ログインに相当する操作は、Googleアカウントでつなぐことだけです。このアプリの新規登録はありません。
             </p>
           </div>
           <Button asChild variant="outline" className="min-h-11 gap-2 border-white/15 bg-white/5">

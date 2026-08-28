@@ -43,6 +43,7 @@ import {
 import { useAppState } from "@/app/app-providers";
 import { createPlayerProjectLinkHref } from "@/lib/player-route";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
+import { getPlayerEmptySnapshotView } from "./empty-snapshot-view";
 import {
   canApplyRemoteVideoResult,
   canRetryRemoteVideoPlayback,
@@ -313,7 +314,7 @@ function PlayerRouteFallback() {
         <PlayerStatusCard
           tone="neutral"
           title="ローカルの再生用コピーを確認しています"
-          description="端末保存データから、プロジェクト・スライド・素材を読み込んでいます。"
+          description="端末保存データから、アルバム・スライド・素材を読み込んでいます。"
         />
       </div>
     </main>
@@ -1720,32 +1721,10 @@ function PlayerPageContent() {
     },
   ];
 
-  const emptySnapshotGuidance: PlayerGuidanceItem[] =
-    isOnline === false
-      ? [
-          {
-            title: "オンラインに戻します",
-            description:
-              "ローカルに再生用コピーがない状態では、オフラインのまま素材を取得できません。",
-          },
-          {
-            title: "「つくる」でローカルへの保存を実行します",
-            description:
-              "オンライン復帰後、Google Driveへの接続とアルバムの状態を確認してから「ローカルに保存」を実行してください。",
-          },
-        ]
-      : [
-          {
-            title: "「つくる」でローカルへの保存を実行します",
-            description:
-              "初回利用時、またはプロジェクト単位のローカル削除後は、ローカルに再生用コピーを作り直す必要があります。",
-          },
-          {
-            title: "削除後なら正常な状態です",
-            description:
-              "ローカル保存を削除した直後にこの画面が表示されるのは正常です。Drive上のプロジェクトや写真は削除されていません。",
-          },
-        ];
+  const emptySnapshotView = getPlayerEmptySnapshotView({
+    googleStatus,
+    isOnline,
+  });
 
   const invalidSnapshotGuidance: PlayerGuidanceItem[] = [
     {
@@ -1766,11 +1745,11 @@ function PlayerPageContent() {
   ];
 
   const noSlidesGuidance: PlayerGuidanceItem[] = [
-    {
-      title: "「つくる」でアルバムの状態を再確認します",
-      description:
-        "プロジェクトは保存されていますが、再生対象のスライドがありません。プロジェクト設定を確認してください。",
-    },
+        {
+          title: "「つくる」でアルバムの状態を再確認します",
+          description:
+            "アルバムは保存されていますが、再生対象のスライドがありません。アルバムの設定を確認してください。",
+        },
     {
       title: "必要なら写真を追加します",
       description:
@@ -2308,8 +2287,7 @@ function PlayerPageContent() {
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
               この画面は、ローカルに保存済みの再生用コピーだけを使います。
-              Google Driveから直接読み込む画面ではないため、初回利用時やローカル削除後は「つくる」で
-              「ローカルに保存」を実行してください。
+              まだ保存していない場合は、先にGoogleアカウントでつなぎ、「つくる」で「ローカルに保存」してください。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -2334,7 +2312,7 @@ function PlayerPageContent() {
           <PlayerStatusCard
             tone="neutral"
             title="ローカルの再生用コピーを確認しています"
-            description="端末保存データから、プロジェクト・スライド・素材を読み込んでいます。"
+            description="端末保存データから、アルバム・スライド・素材を読み込んでいます。"
           />
         ) : null}
 
@@ -2362,25 +2340,28 @@ function PlayerPageContent() {
         {emptySnapshot ? (
           <PlayerStatusCard
             tone="warning"
-            title={
-              isOnline === false
-                ? "オフライン再生に必要なデータがローカルにありません"
-                : "ローカルにはまだ再生用コピーがありません"
-            }
-            description={
-              isOnline === false
-                ? "現在オフラインのため、Google Driveからアルバムや写真を取得できません。オンラインに戻してから「ローカルに保存」を実行してください。"
-                : "初回利用、またはアルバムのローカル削除後の状態です。「つくる」でローカルへの保存を実行すると、再生できるようになります。"
-            }
-            guidanceItems={emptySnapshotGuidance}
+            title={emptySnapshotView.title}
+            description={emptySnapshotView.description}
+            guidanceItems={emptySnapshotView.guidanceItems}
             diagnostics={snapshot.diagnostics}
           >
             <PlayerActionRow>
               <Button type="button" variant="secondary" onClick={reload}>
                 再読み込み
               </Button>
-              <Button asChild variant="secondary">
-                <Link href="/admin">ローカルに保存する</Link>
+              <Button asChild>
+                <Link
+                  href={
+                    emptySnapshotView.primaryHash
+                      ? {
+                          pathname: emptySnapshotView.primaryHref,
+                          hash: emptySnapshotView.primaryHash,
+                        }
+                      : emptySnapshotView.primaryHref
+                  }
+                >
+                  {emptySnapshotView.primaryLabel}
+                </Link>
               </Button>
             </PlayerActionRow>
           </PlayerStatusCard>
@@ -2435,7 +2416,7 @@ function PlayerPageContent() {
           <PlayerStatusCard
             tone="warning"
             title="再生できるスライドがありません"
-            description="プロジェクトのローカル保存はありますが、本編スライドとして再生できる項目がありません。Drive側のプロジェクト設定や素材追加状態を確認してください。"
+            description="アルバムのローカル保存はありますが、本編スライドとして再生できる項目がありません。Drive側のアルバム設定や素材追加状態を確認してください。"
             guidanceItems={noSlidesGuidance}
           >
             <PlayerActionRow>

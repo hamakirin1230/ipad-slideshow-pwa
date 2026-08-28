@@ -6,7 +6,7 @@ function read(relativePath: string) {
 }
 
 const layoutSource = read("./layout.tsx");
-const homeSource = read("./page.tsx");
+const homeSource = `${read("./page.tsx")}\n${read("./home-launch-actions.tsx")}\n${read("../lib/home-launch-action.ts")}`;
 const appShellSource = read("../components/app-shell.tsx");
 const navigationSource = read("../components/app-navigation.tsx");
 const systemPageSource = read("./system/page.tsx");
@@ -44,12 +44,17 @@ describe("focused product experience contract", () => {
   it("turns Home into a simple launch surface", () => {
     expect(homeSource).toContain("再生する");
     expect(homeSource).toContain("つくる");
+    expect(homeSource).toContain("Googleアカウントでつなぐ");
     expect(homeSource).not.toContain("編集する");
-    expect(homeSource).toContain('href="/admin"');
+    expect(homeSource).toContain('href: "/admin"');
+    expect(homeSource).toContain('href: "/player"');
+    expect(homeSource).toContain('href="/settings"');
     expect(homeSource).toContain("サポート");
     expect(homeSource).not.toMatch(/Vercel|IndexedDB|offline-first|Drive workspace/);
     expect(homeSource).not.toContain("taskItems");
     expect(homeSource).not.toContain("<Card");
+    expect(homeSource).toContain("<HomeLaunchActions />");
+    expect(homeSource).toContain("resolveHomeLaunchAction");
   });
 
   it("groups quiet system status without rendering internal identifiers", () => {
@@ -80,11 +85,19 @@ describe("focused product experience contract", () => {
     expect(systemOverviewSource).toContain("ローカルの再生データは現在の公開内容と一致しています");
     expect(systemOverviewSource).toContain('label: "準備中 / 一部未確認"');
     expect(systemOverviewSource).toContain('input.googleStatus === "error"');
+    expect(systemOverviewSource).toContain(
+      '["notConnected", "scopeMissing", "missingClientId"]',
+    );
+    expect(systemOverviewSource).toContain(
+      "最初にGoogleアカウントでつなぎます",
+    );
   });
 
   it("removes always-visible Drive status summaries from task screens", () => {
     expect(adminSource).not.toContain("DriveStatusSummary");
     expect(adminWorkspaceSource).not.toContain("DriveStatusSummary");
     expect(playerSource).not.toContain("DriveStatusSummary");
+    expect(playerSource).toContain("getPlayerEmptySnapshotView");
+    expect(playerSource).not.toContain("削除後なら正常な状態です");
   });
 });

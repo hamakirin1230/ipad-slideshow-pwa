@@ -156,7 +156,11 @@ export function SystemStatusOverview() {
           onClick={checkDriveWorkspace}
           disabled={!canCheckDriveWorkspace}
         />
-        <UtilityLink href="/settings">接続と保存領域を設定する</UtilityLink>
+        <UtilityLink href="/settings">
+          {googleStatus === "notConnected"
+            ? "Googleアカウントでつなぐ"
+            : "接続と保存領域を設定する"}
+        </UtilityLink>
       </StatusSection>
 
       <StatusSection title="アルバム">
@@ -370,7 +374,7 @@ function getSystemHealth(input: {
   }
 
   const needsAction =
-    ["scopeMissing", "missingClientId"].includes(input.googleStatus) ||
+    ["notConnected", "scopeMissing", "missingClientId"].includes(input.googleStatus) ||
     ["notCreated", "multipleCandidates", "authRequired"].includes(input.driveStatus) ||
     input.projectStatus === "notCreated";
 
@@ -378,7 +382,10 @@ function getSystemHealth(input: {
     return {
       tone: "attention" as const,
       label: "対応が必要",
-      message: "利用を始めるために必要な項目があります。下の案内を確認してください。",
+      message:
+        input.googleStatus === "notConnected"
+          ? "最初にGoogleアカウントでつなぎます。設定を開いてください。"
+          : "利用を始めるために必要な項目があります。下の案内を確認してください。",
     };
   }
 
@@ -403,7 +410,9 @@ function getSystemHealth(input: {
 
 function getGoogleTone(status: string): StatusTone {
   if (status === "error") return "danger";
-  if (["scopeMissing", "missingClientId"].includes(status)) return "attention";
+  if (["notConnected", "scopeMissing", "missingClientId"].includes(status)) {
+    return "attention";
+  }
   return "neutral";
 }
 

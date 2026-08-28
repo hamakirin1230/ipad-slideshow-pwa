@@ -103,7 +103,7 @@ describe("project drive not-ready notice", () => {
       }),
     ).toEqual({
       title: "Google Driveへの接続が必要です",
-      body: "設定を完了すると、アルバムを選べます。",
+      body: "設定で「Googleアカウントでつなぐ」を押してください。",
     });
   });
 

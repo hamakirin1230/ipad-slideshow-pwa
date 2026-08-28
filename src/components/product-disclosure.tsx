@@ -9,11 +9,13 @@ export function ProductDisclosure({
   children,
   className,
   tone = "dark",
+  defaultOpen = false,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
   tone?: "dark" | "light";
+  defaultOpen?: boolean;
 }) {
   return (
     <details
@@ -22,6 +24,7 @@ export function ProductDisclosure({
         tone === "light" ? "bg-slate-100" : "bg-white/[0.035]",
         className,
       )}
+      {...(defaultOpen ? { open: true } : {})}
     >
       <summary
         className={cn(

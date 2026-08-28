@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useAppState } from "@/app/app-providers";
 import { ProductDisclosure } from "@/components/product-disclosure";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,12 @@ export function DriveSettingsPanel() {
     googleStatus === "notConnected" ||
     googleStatus === "error" ||
     googleStatus === "scopeMissing";
+  const showConnectButton =
+    canConnect ||
+    googleStatus === "scriptLoading" ||
+    googleStatus === "connecting";
+  const isGoogleConnecting =
+    googleStatus === "connecting" || googleStatus === "scriptLoading";
   const canDisconnect =
     !isDriveCreating &&
     (googleStatus === "connected" ||
@@ -62,18 +69,28 @@ export function DriveSettingsPanel() {
       <p className="mt-2 text-sm text-slate-400">
         {googleStatus === "connected"
           ? "接続済み"
-          : "アルバムを保存するためにGoogle Driveとつなぎます"}
+          : "アルバムを保存するために、GoogleアカウントでDriveとつなぎます"}
       </p>
 
       <div className="mt-6 flex flex-wrap gap-3">
-        {canConnect ? (
+        {showConnectButton ? (
           <Button
             type="button"
             className="min-h-11"
             onClick={connectGoogle}
             disabled={!canConnect}
           >
-            Google Driveとつなぐ
+            {googleStatus === "scriptLoading"
+              ? "Google認証の準備中"
+              : googleStatus === "connecting"
+                ? "接続中"
+                : "Googleアカウントでつなぐ"}
+          </Button>
+        ) : null}
+
+        {googleStatus === "connected" && driveStatus === "ready" ? (
+          <Button asChild className="min-h-11">
+            <Link href="/admin">つぎへ：アルバムをつくる</Link>
           </Button>
         ) : null}
 
@@ -125,6 +142,14 @@ export function DriveSettingsPanel() {
         ) : null}
       </div>
 
+      {isGoogleConnecting ? (
+        <p className="mt-4 text-sm text-sky-200" role="status">
+          {googleStatus === "scriptLoading"
+            ? "Google認証の準備をしています…"
+            : "Googleの画面でアカウントを選んでください。画面が出ないときは、下の「接続で困ったとき」へ。"}
+        </p>
+      ) : null}
+
       {isDriveChecking || isDriveCreating ? (
         <p className="mt-4 text-sm text-sky-200" role="status">
           {isDriveCreating ? "保存場所を準備しています…" : "保存場所を確認しています…"}
@@ -138,7 +163,11 @@ export function DriveSettingsPanel() {
       ) : null}
 
       {canResetGoogleAuth ? (
-        <ProductDisclosure label="接続で困ったとき" className="mt-6">
+        <ProductDisclosure
+          label="接続で困ったとき"
+          className="mt-6"
+          defaultOpen={googleStatus === "connecting" || googleStatus === "error"}
+        >
           <p>
             認証画面が戻らない場合は、残っているGoogle認証画面や空白の別ウィンドウを閉じてから接続をやり直してください。
           </p>

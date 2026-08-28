@@ -124,6 +124,8 @@ describe("admin creative workspace", () => {
     expect(source.player).toContain(
       '<Link href={{ pathname: "/admin", hash: "device" }}>',
     );
+    expect(source.player).toContain("getPlayerEmptySnapshotView");
+    expect(source.player).not.toContain("削除後なら正常な状態です");
     expect(source.player).not.toContain(
       "unavailableProjectSnapshot.diagnostics",
     );
