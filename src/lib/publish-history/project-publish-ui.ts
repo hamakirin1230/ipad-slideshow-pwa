@@ -125,7 +125,7 @@ export type PublishPlanDisposition =
 export const PROJECT_PUBLISH_DRIVE_SUCCESS_MESSAGE =
   "Google Drive上の公開版を更新しました。";
 export const PROJECT_PUBLISH_OFFLINE_SYNC_MESSAGE =
-  "この端末へ反映するには「この端末に保存」を実行してください。";
+  "ローカルへ反映するには「ローカルに保存」を実行してください。";
 
 export function buildProjectPublishReview(input: {
   projectId: string;
@@ -259,7 +259,7 @@ const PROJECT_PUBLISH_DIAGNOSTIC_LABELS: Record<
   assetSizeMismatch: "ファイルサイズ不一致",
   assetMediaTypeMismatch: "画像・動画分類不一致",
   invalidManifest: "マニフェスト不正",
-  manifestProjectMismatch: "マニフェストの作品不一致",
+  manifestProjectMismatch: "マニフェストのアルバム不一致",
   manifestWorkspaceMismatch: "マニフェストの保存領域不一致",
   invalidSourceManifestState: "マニフェスト状態不正",
   invalidExpectedCurrentState: "公開前の期待状態不正",

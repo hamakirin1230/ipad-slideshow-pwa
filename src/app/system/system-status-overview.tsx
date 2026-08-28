@@ -159,19 +159,19 @@ export function SystemStatusOverview() {
         <UtilityLink href="/settings">接続と保存領域を設定する</UtilityLink>
       </StatusSection>
 
-      <StatusSection title="作品">
+      <StatusSection title="アルバム">
         <StatusRow
-          label="選択中の作品"
+          label="選択中のアルバム"
           status={projectSummary ? projectSummary.title : "未選択"}
           description={
             projectSummary
               ? `スライド ${formatUiCount(projectSummary.slideCount)}・素材 ${formatUiCount(projectSummary.assetCount)}`
-              : "「つくる」で編集する作品を選択してください。"
+              : "「つくる」で編集するアルバムを選択してください。"
           }
           tone={projectSummary ? "neutral" : "attention"}
         />
         <StatusRow
-          label="作品の状態"
+          label="アルバムの状態"
           status={projectStatusLabel}
           description={sanitizeUserFacingDiagnostic(projectMessage)}
           tone={getProjectTone(projectStatus)}
@@ -184,10 +184,10 @@ export function SystemStatusOverview() {
           onClick={checkProject}
           disabled={!canCheckProject}
         />
-        <UtilityLink href="/admin">作品を選ぶ</UtilityLink>
+        <UtilityLink href="/admin">アルバムを選ぶ</UtilityLink>
       </StatusSection>
 
-      <StatusSection title="この端末">
+      <StatusSection title="ローカル">
         <StatusRow
           label="端末内データベース（IndexedDB）"
           status={getDeviceDatabaseStatus(deviceState)}
@@ -431,7 +431,7 @@ function getDeviceDatabaseStatus(state: DeviceStatusState) {
 }
 
 function getDeviceDatabaseDescription(state: DeviceStatusState) {
-  if (state.status === "ready") return "この端末に再生データを保存できます。";
+  if (state.status === "ready") return "ローカルに再生データを保存できます。";
   if (state.status === "error") return "端末の保存領域を読み込めませんでした。";
   return "「端末状態を確認」で利用可否を確認します。";
 }
@@ -483,31 +483,31 @@ function getPublicationCopy(status: OfflinePublicationProvenanceViewStatus): {
     case "publishedMatch":
       return {
         label: "公開版と一致",
-        message: "この端末の再生データは現在の公開内容と一致しています。",
+        message: "ローカルの再生データは現在の公開内容と一致しています。",
         tone: "neutral",
       };
     case "unpublishedChanges":
       return {
         label: "未公開の変更あり",
-        message: "公開後に編集した内容がこの端末に保存されています。",
+        message: "公開後に編集した内容がローカルに保存されています。",
         tone: "attention",
       };
     case "unpublished":
       return {
         label: "未公開",
-        message: "まだ公開していない内容がこの端末に保存されています。",
+        message: "まだ公開していない内容がローカルに保存されています。",
         tone: "attention",
       };
     case "needsInspection":
       return {
         label: "確認が必要",
-        message: "公開内容との一致を確認できません。この端末への保存をもう一度実行してください。",
+        message: "公開内容との一致を確認できません。ローカルへの保存をもう一度実行してください。",
         tone: "danger",
       };
     case "legacyUnknown":
       return {
         label: "再保存を推奨",
-        message: "以前の形式で保存されています。この端末への保存で状態を更新できます。",
+        message: "以前の形式で保存されています。ローカルへの保存で状態を更新できます。",
         tone: "attention",
       };
   }

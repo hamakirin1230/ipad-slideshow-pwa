@@ -168,6 +168,6 @@ describe("player requested project selection", () => {
     expect(hookSource).toContain("projectId: selectedProjectId");
     expect(pageSource).toContain("[playbackProjectId]");
     expect(syncPanelSource).toContain("createPlayerProjectLinkHref(selectedProjectId)");
-    expect(syncPanelSource).toContain("この作品を再生");
+    expect(syncPanelSource).toContain("このアルバムを再生");
   });
 });

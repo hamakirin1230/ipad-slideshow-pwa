@@ -3,11 +3,11 @@ import type { ProjectDeleteLocalCopyStatus } from "@/lib/project-delete-local-fi
 import { PROJECT_DELETE_LOCAL_COPY_MESSAGES } from "@/lib/project-delete-local-finalization";
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 
-export const PROJECT_DELETE_BUTTON_LABEL = "作品を削除";
+export const PROJECT_DELETE_BUTTON_LABEL = "アルバムを削除";
 export const PROJECT_DELETE_CHECKING_LABEL = "削除対象を確認中";
-export const PROJECT_DELETE_DELETING_LABEL = "作品を削除中";
-export const PROJECT_DELETE_DIALOG_TITLE = "作品を削除しますか？";
-export const PROJECT_DELETE_DIALOG_CONFIRM_LABEL = "作品を削除";
+export const PROJECT_DELETE_DELETING_LABEL = "アルバムを削除中";
+export const PROJECT_DELETE_DIALOG_TITLE = "アルバムを削除しますか？";
+export const PROJECT_DELETE_DIALOG_CONFIRM_LABEL = "アルバムを削除";
 
 export type ProjectDeleteViewTone = "success" | "warning" | "error" | "notice";
 
@@ -51,8 +51,8 @@ export function buildProjectDeleteConfirmationDescription(projectTitle: string) 
   return [
     `『${projectTitle}』を削除します。`,
     "",
-    "Google Drive上の作品データ（スライド、素材、公開履歴）を削除します。",
-    "この端末に保存したコピーがある場合も、Google Driveの削除が完了した後に削除します。",
+    "Google Drive上のアルバムデータ（スライド、素材、公開履歴）を削除します。",
+    "ローカルコピーがある場合も、Google Driveの削除が完了した後に削除します。",
     "Googleフォトへ書き出した写真は削除されません。",
     "この操作はアプリから元に戻せません。",
   ].join("\n");
@@ -98,7 +98,7 @@ export function getProjectDeleteViewState(input: {
       liveRole: "alert",
       title: PROJECT_DELETE_LOCAL_COPY_MESSAGES.failed,
       body: [
-        "Google Drive上の作品は削除済みです。端末保存データから、この端末のコピーを再度削除できます。",
+        "Google Drive上のアルバムは削除済みです。端末保存データから、ローカルコピーを再度削除できます。",
       ],
     };
   }
@@ -110,9 +110,9 @@ export function getProjectDeleteViewState(input: {
       liveRole: "alert",
       title:
         message ??
-        "作品一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
+        "アルバム一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
       body: [
-        "この端末のコピーは削除していません。",
+        "ローカルコピーは削除していません。",
         "自動では再試行しません。",
         ...diagnostics,
       ],
@@ -124,7 +124,7 @@ export function getProjectDeleteViewState(input: {
       visible: true,
       tone: "notice",
       liveRole: "status",
-      title: message ?? "作品の削除を中止しました。",
+      title: message ?? "アルバムの削除を中止しました。",
       body: diagnostics,
     };
   }
@@ -134,7 +134,7 @@ export function getProjectDeleteViewState(input: {
       visible: true,
       tone: "error",
       liveRole: "alert",
-      title: message ?? "作品を削除できませんでした。",
+      title: message ?? "アルバムを削除できませんでした。",
       body: diagnostics,
     };
   }
@@ -144,7 +144,7 @@ export function getProjectDeleteViewState(input: {
       visible: true,
       tone: "notice",
       liveRole: "status",
-      title: message ?? "作品の削除をキャンセルしました。",
+      title: message ?? "アルバムの削除をキャンセルしました。",
       body: [],
     };
   }

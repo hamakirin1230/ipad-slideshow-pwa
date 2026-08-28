@@ -279,10 +279,10 @@ export function DriveProjectWorkspacePanel() {
 
       {!projectSummary ? (
         <div className="rounded-xl border border-amber-400/25 bg-amber-400/8 p-5 text-amber-100">
-          <p className="font-semibold">編集する作品を選択してください</p>
-          <p className="mt-1 text-sm leading-6">作品を選択すると、素材の追加とスライド編集を始められます。</p>
+          <p className="font-semibold">編集するアルバムを選択してください</p>
+          <p className="mt-1 text-sm leading-6">アルバムを選択すると、素材の追加とスライド編集を始められます。</p>
           <a href="#project" className="mt-3 inline-flex min-h-11 items-center font-medium underline decoration-amber-300/40 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200">
-            作品を選択
+            アルバムを選択
           </a>
         </div>
       ) : null}
@@ -290,8 +290,8 @@ export function DriveProjectWorkspacePanel() {
       <ProductDisclosure label="使い方を見る">
         <div className="space-y-2">
           <p>写真や動画を追加し、スライドをドラッグして並び替えます。</p>
-          <p>変更を再生に反映するには、あとで「この端末」から保存してください。公開は別の操作です。</p>
-          <p>大容量動画は本体をこの端末へ保存せず、オンライン時に再生します。対応形式や上限は素材追加の詳細で確認できます。</p>
+          <p>変更を再生に反映するには、あとで「ローカル」から保存してください。公開は別の操作です。</p>
+          <p>大容量動画は本体をローカルへ保存せず、オンライン時に再生します。対応形式や上限は素材追加の詳細で確認できます。</p>
         </div>
       </ProductDisclosure>
 
@@ -300,7 +300,7 @@ export function DriveProjectWorkspacePanel() {
           <CardHeader>
             <CardTitle><h3 id="asset-import-heading">素材を追加</h3></CardTitle>
             <CardDescription>
-              写真または動画を選び、この作品へ追加します。
+              写真または動画を選び、このアルバムへ追加します。
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -539,7 +539,7 @@ export function DriveProjectWorkspacePanel() {
               </div>
             )}
             <p className="mt-3 text-xs leading-5 text-slate-500">
-              スライド順、テロップ、表示時間の変更を再生に反映するには、この作品をこの端末に保存してください。
+              スライド順、テロップ、表示時間の変更を再生に反映するには、このアルバムをローカルに保存してください。
             </p>
             {slideEditMessage ? (
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -602,8 +602,8 @@ export function DriveProjectWorkspacePanel() {
           }
           description={
             pendingDeleteSlideIds.length === 1
-              ? "このスライドを作品から削除します。\nGoogle Drive上の素材ファイルは削除しません。\nこの端末への反映には、保存をもう一度実行してください。"
-              : `選択した${pendingDeleteSlideIds.length}件のスライドをこの作品から削除します。\nGoogle Drive上の素材ファイルは削除しません。\nこの端末への反映には、保存をもう一度実行してください。`
+              ? "このスライドをアルバムから削除します。\nGoogle Drive上の素材ファイルは削除しません。\nローカルへの反映には、保存をもう一度実行してください。"
+              : `選択した${pendingDeleteSlideIds.length}件のスライドをこのアルバムから削除します。\nGoogle Drive上の素材ファイルは削除しません。\nローカルへの反映には、保存をもう一度実行してください。`
           }
           confirmLabel="スライドを削除"
           triggerRef={deleteTriggerRef}

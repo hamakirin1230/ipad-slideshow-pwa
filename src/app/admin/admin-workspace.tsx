@@ -30,10 +30,10 @@ import { ProjectPublishPanel } from "./project-publish-panel";
 import { ProjectStatusPanel } from "./project-status-panel";
 
 const workspaceTabs = [
-  { id: "project", label: "作品" },
+  { id: "project", label: "アルバム" },
   { id: "edit", label: "スライド" },
+  { id: "device", label: "ローカル" },
   { id: "publish", label: "公開" },
-  { id: "device", label: "この端末" },
 ] as const;
 
 type WorkspaceTab = (typeof workspaceTabs)[number]["id"];
@@ -141,10 +141,10 @@ export function AdminWorkspace() {
             ) : (
               <>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-                  作品を選択
+                  アルバムを選択
                 </h1>
                 <p className="mt-2 text-sm text-slate-400">
-                  編集する作品を選ぶか、新しく作成してください。
+                  編集するアルバムを選ぶか、新しく作成してください。
                 </p>
               </>
             )}
@@ -157,7 +157,7 @@ export function AdminWorkspace() {
               onClick={() => selectTab("project")}
             >
               <Shuffle className="size-4" aria-hidden="true" />
-              {projectSummary ? "作品を切り替える" : "作品を選択"}
+              {projectSummary ? "アルバムを切り替える" : "アルバムを選択"}
             </Button>
             {selectedId && playbackReadiness === "checking" ? (
               <Button
@@ -189,7 +189,7 @@ export function AdminWorkspace() {
                 className="min-h-11 bg-sky-300 text-slate-950 hover:bg-sky-200"
                 onClick={() => selectTab("device")}
               >
-                この端末に保存
+                ローカルに保存
               </Button>
             ) : null}
           </div>
@@ -244,26 +244,26 @@ export function AdminWorkspace() {
           <WorkspacePane id="edit" activeTab={activeTab}>
             <DriveProjectWorkspacePanel />
           </WorkspacePane>
-          <WorkspacePane id="publish" activeTab={activeTab}>
-            <div className="space-y-8">
-              <GooglePhotosExportPanel />
-              <ProjectPublishPanel />
-            </div>
-          </WorkspacePane>
           <WorkspacePane id="device" activeTab={activeTab}>
             <div className="space-y-8">
               <div>
                 <h2 className="mt-2 text-2xl font-semibold">
-                  この端末で再生できるようにする
+                  ローカルで再生できるようにする
                 </h2>
               </div>
               <OfflineSyncPanel />
-              <ProductDisclosure label="この端末の保存データを管理">
+              <ProductDisclosure label="ローカルの保存データを管理">
                 <p className="mb-5">
-                  公開とは別に、選択中の作品をこの端末へ明示的に保存します。
+                  公開とは別に、選択中のアルバムをローカルへ明示的に保存します。
                 </p>
                 <OfflineConfirmedStorePanel />
               </ProductDisclosure>
+            </div>
+          </WorkspacePane>
+          <WorkspacePane id="publish" activeTab={activeTab}>
+            <div className="space-y-8">
+              <GooglePhotosExportPanel />
+              <ProjectPublishPanel />
             </div>
           </WorkspacePane>
         </div>

@@ -187,7 +187,7 @@ describe("finalizeProjectDeleteLocalCopy", () => {
       },
     });
     expect(result.status).toBe("cleared");
-    expect(result.message).toContain("この端末のコピーも削除しました");
+    expect(result.message).toContain("ローカルコピーも削除しました");
   });
 
   it("returns absent when no local records existed", async () => {
@@ -196,7 +196,7 @@ describe("finalizeProjectDeleteLocalCopy", () => {
       clearLocal: async () => localClearResult(),
     });
     expect(result.status).toBe("absent");
-    expect(result.message).toContain("この端末には保存コピーがありませんでした");
+    expect(result.message).toContain("ローカルコピーはありませんでした");
   });
 
   it("returns failed without treating Drive success as rolled back", async () => {
@@ -207,7 +207,7 @@ describe("finalizeProjectDeleteLocalCopy", () => {
       },
     });
     expect(result.status).toBe("failed");
-    expect(result.message).toContain("この端末のコピーを削除できませんでした");
+    expect(result.message).toContain("ローカルコピーを削除できませんでした");
   });
 
   it("counts only exact projectId matches in the clear result totals", () => {
@@ -407,7 +407,7 @@ describe("finalizeProjectDeleteLocalCopyAfterDriveState", () => {
 
     expect(outcome.localCopyStatus).toBe("failed");
     expect(outcome.localCopyMessage).toContain(
-      "この端末のコピーを削除できませんでした",
+      "ローカルコピーを削除できませんでした",
     );
   });
 
@@ -544,7 +544,7 @@ function driveResult(
     indexRemoved: true,
     projectRootTrashed: true,
     authRequired: false,
-    diagnostics: ["Google Drive上の作品を削除しました。"],
+    diagnostics: ["Google Drive上のアルバムを削除しました。"],
     ...override,
   };
 }

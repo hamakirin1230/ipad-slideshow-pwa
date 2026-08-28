@@ -80,6 +80,13 @@ but are skipped for Google Photos export.
 - ホーム画面PWAで確認できないものは、本番完了扱いにしない
 - package managerは`pnpm@10.34.4`に固定し、local validationはpnpm 10で実行する
 
+## User-facing terminology
+
+- user-facing terminologyは「アルバム」
+- internal model / schemaはprojectのまま
+- user-facing offline/local areaは「ローカル」
+- main tabs: アルバム / スライド / ローカル / 公開
+
 ## 現在の公開先
 
 ```text
@@ -120,10 +127,10 @@ production App Routerに存在する主要route:
 - publish / rollbackはimmutable revisionを作成し、current published revisionは`manifest.publication.currentRevisionId`をauthorityとする
 - rollbackは過去revisionへpointerを戻さず、過去内容から新しいrollback revisionを作る
 - save / publish / rollbackだけではoffline dataを更新せず、端末反映には明示的offline syncが必要
-- Googleフォトへ書き出すはDrive publish / offline sync / この端末に保存とは別操作であり、Drive publicationとoffline storeは変更しない
+- Googleフォトへ書き出すはDrive publish / offline sync / 「ローカルに保存」とは別操作であり、Drive publicationとoffline storeは変更しない
 - Google Photos export is images-only。写真だけを新しいalbumへ書き出し、動画slideはskipする
 - Googleフォトへ書き出す画像captionはexport用画像へburn-inする。font sizeはimageHeight基準
-- 動画は作品とDriveと「この端末に保存」/ Playerに残る。Google Photosへはuploadしない
+- 動画はアルバムとDriveと「ローカルに保存」/ Playerに残る。Google Photosへはuploadしない
 - publication writeは同一tabのin-flight guardに加え、Web Locks APIでsame-origin multi-tab排他する。project単位。lock競合時はfail-fastで自動retryしない。Web Locks非対応時はsame-tab guardのみ。sensitive IDはlock name / UI / logへ出さない
 - workspace内のproject titleは新規create / rename時に重複不可。比較はtrim + case-insensitive。既存の同名projectは自動修復せず読み込み可能のまま。internal authorityはprojectIdのまま
 - Google Photos Picker OAuthはDrive sessionと分離した最大60分absolute session。TTLは`min(expires_in, 3600 seconds)`。restoreはexpiryを延長しない。Picker selection sessionは毎回新規作成。Pickerは写真のみ。tokenはclient storage / UI / logへ出さない

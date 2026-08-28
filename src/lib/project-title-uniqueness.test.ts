@@ -58,6 +58,14 @@ afterEach(() => {
 });
 
 describe("project title comparison", () => {
+  it("uses the album-facing duplicate title message without changing the internal helper", () => {
+    expect(DUPLICATE_PROJECT_TITLE_MESSAGE).toBe(
+      "同じ名前のアルバムがすでにあります。別の名前を入力してください。",
+    );
+    expect(DUPLICATE_PROJECT_TITLE_MESSAGE).not.toContain("作品");
+    expect(typeof hasConflictingProjectTitle).toBe("function");
+  });
+
   it("treats trim and ASCII case as the same title", () => {
     expect(normalizeProjectTitleForComparison(" Demo ")).toBe("demo");
     expect(normalizeProjectTitleForComparison("DEMO")).toBe("demo");

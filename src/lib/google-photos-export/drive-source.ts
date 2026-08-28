@@ -110,7 +110,7 @@ export async function prepareGooglePhotosExportSourceWithAdapter(
   if (input.selectedProjectId !== input.project.projectId) {
     return fail("drivePreflightFailed", {
       kind: "selectedProjectMismatch",
-    }, "選択中の作品が変わったため、書き出し前確認を中止しました。");
+    }, "選択中のアルバムが変わったため、書き出し前確認を中止しました。");
   }
 
   try {

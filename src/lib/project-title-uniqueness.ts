@@ -1,5 +1,5 @@
 export const DUPLICATE_PROJECT_TITLE_MESSAGE =
-  "同じ名前の作品がすでにあります。別の名前を入力してください。";
+  "同じ名前のアルバムがすでにあります。別の名前を入力してください。";
 
 export function normalizeProjectTitleForComparison(title: string): string {
   return title.trim().toLowerCase();

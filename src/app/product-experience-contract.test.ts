@@ -55,8 +55,8 @@ describe("focused product experience contract", () => {
   it("groups quiet system status without rendering internal identifiers", () => {
     for (const category of [
       "Google Drive",
-      "作品",
-      "この端末",
+      "アルバム",
+      "ローカル",
       "公開・同期",
     ]) {
       expect(systemOverviewSource).toContain(`title="${category}"`);
@@ -77,7 +77,7 @@ describe("focused product experience contract", () => {
     }
 
     expect(systemOverviewSource).toContain("未公開の変更あり");
-    expect(systemOverviewSource).toContain("この端末の再生データは現在の公開内容と一致しています");
+    expect(systemOverviewSource).toContain("ローカルの再生データは現在の公開内容と一致しています");
     expect(systemOverviewSource).toContain('label: "準備中 / 一部未確認"');
     expect(systemOverviewSource).toContain('input.googleStatus === "error"');
   });

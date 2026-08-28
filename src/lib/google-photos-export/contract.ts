@@ -308,16 +308,16 @@ export const GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES: Record<
   authorizationRequired: "Googleフォトへの書き出し許可が必要です。",
   authorizationDenied: "Googleフォトへの書き出し許可がキャンセルされました。",
   drivePreflightFailed:
-    "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+    "書き出し元のアルバムを確認できませんでした。アルバムの状態を再確認してください。",
   noExportablePhotos: "Googleフォトへ書き出せる写真がありません。",
   unsupportedMedia:
     "Googleフォトへ書き出せない形式のスライドがあるため、書き出しを開始しません。",
   duplicateSlidesUnsupported:
     "同じ写真を複数のスライドで使用しているため、現在のGoogleフォト書き出しでは順番を正確に再現できません。重複しているスライドを整理してから、もう一度お試しください。",
   sourceChanged:
-    "書き出し前の確認後に作品が変更されました。最新の内容を確認するため、もう一度『書き出し前に確認』を実行してください。",
+    "書き出し前の確認後にアルバムが変更されました。最新の内容を確認するため、もう一度『書き出し前に確認』を実行してください。",
   imageRenderFailed:
-    "Googleフォト用の画像を作成できませんでした。元の作品は変更されていません。画像を確認してから、もう一度お試しください。",
+    "Googleフォト用の画像を作成できませんでした。元のアルバムは変更されていません。画像を確認してから、もう一度お試しください。",
   uploadFailed: "Googleフォトへのアップロードに失敗しました。",
   mediaCreatePartial:
     "一部のスライドをGoogleフォトへ追加できませんでした。新しいアルバムは作成していません。",

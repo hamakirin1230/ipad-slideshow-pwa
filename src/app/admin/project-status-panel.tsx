@@ -101,7 +101,7 @@ export function ProjectStatusPanel() {
     <div className="space-y-8 text-sm text-slate-300">
       <div>
         <h2 className="mt-2 text-2xl font-semibold text-slate-50">
-          どの作品を編集しますか？
+          どのアルバムを編集しますか？
         </h2>
       </div>
 
@@ -130,7 +130,7 @@ export function ProjectStatusPanel() {
           role="alert"
           className="rounded-xl border border-red-400/25 bg-red-400/8 p-4 text-red-100"
         >
-          <p className="font-semibold">作品の情報を確認できません</p>
+          <p className="font-semibold">アルバムの情報を確認できません</p>
           <Link
             href="/system"
             className="mt-3 inline-flex min-h-11 items-center font-medium underline decoration-red-300/40 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
@@ -149,9 +149,9 @@ export function ProjectStatusPanel() {
               id="project-list-heading"
               className="text-lg font-semibold text-slate-100"
             >
-              作品
+              アルバム
             </h3>
-            <p className="mt-1 text-sm text-slate-500">{driveProjects.length}作品</p>
+            <p className="mt-1 text-sm text-slate-500">{driveProjects.length}アルバム</p>
           </div>
         </div>
 
@@ -179,7 +179,7 @@ export function ProjectStatusPanel() {
           id="project-editing-heading"
           className="text-lg font-semibold text-slate-100"
         >
-          作品の管理
+          アルバムの管理
         </h3>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <CreateProjectTitleForm
@@ -245,7 +245,7 @@ export function ProjectList({
   if (projects.length === 0) {
     return (
       <p className="mt-4 rounded-xl bg-white/[0.035] p-5 text-slate-400">
-        作品はまだありません。下から新しい作品を作成できます。
+        アルバムはまだありません。下から新しいアルバムを作成できます。
       </p>
     );
   }
@@ -311,7 +311,7 @@ function CreateProjectTitleForm(input: {
   const titleFeedback = getProjectTitleFormFeedback({
     projectMessage: input.projectMessage,
     projectTitleError,
-    idleMessage: "作品を作成して一覧へ追加します。",
+    idleMessage: "アルバムを作成して一覧へ追加します。",
   });
   const canSubmit = input.canCreateProject && projectTitleError === null;
 
@@ -330,9 +330,9 @@ function CreateProjectTitleForm(input: {
       className="rounded-2xl border border-white/10 bg-black/30 p-4"
       onSubmit={handleSubmit}
     >
-      <p className="font-semibold text-slate-50">新しい作品を作成</p>
+      <p className="font-semibold text-slate-50">新しいアルバムを作成</p>
       <label className="mt-3 block text-xs font-medium text-slate-400">
-        作品名
+        アルバム名
         <input
           type="text"
           value={projectTitle}
@@ -378,8 +378,8 @@ function SelectedProjectTitleForm(input: {
     projectMessage: input.projectMessage,
     projectTitleError,
     idleMessage: input.hasProject
-      ? "変更後に作品の情報を再確認します。"
-      : "先に作品を選択してください。",
+      ? "変更後にアルバムの情報を再確認します。"
+      : "先にアルバムを選択してください。",
   });
   const canSubmit =
     input.canUpdateSelectedProjectTitle &&
@@ -401,9 +401,9 @@ function SelectedProjectTitleForm(input: {
       className="rounded-2xl border border-white/10 bg-black/30 p-4"
       onSubmit={handleSubmit}
     >
-      <p className="font-semibold text-slate-50">選択中の作品名を変更</p>
+      <p className="font-semibold text-slate-50">選択中のアルバム名を変更</p>
       <label className="mt-3 block text-xs font-medium text-slate-400">
-        作品名
+        アルバム名
         <input
           type="text"
           value={projectTitle}
@@ -464,15 +464,15 @@ export function SelectedProjectDeleteCard({
   const showConfirmation = status === "confirming" && review !== null;
   const disabledReason = hasSelectedProject
     ? blockedReason
-    : "先に作品を選択してください。";
+    : "先にアルバムを選択してください。";
 
   return (
     <div className="mt-4 rounded-2xl border border-red-400/20 bg-red-400/5 p-4">
-      <p className="font-semibold text-slate-50">選択中の作品を削除</p>
+      <p className="font-semibold text-slate-50">選択中のアルバムを削除</p>
       <p className="mt-2 text-sm leading-6 text-slate-400">
         {hasSelectedProject && selectedProjectTitle
-          ? `『${selectedProjectTitle}』のGoogle Drive上の作品データと、この端末の保存コピーを削除します。Googleフォトへ書き出した写真は削除しません。`
-          : "選択中の作品のGoogle Drive上のデータと、この端末の保存コピーを削除します。Googleフォトへ書き出した写真は削除しません。"}
+          ? `『${selectedProjectTitle}』のGoogle Drive上のアルバムデータと、ローカルコピーを削除します。Googleフォトへ書き出した写真は削除しません。`
+          : "選択中のアルバムのGoogle Drive上のデータと、ローカルコピーを削除します。Googleフォトへ書き出した写真は削除しません。"}
       </p>
 
       {view ? (
@@ -538,27 +538,27 @@ export function getProjectDriveNotReadyNotice(input: {
   if (input.googleStatus !== "connected") {
     return {
       title: "Google Driveへの接続が必要です",
-      body: "設定を完了すると、作品を選べます。",
+      body: "設定を完了すると、アルバムを選べます。",
     };
   }
 
   if (input.driveStatus === "unchecked" || input.driveStatus === "checking") {
     return {
       title: "Google Driveの保存場所を確認しています",
-      body: "確認が終わると、作品を選べます。",
+      body: "確認が終わると、アルバムを選べます。",
     };
   }
 
   if (input.driveStatus === "creating" || input.driveStatus === "notCreated") {
     return {
       title: "Google Driveの保存場所の準備が必要です",
-      body: "設定で保存場所を準備すると、作品を選べます。",
+      body: "設定で保存場所を準備すると、アルバムを選べます。",
     };
   }
 
   return {
     title: "Google Driveの保存場所を確認できません",
-    body: "設定で保存場所を確認すると、作品を選べます。",
+    body: "設定で保存場所を確認すると、アルバムを選べます。",
   };
 }
 
@@ -604,14 +604,14 @@ export function getProjectTitleFormFeedback(input: {
 
 function getCreateProjectButtonLabel(projectStatus: string) {
   if (projectStatus === "creating") {
-    return "作品を作成中";
+    return "アルバムを作成中";
   }
 
   if (projectStatus === "ready") {
-    return "新しい作品を作成";
+    return "新しいアルバムを作成";
   }
 
-  return "新しい作品を作成";
+  return "新しいアルバムを作成";
 }
 
 function getSuggestedProjectTitle(projectCount: number) {
@@ -630,11 +630,11 @@ function normalizeProjectTitleInput(value: string) {
 
 function getProjectTitleError(title: string) {
   if (title.length === 0) {
-    return "作品名を入力してください。";
+    return "アルバム名を入力してください。";
   }
 
   if ([...title].length > DRIVE_PROJECT_TITLE_MAX_LENGTH) {
-    return `作品名は ${DRIVE_PROJECT_TITLE_MAX_LENGTH} 文字以内で入力してください。`;
+    return `アルバム名は ${DRIVE_PROJECT_TITLE_MAX_LENGTH} 文字以内で入力してください。`;
   }
 
   return null;

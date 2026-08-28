@@ -149,7 +149,7 @@ function GooglePhotosExportPanelSession() {
             <h2 id="google-photos-export-heading">Googleフォトへ書き出す</h2>
           </CardTitle>
           <CardDescription className="text-slate-300">
-            選択中の作品の写真を、Googleフォトの新しいアルバムへコピーします。動画は書き出しません。Driveの公開版作成とは別の操作です。
+            選択中のアルバムの写真を、Googleフォトの新しいアルバムへコピーします。動画は書き出しません。Driveの公開版作成とは別の操作です。
           </CardDescription>
         </CardHeader>
 
@@ -159,7 +159,7 @@ function GooglePhotosExportPanelSession() {
               role="status"
               className="rounded-2xl border border-white/10 bg-black/30 p-4"
             >
-              Google接続と作品の選択・確認が完了すると、Googleフォトへの書き出し前確認を実行できます。
+              Google接続とアルバムの選択・確認が完了すると、Googleフォトへの書き出し前確認を実行できます。
             </div>
           ) : null}
 
@@ -169,7 +169,7 @@ function GooglePhotosExportPanelSession() {
               className="flex min-h-11 items-center gap-3 rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100"
             >
               <LoaderCircle className="size-5 animate-spin" aria-hidden="true" />
-              書き出し元の作品を確認しています。
+              書き出し元のアルバムを確認しています。
             </div>
           ) : null}
 
@@ -255,7 +255,7 @@ function ExportReview({
   return (
     <div className="space-y-4 rounded-2xl border border-white/10 bg-black/25 p-4">
       <dl className="grid gap-2 sm:grid-cols-2">
-        <ReviewItem label="作品名" value={review.projectTitle} />
+        <ReviewItem label="アルバム名" value={review.projectTitle} />
         <ReviewItem
           label="元のスライド数"
           value={`${review.sourceSlideCount}件`}
@@ -285,13 +285,13 @@ function ExportReview({
         <li>表示時間はGoogleフォトへ引き継がれません。</li>
         <li>画像スライドのテロップは、Googleフォト用の画像に焼き込んで書き出します。</li>
         <li>画像のテロップは、Googleフォトの説明にも保存します。</li>
-        <li>動画はGoogleフォトへ書き出しません。作品とDrive上の動画はそのまま残ります。</li>
+        <li>動画はGoogleフォトへ書き出しません。アルバムとDrive上の動画はそのまま残ります。</li>
         <li>Google Drive上の元画像・元動画は変更しません。</li>
         <li>
           画像はGoogleフォト用に再生成するため、書き出し後の容量は元素材と異なる場合があります。
         </li>
         <li>
-          Googleフォトへの書き出しと「この端末に保存」は別操作です。Driveの公開版も作成しません。
+          Googleフォトへの書き出しと「ローカルに保存」は別操作です。Driveの公開版も作成しません。
         </li>
       </ul>
 

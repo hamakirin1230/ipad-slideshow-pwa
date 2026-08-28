@@ -35,10 +35,10 @@ describe("beginner-first product experience", () => {
     }
 
     for (const [id, label] of [
-      ["project", "作品"],
+      ["project", "アルバム"],
       ["edit", "スライド"],
+      ["device", "ローカル"],
       ["publish", "公開"],
-      ["device", "この端末"],
     ]) {
       expect(source.workspace).toContain(`{ id: "${id}", label: "${label}" }`);
     }
@@ -84,13 +84,13 @@ describe("beginner-first product experience", () => {
   it("keeps publish and device actions clear without fabricating a public URL", () => {
     expect(source.publish).toContain("今の内容を公開版にします");
     expect(source.publish).toContain("公開前に確認");
-    expect(source.publish).toContain("この端末の作品を再生");
+    expect(source.publish).toContain("ローカルのアルバムを再生");
     expect(source.publish).toContain("公開履歴");
     expect(source.publish).toContain("formatUiDateTime(result.publishedAt)");
     expect(source.publish).not.toMatch(/公開URL|共有URL/);
-    expect(source.device).toContain("この端末に保存");
+    expect(source.device).toContain("ローカルに保存");
     expect(source.device).toContain("createPlayerProjectLinkHref(selectedProjectId)");
-    expect(source.device).toContain("この作品を再生");
+    expect(source.device).toContain("このアルバムを再生");
     expect(source.device).not.toContain('<Link href="/player">');
     for (const productSurface of [
       source.publish,

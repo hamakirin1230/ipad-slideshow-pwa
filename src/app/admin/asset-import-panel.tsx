@@ -162,7 +162,7 @@ export function AssetImportPanel() {
           {offerGooglePhotosPicker ? (
             <p>Googleフォトから写真を選ぶ場合は、Googleの利用許可画面が開きます。</p>
           ) : null}
-          <p>対応する動画はMP4またはMOV、1ファイル5GB以下です。大容量動画は本体をこの端末へ保存せず、オンライン時に再生します。</p>
+          <p>対応する動画はMP4またはMOV、1ファイル5GB以下です。大容量動画は本体をローカルへ保存せず、オンライン時に再生します。</p>
           <p>追加できるスライドは残り{remainingSlideSlots}件、1回に{assetImportMaxBatchCount}件までです。</p>
           <p>途中で失敗しても、Google Driveへ保存済みの素材は自動削除しません。</p>
           <p className="text-xs">現在の状態: {assetImportStatusLabel}</p>

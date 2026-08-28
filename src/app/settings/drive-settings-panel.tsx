@@ -62,7 +62,7 @@ export function DriveSettingsPanel() {
       <p className="mt-2 text-sm text-slate-400">
         {googleStatus === "connected"
           ? "接続済み"
-          : "作品を保存するためにGoogle Driveとつなぎます"}
+          : "アルバムを保存するためにGoogle Driveとつなぎます"}
       </p>
 
       <div className="mt-6 flex flex-wrap gap-3">
@@ -133,7 +133,7 @@ export function DriveSettingsPanel() {
 
       {driveStatus === "notCreated" ? (
         <p className="mt-5 rounded-xl bg-sky-400/10 p-4 text-sm text-sky-100">
-          作品の保存場所を準備してください。
+          アルバムの保存場所を準備してください。
         </p>
       ) : null}
 
@@ -226,7 +226,7 @@ export function DriveSettingsPanel() {
         ) : null}
 
         <p className="mt-5">
-          Google認証情報は画面やログへ表示せず、端末へ永続保存しません。作品の編集、公開、この端末への保存は「つくる」から明示的に実行します。
+          Google認証情報は画面やログへ表示せず、端末へ永続保存しません。アルバムの編集、公開、ローカルへの保存は「つくる」から明示的に実行します。
         </p>
       </ProductDisclosure>
     </section>

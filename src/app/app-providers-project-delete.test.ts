@@ -131,6 +131,6 @@ describe("AppProviders project delete workflow wiring", () => {
     );
     expect(confirmedStore).not.toContain("prepareProjectDeletion");
     expect(confirmedStore).not.toContain("confirmProjectDeletion");
-    expect(confirmedStore).toContain("この端末の保存データを削除しますか？");
+    expect(confirmedStore).toContain("ローカルの保存データを削除しますか？");
   });
 });

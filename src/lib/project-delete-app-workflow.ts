@@ -76,9 +76,9 @@ export function interpretDriveProjectDeleteResult(
     if (!isStrictDriveProjectDeleteCompleted(result)) {
       return {
         status: "error",
-        message: "作品の削除結果を確定できませんでした。",
+        message: "アルバムの削除結果を確定できませんでした。",
         diagnostics: sanitizeProjectDeleteDiagnostics([
-          "作品の削除結果を確定できませんでした。この端末のコピーは変更していません。",
+          "アルバムの削除結果を確定できませんでした。ローカルコピーは変更していません。",
         ]),
         publicResult,
         shouldClearLocal: false,
@@ -93,7 +93,7 @@ export function interpretDriveProjectDeleteResult(
 
     return {
       status: "completed",
-      message: "Google Drive上の作品を削除しました。",
+      message: "Google Drive上のアルバムを削除しました。",
       diagnostics: sanitizeProjectDeleteDiagnostics(result.diagnostics),
       publicResult,
       shouldClearLocal: true,
@@ -112,7 +112,7 @@ export function interpretDriveProjectDeleteResult(
     return {
       status: "partialFailure",
       message:
-        "作品一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
+        "アルバム一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
       diagnostics,
       publicResult,
       shouldClearLocal: false,
@@ -128,7 +128,7 @@ export function interpretDriveProjectDeleteResult(
   if (result.status === "blocked") {
     return {
       status: "blocked",
-      message: "作品の削除を中止しました。",
+      message: "アルバムの削除を中止しました。",
       diagnostics,
       publicResult,
       shouldClearLocal: false,
@@ -143,7 +143,7 @@ export function interpretDriveProjectDeleteResult(
 
   return {
     status: "error",
-    message: "作品を削除できませんでした。",
+    message: "アルバムを削除できませんでした。",
     diagnostics,
     publicResult,
     shouldClearLocal: false,

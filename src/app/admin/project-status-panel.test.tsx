@@ -103,7 +103,7 @@ describe("project drive not-ready notice", () => {
       }),
     ).toEqual({
       title: "Google Driveへの接続が必要です",
-      body: "設定を完了すると、作品を選べます。",
+      body: "設定を完了すると、アルバムを選べます。",
     });
   });
 
@@ -170,7 +170,7 @@ describe("selected project delete controls", () => {
       canStartDeletion: true,
     });
 
-    expect(html).toContain("作品を削除");
+    expect(html).toContain("アルバムを削除");
     expect(html).toContain("夏の記録");
     expect(html).toContain("data-variant=\"destructive\"");
     expect(html).toContain("min-h-11");
@@ -185,10 +185,10 @@ describe("selected project delete controls", () => {
       blockedReason: null,
     });
 
-    expect(html).toContain("作品を削除");
+    expect(html).toContain("アルバムを削除");
     expect(html).toContain('disabled=""');
-    expect(html).toContain("先に作品を選択してください。");
-    expect(html).not.toContain("作品を削除しますか？");
+    expect(html).toContain("先にアルバムを選択してください。");
+    expect(html).not.toContain("アルバムを削除しますか？");
   });
 
   it("shows the confirmation dialog only while confirming with a review", () => {
@@ -200,10 +200,10 @@ describe("selected project delete controls", () => {
       review: { projectTitle: "夏の記録", remainingProjectCount: 3 },
     });
 
-    expect(html).toContain("作品を削除しますか？");
+    expect(html).toContain("アルバムを削除しますか？");
     expect(html).toContain("『夏の記録』を削除します。");
-    expect(html).toContain("Google Drive上の作品データ（スライド、素材、公開履歴）を削除します。");
-    expect(html).toContain("この端末に保存したコピーがある場合も、Google Driveの削除が完了した後に削除します。");
+    expect(html).toContain("Google Drive上のアルバムデータ（スライド、素材、公開履歴）を削除します。");
+    expect(html).toContain("ローカルコピーがある場合も、Google Driveの削除が完了した後に削除します。");
     expect(html).toContain("Googleフォトへ書き出した写真は削除されません。");
     expect(html).toContain("この操作はアプリから元に戻せません。");
     expect(html).toContain("role=\"alertdialog\"");
@@ -233,11 +233,11 @@ describe("selected project delete controls", () => {
       hasSelectedProject: false,
     });
 
-    expect(cleared).toContain("作品を削除しました。この端末のコピーも削除しました。");
+    expect(cleared).toContain("アルバムを削除しました。ローカルコピーも削除しました。");
     expect(cleared).toContain("role=\"status\"");
-    expect(absent).toContain("作品を削除しました。この端末には保存コピーがありませんでした。");
-    expect(failed).toContain("この端末のコピーを削除できませんでした");
-    expect(failed).not.toContain("作品の削除に失敗しました");
+    expect(absent).toContain("アルバムを削除しました。ローカルコピーはありませんでした。");
+    expect(failed).toContain("ローカルコピーを削除できませんでした");
+    expect(failed).not.toContain("アルバムの削除に失敗しました");
     expect(failed).toContain("role=\"alert\"");
     expect(cleared).not.toContain("indexRemoved");
     expect(cleared).not.toContain("projectRootTrashed");
@@ -248,14 +248,14 @@ describe("selected project delete controls", () => {
       status: "partialFailure",
       localCopyStatus: "notAttempted",
       message:
-        "作品一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
+        "アルバム一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
       diagnostics: ["Googleへ再接続してください。"],
       canStartDeletion: false,
       hasSelectedProject: false,
     });
 
     expect(html).toContain("Google Drive上にデータが残っている可能性");
-    expect(html).toContain("この端末のコピーは削除していません");
+    expect(html).toContain("ローカルコピーは削除していません");
     expect(html).not.toContain("もう一度削除");
     expect(html).not.toContain("自動再試行");
   });
@@ -299,10 +299,10 @@ describe("project title duplicate user-visible message", () => {
       getProjectTitleFormFeedback({
         projectMessage: "新しいプロジェクトを作成し、選択状態にしました。",
         projectTitleError: null,
-        idleMessage: "作品を作成して一覧へ追加します。",
+        idleMessage: "アルバムを作成して一覧へ追加します。",
       }),
     ).toEqual({
-      text: "作品を作成して一覧へ追加します。",
+      text: "アルバムを作成して一覧へ追加します。",
       tone: "idle",
     });
   });
@@ -311,12 +311,12 @@ describe("project title duplicate user-visible message", () => {
     const createFeedback = getProjectTitleFormFeedback({
       projectMessage: DUPLICATE_PROJECT_TITLE_MESSAGE,
       projectTitleError: null,
-      idleMessage: "作品を作成して一覧へ追加します。",
+      idleMessage: "アルバムを作成して一覧へ追加します。",
     });
     const renameFeedback = getProjectTitleFormFeedback({
       projectMessage: DUPLICATE_PROJECT_TITLE_MESSAGE,
       projectTitleError: null,
-      idleMessage: "変更後に作品の情報を再確認します。",
+      idleMessage: "変更後にアルバムの情報を再確認します。",
     });
 
     expect(createFeedback).toEqual({
@@ -345,13 +345,13 @@ describe("project status panel delete wiring", () => {
     expect(deleteUsage).not.toContain("selectProject(");
     expect(source).toContain("shouldAutoCheckProject");
     expect(source).toContain("ProductAlertDialog");
-    expect(source).toContain("作品の管理");
-    expect(source).toContain("新しい作品を作成");
-    expect(source).toContain("選択中の作品名を変更");
+    expect(source).toContain("アルバムの管理");
+    expect(source).toContain("新しいアルバムを作成");
+    expect(source).toContain("選択中のアルバム名を変更");
   });
 
   it("does not add per-card trash actions or change standalone/photos panels", () => {
-    expect(listSource).not.toContain("作品を削除");
+    expect(listSource).not.toContain("アルバムを削除");
     expect(source).not.toContain("clearLocalOfflineProjectData(");
     const confirmedStore = readFileSync(
       new URL("./offline-confirmed-store-panel.tsx", import.meta.url),
@@ -361,7 +361,7 @@ describe("project status panel delete wiring", () => {
       new URL("./google-photos-export-panel.tsx", import.meta.url),
       "utf8",
     );
-    expect(confirmedStore).toContain("この端末の保存データを削除しますか？");
+    expect(confirmedStore).toContain("ローカルの保存データを削除しますか？");
     expect(confirmedStore).not.toContain("prepareProjectDeletion");
     expect(photosExport).not.toContain("prepareProjectDeletion");
     expect(photosExport).not.toContain("confirmProjectDeletion");

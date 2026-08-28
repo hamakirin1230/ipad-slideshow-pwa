@@ -55,9 +55,9 @@ export function OfflineSyncPanel() {
   return (
     <Card className="border-white/10 bg-white/[0.035] text-slate-50">
       <CardHeader>
-        <CardTitle>この端末に保存</CardTitle>
+        <CardTitle>ローカルに保存</CardTitle>
         <CardDescription className="text-slate-300">
-          選択中の作品を、この端末で再生できるようにします。
+          選択中のアルバムを、ローカルで再生できるようにします。
         </CardDescription>
       </CardHeader>
 
@@ -87,7 +87,7 @@ export function OfflineSyncPanel() {
 
         {showBlockedReason ? (
           <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
-            <p className="font-semibold">この端末への保存を開始できません</p>
+            <p className="font-semibold">ローカルへの保存を開始できません</p>
             <p className="mt-2">{offlineSyncBlockedReason}</p>
           </div>
         ) : null}
@@ -110,7 +110,7 @@ export function OfflineSyncPanel() {
                   className="h-2 w-full accent-sky-400"
                   max={100}
                   value={progressView.percent}
-                  aria-label="この端末への保存進捗"
+                  aria-label="ローカルへの保存進捗"
                 />
                 <p className="mt-1 text-xs">{progressView.percent}%</p>
               </div>
@@ -120,16 +120,16 @@ export function OfflineSyncPanel() {
 
         {offlineSyncStatus === "ready" ? (
           <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-100">
-            <p className="font-semibold">この端末への保存が完了しました</p>
+            <p className="font-semibold">ローカルへの保存が完了しました</p>
             <p className="mt-2">
-              選択中の作品をこの端末へ保存しました。
+              選択中のアルバムをローカルへ保存しました。
             </p>
             {selectedPlayerHref ? (
               <Button
                 asChild
                 className="mt-4 min-h-11 bg-emerald-200 text-slate-950 hover:bg-emerald-100"
               >
-                <Link href={selectedPlayerHref}>この作品を再生</Link>
+                <Link href={selectedPlayerHref}>このアルバムを再生</Link>
               </Button>
             ) : null}
           </div>
@@ -165,9 +165,9 @@ export function OfflineSyncPanel() {
 
         {offlineSyncStatus === "failed" ? (
           <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-red-100">
-            <p className="font-semibold">この端末への保存に失敗しました</p>
+            <p className="font-semibold">ローカルへの保存に失敗しました</p>
             <p className="mt-2 leading-6">
-              現在の保存データは削除していません。Google Driveへの接続と作品を確認し、
+              現在の保存データは削除していません。Google Driveへの接続とアルバムを確認し、
               原因を解消してからもう一度実行してください。
             </p>
           </div>
@@ -239,7 +239,7 @@ export function OfflineSyncPanel() {
               </Badge>
             </div>
             <p className="mt-2 leading-6">
-              大容量動画はこの端末に本体を保存しません。ただしオンライン再生用の
+              大容量動画はローカルに本体を保存しません。ただしオンライン再生用の
               情報は保存され、オンライン時はGoogle Driveから再生できます。
               本体が未保存でも、Google Driveからの削除や保存失敗を意味しません。
             </p>
@@ -338,7 +338,7 @@ function getOfflineSyncStartButtonLabel({
   offlineSyncStatus: OfflineSyncStatus;
 }) {
   if (isOfflineSyncInFlight) {
-    return "この端末に保存中";
+    return "ローカルに保存中";
   }
 
   if (offlineSyncStatus === "stale") {
@@ -346,10 +346,10 @@ function getOfflineSyncStartButtonLabel({
   }
 
   if (offlineSyncStatus === "failed" || offlineSyncStatus === "cancelled") {
-    return "この端末にもう一度保存";
+    return "ローカルにもう一度保存";
   }
 
-  return "この端末に保存";
+  return "ローカルに保存";
 }
 
 function getOfflineSyncVideoSkipVisibility(

@@ -84,6 +84,10 @@ describe("current documentation contract", () => {
     expect(currentContext).toContain("Vercel productionのみ");
     expect(currentContext).toContain("pnpm@10.34.4");
     expect(currentContext).toContain("GitHub Pages deployは廃止済み");
+    expect(currentContext).toContain("user-facing terminologyは「アルバム」");
+    expect(currentContext).toContain("internal model / schemaはprojectのまま");
+    expect(currentContext).toContain("user-facing offline/local areaは「ローカル」");
+    expect(currentContext).toContain("アルバム / スライド / ローカル / 公開");
 
     const operations = currentContext.slice(
       currentContext.indexOf("## 現行の運用契約"),

@@ -50,7 +50,7 @@ describe("google photos export review UI", () => {
       "画像のテロップは、Googleフォトの説明にも保存します。",
     );
     expect(source.panel).toContain(
-      "動画はGoogleフォトへ書き出しません。作品とDrive上の動画はそのまま残ります。",
+      "動画はGoogleフォトへ書き出しません。アルバムとDrive上の動画はそのまま残ります。",
     );
     expect(source.panel).toContain("書き出し対象外");
     expect(source.panel).toContain("review.exportPhotoCount");
@@ -71,7 +71,7 @@ describe("google photos export review UI", () => {
       "同じ素材を使うスライドも、それぞれ1件として容量に含みます。",
     );
     expect(source.panel).not.toMatch(/重複スライドも別アイテムとして書き出す/);
-    expect(source.panel).toContain("この端末に保存");
+    expect(source.panel).toContain("ローカルに保存");
   });
 
   it("asks the user to review again after the export source changes", () => {

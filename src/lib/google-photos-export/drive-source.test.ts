@@ -348,7 +348,7 @@ describe("google photos export drive source diagnostics", () => {
       error: {
         kind: "drivePreflightFailed",
         message:
-          "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+          "書き出し元のアルバムを確認できませんでした。アルバムの状態を再確認してください。",
       },
       diagnostics: {
         kind: "projectRootMetadataMismatch",
@@ -471,7 +471,7 @@ describe("google photos export drive source diagnostics", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.message).toBe(
-      "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+      "書き出し元のアルバムを確認できませんでした。アルバムの状態を再確認してください。",
     );
   });
 
@@ -526,7 +526,7 @@ describe("google photos export drive source diagnostics", () => {
       error: {
         kind: "drivePreflightFailed",
         message:
-          "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+          "書き出し元のアルバムを確認できませんでした。アルバムの状態を再確認してください。",
       },
     });
     expect(publicResult).not.toHaveProperty("diagnostics");

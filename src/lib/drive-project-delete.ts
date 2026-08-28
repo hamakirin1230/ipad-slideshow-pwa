@@ -94,7 +94,7 @@ export function prepareDriveProjectDeletion(input: {
     return {
       ok: false,
       reason: "preflightMissing",
-      diagnostics: ["作品削除前の確認結果がありません。"],
+      diagnostics: ["アルバム削除前の確認結果がありません。"],
     };
   }
 
@@ -113,7 +113,7 @@ export function prepareDriveProjectDeletion(input: {
       ok: false,
       reason: "ownerMismatch",
       blockedReason: "ownerMismatch",
-      diagnostics: ["選択中の作品情報が確認時と一致していません。"],
+      diagnostics: ["選択中のアルバム情報が確認時と一致していません。"],
     };
   }
 
@@ -151,7 +151,7 @@ export async function executeDriveProjectDeletion(input: {
 }): Promise<DriveProjectDeleteResult> {
   if (!driveProjectDeleteOwnerMatches(input.plan.owner, input.currentOwner)) {
     return blockedResult("ownerMismatch", [
-      "選択中の作品情報が削除計画と一致していません。",
+      "選択中のアルバム情報が削除計画と一致していません。",
     ]);
   }
 
@@ -160,7 +160,7 @@ export async function executeDriveProjectDeletion(input: {
     executePreflight = await input.runFreshPreflight();
   } catch (error) {
     rethrowDriveAuthError(error);
-    return failedResult("作品削除前の再確認に失敗しました。");
+    return failedResult("アルバム削除前の再確認に失敗しました。");
   }
 
   if (executePreflight.status === "blocked") {
@@ -169,7 +169,7 @@ export async function executeDriveProjectDeletion(input: {
 
   if (!driveProjectDeletePlanMatchesFreshPreflight(input.plan, executePreflight)) {
     return blockedResult("planStale", [
-      "確認後にGoogle Drive上の作品情報が変わったため、削除を中止しました。",
+      "確認後にGoogle Drive上のアルバム情報が変わったため、削除を中止しました。",
     ]);
   }
 
@@ -184,7 +184,7 @@ export async function executeDriveProjectDeletion(input: {
 
   if (nextIndex.status === "invalid") {
     return blockedResult("planStale", [
-      "確認後にGoogle Drive上の作品一覧が変わったため、削除を中止しました。",
+      "確認後にGoogle Drive上のアルバム一覧が変わったため、削除を中止しました。",
     ]);
   }
 
@@ -192,7 +192,7 @@ export async function executeDriveProjectDeletion(input: {
     await input.writeIndexJson(nextIndex.indexJsonText);
   } catch (error) {
     rethrowDriveAuthError(error);
-    return failedResult("作品一覧の更新に失敗しました。");
+    return failedResult("アルバム一覧の更新に失敗しました。");
   }
 
   let freshIndexJsonText: string;
@@ -200,7 +200,7 @@ export async function executeDriveProjectDeletion(input: {
     freshIndexJsonText = await input.readIndexJson();
   } catch (error) {
     rethrowDriveAuthError(error);
-    return failedResult("作品一覧の再確認に失敗しました。");
+    return failedResult("アルバム一覧の再確認に失敗しました。");
   }
 
   const indexVerification = verifyDriveProjectIndexAfterRemoval({
@@ -211,7 +211,7 @@ export async function executeDriveProjectDeletion(input: {
   });
 
   if (indexVerification.status === "invalid") {
-    return failedResult("作品一覧の更新結果を確認できませんでした。");
+    return failedResult("アルバム一覧の更新結果を確認できませんでした。");
   }
 
   try {
@@ -219,7 +219,7 @@ export async function executeDriveProjectDeletion(input: {
   } catch (error) {
     return postIndexFailureResult({
       error,
-      message: "作品フォルダを削除状態にできませんでした。",
+      message: "アルバムフォルダを削除状態にできませんでした。",
       projectRootTrashed: false,
     });
   }
@@ -232,14 +232,14 @@ export async function executeDriveProjectDeletion(input: {
   } catch (error) {
     return postIndexFailureResult({
       error,
-      message: "作品フォルダの削除状態を確認できませんでした。",
+      message: "アルバムフォルダの削除状態を確認できませんでした。",
       projectRootTrashed: false,
     });
   }
 
   if (!projectRootTrashed) {
     return partialFailureResult({
-      message: "作品フォルダの削除状態を確認できませんでした。",
+      message: "アルバムフォルダの削除状態を確認できませんでした。",
       projectRootTrashed: false,
     });
   }
@@ -250,14 +250,14 @@ export async function executeDriveProjectDeletion(input: {
   } catch (error) {
     return postIndexFailureResult({
       error,
-      message: "削除後の作品フォルダを確認できませんでした。",
+      message: "削除後のアルバムフォルダを確認できませんでした。",
       projectRootTrashed: true,
     });
   }
 
   if (activeRoots.length > 0) {
     return partialFailureResult({
-      message: "削除後も有効な作品フォルダが残っています。",
+      message: "削除後も有効なアルバムフォルダが残っています。",
       projectRootTrashed: true,
     });
   }
@@ -267,7 +267,7 @@ export async function executeDriveProjectDeletion(input: {
     indexRemoved: true,
     projectRootTrashed: true,
     authRequired: false,
-    diagnostics: ["Google Drive上の作品を削除しました。"],
+    diagnostics: ["Google Drive上のアルバムを削除しました。"],
   };
 }
 
@@ -329,7 +329,7 @@ function partialFailureResult(input: {
     authRequired: input.authRequired === true,
     diagnostics: sanitizeDiagnostics([
       input.message,
-      "作品一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
+      "アルバム一覧からは削除されましたが、Google Drive上にデータが残っている可能性があります。",
     ]),
   };
 }

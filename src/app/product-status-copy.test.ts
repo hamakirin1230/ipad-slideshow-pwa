@@ -51,10 +51,10 @@ describe("production task copy", () => {
   it("describes a ready Drive workspace without claiming offline sync happened", () => {
     expect(driveSettingsSource).not.toContain("オフライン再生未対応");
     expect(driveSettingsSource).toContain(
-      "作品の編集、公開、この端末への保存は「つくる」から明示的に実行します。",
+      "アルバムの編集、公開、ローカルへの保存は「つくる」から明示的に実行します。",
     );
     expect(terminologyUiSource).toContain(
-      "オンライン再生用の情報だけをこの端末に保持し、本体は保存しません。",
+      "オンライン再生用の情報だけをローカルに保持し、本体は保存しません。",
     );
   });
 

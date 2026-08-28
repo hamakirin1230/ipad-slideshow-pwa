@@ -28,10 +28,10 @@ describe("admin creative workspace", () => {
     expect(source.workspace).toContain("min-h-11");
 
     for (const [id, label] of [
-      ["project", "作品"],
+      ["project", "アルバム"],
       ["edit", "スライド"],
+      ["device", "ローカル"],
       ["publish", "公開"],
-      ["device", "この端末"],
     ]) {
       expect(source.workspace).toContain(`{ id: "${id}", label: "${label}" }`);
     }
@@ -104,7 +104,7 @@ describe("admin creative workspace", () => {
       "checkedPlaybackReadiness?.projectId === selectedId",
     );
     expect(source.workspace).toContain("playbackReadiness === \"ready\"");
-    expect(source.workspace).toContain("この端末に保存");
+    expect(source.workspace).toContain("ローカルに保存");
     expect(source.workspace).toContain('onClick={() => selectTab("device")}');
     expect(source.workspace).toContain("再生準備を確認中");
     expect(source.workspace).not.toContain("createPlayerProjectLinkHref(projectSummary.projectId)");
@@ -112,13 +112,13 @@ describe("admin creative workspace", () => {
     expect(source.offlineSync).toContain(
       "createPlayerProjectLinkHref(selectedProjectId)",
     );
-    expect(source.offlineSync).toContain("この作品を再生");
+    expect(source.offlineSync).toContain("このアルバムを再生");
     expect(source.offlineSync).not.toContain('<Link href="/player">');
   });
 
   it("guides an unavailable requested project back to this iPad storage", () => {
     expect(source.player).toContain(
-      "この作品はまだこの端末に保存されていません",
+      "このアルバムはまだローカルに保存されていません",
     );
     expect(source.player).toContain("unavailableProjectSnapshot");
     expect(source.player).toContain(

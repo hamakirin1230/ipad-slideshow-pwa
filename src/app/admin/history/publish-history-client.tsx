@@ -1377,7 +1377,7 @@ function RollbackPreviewPanel(props: {
                     }
                   />
                   <span>
-                    Google Driveの公開版だけが更新され、この端末への保存は別途必要です。
+                    Google Driveの公開版だけが更新され、ローカルへの保存は別途必要です。
                   </span>
                 </label>
                 {props.preview.replacesUnpublishedChanges ? (
@@ -1478,7 +1478,7 @@ function RollbackPreviewPanel(props: {
                   )}
                 />
                 <DetailField
-                  label="この端末への保存"
+                  label="ローカルへの保存"
                   value="ロールバック後に別途必要"
                 />
               </dl>

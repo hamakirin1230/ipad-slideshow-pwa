@@ -839,13 +839,13 @@ const assetImportStatusLabels: Record<AssetImportStatus, string> = {
 };
 
 const offlineSyncStatusLabels: Record<OfflineSyncStatus, string> = {
-  idle: "この端末への保存待ち",
-  syncing: "この端末に保存中",
-  ready: "この端末への保存完了",
+  idle: "ローカルへの保存待ち",
+  syncing: "ローカルに保存中",
+  ready: "ローカルへの保存完了",
   stale: "今回の保存結果が古い",
-  failed: "この端末への保存失敗",
-  cancelled: "この端末への保存中止",
-  blocked: "この端末への保存を開始できない",
+  failed: "ローカルへの保存失敗",
+  cancelled: "ローカルへの保存中止",
+  blocked: "ローカルへの保存を開始できない",
 };
 
 const initialDriveMessage =
@@ -858,7 +858,7 @@ const initialAssetImportMessage =
   "Driveプロジェクトを確認した後に、素材を追加できます。";
 
 const initialOfflineSyncMessage =
-  "Google Driveの作品を確認した後に、この端末へ保存できます。";
+  "Google Driveのアルバムを確認した後に、ローカルへ保存できます。";
 
 const initialSlideReorderMessage =
   "Driveプロジェクトを確認した後に、スライドの順番を変更できます。";
@@ -1754,7 +1754,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "この端末への保存中のため、素材追加は開始できません。";
+      return "ローカルへの保存中のため、素材追加は開始できません。";
     }
 
     if (
@@ -1801,19 +1801,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function getOfflineSyncBlockedReason() {
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "この端末への保存を実行中です。";
+      return "ローカルへの保存を実行中です。";
     }
 
     if (isSlideEditInFlight) {
-      return "スライド編集中のため、この端末への保存は開始できません。";
+      return "スライド編集中のため、ローカルへの保存は開始できません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
-      return "素材追加処理中のため、この端末への保存は開始できません。";
+      return "素材追加処理中のため、ローカルへの保存は開始できません。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
-      return "Google Driveの操作中のため、この端末への保存は開始できません。";
+      return "Google Driveの操作中のため、ローカルへの保存は開始できません。";
     }
 
     if (googleStatus !== "connected" || driveFileGranted !== true) {
@@ -1857,7 +1857,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "この端末への保存中のため、スライド編集はできません。";
+      return "ローカルへの保存中のため、スライド編集はできません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
@@ -1923,7 +1923,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "この端末への保存中のため、未使用素材の確認は開始できません。";
+      return "ローカルへの保存中のため、未使用素材の確認は開始できません。";
     }
 
     if (
@@ -2018,19 +2018,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function getProjectDeleteBlockedReason() {
     if (projectDeleteInFlightRef.current || isProjectDeleteInFlight) {
-      return "作品を削除中です。";
+      return "アルバムを削除中です。";
     }
 
     if (driveOperationInFlightRef.current || isDriveOperationInFlight) {
-      return "Drive操作中のため、作品を削除できません。";
+      return "Drive操作中のため、アルバムを削除できません。";
     }
 
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
-      return "素材追加処理中のため、作品を削除できません。";
+      return "素材追加処理中のため、アルバムを削除できません。";
     }
 
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
-      return "この端末への保存中のため、作品を削除できません。";
+      return "ローカルへの保存中のため、アルバムを削除できません。";
     }
 
     if (
@@ -2038,7 +2038,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       captionUpdateSlideId !== null ||
       durationUpdateSlideId !== null
     ) {
-      return "スライド編集中のため、作品を削除できません。";
+      return "スライド編集中のため、アルバムを削除できません。";
     }
 
     if (
@@ -2049,7 +2049,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       assetCleanupDeleteInFlightRef.current ||
       isAssetCleanupDeleteInFlight
     ) {
-      return "未使用素材の確認または削除中のため、作品を削除できません。";
+      return "未使用素材の確認または削除中のため、アルバムを削除できません。";
     }
 
     if (
@@ -2057,11 +2057,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
       projectRollbackInFlightRef.current ||
       projectPublicationWriteInFlightRef.current
     ) {
-      return "公開またはロールバック処理中のため、作品を削除できません。";
+      return "公開またはロールバック処理中のため、アルバムを削除できません。";
     }
 
     if (googlePhotosExportInFlightRef.current || isGooglePhotosExportInFlight) {
-      return "Googleフォトへの書き出し中のため、作品を削除できません。";
+      return "Googleフォトへの書き出し中のため、アルバムを削除できません。";
     }
 
     if (googleStatus !== "connected" || driveFileGranted !== true) {
@@ -2084,7 +2084,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       !selectedProjectId ||
       selectedProjectId !== driveProjectReadyContext.projectId
     ) {
-      return "削除する作品を選択してください。";
+      return "削除するアルバムを選択してください。";
     }
 
     return null;
@@ -3006,7 +3006,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "プロジェクト反映: 成功分完了",
         "プロジェクト一覧の更新: 完了",
         "更新後再検証: 完了",
-        "テロップ変更を再生に反映するには、この作品をこの端末に保存してください。",
+        "テロップ変更を再生に反映するには、このアルバムをローカルに保存してください。",
       ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
@@ -3434,7 +3434,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         "プロジェクト反映: 完了",
         "プロジェクト一覧の更新: 完了",
         "更新後再検証: 完了",
-        "保存対象のMP4/MOVを再生に反映するには、この作品をこの端末に保存してください。",
+        "保存対象のMP4/MOVを再生に反映するには、このアルバムをローカルに保存してください。",
       ];
     } catch (error) {
       if (requestId !== assetImportRequestIdRef.current) {
@@ -3984,16 +3984,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!runtime) {
       setOfflineSyncStatus("failed");
-      setOfflineSyncMessage("この端末への保存処理を準備できませんでした。");
+      setOfflineSyncMessage("ローカルへの保存処理を準備できませんでした。");
       setSafeOfflineSyncDiagnostics([
-        "この端末への保存処理を準備できていません。",
+        "ローカルへの保存処理を準備できていません。",
       ]);
       return;
     }
 
     if (blockedReason) {
       setOfflineSyncStatus("blocked");
-      setOfflineSyncMessage("この端末への保存を開始できませんでした。");
+      setOfflineSyncMessage("ローカルへの保存を開始できませんでした。");
       setSafeOfflineSyncDiagnostics([blockedReason]);
       return;
     }
@@ -4004,7 +4004,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!accessToken || !readyContext || !readyProject) {
       setOfflineSyncStatus("blocked");
-      setOfflineSyncMessage("この端末への保存に必要な確認済み情報が不足しています。");
+      setOfflineSyncMessage("ローカルへの保存に必要な確認済み情報が不足しています。");
       setSafeOfflineSyncDiagnostics([
         "Google接続、Driveの保存領域、選択中プロジェクトのいずれかを確認できませんでした。",
         "Drive状態とプロジェクト状態を再確認してください。",
@@ -4076,7 +4076,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setOfflineSyncMessage(OFFLINE_SYNC_CANCELLED_MESSAGE);
     setOfflineSyncProgress(null);
     setSafeOfflineSyncDiagnostics([
-      "ユーザー操作によりこの端末への保存を中止しました。",
+      "ユーザー操作によりローカルへの保存を中止しました。",
       "Driveからの取得、一時保存、端末保存データの更新のどこまで進んだかは、この状態だけでは判断しません。",
       "必要に応じて Drive状態とプロジェクト状態を再確認してください。",
     ]);
@@ -4854,7 +4854,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
       applyProjectReadyState(result.project, toProjectDetails(result.details));
       setCaptionUpdateMessage(
-        "テロップを保存しました。再生へ反映するには、この作品をこの端末に保存してください。",
+        "テロップを保存しました。再生へ反映するには、このアルバムをローカルに保存してください。",
       );
       setCaptionUpdateDiagnostics(result.diagnostics);
     } catch (error) {
@@ -4969,7 +4969,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
       applyProjectReadyState(result.project, toProjectDetails(result.details));
       setDurationUpdateMessage(
-        "表示時間を保存しました。再生へ反映するには、この作品をこの端末に保存してください。",
+        "表示時間を保存しました。再生へ反映するには、このアルバムをローカルに保存してください。",
       );
       setDurationUpdateDiagnostics(result.diagnostics);
     } catch (error) {
@@ -5154,7 +5154,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
       setSlideReorderStatus("completed");
       setSlideReorderMessage(
-        "スライドの順番を保存しました。再生へ反映するには、この作品をこの端末に保存してください。",
+        "スライドの順番を保存しました。再生へ反映するには、このアルバムをローカルに保存してください。",
       );
       setSlideReorderDiagnostics([
         ...result.diagnostics,
@@ -5162,7 +5162,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       ]);
       setSlideEditStatus("completed");
       setSlideEditMessage(
-        "スライドの順番を保存しました。再生へ反映するには、この作品をこの端末に保存してください。",
+        "スライドの順番を保存しました。再生へ反映するには、このアルバムをローカルに保存してください。",
       );
       setSlideEditDiagnostics([
         ...result.diagnostics,
@@ -5291,7 +5291,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
       setSlideEditStatus("completed");
       setSlideEditMessage(
-        "選択したスライドを削除しました。再生へ反映するには、この作品をこの端末に保存してください。",
+        "選択したスライドを削除しました。再生へ反映するには、このアルバムをローカルに保存してください。",
       );
       setSlideEditDiagnostics([
         ...result.diagnostics,
@@ -5408,7 +5408,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
       setSlideEditStatus("completed");
       setSlideEditMessage(
-        "スライドを複製しました。再生へ反映するには、この作品をこの端末に保存してください。",
+        "スライドを複製しました。再生へ反映するには、このアルバムをローカルに保存してください。",
       );
       setSlideEditDiagnostics([
         ...result.diagnostics,
@@ -5912,7 +5912,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setProjectDeleteResult(null);
       setProjectDeleteLocalCopyStatus("notAttempted");
       setProjectDeleteStatus("blocked");
-      setProjectDeleteMessage("作品の削除確認を開始できませんでした。");
+      setProjectDeleteMessage("アルバムの削除確認を開始できませんでした。");
       setSafeProjectDeleteDiagnostics([
         blockedReason ?? "Driveの保存領域とプロジェクトの状態を確認してください。",
       ]);
@@ -5921,7 +5921,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     setDriveOperationInFlight(true);
     setProjectDeleteStatus("checking");
-    setProjectDeleteMessage("削除対象の作品を確認しています。");
+    setProjectDeleteMessage("削除対象のアルバムを確認しています。");
     setProjectDeleteResult(null);
     setProjectDeleteLocalCopyStatus("notAttempted");
     setSafeProjectDeleteDiagnostics([]);
@@ -5963,7 +5963,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         pendingProjectDeletePlanRef.current = null;
         setProjectDeleteReview(null);
         setProjectDeleteStatus("blocked");
-        setProjectDeleteMessage("作品の削除確認で停止しました。");
+        setProjectDeleteMessage("アルバムの削除確認で停止しました。");
         setSafeProjectDeleteDiagnostics(prepared.diagnostics);
         return;
       }
@@ -5972,7 +5972,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setProjectDeleteReview(prepared.review);
       setProjectDeleteStatus("confirming");
       setProjectDeleteMessage(
-        "Google Drive上の作品データを削除する前に確認してください。",
+        "Google Drive上のアルバムデータを削除する前に確認してください。",
       );
       setSafeProjectDeleteDiagnostics([]);
     } catch (error) {
@@ -5992,12 +5992,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setProjectDeleteStatus("error");
         setProjectDeleteMessage("Google再接続が必要です。");
         setSafeProjectDeleteDiagnostics([
-          "作品の削除は開始していません。Googleへ再接続してください。",
+          "アルバムの削除は開始していません。Googleへ再接続してください。",
         ]);
         return;
       }
       setProjectDeleteStatus("error");
-      setProjectDeleteMessage("作品の削除確認に失敗しました。");
+      setProjectDeleteMessage("アルバムの削除確認に失敗しました。");
       setSafeProjectDeleteDiagnostics([
         "削除前確認中にエラーが発生しました。自動再試行は行いません。",
       ]);
@@ -6020,7 +6020,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setProjectDeleteResult(null);
     setProjectDeleteLocalCopyStatus("notAttempted");
     setProjectDeleteStatus("cancelled");
-    setProjectDeleteMessage("作品の削除をキャンセルしました。");
+    setProjectDeleteMessage("アルバムの削除をキャンセルしました。");
     setSafeProjectDeleteDiagnostics([
       "Google Driveへの削除要求は送信していません。",
     ]);
@@ -6058,7 +6058,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     projectDeleteInFlightRef.current = true;
     setIsProjectDeleteInFlight(true);
     setProjectDeleteStatus("deleting");
-    setProjectDeleteMessage("作品を削除しています。");
+    setProjectDeleteMessage("アルバムを削除しています。");
     setProjectDeleteResult(null);
     setProjectDeleteLocalCopyStatus("notAttempted");
     setSafeProjectDeleteDiagnostics([]);
@@ -6154,14 +6154,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setProjectDeleteMessage("Google再接続が必要です。");
         setProjectDeleteLocalCopyStatus("notAttempted");
         setSafeProjectDeleteDiagnostics([
-          "作品の削除は完了していません。Googleへ再接続してください。",
+          "アルバムの削除は完了していません。Googleへ再接続してください。",
         ]);
         return;
       }
 
       if (outcome.kind === "unexpectedError" || !outcome.interpretation) {
         setProjectDeleteStatus("error");
-        setProjectDeleteMessage("作品の削除に失敗しました。");
+        setProjectDeleteMessage("アルバムの削除に失敗しました。");
         setProjectDeleteLocalCopyStatus("notAttempted");
         setSafeProjectDeleteDiagnostics([
           "削除処理中に予期しない失敗が発生しました。自動再試行は行いません。",
@@ -6187,7 +6187,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setProjectMessage(
             nextDriveProjects.length === 0
               ? "プロジェクトはまだ作成されていません。"
-              : "作品を選択してください。",
+              : "アルバムを選択してください。",
           );
         }
 
@@ -6223,7 +6223,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setProjectMessage(
           nextDriveProjects.length === 0
             ? "プロジェクトはまだ作成されていません。"
-            : "作品を選択してください。",
+            : "アルバムを選択してください。",
         );
         return;
       }
@@ -6881,7 +6881,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         error: {
           kind: "drivePreflightFailed",
           message:
-            "書き出し前確認の準備ができていません。Google接続と選択中の作品を確認してください。",
+            "書き出し前確認の準備ができていません。Google接続と選択中のアルバムを確認してください。",
         },
       };
     }
@@ -6989,7 +6989,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         ok: false,
         error: {
           kind: "drivePreflightFailed",
-          message: "書き出し元の作品を確認できませんでした。作品の状態を再確認してください。",
+          message: "書き出し元のアルバムを確認できませんでした。アルバムの状態を再確認してください。",
         },
         canResume: false,
       };
@@ -7685,13 +7685,13 @@ function buildOfflineSyncResultMessage(
       return "端末保存データの更新に失敗しました。以前の再生用データを維持しています。";
 
     case "orchestrationPreconditionFailed":
-      return "この端末への保存の前提条件を満たしていません。";
+      return "ローカルへの保存の前提条件を満たしていません。";
 
     case "orchestrationUnexpectedFailure":
-      return "この端末への保存中に予期しない失敗が発生しました。";
+      return "ローカルへの保存中に予期しない失敗が発生しました。";
 
     case "syncAlreadyInFlight":
-      return "この端末への保存はすでに実行中です。";
+      return "ローカルへの保存はすでに実行中です。";
 
     case "syncRuntimeCancelled":
       return OFFLINE_SYNC_CANCELLED_MESSAGE;
@@ -7707,7 +7707,7 @@ function buildOfflineSyncResultDiagnostics(
   switch (result.status) {
     case "ready":
       return [
-        `作品設定内のスライド: ${result.manifestSlideCount}`,
+        `アルバム設定内のスライド: ${result.manifestSlideCount}`,
         `画像の保存対象: ${result.imageSyncCandidateCount}`,
         `動画の保存対象: ${result.videoSyncCandidateCount}`,
         `動画本体の保存済み件数: ${result.videoSyncedCount}`,
@@ -7723,7 +7723,7 @@ function buildOfflineSyncResultDiagnostics(
         `更新したプロジェクト: ${result.promotion.promotedProjects}`,
         `更新した素材情報: ${result.promotion.promotedAssets}`,
         `更新した素材本体: ${result.promotion.promotedAssetBlobs}`,
-        "大容量動画は本体を保存しませんが、オンライン再生用の情報をこの端末に残し、オンライン時はGoogle Driveから再生します。",
+        "大容量動画は本体を保存しませんが、オンライン再生用の情報をローカルに残し、オンライン時はGoogle Driveから再生します。",
         "本体が未保存でも、Google Driveからの削除や保存失敗を意味しません。MP4/MOV以外の動画形式は未対応です。",
         result.publicationProvenance.message,
       ];
@@ -7745,13 +7745,13 @@ function buildOfflineSyncResultDiagnostics(
       return ["確認済みデータへの切り替えに失敗しました。以前の再生用データを維持しています。"];
 
     case "orchestrationPreconditionFailed":
-      return ["この端末への保存の前提条件を確認してください。"];
+      return ["ローカルへの保存の前提条件を確認してください。"];
 
     case "orchestrationUnexpectedFailure":
-      return ["この端末への保存中に予期しない失敗が発生しました。"];
+      return ["ローカルへの保存中に予期しない失敗が発生しました。"];
 
     case "syncAlreadyInFlight":
-      return ["この端末への保存はすでに実行中です。"];
+      return ["ローカルへの保存はすでに実行中です。"];
 
     case "syncRuntimeCancelled":
       return [OFFLINE_SYNC_CANCELLED_MESSAGE];
@@ -8177,7 +8177,7 @@ function buildDriveVideoOfflineScopeDiagnostics(input: {
       "理由: MP4/MOVはoffline保存上限を超えるとremoteOnlyとして保持されます。",
     );
   } else if (disposition === "offlineEligible") {
-    diagnostics.push("この端末への保存: MP4/MOVは上限以下の場合に保存対象です。");
+    diagnostics.push("ローカルへの保存: MP4/MOVは上限以下の場合に保存対象です。");
   }
 
   return diagnostics;

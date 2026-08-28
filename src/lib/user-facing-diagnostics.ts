@@ -50,7 +50,7 @@ export function buildLocalOfflineProjectClearConfirmation(project: {
   const projectLabel = project.projectTitle?.trim() || "名称未設定";
 
   return [
-    "この端末に保存された対象プロジェクトのオフライン再生用データを削除します。",
+    "ローカルに保存された対象プロジェクトのオフライン再生用データを削除します。",
     "",
     `対象プロジェクト: ${projectLabel}`,
     "",
@@ -61,7 +61,7 @@ export function buildLocalOfflineProjectClearConfirmation(project: {
     "・同期状態と一時データ",
     "",
     "Google Drive上のプロジェクトと素材は削除しません。",
-    "削除後にこの作品を再生するには、「つくる」の「この端末」から保存をもう一度実行してください。",
+    "削除後にこのアルバムを再生するには、「つくる」の「ローカル」から保存をもう一度実行してください。",
     "",
     "削除しますか？",
   ].join("\n");

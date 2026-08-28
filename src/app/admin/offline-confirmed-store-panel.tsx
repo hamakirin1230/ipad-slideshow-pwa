@@ -289,7 +289,7 @@ export function OfflineConfirmedStorePanel() {
           </Badge>
         </div>
         <CardDescription className="text-slate-300">
-          この端末への保存後に、作品・素材・再生データ・保存状態を確認します。
+          ローカルへの保存後に、アルバム・素材・再生データ・保存状態を確認します。
           素材本体は画面表示せず、種類・件数・保存容量だけを表示します。
         </CardDescription>
       </CardHeader>
@@ -314,8 +314,8 @@ export function OfflineConfirmedStorePanel() {
 
         {state.status === "idle" ? (
           <p className="text-sm text-slate-400">
-            この端末への保存が完了した後に押すと、保存結果と
-            作品ごとのローカル保存容量を確認できます。
+            ローカルへの保存が完了した後に押すと、保存結果と
+            アルバムごとのローカル保存容量を確認できます。
           </p>
         ) : null}
 
@@ -364,10 +364,10 @@ export function OfflineConfirmedStorePanel() {
       </CardContent>
       {pendingConfirmation ? (
         <ProductAlertDialog
-          title={pendingConfirmation.kind === "project" ? "この端末の保存データを削除しますか？" : "アプリの基本ファイルを削除しますか？"}
+          title={pendingConfirmation.kind === "project" ? "ローカルの保存データを削除しますか？" : "アプリの基本ファイルを削除しますか？"}
           description={pendingConfirmation.kind === "project"
             ? buildLocalOfflineProjectClearConfirmation(pendingConfirmation.project)
-            : "画面本体とアプリの基本ファイルを削除します。\nこの端末の作品・素材・再生データと、Google Drive上のデータは削除しません。\nオンラインなら画面を再取得できます。"}
+            : "画面本体とアプリの基本ファイルを削除します。\nこの端末のアルバム・素材・再生データと、Google Drive上のデータは削除しません。\nオンラインなら画面を再取得できます。"}
           confirmLabel="削除する"
           triggerRef={destructiveTriggerRef}
           onCancel={() => setPendingConfirmation(null)}
@@ -613,7 +613,7 @@ function ConfirmedStoreSnapshotView({
         <p className="font-semibold">素材情報と端末に保存した本体</p>
         <p className="mt-2 leading-6">
           素材情報と保存した本体の件数は一致しない場合があります。大容量動画は
-          オンライン再生用の情報だけをこの端末に保持し、本体は保存しません。
+          オンライン再生用の情報だけをローカルに保持し、本体は保存しません。
           この差は異常や同期失敗を意味せず、オンライン時はGoogle Driveから再生できます。
         </p>
       </div>
@@ -851,7 +851,7 @@ function ConfirmedStoreSnapshotView({
           </p>
           <p className="mt-2 text-slate-300">
             要確認項目は{snapshot.diagnostics.length}
-            件です。この端末への保存をもう一度実行して状態を確認してください。
+            件です。ローカルへの保存をもう一度実行して状態を確認してください。
           </p>
         </div>
       ) : null}
