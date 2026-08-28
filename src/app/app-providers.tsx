@@ -22,6 +22,7 @@ import {
   hasGrantedDriveFileScope,
 } from "@/lib/google-auth";
 import { createGoogleSessionClientController } from "@/lib/google-session/browser-session";
+import { createGooglePhotosPickerSessionClientController } from "@/lib/google-photos-picker-session/browser-session";
 import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
   tokenResponseGrantsPhotosLibraryAppendonly,
@@ -148,6 +149,7 @@ import {
   type DriveWorkspaceReadyContext,
   type DriveWorkspaceRootCandidate,
 } from "@/lib/google-drive";
+import { DUPLICATE_PROJECT_TITLE_MESSAGE } from "@/lib/project-title-uniqueness";
 import { hydrateDriveProjectCounts } from "@/lib/drive-project-summary-hydration";
 import {
   countProjectMedia,
@@ -921,6 +923,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const googlePhotosExportAbortRef = useRef<AbortController | null>(null);
   const googlePhotosExportRequestSequenceRef = useRef(0);
   const googlePhotosExportInFlightRef = useRef(false);
+  const photosPickerAccessTokenRef = useRef<string | null>(null);
   const currentAssetImportAccessTokenRef = useRef<string | null>(null);
   const currentAssetImportSessionIdRef = useRef<string | null>(null);
   const assetImportAbortRef = useRef<AbortController | null>(null);
@@ -978,6 +981,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
         );
       },
     });
+  }
+
+  const photosPickerSessionControllerRef =
+    useRef<ReturnType<
+      typeof createGooglePhotosPickerSessionClientController
+    > | null>(null);
+  if (photosPickerSessionControllerRef.current === null) {
+    photosPickerSessionControllerRef.current =
+      createGooglePhotosPickerSessionClientController({
+        onRestored(accessToken) {
+          photosPickerAccessTokenRef.current = accessToken;
+        },
+      });
   }
 
   const [driveStatus, setDriveStatus] =
@@ -1174,12 +1190,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const controller = googleSessionControllerRef.current;
+    const photosController = photosPickerSessionControllerRef.current;
     if (!controller) {
       return;
     }
     void controller.restoreOnPageLoad();
+    void photosController?.restoreOnPageLoad();
     return () => {
       controller.dispose();
+      photosController?.dispose();
     };
   }, []);
 
@@ -1337,7 +1356,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
     closeAssetImportPickerWindow();
   }
 
+  function invalidatePhotosPickerSession() {
+    photosPickerAccessTokenRef.current = null;
+    photosPickerSessionControllerRef.current?.invalidate();
+    photosPickerSessionControllerRef.current?.deleteAfterLocalDisconnect();
+  }
+
   function requestPhotosAccessToken(requestId: number) {
+    const restoredPhotosAccessToken = photosPickerAccessTokenRef.current;
+    if (restoredPhotosAccessToken) {
+      return Promise.resolve(restoredPhotosAccessToken);
+    }
+
     const tokenClient = tokenClientRef.current;
 
     if (!tokenClient) {
@@ -1502,6 +1532,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return true;
     }
 
+    photosPickerAccessTokenRef.current = tokenResponse.access_token;
+    void photosPickerSessionControllerRef.current?.persistAfterPhotosPickerConnect(
+      tokenResponse,
+    );
     pendingRequest.resolve(tokenResponse.access_token);
     return true;
   }
@@ -2998,6 +3032,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
               : "Photos Picker処理に失敗しました。";
         finalDiagnostics = error.diagnostics;
       } else if (error instanceof PhotosPickerApiError) {
+        if (error.status === 401 || error.status === 403) {
+          invalidatePhotosPickerSession();
+        }
         finalStatus = "error";
         finalMessage = "Photos Picker API処理に失敗しました。";
         finalDiagnostics = [
@@ -4716,6 +4753,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
           );
         }
 
+        if (error.status === "duplicateTitle") {
+          setProjectStatus("ready");
+          setProjectMessage(DUPLICATE_PROJECT_TITLE_MESSAGE);
+          setProjectDiagnostics(error.diagnostics);
+          return;
+        }
+
         setProjectStatus(error.status === "invalidProject" ? "invalid" : "error");
         setProjectMessage(
           error.status === "invalidProject"
@@ -6432,6 +6476,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setProjectMessage(
             "プロジェクト作成中にGoogle再接続が必要になりました。",
           );
+          setProjectDiagnostics(buildProjectCreateFailureDiagnostics(error));
+          return;
+        }
+
+        if (error.status === "duplicateTitle") {
+          setProjectStatus("ready");
+          setProjectMessage(DUPLICATE_PROJECT_TITLE_MESSAGE);
           setProjectDiagnostics(buildProjectCreateFailureDiagnostics(error));
           return;
         }

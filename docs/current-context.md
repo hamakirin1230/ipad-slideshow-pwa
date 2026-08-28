@@ -58,7 +58,7 @@ but are skipped for Google Photos export.
 - 2026-08-22時点の正: Phase 1 hosting migrationはPASS（`output:"export"`撤去 + App Router Route Handler）。Phase 2 server-only primitivesは実装済み。Phase 3 service / store / HTTP implemented。create / restore / delete API implemented。Phase 4 browser restore implemented。Phase 4.1 restore / manual-connect後のread-only Drive auto validation implemented。Preview functional acceptance PASS。Production functional acceptance PASS。explicit disconnect acceptance PASS。Photos OAuth isolation acceptance PASS。Photos OAuthは変更していない
 - ProductionとPreviewは現在同じFree Upstash resourceを共有する。`GOOGLE_SESSION_ENCRYPTION_KEY`はenvironment別である。Redis / token / key / cookie / session IDの値はdocsへ書かない
 - session lifetime上限は`min(expires_in, 3600 seconds)`。restoreでTTL延長しない。live pageを60分で強制logoutする機能ではない。server session expiry後のpage reload / 次回restoreで`notConnected`となる契約であり、実時間absolute-expiry境界の実機確認は未実施
-- authorization code flow / refresh tokenは今回の推奨ではない。Photos OAuthはDrive session create / delete lifecycleから隔離したままである
+- authorization code flow / refresh tokenは今回の推奨ではない。Photos Picker OAuthはDrive sessionと分離した専用60分absolute session。Photos export OAuthは操作開始時の専用token clientのままである
 - Google Photos exportの認可は操作開始時の専用token clientのままである。写真0件ならDrive preflight後にPhotos token requestを開始しない
 - 作品カードとAdmin最上部headerは写真 / 動画件数を表示する
 - 選択中作品にこの端末のconfirmed copyがあるときだけ「再生」し、未保存なら「この端末に保存」へ誘導する。自動offline syncはしない
@@ -125,6 +125,8 @@ production App Routerに存在する主要route:
 - Googleフォトへ書き出す画像captionはexport用画像へburn-inする。font sizeはimageHeight基準
 - 動画は作品とDriveと「この端末に保存」/ Playerに残る。Google Photosへはuploadしない
 - publication writeは同一tabのin-flight guardに加え、Web Locks APIでsame-origin multi-tab排他する。project単位。lock競合時はfail-fastで自動retryしない。Web Locks非対応時はsame-tab guardのみ。sensitive IDはlock name / UI / logへ出さない
+- workspace内のproject titleは新規create / rename時に重複不可。比較はtrim + case-insensitive。既存の同名projectは自動修復せず読み込み可能のまま。internal authorityはprojectIdのまま
+- Google Photos Picker OAuthはDrive sessionと分離した最大60分absolute session。TTLは`min(expires_in, 3600 seconds)`。restoreはexpiryを延長しない。Picker selection sessionは毎回新規作成。Pickerは写真のみ。tokenはclient storage / UI / logへ出さない
 - temporary publication acceptance fault harnessは専用branchで実装後に完全撤去され、production sourceには存在しない
 
 ## 現在の到達点
@@ -385,6 +387,8 @@ caption更新後、再生に反映するには対象projectのoffline syncが必
 テロップoverlayはpointer-events-noneでswipe操作を邪魔しない
 テロップ下帯はiPad PWAでbackdrop-filterが効かなくても残るよう、rgba背景をinline styleで指定する
 Photos Pickerは1回最大10件、かつproject全体50 slides上限まで
+Photos Pickerは写真のみ。VIDEO / MP4 / MOVはPicker importしない
+Photos Picker OAuthはDrive sessionと分離し、absolute expiry内なら再認証せずPickerを開始する。Picker selection sessionは毎回新規作成する
 Photos Pickerのユーザー認証・選択待ちのアプリ側timeoutは30分
 download / Drive uploadはitemごとに順次処理
 Drive保存成功分が1件以上あればmanifest.jsonへbatch append

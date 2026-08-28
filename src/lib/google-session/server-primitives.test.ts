@@ -7,10 +7,12 @@ import {
   PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
 } from "../google-auth";
 import {
+  createGooglePhotosPickerSessionLookupKey,
   createGoogleSessionLookupKey,
   decryptGoogleSessionAccessToken,
   encryptGoogleSessionAccessToken,
   generateGoogleSessionId,
+  GOOGLE_PHOTOS_PICKER_SESSION_LOOKUP_KEY_PREFIX,
   GOOGLE_SESSION_AES_IV_BYTES,
   GOOGLE_SESSION_AES_KEY_BYTES,
   GOOGLE_SESSION_ENCRYPTION_ALGORITHM,
@@ -19,6 +21,7 @@ import {
   GOOGLE_SESSION_LOOKUP_DIGEST_HEX_LENGTH,
   GOOGLE_SESSION_LOOKUP_KEY_PREFIX,
   GOOGLE_SESSION_MAX_TTL_SECONDS,
+  normalizeGooglePhotosPickerSessionScopeMetadata,
   normalizeGoogleSessionExpiry,
   normalizeGoogleSessionScopeMetadata,
   type GoogleSessionEncryptedAccessToken,
@@ -236,6 +239,38 @@ describe("google session server primitives", () => {
     const metadata = normalizeGoogleSessionScopeMetadata(DRIVE_FILE_SCOPE);
     expect(JSON.stringify(metadata)).not.toContain(DRIVE_FILE_SCOPE);
     expect(metadata).not.toHaveProperty("scope");
+  });
+
+  it("builds a Photos Picker lookup key in a separate namespace", () => {
+    const sessionId = generateGoogleSessionId();
+    const driveKey = createGoogleSessionLookupKey(sessionId);
+    const photosKey = createGooglePhotosPickerSessionLookupKey(sessionId);
+    expect(photosKey.startsWith(GOOGLE_PHOTOS_PICKER_SESSION_LOOKUP_KEY_PREFIX)).toBe(
+      true,
+    );
+    expect(photosKey).not.toBe(driveKey);
+    expect(photosKey).not.toContain(sessionId);
+    expect(driveKey.startsWith(GOOGLE_SESSION_LOOKUP_KEY_PREFIX)).toBe(true);
+  });
+
+  it("accepts Photos Picker scopes only in the Photos Picker metadata helper", () => {
+    const pickerScope = `${DRIVE_FILE_SCOPE} ${PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE}`;
+    expect(normalizeGooglePhotosPickerSessionScopeMetadata(pickerScope)).toEqual({
+      photosPicker: true,
+    });
+    expect(() =>
+      normalizeGooglePhotosPickerSessionScopeMetadata(DRIVE_FILE_SCOPE),
+    ).toThrow(/google-session-invalid-scope/);
+    expect(() =>
+      normalizeGooglePhotosPickerSessionScopeMetadata(
+        `${DRIVE_FILE_SCOPE} ${PHOTOS_LIBRARY_APPENDONLY_SCOPE}`,
+      ),
+    ).toThrow(/google-session-invalid-scope/);
+    expect(() =>
+      normalizeGooglePhotosPickerSessionScopeMetadata(
+        `${DRIVE_FILE_SCOPE} ${PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE} ${PHOTOS_LIBRARY_APPENDONLY_SCOPE}`,
+      ),
+    ).toThrow(/google-session-invalid-scope/);
   });
 
   it("keeps server primitives free of env, cookies, Redis, fetch, and logging", () => {

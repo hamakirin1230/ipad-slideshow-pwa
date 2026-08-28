@@ -6,6 +6,10 @@ import {
   isSupportedDriveVideoMimeType,
   type SupportedDriveVideoMimeType,
 } from "./drive-video-policy";
+import {
+  DUPLICATE_PROJECT_TITLE_MESSAGE,
+  hasConflictingProjectTitle,
+} from "./project-title-uniqueness";
 
 const DRIVE_API_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_API_UPLOAD_FILES_URL =
@@ -187,6 +191,7 @@ export type DriveProjectChangedItem = {
 export type DriveProjectCreateFailureStatus =
   | "authRequired"
   | "notCreatable"
+  | "duplicateTitle"
   | "invalidWorkspace"
   | "operationFailed";
 
@@ -286,6 +291,7 @@ export type DriveProjectManifestBatchAppendResult =
 export type DriveProjectTitleUpdateFailureStatus =
   | "authRequired"
   | "invalidProject"
+  | "duplicateTitle"
   | "manifestUpdateFailed"
   | "indexUpdateFailed"
   | "verificationFailed";
@@ -2302,6 +2308,25 @@ export async function updateDriveProjectTitle(
           ...registrationResult.diagnostics,
           "title変更前の index.json 対象project検証に失敗したため、更新は開始していません。",
           "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const indexProjectsResult = validateIndexJsonProjects(indexJsonText);
+    if (
+      indexProjectsResult.status === "ready" &&
+      hasConflictingProjectTitle({
+        title: input.title,
+        projects: indexProjectsResult.projects,
+        ignoreProjectId: input.project.projectId,
+      })
+    ) {
+      throw new DriveProjectTitleUpdateError({
+        status: "duplicateTitle",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          DUPLICATE_PROJECT_TITLE_MESSAGE,
+          "プロジェクト名の変更は開始していません。",
         ],
       });
     }
@@ -5167,6 +5192,23 @@ export async function createDriveProject(
       projectId: null,
       possibleChangedItems: changedItems,
       diagnostics: initialIndexResult.diagnostics,
+    });
+  }
+
+  if (
+    hasConflictingProjectTitle({
+      title: input.title,
+      projects: initialIndexResult.index.projects,
+    })
+  ) {
+    throw new DriveProjectCreateError({
+      status: "duplicateTitle",
+      projectId: null,
+      possibleChangedItems: changedItems,
+      diagnostics: [
+        DUPLICATE_PROJECT_TITLE_MESSAGE,
+        "プロジェクト作成は開始していません。",
+      ],
     });
   }
 

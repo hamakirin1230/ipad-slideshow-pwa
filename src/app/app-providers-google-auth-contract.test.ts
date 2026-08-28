@@ -116,6 +116,10 @@ describe("google auth does not auto-restore after refresh", () => {
       expect(photosFn).not.toContain("googleConnectionGenerationRef");
       expect(photosFn).not.toContain("/api/google-session/");
     }
+    expect(photosResponse).toContain("persistAfterPhotosPickerConnect");
+    expect(photosRequest).not.toContain("persistAfterPhotosPickerConnect");
+    expect(photosExport).not.toContain("persistAfterPhotosPickerConnect");
+    expect(photosExportRequest).not.toContain("persistAfterPhotosPickerConnect");
     const driveCallback = providers.slice(
       providers.indexOf("accessTokenRef.current = tokenResponse.access_token"),
       providers.indexOf("error_callback: (error) => {"),

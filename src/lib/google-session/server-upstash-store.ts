@@ -1,6 +1,7 @@
 import "server-only";
 import { Redis } from "@upstash/redis";
 import {
+  GOOGLE_PHOTOS_PICKER_SESSION_LOOKUP_KEY_PREFIX,
   GOOGLE_SESSION_LOOKUP_DIGEST_HEX_LENGTH,
   GOOGLE_SESSION_LOOKUP_KEY_PREFIX,
 } from "./server-primitives";
@@ -27,6 +28,9 @@ export type GoogleSessionRedisClient = {
 const LOOKUP_KEY_PATTERN = new RegExp(
   `^${GOOGLE_SESSION_LOOKUP_KEY_PREFIX}[0-9a-f]{${GOOGLE_SESSION_LOOKUP_DIGEST_HEX_LENGTH}}$`,
 );
+const PHOTOS_PICKER_LOOKUP_KEY_PATTERN = new RegExp(
+  `^${GOOGLE_PHOTOS_PICKER_SESSION_LOOKUP_KEY_PREFIX}[0-9a-f]{${GOOGLE_SESSION_LOOKUP_DIGEST_HEX_LENGTH}}$`,
+);
 
 export function createGoogleSessionUpstashRedisConfig(
   env: GoogleSessionUpstashEnv,
@@ -51,12 +55,25 @@ export function createGoogleSessionUpstashStore(
   return createGoogleSessionStoreFromRedis(redis);
 }
 
+export function createGooglePhotosPickerSessionUpstashStore(
+  env?: GoogleSessionUpstashEnv,
+): GoogleSessionStore {
+  const redis = new Redis(
+    createGoogleSessionUpstashRedisConfig(readGoogleSessionUpstashEnv(env)),
+  );
+  return createGoogleSessionStoreFromRedis(redis, {
+    lookupKeyPattern: PHOTOS_PICKER_LOOKUP_KEY_PATTERN,
+  });
+}
+
 export function createGoogleSessionStoreFromRedis(
   redis: GoogleSessionRedisClient,
+  options?: { lookupKeyPattern?: RegExp },
 ): GoogleSessionStore {
+  const lookupKeyPattern = options?.lookupKeyPattern ?? LOOKUP_KEY_PATTERN;
   return {
     async write(input) {
-      const lookupKey = requireLookupKey(input.lookupKey);
+      const lookupKey = requireLookupKey(input.lookupKey, lookupKeyPattern);
       const value = requireStoredValue(input.value);
       const ttlSeconds = requireTtlSeconds(input.ttlSeconds);
       let result: unknown;
@@ -73,7 +90,7 @@ export function createGoogleSessionStoreFromRedis(
       }
     },
     async read(lookupKey) {
-      const key = requireLookupKey(lookupKey);
+      const key = requireLookupKey(lookupKey, lookupKeyPattern);
       let result: unknown;
       try {
         result = await redis.get(key);
@@ -89,7 +106,7 @@ export function createGoogleSessionStoreFromRedis(
       return result;
     },
     async delete(lookupKey) {
-      const key = requireLookupKey(lookupKey);
+      const key = requireLookupKey(lookupKey, lookupKeyPattern);
       try {
         await redis.del(key);
       } catch {
@@ -118,8 +135,8 @@ function requireEnvValue(value: string | undefined) {
   return value;
 }
 
-function requireLookupKey(lookupKey: string) {
-  if (typeof lookupKey !== "string" || !LOOKUP_KEY_PATTERN.test(lookupKey)) {
+function requireLookupKey(lookupKey: string, lookupKeyPattern: RegExp) {
+  if (typeof lookupKey !== "string" || !lookupKeyPattern.test(lookupKey)) {
     throw sanitizedStoreUnavailable();
   }
   return lookupKey;

@@ -12,6 +12,8 @@ import {
 
 export const GOOGLE_SESSION_ID_BYTES = 32;
 export const GOOGLE_SESSION_LOOKUP_KEY_PREFIX = "google-session:";
+export const GOOGLE_PHOTOS_PICKER_SESSION_LOOKUP_KEY_PREFIX =
+  "google-photos-picker-session:";
 export const GOOGLE_SESSION_LOOKUP_DIGEST_HEX_LENGTH = 64;
 export const GOOGLE_SESSION_AES_KEY_BYTES = 32;
 export const GOOGLE_SESSION_AES_IV_BYTES = 12;
@@ -24,6 +26,10 @@ const BASE64URL_SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
 export type GoogleSessionScopeMetadata = {
   driveFile: true;
+};
+
+export type GooglePhotosPickerSessionScopeMetadata = {
+  photosPicker: true;
 };
 
 export type GoogleSessionEncryptedAccessToken = {
@@ -44,6 +50,20 @@ export function generateGoogleSessionId() {
 }
 
 export function createGoogleSessionLookupKey(sessionId: string) {
+  return createOpaqueSessionLookupKey(
+    sessionId,
+    GOOGLE_SESSION_LOOKUP_KEY_PREFIX,
+  );
+}
+
+export function createGooglePhotosPickerSessionLookupKey(sessionId: string) {
+  return createOpaqueSessionLookupKey(
+    sessionId,
+    GOOGLE_PHOTOS_PICKER_SESSION_LOOKUP_KEY_PREFIX,
+  );
+}
+
+function createOpaqueSessionLookupKey(sessionId: string, prefix: string) {
   if (!isOpaqueGoogleSessionId(sessionId)) {
     throw sanitizedGoogleSessionError("invalid-session-id");
   }
@@ -51,7 +71,7 @@ export function createGoogleSessionLookupKey(sessionId: string) {
   if (digest.length !== GOOGLE_SESSION_LOOKUP_DIGEST_HEX_LENGTH) {
     throw sanitizedGoogleSessionError("invalid-lookup-digest");
   }
-  return `${GOOGLE_SESSION_LOOKUP_KEY_PREFIX}${digest}`;
+  return `${prefix}${digest}`;
 }
 
 export function encryptGoogleSessionAccessToken(input: {
@@ -156,6 +176,30 @@ export function normalizeGoogleSessionScopeMetadata(
   }
 
   return { driveFile: true };
+}
+
+export function normalizeGooglePhotosPickerSessionScopeMetadata(
+  scope: string,
+): GooglePhotosPickerSessionScopeMetadata {
+  if (typeof scope !== "string" || scope.trim() === "") {
+    throw sanitizedGoogleSessionError("invalid-scope");
+  }
+
+  const scopes = scope.trim().split(/\s+/);
+  const hasDriveFile = scopes.includes(DRIVE_FILE_SCOPE);
+  const hasPhotosPicker = scopes.includes(
+    PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
+  );
+  const hasPhotosLibrary = scopes.some(
+    (value) =>
+      value === PHOTOS_LIBRARY_APPENDONLY_SCOPE ||
+      value.includes("photoslibrary"),
+  );
+  if (!hasDriveFile || !hasPhotosPicker || hasPhotosLibrary) {
+    throw sanitizedGoogleSessionError("invalid-scope");
+  }
+
+  return { photosPicker: true };
 }
 
 function isOpaqueGoogleSessionId(sessionId: string) {
