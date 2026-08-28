@@ -3,12 +3,15 @@ import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectSummary } from "@/app/app-providers";
+import { DUPLICATE_PROJECT_TITLE_MESSAGE } from "@/lib/project-title-uniqueness";
 import {
   getProjectDeleteViewState,
 } from "./project-delete-view";
 import {
   getProjectDriveNotReadyNotice,
+  getProjectTitleFormFeedback,
   ProjectList,
+  ProjectTitleDuplicateAlert,
   SelectedProjectDeleteCard,
 } from "./project-status-panel";
 
@@ -255,6 +258,77 @@ describe("selected project delete controls", () => {
     expect(html).toContain("この端末のコピーは削除していません");
     expect(html).not.toContain("もう一度削除");
     expect(html).not.toContain("自動再試行");
+  });
+});
+
+describe("project title duplicate user-visible message", () => {
+  it("shows the duplicate message on the existing role=alert path", () => {
+    const html = renderToStaticMarkup(
+      <ProjectTitleDuplicateAlert projectMessage={DUPLICATE_PROJECT_TITLE_MESSAGE} />,
+    );
+
+    expect(html).toContain('role="alert"');
+    expect(html).toContain(DUPLICATE_PROJECT_TITLE_MESSAGE);
+    expect(html).not.toContain("projectId");
+    expect(html).not.toContain("folderId");
+    expect(html).not.toContain("revision");
+    expect(html).not.toContain("operationId");
+    expect(html).not.toContain("ya29");
+    expect(html).not.toContain("session");
+    expect(html).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+    );
+    expect(source).toContain(
+      "<ProjectTitleDuplicateAlert projectMessage={projectMessage} />",
+    );
+    expect(source).toContain("projectMessage={projectMessage}");
+  });
+
+  it("does not show the duplicate message for other project messages", () => {
+    expect(
+      renderToStaticMarkup(
+        <ProjectTitleDuplicateAlert projectMessage="新しいプロジェクトを作成し、選択状態にしました。" />,
+      ),
+    ).toBe("");
+    expect(
+      renderToStaticMarkup(
+        <ProjectTitleDuplicateAlert projectMessage="選択中プロジェクトの名前をプロジェクト設定と一覧へ反映し、再確認しました。" />,
+      ),
+    ).toBe("");
+    expect(
+      getProjectTitleFormFeedback({
+        projectMessage: "新しいプロジェクトを作成し、選択状態にしました。",
+        projectTitleError: null,
+        idleMessage: "作品を作成して一覧へ追加します。",
+      }),
+    ).toEqual({
+      text: "作品を作成して一覧へ追加します。",
+      tone: "idle",
+    });
+  });
+
+  it("surfaces the sanitized duplicate message on create and rename forms", () => {
+    const createFeedback = getProjectTitleFormFeedback({
+      projectMessage: DUPLICATE_PROJECT_TITLE_MESSAGE,
+      projectTitleError: null,
+      idleMessage: "作品を作成して一覧へ追加します。",
+    });
+    const renameFeedback = getProjectTitleFormFeedback({
+      projectMessage: DUPLICATE_PROJECT_TITLE_MESSAGE,
+      projectTitleError: null,
+      idleMessage: "変更後に作品の情報を再確認します。",
+    });
+
+    expect(createFeedback).toEqual({
+      text: DUPLICATE_PROJECT_TITLE_MESSAGE,
+      tone: "error",
+    });
+    expect(renameFeedback).toEqual({
+      text: DUPLICATE_PROJECT_TITLE_MESSAGE,
+      tone: "error",
+    });
+    expect(createFeedback.text).not.toContain("projectId");
+    expect(renameFeedback.text).not.toContain("projectId");
   });
 });
 

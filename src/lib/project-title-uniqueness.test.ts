@@ -343,6 +343,13 @@ describe("title uniqueness wiring", () => {
     expect(renameProject).toContain("DUPLICATE_PROJECT_TITLE_MESSAGE");
     expect(createProject).not.toContain(PROJECT_ID);
     expect(renameProject).not.toContain(PROJECT_ID);
+    const panel = readFileSync(
+      new URL("../app/admin/project-status-panel.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(panel).toContain("<ProjectTitleDuplicateAlert projectMessage={projectMessage} />");
+    expect(panel).toContain('role="alert"');
+    expect(panel).not.toContain("window.alert");
   });
 });
 

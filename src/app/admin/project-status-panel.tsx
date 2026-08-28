@@ -15,6 +15,7 @@ import {
   formatProjectMediaCounts,
   projectMediaCountsFromSummary,
 } from "@/lib/project-media-counts";
+import { DUPLICATE_PROJECT_TITLE_MESSAGE } from "@/lib/project-title-uniqueness";
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 import {
   buildProjectDeleteConfirmationDescription,
@@ -139,6 +140,8 @@ export function ProjectStatusPanel() {
         </div>
       ) : null}
 
+      <ProjectTitleDuplicateAlert projectMessage={projectMessage} />
+
       <section aria-labelledby="project-list-heading">
         <div className="flex items-end justify-between gap-4">
           <div>
@@ -183,6 +186,7 @@ export function ProjectStatusPanel() {
             key={suggestedProjectTitle}
             suggestedProjectTitle={suggestedProjectTitle}
             projectStatus={projectStatus}
+            projectMessage={projectMessage}
             canCreateProject={canCreateProject}
             isDriveOperationInFlight={isDriveOperationInFlight}
             createProject={createProject}
@@ -191,6 +195,7 @@ export function ProjectStatusPanel() {
           <SelectedProjectTitleForm
             key={`${projectSummary?.projectId ?? "none"}:${projectSummary?.title ?? ""}`}
             projectTitle={projectSummary?.title ?? ""}
+            projectMessage={projectMessage}
             hasProject={projectSummary !== null}
             canUpdateSelectedProjectTitle={canUpdateSelectedProjectTitle}
             isDriveOperationInFlight={isDriveOperationInFlight}
@@ -295,6 +300,7 @@ export function ProjectList({
 function CreateProjectTitleForm(input: {
   suggestedProjectTitle: string;
   projectStatus: string;
+  projectMessage: string;
   canCreateProject: boolean;
   isDriveOperationInFlight: boolean;
   createProject: (title: string) => void;
@@ -302,6 +308,11 @@ function CreateProjectTitleForm(input: {
   const [projectTitle, setProjectTitle] = useState(input.suggestedProjectTitle);
   const normalizedProjectTitle = normalizeProjectTitleInput(projectTitle);
   const projectTitleError = getProjectTitleError(normalizedProjectTitle);
+  const titleFeedback = getProjectTitleFormFeedback({
+    projectMessage: input.projectMessage,
+    projectTitleError,
+    idleMessage: "作品を作成して一覧へ追加します。",
+  });
   const canSubmit = input.canCreateProject && projectTitleError === null;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -333,9 +344,8 @@ function CreateProjectTitleForm(input: {
         />
       </label>
       <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
-        <p>
-          {projectTitleError ??
-            "作品を作成して一覧へ追加します。"}
+        <p className={titleFeedback.tone === "error" ? "text-red-200" : undefined}>
+          {titleFeedback.text}
         </p>
         <p>
           {[...normalizedProjectTitle].length}/{DRIVE_PROJECT_TITLE_MAX_LENGTH}
@@ -355,6 +365,7 @@ function CreateProjectTitleForm(input: {
 
 function SelectedProjectTitleForm(input: {
   projectTitle: string;
+  projectMessage: string;
   hasProject: boolean;
   canUpdateSelectedProjectTitle: boolean;
   isDriveOperationInFlight: boolean;
@@ -363,6 +374,13 @@ function SelectedProjectTitleForm(input: {
   const [projectTitle, setProjectTitle] = useState(input.projectTitle);
   const normalizedProjectTitle = normalizeProjectTitleInput(projectTitle);
   const projectTitleError = getProjectTitleError(normalizedProjectTitle);
+  const titleFeedback = getProjectTitleFormFeedback({
+    projectMessage: input.projectMessage,
+    projectTitleError,
+    idleMessage: input.hasProject
+      ? "変更後に作品の情報を再確認します。"
+      : "先に作品を選択してください。",
+  });
   const canSubmit =
     input.canUpdateSelectedProjectTitle &&
     projectTitleError === null &&
@@ -397,11 +415,8 @@ function SelectedProjectTitleForm(input: {
         />
       </label>
       <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
-        <p>
-          {input.hasProject
-            ? projectTitleError ??
-              "変更後に作品の情報を再確認します。"
-            : "先に作品を選択してください。"}
+        <p className={titleFeedback.tone === "error" ? "text-red-200" : undefined}>
+          {titleFeedback.text}
         </p>
         <p>
           {[...normalizedProjectTitle].length}/{DRIVE_PROJECT_TITLE_MAX_LENGTH}
@@ -545,6 +560,46 @@ export function getProjectDriveNotReadyNotice(input: {
     title: "Google Driveの保存場所を確認できません",
     body: "設定で保存場所を確認すると、作品を選べます。",
   };
+}
+
+export function ProjectTitleDuplicateAlert({
+  projectMessage,
+}: {
+  projectMessage: string;
+}) {
+  if (projectMessage !== DUPLICATE_PROJECT_TITLE_MESSAGE) {
+    return null;
+  }
+
+  return (
+    <div
+      role="alert"
+      className="rounded-xl border border-red-400/25 bg-red-400/8 p-4 text-red-100"
+    >
+      <p className="font-semibold">
+        {sanitizeUserFacingDiagnostic(DUPLICATE_PROJECT_TITLE_MESSAGE)}
+      </p>
+    </div>
+  );
+}
+
+export function getProjectTitleFormFeedback(input: {
+  projectMessage: string;
+  projectTitleError: string | null;
+  idleMessage: string;
+}) {
+  if (input.projectTitleError) {
+    return { text: input.projectTitleError, tone: "idle" as const };
+  }
+
+  if (input.projectMessage === DUPLICATE_PROJECT_TITLE_MESSAGE) {
+    return {
+      text: sanitizeUserFacingDiagnostic(DUPLICATE_PROJECT_TITLE_MESSAGE),
+      tone: "error" as const,
+    };
+  }
+
+  return { text: input.idleMessage, tone: "idle" as const };
 }
 
 function getCreateProjectButtonLabel(projectStatus: string) {
