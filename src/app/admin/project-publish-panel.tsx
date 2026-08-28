@@ -50,6 +50,7 @@ type PublishUiState =
         diagnosticCode?: ProjectPublishDiagnosticCode;
         diagnosticTargets?: string[];
         recoverability?: SanitizedPublishError["recoverability"];
+        code?: string;
         canRetry: boolean;
       };
       review?: ProjectPublishReview;
@@ -172,6 +173,7 @@ function ProjectPublishPanelSession() {
       error: {
         recoverability: result.error.recoverability,
         canRetry: result.error.canRetry,
+        code: result.error.code,
       },
       ...(result.error.canRetry ? { review } : {}),
     });

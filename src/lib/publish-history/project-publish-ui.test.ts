@@ -911,6 +911,25 @@ describe("workflow error and success labels", () => {
     );
   });
 
+  it("shows a sanitized multi-tab lock message without internals", () => {
+    const message = getProjectPublishFailureDisplayMessage({
+      phase: "publish",
+      error: {
+        code: "publicationWriteLocked",
+        message:
+          "RAW_ERROR_SECRET_SENTINEL lock:ispwa.pubwrite.v1.deadbeef projectId",
+        recoverability: "retryable",
+      },
+    });
+
+    expect(message).toBe(
+      "別のタブで公開操作を実行中です。完了後にもう一度操作してください。",
+    );
+    expect(message).not.toContain("RAW_ERROR_SECRET_SENTINEL");
+    expect(message).not.toContain("ispwa.pubwrite");
+    expect(message).not.toContain("projectId");
+  });
+
   it("formats trashed asset targets as 1-origin slide / name / mime", () => {
     expect(
       formatProjectPublishTrashedAssetTarget({

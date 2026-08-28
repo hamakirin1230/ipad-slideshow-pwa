@@ -5,6 +5,10 @@ import type {
 import type { ProjectPublishWorkflowResult } from "./project-publish-workflow";
 import type { SafeSlideDiagnostic } from "../drive-preflight-diagnostics";
 import { sanitizeUserFacingDiagnostic } from "../user-facing-diagnostics";
+import {
+  PUBLICATION_WRITE_LOCKED_CODE,
+  PUBLICATION_WRITE_LOCKED_MESSAGE,
+} from "./project-publication-write-lock";
 
 export type ProjectPublishWarning = {
   code: string;
@@ -298,10 +302,15 @@ export function mapPublishWorkflowError(
 export function getProjectPublishFailureDisplayMessage(input: {
   phase: "preflight" | "publish";
   error: {
+    code?: string;
     message?: string;
     recoverability?: SanitizedPublishError["recoverability"];
   };
 }): string {
+  if (input.error.code === PUBLICATION_WRITE_LOCKED_CODE) {
+    return PUBLICATION_WRITE_LOCKED_MESSAGE;
+  }
+
   if (input.phase === "preflight") {
     return "公開前確認を完了できませんでした。現在の状態を再確認して、もう一度お試しください。";
   }

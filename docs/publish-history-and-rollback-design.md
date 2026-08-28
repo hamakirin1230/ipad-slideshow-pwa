@@ -593,3 +593,7 @@ Goal 5は次の実装をもって完了した。
 Drive上のpublish / rollbackと、iPad側のoffline sync、staging validation、confirmed snapshot promotion、player sessionへの反映は独立した既存操作のままである。publish / rollback成功だけでconfirmed snapshotやplayer sessionは変わらない。
 
 history revisionの削除、archive、compact、retention、orphan自動cleanupは非目標のままである。confirmed snapshotへcurrent published revisionのprovenanceを追加する設計は、IndexedDB schema、offline sync、player表示へ影響するため、将来の新しいGoalとして扱う。
+
+## Current publication write locking
+
+publication write（publish / rollback の Drive write）は Web Locks API で same-origin multi-tab 排他する。lock は project 単位。競合時は fail-fast で、Drive preflight / revision creation / manifest publication write へ進まず、自動 retry しない。Web Locks 非対応時は既存 same-tab in-flight guard のみ。sensitive ID（projectId / Drive ID / revision ID / operation ID など）は lock name / UI / log へ出さない。

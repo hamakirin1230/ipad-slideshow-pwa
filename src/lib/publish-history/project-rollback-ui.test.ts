@@ -32,6 +32,20 @@ describe("rollback UI sanitizers", () => {
     },
   );
 
+  it("shows a sanitized multi-tab lock message without internals", () => {
+    const message = getProjectRollbackFailureDisplayMessage({
+      code: "publicationWriteLocked",
+      message: "RAW_ERROR_SECRET_SENTINEL lock:ispwa.pubwrite.v1.deadbeef",
+      recoverability: "retryable",
+    });
+
+    expect(message).toBe(
+      "別のタブで公開操作を実行中です。完了後にもう一度操作してください。",
+    );
+    expect(message).not.toContain("RAW_ERROR_SECRET_SENTINEL");
+    expect(message).not.toContain("ispwa.pubwrite");
+  });
+
   it("allows retry only for retryable failures", () => {
     expect(
       buildProjectRollbackCommitFailure({

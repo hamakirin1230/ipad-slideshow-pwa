@@ -1,5 +1,9 @@
 import type { ProjectRollbackExecutionReview } from "./project-rollback-execution-review";
 import type { ProjectRollbackWorkflowResult } from "./project-rollback-workflow";
+import {
+  PUBLICATION_WRITE_LOCKED_CODE,
+  PUBLICATION_WRITE_LOCKED_MESSAGE,
+} from "./project-publication-write-lock";
 
 export type ProjectRollbackConfirmations = {
   createsNewRevision: boolean;
@@ -91,9 +95,14 @@ export function buildProjectRollbackCommitFailure(input: {
 }
 
 export function getProjectRollbackFailureDisplayMessage(error: {
+  code?: string;
   message?: string;
   recoverability: "retryable" | "conflict" | "requiresInspection";
 }): string {
+  if (error.code === PUBLICATION_WRITE_LOCKED_CODE) {
+    return PUBLICATION_WRITE_LOCKED_MESSAGE;
+  }
+
   switch (error.recoverability) {
     case "retryable":
       return "ロールバック処理を完了できませんでした。同じ確認済み内容で再試行できます。";

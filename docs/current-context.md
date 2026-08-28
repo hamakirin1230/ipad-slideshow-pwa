@@ -124,7 +124,7 @@ production App Routerに存在する主要route:
 - Google Photos export is images-only。写真だけを新しいalbumへ書き出し、動画slideはskipする
 - Googleフォトへ書き出す画像captionはexport用画像へburn-inする。font sizeはimageHeight基準
 - 動画は作品とDriveと「この端末に保存」/ Playerに残る。Google Photosへはuploadしない
-- publication writeのin-flight guardは同一tab内の直列化であり、既知のmulti-tab raceは未解決
+- publication writeは同一tabのin-flight guardに加え、Web Locks APIでsame-origin multi-tab排他する。project単位。lock競合時はfail-fastで自動retryしない。Web Locks非対応時はsame-tab guardのみ。sensitive IDはlock name / UI / logへ出さない
 - temporary publication acceptance fault harnessは専用branchで実装後に完全撤去され、production sourceには存在しない
 
 ## 現在の到達点

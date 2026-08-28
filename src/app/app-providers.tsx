@@ -87,6 +87,11 @@ import {
   type PendingProjectPublishOwner,
   type PrepareProjectPublishReviewResult,
 } from "@/lib/publish-history/project-publish-ui";
+import {
+  PUBLICATION_WRITE_LOCKED_CODE,
+  PUBLICATION_WRITE_LOCKED_MESSAGE,
+  runWithProjectPublicationWriteLock,
+} from "@/lib/publish-history/project-publication-write-lock";
 import { executePreparedProjectPublish } from "@/lib/publish-history/project-publish-workflow";
 import type { ProjectPublishWritePlan } from "@/lib/publish-history/project-publish-write-plan";
 import {
@@ -6701,84 +6706,103 @@ export function AppProviders({ children }: { children: ReactNode }) {
       };
     }
 
-    const requestSequence = pending.owner.requestSequence;
-    const controller = new AbortController();
-    projectPublishAbortRef.current = controller;
-    projectPublishInFlightRef.current = true;
-    projectPublicationWriteInFlightRef.current = true;
-    setIsProjectPublishInFlight(true);
+    const locked = await runWithProjectPublicationWriteLock(
+      { projectId: input.projectId },
+      async (): Promise<CommitPreparedProjectPublishResult> => {
+        const requestSequence = pending.owner.requestSequence;
+        const controller = new AbortController();
+        projectPublishAbortRef.current = controller;
+        projectPublishInFlightRef.current = true;
+        projectPublicationWriteInFlightRef.current = true;
+        setIsProjectPublishInFlight(true);
 
-    try {
-      const workflowResult = await executePreparedProjectPublish({
-        accessToken,
-        plan: pending.plan,
-        signal: controller.signal,
-      });
-      if (
-        requestSequence !== projectPublishRequestSequenceRef.current ||
-        accessTokenRef.current !== accessToken
-      ) {
-        return {
-          ok: false,
-          error: {
-            code: "stalePublishRequest",
-            message:
-              "公開対象が変更されました。選択中プロジェクトの状態を確認してください。",
-            recoverability: "requiresInspection",
-            canRetry: false,
-          },
-        };
-      }
-
-      if (!workflowResult.ok) {
-        const error = mapPublishWorkflowError(workflowResult);
-        if (
-          shouldDiscardPendingPlan(workflowResult.recoverability) === "discard"
-        ) {
-          pendingProjectPublishRef.current = null;
-        }
-        return { ok: false, error };
-      }
-
-      pendingProjectPublishRef.current = null;
-      let refreshed = false;
-      try {
-        const detailResult = await validateDriveProjectDetails({
-          accessToken,
-          expectedWorkspaceId: workspace.workspaceId,
-          expectedProjectsRootFolderId: workspace.projectsRootFolderId,
-          project,
-          signal: controller.signal,
-        });
-        if (
-          requestSequence === projectPublishRequestSequenceRef.current &&
-          detailResult.status === "ready"
-        ) {
-          applyProjectReadyState(project, toProjectDetails(detailResult.details), {
-            preserveProjectPublish: true,
+        try {
+          const workflowResult = await executePreparedProjectPublish({
+            accessToken,
+            plan: pending.plan,
+            signal: controller.signal,
           });
-          refreshed = true;
-        }
-      } catch {
-        // The verified manifest commit remains successful if this refresh fails.
-      }
+          if (
+            requestSequence !== projectPublishRequestSequenceRef.current ||
+            accessTokenRef.current !== accessToken
+          ) {
+            return {
+              ok: false,
+              error: {
+                code: "stalePublishRequest",
+                message:
+                  "公開対象が変更されました。選択中プロジェクトの状態を確認してください。",
+                recoverability: "requiresInspection" as const,
+                canRetry: false,
+              },
+            };
+          }
 
+          if (!workflowResult.ok) {
+            const error = mapPublishWorkflowError(workflowResult);
+            if (
+              shouldDiscardPendingPlan(workflowResult.recoverability) === "discard"
+            ) {
+              pendingProjectPublishRef.current = null;
+            }
+            return { ok: false, error };
+          }
+
+          pendingProjectPublishRef.current = null;
+          let refreshed = false;
+          try {
+            const detailResult = await validateDriveProjectDetails({
+              accessToken,
+              expectedWorkspaceId: workspace.workspaceId,
+              expectedProjectsRootFolderId: workspace.projectsRootFolderId,
+              project,
+              signal: controller.signal,
+            });
+            if (
+              requestSequence === projectPublishRequestSequenceRef.current &&
+              detailResult.status === "ready"
+            ) {
+              applyProjectReadyState(project, toProjectDetails(detailResult.details), {
+                preserveProjectPublish: true,
+              });
+              refreshed = true;
+            }
+          } catch {
+            // The verified manifest commit remains successful if this refresh fails.
+          }
+
+          return {
+            ok: true,
+            result: buildSanitizedPublishSuccess({
+              workflow: workflowResult,
+              publishedAt: pending.plan.revisionFile.body.publishedAt,
+              refreshed,
+            }),
+          };
+        } finally {
+          if (requestSequence === projectPublishRequestSequenceRef.current) {
+            projectPublishAbortRef.current = null;
+            projectPublishInFlightRef.current = false;
+            projectPublicationWriteInFlightRef.current = false;
+            setIsProjectPublishInFlight(false);
+          }
+        }
+      },
+    );
+
+    if (!locked.acquired) {
       return {
-        ok: true,
-        result: buildSanitizedPublishSuccess({
-          workflow: workflowResult,
-          publishedAt: pending.plan.revisionFile.body.publishedAt,
-          refreshed,
-        }),
+        ok: false,
+        error: {
+          code: PUBLICATION_WRITE_LOCKED_CODE,
+          message: PUBLICATION_WRITE_LOCKED_MESSAGE,
+          recoverability: "retryable",
+          canRetry: false,
+        },
       };
-    } finally {
-      if (requestSequence === projectPublishRequestSequenceRef.current) {
-        projectPublishAbortRef.current = null;
-        projectPublishInFlightRef.current = false;
-        projectPublicationWriteInFlightRef.current = false;
-        setIsProjectPublishInFlight(false);
-      }
     }
+
+    return locked.value;
   }
 
   function cancelPreparedProjectPublish() {
@@ -7286,78 +7310,97 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
     }
 
-    const requestSequence = pending.owner.requestSequence;
-    const controller = new AbortController();
-    projectRollbackAbortRef.current = controller;
-    projectRollbackInFlightRef.current = true;
-    projectPublicationWriteInFlightRef.current = true;
-    setIsProjectRollbackInFlight(true);
-    try {
-      const workflow = await executePreparedProjectRollback({
-        accessToken,
-        projectsRootFolderId: workspace.projectsRootFolderId,
-        project,
-        plan: pending.plan,
-        signal: controller.signal,
-      });
-      if (
-        requestSequence !== projectRollbackRequestSequenceRef.current ||
-        accessTokenRef.current !== accessToken
-      ) {
-        return buildProjectRollbackCommitFailure({
-          code: "staleRollbackRequest",
-          message:
-            "ロールバックの反映状態を安全に確定できません。履歴と現在状態を確認してください。",
-          recoverability: "requiresInspection",
-        });
-      }
-      if (!workflow.ok) {
-        if (workflow.recoverability !== "retryable") {
-          pendingProjectRollbackRef.current = null;
-        }
-        return buildProjectRollbackCommitFailure(workflow);
-      }
+    const locked = await runWithProjectPublicationWriteLock(
+      { projectId: input.projectId },
+      async (): Promise<CommitPreparedProjectRollbackResult> => {
+        const requestSequence = pending.owner.requestSequence;
+        const controller = new AbortController();
+        projectRollbackAbortRef.current = controller;
+        projectRollbackInFlightRef.current = true;
+        projectPublicationWriteInFlightRef.current = true;
+        setIsProjectRollbackInFlight(true);
+        try {
+          const workflow = await executePreparedProjectRollback({
+            accessToken,
+            projectsRootFolderId: workspace.projectsRootFolderId,
+            project,
+            plan: pending.plan,
+            signal: controller.signal,
+          });
+          if (
+            requestSequence !== projectRollbackRequestSequenceRef.current ||
+            accessTokenRef.current !== accessToken
+          ) {
+            return buildProjectRollbackCommitFailure({
+              code: "staleRollbackRequest",
+              message:
+                "ロールバックの反映状態を安全に確定できません。履歴と現在状態を確認してください。",
+              recoverability: "requiresInspection",
+            });
+          }
+          if (!workflow.ok) {
+            if (workflow.recoverability !== "retryable") {
+              pendingProjectRollbackRef.current = null;
+            }
+            return buildProjectRollbackCommitFailure(workflow);
+          }
 
-      pendingProjectRollbackRef.current = null;
-      projectRollbackPreviewGuardRef.current = null;
-      let refreshed = false;
-      try {
-        const refreshedProject = pending.plan.indexMirror.nextProject;
-        const detailResult = await validateDriveProjectDetails({
-          accessToken,
-          expectedWorkspaceId: workspace.workspaceId,
-          expectedProjectsRootFolderId: workspace.projectsRootFolderId,
-          project: refreshedProject,
-          signal: controller.signal,
-        });
-        if (
-          requestSequence === projectRollbackRequestSequenceRef.current &&
-          detailResult.status === "ready"
-        ) {
-          applyProjectReadyState(
-            refreshedProject,
-            toProjectDetails(detailResult.details),
-            {
-              preserveProjectRollback: true,
-            },
-          );
-          refreshed = true;
+          pendingProjectRollbackRef.current = null;
+          projectRollbackPreviewGuardRef.current = null;
+          let refreshed = false;
+          try {
+            const refreshedProject = pending.plan.indexMirror.nextProject;
+            const detailResult = await validateDriveProjectDetails({
+              accessToken,
+              expectedWorkspaceId: workspace.workspaceId,
+              expectedProjectsRootFolderId: workspace.projectsRootFolderId,
+              project: refreshedProject,
+              signal: controller.signal,
+            });
+            if (
+              requestSequence === projectRollbackRequestSequenceRef.current &&
+              detailResult.status === "ready"
+            ) {
+              applyProjectReadyState(
+                refreshedProject,
+                toProjectDetails(detailResult.details),
+                {
+                  preserveProjectRollback: true,
+                },
+              );
+              refreshed = true;
+            }
+          } catch {
+            // Verified rollback remains successful when the UI refresh fails.
+          }
+          return {
+            ok: true,
+            result: buildSanitizedRollbackSuccess({ workflow, refreshed }),
+          };
+        } finally {
+          if (requestSequence === projectRollbackRequestSequenceRef.current) {
+            projectRollbackAbortRef.current = null;
+            projectRollbackInFlightRef.current = false;
+            projectPublicationWriteInFlightRef.current = false;
+            setIsProjectRollbackInFlight(false);
+          }
         }
-      } catch {
-        // Verified rollback remains successful when the UI refresh fails.
-      }
+      },
+    );
+
+    if (!locked.acquired) {
       return {
-        ok: true,
-        result: buildSanitizedRollbackSuccess({ workflow, refreshed }),
+        ok: false,
+        error: {
+          code: PUBLICATION_WRITE_LOCKED_CODE,
+          message: PUBLICATION_WRITE_LOCKED_MESSAGE,
+          recoverability: "retryable",
+          canRetry: false,
+        },
       };
-    } finally {
-      if (requestSequence === projectRollbackRequestSequenceRef.current) {
-        projectRollbackAbortRef.current = null;
-        projectRollbackInFlightRef.current = false;
-        projectPublicationWriteInFlightRef.current = false;
-        setIsProjectRollbackInFlight(false);
-      }
     }
+
+    return locked.value;
   }
 
   function cancelPreparedProjectRollback() {
