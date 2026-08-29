@@ -15,7 +15,7 @@ import {
   SelectedProjectDeleteCard,
   SelectedProjectSlideTransitionForm,
 } from "./project-status-panel";
-import { PROJECT_SLIDE_TRANSITION_HELPER_COPY } from "@/lib/project-slide-transition";
+import { PROJECT_SLIDE_TRANSITION_HELPER_COPY, PROJECT_SLIDE_TRANSITION_STRENGTH_HELPER_COPY } from "@/lib/project-slide-transition";
 
 const source = readFileSync(
   new URL("./project-status-panel.tsx", import.meta.url),
@@ -435,9 +435,12 @@ describe("selected project slide transition form", () => {
     expect(html).toContain("強め");
     expect(html).toContain("切り替え効果");
     expect(html).toContain("エフェクトの強さ");
+    expect(html).toContain("grid-cols-2");
+    expect(html).not.toContain("sm:grid-cols");
     expect(html).toContain('value="standard"');
     expect(html).toContain("selected");
     expect(html).toContain(PROJECT_SLIDE_TRANSITION_HELPER_COPY);
+    expect(html).not.toContain(PROJECT_SLIDE_TRANSITION_STRENGTH_HELPER_COPY);
     expect(html).toContain("min-h-11");
     expect(html).toContain("focus-visible:ring-2");
     expect(html).toContain("スライド切り替えを保存");
@@ -536,6 +539,8 @@ describe("selected project slide transition form", () => {
     expect(formSource).not.toContain("commitPreparedProjectPublish");
     expect(formSource).toContain("onSubmit={handleSubmit}");
     expect(formSource).toContain('type="submit"');
+    expect(formSource).toContain("grid grid-cols-2");
+    expect(formSource).not.toContain("PROJECT_SLIDE_TRANSITION_STRENGTH_HELPER_COPY");
     expect(formSource).toContain("updateSelectedProjectTransitionSettings({");
     expect(formSource).toContain("transitionStrength: usesStrength ? strength");
   });
