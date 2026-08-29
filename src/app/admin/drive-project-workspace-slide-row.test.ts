@@ -92,7 +92,7 @@ describe("compact slide editing rows", () => {
     expect(imageEditorSource).toContain("isBlocked ||");
   });
 
-  it("compacts mobile reorder controls while keeping desktop labels", () => {
+  it("keeps the existing reorder controls available on the desktop path", () => {
     const reorder = functionBody("SlideReorderControls");
     const duplicate = functionBody("SlideSingleActions");
 
@@ -103,7 +103,7 @@ describe("compact slide editing rows", () => {
     expect(reorder).toContain('<span className="hidden sm:inline"> 下へ</span>');
     expect(reorder).toContain("flex flex-wrap items-center gap-2");
     expect(reorder).not.toContain("flex-col");
-    expect(source).toContain("flex flex-wrap items-start gap-2 xl:contents");
+    expect(source).toContain('<div className="hidden xl:contents">');
     expect(duplicate).toContain("void onDuplicate(slideId)");
     expect(duplicate).toContain("min-h-11 min-w-11 px-2.5");
     expect(duplicate).not.toContain("w-full");
