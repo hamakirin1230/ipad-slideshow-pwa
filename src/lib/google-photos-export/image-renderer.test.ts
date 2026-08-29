@@ -7,6 +7,7 @@ import {
   isGooglePhotosRenderedImageWithinUploadLimit,
   planGooglePhotosImageRender,
   planGooglePhotosImageEditRender,
+  renderGooglePhotosExportImage,
   resetGooglePhotosWebpEncodeSupportCache,
   resolveGooglePhotosExportOutputMime,
   resolveGooglePhotosRenderedImageMime,
@@ -45,16 +46,112 @@ describe("google photos image render policy", () => {
       "utf8",
     );
     const canvasSize = source.indexOf("canvas.width = imageEditPlan.outputWidth");
-    const transform = source.indexOf("applyCanvasImageEditTransform", canvasSize);
+    const save = source.indexOf("context.save()", canvasSize);
+    const transform = source.indexOf("applyCanvasImageEditTransform", save);
     const drawImage = source.indexOf(
       "context.drawImage(decoded.source, 0, 0)",
       transform,
     );
-    const caption = source.indexOf("const layout = measureCaptionLayout", drawImage);
+    const restore = source.indexOf("context.restore()", drawImage);
+    const caption = source.indexOf("const layout = measureCaptionLayout", restore);
     expect(canvasSize).toBeGreaterThan(-1);
-    expect(transform).toBeGreaterThan(canvasSize);
+    expect(save).toBeGreaterThan(canvasSize);
+    expect(transform).toBeGreaterThan(save);
     expect(drawImage).toBeGreaterThan(transform);
-    expect(caption).toBeGreaterThan(drawImage);
+    expect(restore).toBeGreaterThan(drawImage);
+    expect(caption).toBeGreaterThan(restore);
+  });
+
+  it("restores the final canvas coordinate system before drawing the caption", async () => {
+    const events: Array<{ name: string; transformed: boolean }> = [];
+    const transformStack: boolean[] = [];
+    let transformed = false;
+    const context = {
+      fillStyle: "",
+      font: "",
+      textAlign: "start",
+      textBaseline: "alphabetic",
+      save() {
+        events.push({ name: "save", transformed });
+        transformStack.push(transformed);
+      },
+      restore() {
+        transformed = transformStack.pop() ?? false;
+        events.push({ name: "restore", transformed });
+      },
+      translate() {
+        transformed = true;
+        events.push({ name: "translate", transformed });
+      },
+      rotate() {
+        transformed = true;
+        events.push({ name: "rotate", transformed });
+      },
+      drawImage() {
+        events.push({ name: "drawImage", transformed });
+      },
+      measureText(text: string) {
+        events.push({ name: "measureText", transformed });
+        return { width: text.length * 10 };
+      },
+      fillRect() {
+        events.push({ name: "fillRect", transformed });
+      },
+      fillText() {
+        events.push({ name: "fillText", transformed });
+      },
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => context),
+      toBlob(callback: (blob: Blob | null) => void, type?: string) {
+        callback(new Blob([new Uint8Array([1])], { type }));
+      },
+    };
+    const close = vi.fn();
+
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({
+      width: 1200,
+      height: 800,
+      close,
+    })));
+    vi.stubGlobal("document", {
+      createElement(tag: string) {
+        expect(tag).toBe("canvas");
+        return canvas;
+      },
+    });
+
+    await expect(
+      renderGooglePhotosExportImage({
+        source: new Blob([new Uint8Array([1])], { type: "image/png" }),
+        sourceMimeType: "image/png",
+        caption: "朝の風景",
+        imageEdit: {
+          rotation: 90,
+          crop: { x: 0.25, y: 0.1, width: 0.5, height: 0.75 },
+        },
+        fileName: "photo.png",
+        slideIndex: 0,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({ mimeType: "image/png" });
+
+    const eventNames = events.map((event) => event.name);
+    expect(eventNames.indexOf("save")).toBeLessThan(eventNames.indexOf("drawImage"));
+    expect(eventNames.indexOf("drawImage")).toBeLessThan(eventNames.indexOf("restore"));
+    expect(eventNames.indexOf("restore")).toBeLessThan(eventNames.indexOf("measureText"));
+    expect(eventNames.indexOf("measureText")).toBeLessThan(eventNames.indexOf("fillRect"));
+    expect(events.find((event) => event.name === "drawImage")?.transformed).toBe(true);
+    expect(
+      events
+        .filter((event) =>
+          ["restore", "measureText", "fillRect", "fillText"].includes(event.name),
+        )
+        .every((event) => event.transformed === false),
+    ).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("keeps JPEG sources as rendered JPEG", () => {

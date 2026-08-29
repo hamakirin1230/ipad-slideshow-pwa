@@ -173,8 +173,13 @@ export async function renderGooglePhotosExportImage(
   }
 
   try {
-    applyCanvasImageEditTransform(context, imageEditPlan);
-    context.drawImage(decoded.source, 0, 0);
+    context.save();
+    try {
+      applyCanvasImageEditTransform(context, imageEditPlan);
+      context.drawImage(decoded.source, 0, 0);
+    } finally {
+      context.restore();
+    }
     const layout = measureCaptionLayout({
       text: input.caption,
       imageWidth: canvas.width,
