@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type ComponentPropsWithoutRef,
+  type CSSProperties,
   type MutableRefObject,
   type PointerEvent,
   type ReactNode,
@@ -434,6 +435,7 @@ function PlayerPageContent() {
       : null;
   const slideCount = readySnapshot?.slides.length ?? 0;
   const playbackSlideTransition = readySnapshot?.transition;
+  const playbackSlideTransitionStrength = readySnapshot?.transitionStrength;
   const isProductionMode = presentationMode === "production";
   const isInteractionLocked = interactionLock === "locked";
   const canUseVisibleControls = !isProductionMode && !isInteractionLocked;
@@ -1076,6 +1078,7 @@ function PlayerPageContent() {
 
       const transitionPlan = getPlayerSlideTransitionPlan({
         transition: playbackSlideTransition,
+        transitionStrength: playbackSlideTransitionStrength,
         involvesVideo: displayedSlideVideoRef.current !== null,
         hasCurrentImage: Boolean(currentDisplayed),
         direction: slideTransitionDirection,
@@ -1154,6 +1157,7 @@ function PlayerPageContent() {
     currentSlideImageSlideId,
     currentSlideMediaKind,
     playbackSlideTransition,
+    playbackSlideTransitionStrength,
     slideTransitionDirection,
   ]);
 
@@ -1720,6 +1724,7 @@ function PlayerPageContent() {
   const noSlides = readySnapshot !== null && slideCount === 0;
   const imageTransitionPlan = getPlayerSlideTransitionPlan({
     transition: playbackSlideTransition,
+    transitionStrength: playbackSlideTransitionStrength,
     involvesVideo: currentSlideMediaKind === "video",
     hasCurrentImage:
       previousSlideImage !== null ||
@@ -1728,6 +1733,7 @@ function PlayerPageContent() {
   });
   const videoTransitionPlan = getPlayerSlideTransitionPlan({
     transition: playbackSlideTransition,
+    transitionStrength: playbackSlideTransitionStrength,
     involvesVideo: true,
     hasCurrentImage: false,
     direction: "none",
@@ -1907,6 +1913,7 @@ function PlayerPageContent() {
               style={{
                 userSelect: "none",
                 WebkitUserSelect: "none",
+                ...imageTransitionPlan.outgoingStyle,
               }}
             />
           ) : null}
@@ -1924,6 +1931,7 @@ function PlayerPageContent() {
               style={{
                 userSelect: "none",
                 WebkitUserSelect: "none",
+                ...(isSlideTransitioning ? imageTransitionPlan.incomingStyle : {}),
               }}
             />
           ) : null}
@@ -1935,6 +1943,7 @@ function PlayerPageContent() {
               key={`${displayedSlideVideo.slideId}:${displayedSlideVideo.assetId}`}
               video={displayedSlideVideo}
               incomingClassName={videoTransitionPlan.incomingClassName}
+              incomingStyle={videoTransitionPlan.incomingStyle}
               onEnded={handleVideoPlaybackEnded}
               onPlaybackFailure={handleVideoPlaybackFailure}
               onPlaybackMessage={handleVideoPlaybackMessage}
@@ -2593,6 +2602,7 @@ function ProjectSelectionCard({
 function PlayerVideoSlide({
   video,
   incomingClassName = "",
+  incomingStyle,
   onEnded,
   onPlaybackFailure,
   onPlaybackMessage,
@@ -2609,6 +2619,7 @@ function PlayerVideoSlide({
 }: {
   video: PlayerSlideVideo;
   incomingClassName?: string;
+  incomingStyle?: CSSProperties;
   onEnded: (slideKey: string, sourceUrl: string) => void;
   onPlaybackFailure: (slideKey: string, sourceUrl: string) => void;
   onPlaybackMessage: (
@@ -3236,6 +3247,7 @@ function PlayerVideoSlide({
           reportPlaybackFailure();
         }}
         className={`absolute inset-0 h-full w-full object-contain ${incomingClassName}`}
+        style={incomingStyle}
       />
 
       <PlayerControlGroup

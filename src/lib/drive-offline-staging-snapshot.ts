@@ -68,6 +68,7 @@ type DriveOfflineProjectManifest = {
   createdAt: string;
   updatedAt: string;
   transition?: ProjectManifest["transition"];
+  transitionStrength?: ProjectManifest["transitionStrength"];
   publication?: ProjectManifest["publication"];
 };
 
@@ -1045,6 +1046,9 @@ function parseDriveOfflineProjectManifest(input: {
     ...(formalManifest.ok && formalManifest.value.transition !== undefined
       ? { transition: formalManifest.value.transition }
       : {}),
+    ...(formalManifest.ok && formalManifest.value.transitionStrength !== undefined
+      ? { transitionStrength: formalManifest.value.transitionStrength }
+      : {}),
     ...(formalManifest.ok && formalManifest.value.publication
       ? { publication: formalManifest.value.publication }
       : {}),
@@ -1313,6 +1317,9 @@ function buildOfflineProject(input: {
     syncedAt: input.syncedAt,
     ...(input.manifest.transition !== undefined
       ? { transition: input.manifest.transition }
+      : {}),
+    ...(input.manifest.transitionStrength !== undefined
+      ? { transitionStrength: input.manifest.transitionStrength }
       : {}),
     publicationProvenance: input.publicationProvenance,
   };

@@ -411,14 +411,14 @@ function renderDeleteCard(
 }
 
 describe("selected project slide transition form", () => {
-  it("shows five choices and treats 標準 as undefined", () => {
+  it("shows nine effect choices, three strengths, and treats 標準 as undefined", () => {
     const html = renderToStaticMarkup(
       <SelectedProjectSlideTransitionForm
         projectTransition={undefined}
         hasProject={true}
         canUpdateSelectedProjectTransition={true}
         isDriveOperationInFlight={false}
-        updateSelectedProjectTransition={vi.fn()}
+        updateSelectedProjectTransitionSettings={vi.fn()}
       />,
     );
 
@@ -426,7 +426,15 @@ describe("selected project slide transition form", () => {
     expect(html).toContain("なし");
     expect(html).toContain("フェード");
     expect(html).toContain("スライド左");
+    expect(html).toContain("スライド右");
+    expect(html).toContain("スライド上");
+    expect(html).toContain("ワイプ");
     expect(html).toContain("ズーム");
+    expect(html).toContain("ぼかし");
+    expect(html).toContain("控えめ");
+    expect(html).toContain("強め");
+    expect(html).toContain("切り替え効果");
+    expect(html).toContain("エフェクトの強さ");
     expect(html).toContain('value="standard"');
     expect(html).toContain("selected");
     expect(html).toContain(PROJECT_SLIDE_TRANSITION_HELPER_COPY);
@@ -439,15 +447,70 @@ describe("selected project slide transition form", () => {
     const html = renderToStaticMarkup(
       <SelectedProjectSlideTransitionForm
         projectTransition="fade"
+        projectTransitionStrength="strong"
         hasProject={true}
         canUpdateSelectedProjectTransition={true}
         isDriveOperationInFlight={false}
-        updateSelectedProjectTransition={vi.fn()}
+        updateSelectedProjectTransitionSettings={vi.fn()}
       />,
     );
 
     expect(html).toContain('value="fade"');
     expect(html).toContain("フェード");
+    expect(html).toContain('value="strong"');
+  });
+
+  it("displays standard strength for first-phase data and cannot submit unchanged", () => {
+    const html = renderToStaticMarkup(
+      <SelectedProjectSlideTransitionForm
+        projectTransition="fade"
+        hasProject={true}
+        canUpdateSelectedProjectTransition={true}
+        isDriveOperationInFlight={false}
+        updateSelectedProjectTransitionSettings={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('value="fade"');
+    expect(html).toContain('value="standard"');
+    expect(html).toContain("disabled");
+  });
+
+  it("disables strength for 標準 and なし, and enables it for explicit effects", () => {
+    const standardHtml = renderToStaticMarkup(
+      <SelectedProjectSlideTransitionForm
+        projectTransition={undefined}
+        hasProject={true}
+        canUpdateSelectedProjectTransition={true}
+        isDriveOperationInFlight={false}
+        updateSelectedProjectTransitionSettings={vi.fn()}
+      />,
+    );
+    const noneHtml = renderToStaticMarkup(
+      <SelectedProjectSlideTransitionForm
+        projectTransition="none"
+        hasProject={true}
+        canUpdateSelectedProjectTransition={true}
+        isDriveOperationInFlight={false}
+        updateSelectedProjectTransitionSettings={vi.fn()}
+      />,
+    );
+    const explicitHtml = renderToStaticMarkup(
+      <SelectedProjectSlideTransitionForm
+        projectTransition="wipe"
+        hasProject={true}
+        canUpdateSelectedProjectTransition={true}
+        isDriveOperationInFlight={false}
+        updateSelectedProjectTransitionSettings={vi.fn()}
+      />,
+    );
+
+    const strengthSelect = (html: string) =>
+      html.match(/<select id="album-slide-transition-strength"[^>]*>/)?.[0] ?? "";
+
+    expect(strengthSelect(standardHtml)).toContain("disabled=");
+    expect(strengthSelect(noneHtml)).toContain("disabled=");
+    expect(strengthSelect(explicitHtml)).not.toContain("disabled=");
   });
 
   it("disables the control when no album is selected", () => {
@@ -457,7 +520,7 @@ describe("selected project slide transition form", () => {
         hasProject={false}
         canUpdateSelectedProjectTransition={false}
         isDriveOperationInFlight={false}
-        updateSelectedProjectTransition={vi.fn()}
+        updateSelectedProjectTransitionSettings={vi.fn()}
       />,
     );
 
@@ -470,8 +533,10 @@ describe("selected project slide transition form", () => {
       source.indexOf("export function SelectedProjectSlideTransitionForm("),
     );
     expect(formSource).not.toContain("startOfflineSync");
+    expect(formSource).not.toContain("commitPreparedProjectPublish");
     expect(formSource).toContain("onSubmit={handleSubmit}");
     expect(formSource).toContain('type="submit"');
-    expect(formSource).toContain("updateSelectedProjectTransition(");
+    expect(formSource).toContain("updateSelectedProjectTransitionSettings({");
+    expect(formSource).toContain("transitionStrength: usesStrength ? strength");
   });
 });

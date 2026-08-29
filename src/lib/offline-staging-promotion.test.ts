@@ -170,5 +170,84 @@ describe("offline staging promotion provenance", () => {
     expect(projectStore.put).toHaveBeenCalledWith(
       expect.objectContaining({ transition: "fade" }),
     );
+    expect(projectStore.put).toHaveBeenCalledWith(
+      expect.not.objectContaining({ transitionStrength: expect.anything() }),
+    );
+  });
+
+  it("keeps album transitionStrength when promoting staging to confirmed", async () => {
+    const projectStore = store();
+    const assetStore = store();
+    const blobStore = store();
+    const blob = new Blob(["x"], { type: "image/jpeg" });
+    const project = {
+      schemaVersion: 1,
+      projectId: "dummy-project",
+      slides: [
+        {
+          slideId: "dummy-slide",
+          assetId: "dummy-asset",
+          caption: "",
+          durationSeconds: 10,
+          order: 0,
+        },
+      ],
+      sourceManifestFileId: "dummy-manifest",
+      syncedAt: "2026-07-31T01:00:00.000Z",
+      transition: "wipe" as const,
+      transitionStrength: "strong" as const,
+      stagingId: "dummy-project-staging",
+      syncRunId: "dummy-run",
+    };
+    const asset = {
+      schemaVersion: 1,
+      assetId: "dummy-asset",
+      projectId: "dummy-project",
+      sourceDriveFileId: "dummy-asset-file",
+      blobMimeType: "image/jpeg",
+      blobSizeBytes: blob.size,
+      blobVariant: "original" as const,
+      blobStatus: "ready" as const,
+      syncedAt: "2026-07-31T01:00:00.000Z",
+      stagingId: "dummy-asset-staging",
+      syncRunId: "dummy-run",
+    };
+    const assetBlobRecord = {
+      schemaVersion: 1,
+      assetId: "dummy-asset",
+      projectId: "dummy-project",
+      blob,
+      blobMimeType: "image/jpeg",
+      blobSizeBytes: blob.size,
+      blobVariant: "original" as const,
+      syncedAt: "2026-07-31T01:00:00.000Z",
+      stagingId: "dummy-blob-staging",
+      syncRunId: "dummy-run",
+    };
+
+    await promoteValidatedOfflineStagingToConfirmedStoresInTransaction(
+      {
+        [OFFLINE_PROJECTS_STORE]: projectStore,
+        [OFFLINE_ASSETS_STORE]: assetStore,
+        [OFFLINE_ASSET_BLOBS_STORE]: blobStore,
+      },
+      {
+        ok: true,
+        project,
+        records: {
+          projects: [project],
+          assets: [asset],
+          assetBlobRecords: [assetBlobRecord],
+        },
+        validation: { ok: true },
+      },
+    );
+
+    expect(projectStore.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transition: "wipe",
+        transitionStrength: "strong",
+      }),
+    );
   });
 });

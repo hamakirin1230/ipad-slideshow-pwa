@@ -263,6 +263,27 @@ describe("Drive offline staging manifest guard", () => {
     expect(snapshot.project.transition).toBe("zoom");
   });
 
+  it("copies manifest transitionStrength onto the offline project", async () => {
+    installManifestPhases({
+      initial: {
+        ...manifest(),
+        transition: "blur",
+        transitionStrength: "strong",
+      },
+    });
+    const snapshot = await fetchSnapshot();
+    expect(snapshot.project.transition).toBe("blur");
+    expect(snapshot.project.transitionStrength).toBe("strong");
+  });
+
+  it("keeps a first-phase manifest without strength valid", async () => {
+    installManifestPhases({ initial: { ...manifest(), transition: "fade" } });
+    const snapshot = await fetchSnapshot();
+    expect(snapshot.project.transition).toBe("fade");
+    expect(snapshot.project.transitionStrength).toBeUndefined();
+    expect(snapshot.project).not.toHaveProperty("transitionStrength");
+  });
+
   it("keeps a legacy manifest without transition valid", async () => {
     installManifestPhases({ initial: manifest() });
     const snapshot = await fetchSnapshot();

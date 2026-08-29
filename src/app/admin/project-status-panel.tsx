@@ -19,11 +19,17 @@ import { DUPLICATE_PROJECT_TITLE_MESSAGE } from "@/lib/project-title-uniqueness"
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 import {
   PROJECT_SLIDE_TRANSITION_HELPER_COPY,
+  PROJECT_SLIDE_TRANSITION_STRENGTH_HELPER_COPY,
+  PROJECT_SLIDE_TRANSITION_STRENGTH_UI_OPTIONS,
   PROJECT_SLIDE_TRANSITION_UI_OPTIONS,
+  areProjectSlideTransitionSettingsEqual,
+  getEffectiveProjectSlideTransitionStrength,
   projectSlideTransitionFromSelection,
   projectSlideTransitionToSelection,
+  projectSlideTransitionUsesStrength,
   type ProjectSlideTransition,
   type ProjectSlideTransitionSelection,
+  type ProjectSlideTransitionStrength,
 } from "@/lib/project-slide-transition";
 import {
   buildProjectDeleteConfirmationDescription,
@@ -52,7 +58,8 @@ export function ProjectStatusPanel() {
     createProject,
     updateSelectedProjectTitle,
     projectTransition,
-    updateSelectedProjectTransition,
+    projectTransitionStrength,
+    updateSelectedProjectTransitionSettings,
     projectDeleteStatus,
     projectDeleteMessage,
     projectDeleteDiagnostics,
@@ -221,12 +228,15 @@ export function ProjectStatusPanel() {
         </div>
 
         <SelectedProjectSlideTransitionForm
-          key={`${projectSummary?.projectId ?? "none"}:${projectTransition ?? "standard"}`}
+          key={`${projectSummary?.projectId ?? "none"}:${projectTransition ?? "standard"}:${projectTransitionStrength ?? "absent"}`}
           projectTransition={projectTransition}
+          projectTransitionStrength={projectTransitionStrength}
           hasProject={projectSummary !== null}
           canUpdateSelectedProjectTransition={canUpdateSelectedProjectTransition}
           isDriveOperationInFlight={isDriveOperationInFlight}
-          updateSelectedProjectTransition={updateSelectedProjectTransition}
+          updateSelectedProjectTransitionSettings={
+            updateSelectedProjectTransitionSettings
+          }
         />
 
         <SelectedProjectDeleteCard
@@ -464,18 +474,52 @@ function SelectedProjectTitleForm(input: {
 
 export function SelectedProjectSlideTransitionForm(input: {
   projectTransition: ProjectSlideTransition | undefined;
+  projectTransitionStrength?: ProjectSlideTransitionStrength;
   hasProject: boolean;
   canUpdateSelectedProjectTransition: boolean;
   isDriveOperationInFlight: boolean;
-  updateSelectedProjectTransition: (
-    transition: ProjectSlideTransition | undefined,
-  ) => void;
+  updateSelectedProjectTransitionSettings: (input: {
+    transition: ProjectSlideTransition | undefined;
+    transitionStrength?: ProjectSlideTransitionStrength;
+  }) => void;
 }) {
   const savedSelection = projectSlideTransitionToSelection(input.projectTransition);
+  const savedStrength =
+    getEffectiveProjectSlideTransitionStrength({
+      transition: input.projectTransition,
+      transitionStrength: input.projectTransitionStrength,
+    }) ?? "standard";
   const [selection, setSelection] =
     useState<ProjectSlideTransitionSelection>(savedSelection);
+  const [strength, setStrength] =
+    useState<ProjectSlideTransitionStrength>(savedStrength);
+  const draftTransition = projectSlideTransitionFromSelection(selection);
+  const usesStrength = projectSlideTransitionUsesStrength(draftTransition);
   const canSubmit =
-    input.canUpdateSelectedProjectTransition && selection !== savedSelection;
+    input.canUpdateSelectedProjectTransition &&
+    !areProjectSlideTransitionSettingsEqual(
+      {
+        transition: input.projectTransition,
+        transitionStrength: input.projectTransitionStrength,
+      },
+      {
+        transition: draftTransition,
+        transitionStrength: usesStrength ? strength : undefined,
+      },
+    );
+
+  function handleEffectChange(nextSelection: ProjectSlideTransitionSelection) {
+    const previousUsesStrength = projectSlideTransitionUsesStrength(
+      projectSlideTransitionFromSelection(selection),
+    );
+    const nextUsesStrength = projectSlideTransitionUsesStrength(
+      projectSlideTransitionFromSelection(nextSelection),
+    );
+    setSelection(nextSelection);
+    if (!nextUsesStrength || !previousUsesStrength) {
+      setStrength("standard");
+    }
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -484,9 +528,10 @@ export function SelectedProjectSlideTransitionForm(input: {
       return;
     }
 
-    input.updateSelectedProjectTransition(
-      projectSlideTransitionFromSelection(selection),
-    );
+    input.updateSelectedProjectTransitionSettings({
+      transition: draftTransition,
+      transitionStrength: usesStrength ? strength : undefined,
+    });
   }
 
   return (
@@ -498,17 +543,51 @@ export function SelectedProjectSlideTransitionForm(input: {
       <p className="mt-2 text-sm leading-6 text-slate-400">
         {PROJECT_SLIDE_TRANSITION_HELPER_COPY}
       </p>
-      <label className="mt-3 block text-xs font-medium text-slate-400">
-        再生時の切り替え
+      <p className="mt-2 text-sm leading-6 text-slate-400">
+        {PROJECT_SLIDE_TRANSITION_STRENGTH_HELPER_COPY}
+      </p>
+      <label
+        className="mt-3 block text-xs font-medium text-slate-400"
+        htmlFor="album-slide-transition"
+      >
+        切り替え効果
         <select
+          id="album-slide-transition"
           value={selection}
           onChange={(event) =>
-            setSelection(event.target.value as ProjectSlideTransitionSelection)
+            handleEffectChange(
+              event.target.value as ProjectSlideTransitionSelection,
+            )
           }
           className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 disabled:opacity-60"
           disabled={!input.hasProject || input.isDriveOperationInFlight}
         >
           {PROJECT_SLIDE_TRANSITION_UI_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label
+        className="mt-3 block text-xs font-medium text-slate-400"
+        htmlFor="album-slide-transition-strength"
+      >
+        エフェクトの強さ
+        <select
+          id="album-slide-transition-strength"
+          value={strength}
+          onChange={(event) =>
+            setStrength(event.target.value as ProjectSlideTransitionStrength)
+          }
+          className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 disabled:opacity-60"
+          disabled={
+            !input.hasProject ||
+            input.isDriveOperationInFlight ||
+            !usesStrength
+          }
+        >
+          {PROJECT_SLIDE_TRANSITION_STRENGTH_UI_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

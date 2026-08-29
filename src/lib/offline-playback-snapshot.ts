@@ -20,7 +20,10 @@ import {
   getOfflinePublicationProvenanceView,
   type OfflinePublicationProvenanceView,
 } from "@/lib/offline-publication-provenance";
-import type { ProjectSlideTransition } from "@/lib/project-slide-transition";
+import type {
+  ProjectSlideTransition,
+  ProjectSlideTransitionStrength,
+} from "@/lib/project-slide-transition";
 import {
   getEffectiveDriveVideoUnsupportedReason,
   isSupportedDriveVideoMimeType,
@@ -113,6 +116,7 @@ export type OfflinePlaybackSnapshot =
       slides: OfflinePlaybackSlide[];
       availableProjects: OfflinePlaybackProjectOption[];
       transition?: ProjectSlideTransition;
+      transitionStrength?: ProjectSlideTransitionStrength;
       publicationProvenance: OfflinePublicationProvenanceView;
       diagnostics: string[];
     };
@@ -306,6 +310,9 @@ export function buildOfflinePlaybackSnapshot(input: {
     slides,
     availableProjects,
     ...(project.transition !== undefined ? { transition: project.transition } : {}),
+    ...(project.transitionStrength !== undefined
+      ? { transitionStrength: project.transitionStrength }
+      : {}),
     publicationProvenance: getOfflinePublicationProvenanceView(
       project.publicationProvenance,
     ),

@@ -52,6 +52,9 @@ function toOfflineProject(
     ...(stagingProject.transition !== undefined
       ? { transition: stagingProject.transition }
       : {}),
+    ...(stagingProject.transitionStrength !== undefined
+      ? { transitionStrength: stagingProject.transitionStrength }
+      : {}),
     publicationProvenance: stagingProject.publicationProvenance,
   };
 }

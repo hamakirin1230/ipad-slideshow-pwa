@@ -153,9 +153,13 @@ import {
 } from "@/lib/google-drive";
 import { DUPLICATE_PROJECT_TITLE_MESSAGE } from "@/lib/project-title-uniqueness";
 import {
-  areProjectSlideTransitionsEqual,
+  areProjectSlideTransitionSettingsEqual,
   parseProjectSlideTransition,
+  parseProjectSlideTransitionStrength,
+  pickProjectSlideTransitionSettings,
+  projectSlideTransitionUsesStrength,
   type ProjectSlideTransition,
+  type ProjectSlideTransitionStrength,
 } from "@/lib/project-slide-transition";
 import { hydrateDriveProjectCounts } from "@/lib/drive-project-summary-hydration";
 import {
@@ -442,6 +446,7 @@ export type ProjectDetails = {
   assetCount: number;
   slides: ProjectSlideSummary[];
   transition?: ProjectSlideTransition;
+  transitionStrength?: ProjectSlideTransitionStrength;
 };
 
 type AssetImportSelectionBase = {
@@ -744,9 +749,11 @@ type AppContextValue = {
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
   projectTransition: ProjectSlideTransition | undefined;
-  updateSelectedProjectTransition: (
-    transition: ProjectSlideTransition | undefined,
-  ) => void;
+  projectTransitionStrength: ProjectSlideTransitionStrength | undefined;
+  updateSelectedProjectTransitionSettings: (input: {
+    transition: ProjectSlideTransition | undefined;
+    transitionStrength?: ProjectSlideTransitionStrength;
+  }) => void;
   updateProjectSlideCaption: (slideId: string, caption: string) => void;
   updateProjectSlideDuration: (
     slideId: string,
@@ -4802,9 +4809,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
-  async function updateSelectedProjectTransition(
-    transitionInput: ProjectSlideTransition | undefined,
-  ) {
+  async function updateSelectedProjectTransitionSettings(input: {
+    transition: ProjectSlideTransition | undefined;
+    transitionStrength?: ProjectSlideTransitionStrength;
+  }) {
     if (driveOperationInFlightRef.current) {
       return;
     }
@@ -4812,9 +4820,21 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const accessToken = accessTokenRef.current;
     const readyWorkspace = workspaceReadyContext;
     const readyProject = driveProjectReadyContext;
+    const transitionInput = input.transition;
+    const strengthInput = projectSlideTransitionUsesStrength(transitionInput)
+      ? input.transitionStrength
+      : undefined;
 
     if (transitionInput !== undefined) {
       const parsed = parseProjectSlideTransition(transitionInput);
+      if (!parsed.ok) {
+        setProjectDiagnostics(parsed.errors);
+        return;
+      }
+    }
+
+    if (strengthInput !== undefined) {
+      const parsed = parseProjectSlideTransitionStrength(strengthInput);
       if (!parsed.ok) {
         setProjectDiagnostics(parsed.errors);
         return;
@@ -4844,7 +4864,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     if (
-      areProjectSlideTransitionsEqual(projectDetails?.transition, transitionInput)
+      areProjectSlideTransitionSettingsEqual(
+        {
+          transition: projectDetails?.transition,
+          transitionStrength: projectDetails?.transitionStrength,
+        },
+        {
+          transition: transitionInput,
+          transitionStrength: strengthInput,
+        },
+      )
     ) {
       setProjectDiagnostics(["スライド切り替えは変更されていません。"]);
       return;
@@ -4865,6 +4894,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         indexJsonFileId: readyWorkspace.indexJsonFileId,
         project: readyProject,
         transition: transitionInput,
+        transitionStrength: strengthInput,
         runStep: (operation) => runDriveOperationStep(requestId, operation),
       });
 
@@ -7716,7 +7746,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     createProject,
     updateSelectedProjectTitle,
     projectTransition: projectDetails?.transition,
-    updateSelectedProjectTransition,
+    projectTransitionStrength: projectDetails?.transitionStrength,
+    updateSelectedProjectTransitionSettings,
     updateProjectSlideCaption,
     updateProjectSlideDuration,
     moveProjectSlide,
@@ -8118,7 +8149,7 @@ function toProjectDetails(details: DriveProjectReadyDetails): ProjectDetails {
   return {
     slideCount: details.slideCount,
     assetCount: details.assetCount,
-    ...(details.transition !== undefined ? { transition: details.transition } : {}),
+    ...pickProjectSlideTransitionSettings(details),
     slides: details.slides.map((slide) => ({
       slideId: slide.slideId,
       slideIdPart: formatIdPart(slide.slideId),

@@ -3,8 +3,14 @@ import {
   type ProjectManifestPublication,
 } from "./publish-history/project-manifest-publication";
 import {
+  getProjectSlideTransitionSettingsCombinationErrors,
+  normalizeProjectSlideTransitionSettingsForWrite,
   parseProjectSlideTransition,
+  parseProjectSlideTransitionStrength,
+  pickProjectSlideTransitionSettings,
   type ProjectSlideTransition,
+  type ProjectSlideTransitionSettings,
+  type ProjectSlideTransitionStrength,
 } from "./project-slide-transition";
 import {
   isSupportedDriveVideoMimeType,
@@ -171,6 +177,7 @@ export type DriveProjectReadyDetails = {
   slideCount: number;
   assetCount: number;
   transition?: ProjectSlideTransition;
+  transitionStrength?: ProjectSlideTransitionStrength;
   manifestSlideCount?: number;
   imageSyncCandidateCount?: number;
   videoSyncCandidateCount?: number;
@@ -466,6 +473,7 @@ export type DriveProjectTransitionUpdateInput = {
   indexJsonFileId: string;
   project: DriveProjectSummary;
   transition: ProjectSlideTransition | undefined;
+  transitionStrength?: ProjectSlideTransitionStrength;
   runStep: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>;
 };
 
@@ -475,6 +483,7 @@ export type DriveProjectTransitionUpdateResult = {
   manifestJsonText: string;
   indexJsonText: string;
   transition: ProjectSlideTransition | undefined;
+  transitionStrength?: ProjectSlideTransitionStrength;
   diagnostics: string[];
 };
 
@@ -614,6 +623,7 @@ export type ProjectManifest = {
   createdAt: string;
   updatedAt: string;
   transition?: ProjectSlideTransition;
+  transitionStrength?: ProjectSlideTransitionStrength;
   publication?: ProjectManifestPublication;
 };
 
@@ -2578,8 +2588,12 @@ export async function updateDriveProjectTransition(
 ): Promise<DriveProjectTransitionUpdateResult> {
   const changedItems: DriveProjectChangedItem[] = [];
   const now = new Date().toISOString();
-  const transitionDiagnostics = validateDriveProjectTransitionInput(
-    input.transition,
+  const nextSettings = normalizeProjectSlideTransitionSettingsForWrite({
+    transition: input.transition,
+    transitionStrength: input.transitionStrength,
+  });
+  const transitionDiagnostics = validateDriveProjectTransitionSettingsInput(
+    nextSettings,
   );
 
   if (transitionDiagnostics.length > 0) {
@@ -2639,7 +2653,8 @@ export async function updateDriveProjectTransition(
     };
     const nextManifestJsonText = buildProjectManifestJsonWithUpdatedTransition({
       manifest: manifestResult.manifest,
-      transition: input.transition,
+      transition: nextSettings.transition,
+      transitionStrength: nextSettings.transitionStrength,
       updatedAt: now,
     });
 
@@ -2771,12 +2786,16 @@ export async function updateDriveProjectTransition(
       });
     }
 
-    if (verifiedManifestResult.manifest.transition !== input.transition) {
+    if (
+      verifiedManifestResult.manifest.transition !== nextSettings.transition ||
+      verifiedManifestResult.manifest.transitionStrength !==
+        nextSettings.transitionStrength
+    ) {
       throw new DriveProjectTransitionUpdateError({
         status: "verificationFailed",
         possibleChangedItems: changedItems,
         diagnostics: [
-          "manifest.json 更新後に transition の反映を確認できませんでした。",
+          "manifest.json 更新後にスライド切り替え設定の反映を確認できませんでした。",
           "manifest.json / index.json は更新済みの可能性があります。",
           "自動削除・自動修復は行いません。",
         ],
@@ -2800,10 +2819,11 @@ export async function updateDriveProjectTransition(
       manifestJsonText: verifiedManifestJsonText,
       indexJsonText: verifiedIndexJsonText,
       transition: verifiedManifestResult.manifest.transition,
+      transitionStrength: verifiedManifestResult.manifest.transitionStrength,
       diagnostics: [
         ...registrationResult.diagnostics,
         ...manifestResult.diagnostics,
-        "manifest.json.transition を更新しました。",
+        "manifest.json のスライド切り替え設定を更新しました。",
         ...nextIndexResult.diagnostics,
         "index.json.projects の対象project.updatedAtを更新しました。",
         ...verifiedRegistrationResult.diagnostics,
@@ -6875,6 +6895,23 @@ function parseDriveProjectManifestJson(input: {
       diagnostics.push(...transitionResult.errors);
     }
   }
+  let transitionStrength: ProjectSlideTransitionStrength | undefined;
+  if (hasOwnKey(parsed.value, "transitionStrength")) {
+    const strengthResult = parseProjectSlideTransitionStrength(
+      parsed.value.transitionStrength,
+    );
+    if (strengthResult.ok) {
+      transitionStrength = strengthResult.value;
+    } else {
+      diagnostics.push(...strengthResult.errors);
+    }
+  }
+  diagnostics.push(
+    ...getProjectSlideTransitionSettingsCombinationErrors({
+      transition,
+      hasStrength: hasOwnKey(parsed.value, "transitionStrength"),
+    }),
+  );
 
   validateProjectManifestSlidesArray(parsed.value, diagnostics);
 
@@ -6943,7 +6980,10 @@ function parseDriveProjectManifestJson(input: {
     createdAt,
     updatedAt,
     ...withProjectManifestOptionalSettings({
-      ...(transition !== undefined ? { transition } : {}),
+      ...pickProjectSlideTransitionSettings({
+        transition,
+        transitionStrength,
+      }),
       ...(publication ? { publication } : {}),
     }),
   };
@@ -6956,7 +6996,10 @@ function parseDriveProjectManifestJson(input: {
       slides,
       slideCount: slides.length,
       assetCount: slides.length,
-      ...(transition !== undefined ? { transition } : {}),
+      ...pickProjectSlideTransitionSettings({
+        transition,
+        transitionStrength,
+      }),
     },
     diagnostics: ["manifest.json のJSON本文を確認しました。"],
   };
@@ -7398,19 +7441,17 @@ function withProjectManifestPublication(manifest: Pick<ProjectManifest, "publica
     : {};
 }
 
-function withProjectManifestTransition(
-  manifest: Pick<ProjectManifest, "transition">,
+function withProjectManifestTransitionSettings(
+  manifest: Pick<ProjectManifest, "transition" | "transitionStrength">,
 ) {
-  return manifest.transition !== undefined
-    ? { transition: manifest.transition }
-    : {};
+  return pickProjectSlideTransitionSettings(manifest);
 }
 
 function withProjectManifestOptionalSettings(
-  manifest: Pick<ProjectManifest, "publication" | "transition">,
+  manifest: Pick<ProjectManifest, "publication" | "transition" | "transitionStrength">,
 ) {
   return {
-    ...withProjectManifestTransition(manifest),
+    ...withProjectManifestTransitionSettings(manifest),
     ...withProjectManifestPublication(manifest),
   };
 }
@@ -7418,6 +7459,7 @@ function withProjectManifestOptionalSettings(
 function buildProjectManifestJsonWithUpdatedTransition(input: {
   manifest: DriveProjectManifestBody;
   transition: ProjectSlideTransition | undefined;
+  transitionStrength?: ProjectSlideTransitionStrength;
   updatedAt: string;
 }) {
   const text = stringifyJsonFile({
@@ -7431,22 +7473,43 @@ function buildProjectManifestJsonWithUpdatedTransition(input: {
     createdAt: input.manifest.createdAt,
     updatedAt: input.updatedAt,
     ...withProjectManifestPublication(input.manifest),
-    ...(input.transition !== undefined ? { transition: input.transition } : {}),
+    ...withProjectManifestTransitionSettings({
+      transition: input.transition,
+      transitionStrength: input.transitionStrength,
+    }),
   });
 
   assertJsonTextSizeWithinLimit(text, "manifest.json");
   return text;
 }
 
-function validateDriveProjectTransitionInput(
-  transition: ProjectSlideTransition | undefined,
+function validateDriveProjectTransitionSettingsInput(
+  input: ProjectSlideTransitionSettings,
 ) {
-  if (transition === undefined) {
-    return [];
+  const diagnostics: string[] = [];
+
+  if (input.transition !== undefined) {
+    const parsed = parseProjectSlideTransition(input.transition);
+    if (!parsed.ok) {
+      diagnostics.push(...parsed.errors);
+    }
   }
 
-  const parsed = parseProjectSlideTransition(transition);
-  return parsed.ok ? [] : parsed.errors;
+  if (input.transitionStrength !== undefined) {
+    const parsed = parseProjectSlideTransitionStrength(input.transitionStrength);
+    if (!parsed.ok) {
+      diagnostics.push(...parsed.errors);
+    }
+  }
+
+  diagnostics.push(
+    ...getProjectSlideTransitionSettingsCombinationErrors({
+      transition: input.transition,
+      hasStrength: input.transitionStrength !== undefined,
+    }),
+  );
+
+  return diagnostics;
 }
 
 function indexJsonTextContainsTransitionField(indexJsonText: string) {
@@ -7456,7 +7519,7 @@ function indexJsonTextContainsTransitionField(indexJsonText: string) {
       return false;
     }
 
-    if (hasOwnKey(parsed, "transition")) {
+    if (hasOwnKey(parsed, "transition") || hasOwnKey(parsed, "transitionStrength")) {
       return true;
     }
 
@@ -7465,7 +7528,10 @@ function indexJsonTextContainsTransitionField(indexJsonText: string) {
     }
 
     return parsed.projects.some(
-      (project) => isRecord(project) && hasOwnKey(project, "transition"),
+      (project) =>
+        isRecord(project) &&
+        (hasOwnKey(project, "transition") ||
+          hasOwnKey(project, "transitionStrength")),
     );
   } catch {
     return false;

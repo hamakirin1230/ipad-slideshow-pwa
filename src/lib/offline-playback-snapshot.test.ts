@@ -114,6 +114,31 @@ describe("offline playback publication provenance", () => {
     expect(snapshot.transition).toBe("slideLeft");
   });
 
+  it("copies album transitionStrength onto the ready playback snapshot", () => {
+    const snapshot = build({
+      project: {
+        ...project(),
+        transition: "wipe",
+        transitionStrength: "subtle",
+      },
+    });
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status !== "ready") return;
+    expect(snapshot.transition).toBe("wipe");
+    expect(snapshot.transitionStrength).toBe("subtle");
+  });
+
+  it("keeps a first-phase OfflineProject without strength valid", () => {
+    const snapshot = build({
+      project: { ...project(), transition: "fade" },
+    });
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status !== "ready") return;
+    expect(snapshot.transition).toBe("fade");
+    expect(snapshot.transitionStrength).toBeUndefined();
+    expect(snapshot).not.toHaveProperty("transitionStrength");
+  });
+
   it("keeps a legacy OfflineProject without transition valid", () => {
     const snapshot = build({
       project: project(),

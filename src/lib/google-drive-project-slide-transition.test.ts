@@ -195,7 +195,16 @@ describe("parseProjectManifest transition", () => {
     expect(result.value.transition).toBeUndefined();
   });
 
-  it.each(["none", "fade", "slideLeft", "zoom"] as const)(
+  it.each([
+    "none",
+    "fade",
+    "slideLeft",
+    "slideRight",
+    "slideUp",
+    "wipe",
+    "zoom",
+    "blur",
+  ] as const)(
     "accepts explicit %s",
     (transition) => {
       const result = parseProjectManifest(manifest({ transition }));
@@ -205,12 +214,58 @@ describe("parseProjectManifest transition", () => {
     },
   );
 
+  it("keeps first-phase transition-only manifests valid without adding strength", () => {
+    const result = parseProjectManifest(manifest({ transition: "fade" }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.transition).toBe("fade");
+    expect(result.value.transitionStrength).toBeUndefined();
+    expect(result.value).not.toHaveProperty("transitionStrength");
+  });
+
+  it.each(["subtle", "standard", "strong"] as const)(
+    "accepts transitionStrength %s with an explicit effect",
+    (transitionStrength) => {
+      const result = parseProjectManifest(
+        manifest({ transition: "wipe", transitionStrength }),
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.transitionStrength).toBe(transitionStrength);
+    },
+  );
+
   it("rejects an unknown transition", () => {
     const result = parseProjectManifest({
       ...manifest(),
-      transition: "wipe",
+      transition: "dissolve",
     });
     expect(result.ok).toBe(false);
+  });
+
+  it("rejects an unknown strength", () => {
+    const result = parseProjectManifest({
+      ...manifest(),
+      transition: "fade",
+      transitionStrength: "medium",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects strength without an explicit animated effect", () => {
+    expect(
+      parseProjectManifest({
+        ...manifest(),
+        transitionStrength: "standard",
+      }).ok,
+    ).toBe(false);
+    expect(
+      parseProjectManifest({
+        ...manifest(),
+        transition: "none",
+        transitionStrength: "standard",
+      }).ok,
+    ).toBe(false);
   });
 
   it("does not convert absent transition to none when stringifying", () => {
@@ -225,6 +280,7 @@ describe("manifest rewrite preserves transition", () => {
     vi.spyOn(Date.prototype, "toISOString").mockReturnValue(NOW);
     const current = manifest({
       transition: "zoom",
+      transitionStrength: "subtle",
       publication: PUBLICATION,
     });
     current.publication = {
@@ -245,6 +301,7 @@ describe("manifest rewrite preserves transition", () => {
 
     const next = harness.readManifest();
     expect(next.transition).toBe("zoom");
+    expect(next.transitionStrength).toBe("subtle");
     expect(next.publication).toEqual(current.publication);
     expect(next.slides[0]?.caption).toBe("Changed");
     expect(next.updatedAt).toBe(NOW);
@@ -275,15 +332,60 @@ describe("manifest rewrite preserves transition", () => {
     expect(result.details.transition).toBe("slideLeft");
     const next = harness.readManifest();
     expect(next.transition).toBe("slideLeft");
+    expect(next.transitionStrength).toBe("standard");
     expect(next.publication).toEqual(PUBLICATION);
     expect(next.updatedAt).toBe(NOW);
     expect(result.project.updatedAt).toBe(NOW);
     const index = harness.readIndex();
     expect(index).not.toHaveProperty("transition");
+    expect(index).not.toHaveProperty("transitionStrength");
     expect((index.projects as DriveProjectSummary[])[0]?.updatedAt).toBe(NOW);
     expect((index.projects as DriveProjectSummary[])[0]).not.toHaveProperty(
       "transition",
     );
+    expect((index.projects as DriveProjectSummary[])[0]).not.toHaveProperty(
+      "transitionStrength",
+    );
+  });
+
+  it("writes effect and strength in one flow and omits strength for none or standard", async () => {
+    vi.spyOn(Date.prototype, "toISOString").mockReturnValue(NOW);
+    const harness = stubManifestAndIndex({
+      manifest: manifest({ transition: "fade" }),
+    });
+
+    const result = await updateDriveProjectTransition({
+      accessToken: "access-token",
+      workspaceId: WORKSPACE_ID,
+      indexJsonFileId: INDEX_FILE_ID,
+      project: PROJECT,
+      transition: "blur",
+      transitionStrength: "strong",
+      runStep: (operation) => operation(new AbortController().signal),
+    });
+
+    expect(result.transition).toBe("blur");
+    expect(result.transitionStrength).toBe("strong");
+    expect(harness.readManifest().transition).toBe("blur");
+    expect(harness.readManifest().transitionStrength).toBe("strong");
+    expect(harness.fetchMock.mock.calls.filter(([request, init]) => {
+      void request;
+      return (init?.method ?? "GET") === "PATCH";
+    })).toHaveLength(2);
+
+    const omitted = await updateDriveProjectTransition({
+      accessToken: "access-token",
+      workspaceId: WORKSPACE_ID,
+      indexJsonFileId: INDEX_FILE_ID,
+      project: { ...PROJECT, updatedAt: NOW },
+      transition: "none",
+      transitionStrength: "strong",
+      runStep: (operation) => operation(new AbortController().signal),
+    });
+    expect(omitted.transition).toBe("none");
+    expect(omitted.transitionStrength).toBeUndefined();
+    expect(harness.readManifest().transition).toBe("none");
+    expect(harness.readManifest()).not.toHaveProperty("transitionStrength");
   });
 
   it("omits transition when saving 標準 / undefined and does not silent-repair", async () => {
@@ -302,8 +404,35 @@ describe("manifest rewrite preserves transition", () => {
     });
 
     expect(result.transition).toBeUndefined();
+    expect(result.transitionStrength).toBeUndefined();
     expect(harness.readManifest().transition).toBeUndefined();
     expect(JSON.stringify(harness.readManifest())).not.toContain('"transition"');
+    expect(JSON.stringify(harness.readManifest())).not.toContain(
+      '"transitionStrength"',
+    );
+  });
+
+  it("keeps first-phase transition-only data through an unrelated rewrite", async () => {
+    vi.spyOn(Date.prototype, "toISOString").mockReturnValue(NOW);
+    const current = manifest({
+      transition: "fade",
+      publication: PUBLICATION,
+    });
+    const harness = stubManifestAndIndex({ manifest: current });
+
+    await updateDriveProjectSlideCaption({
+      accessToken: "access-token",
+      workspaceId: WORKSPACE_ID,
+      indexJsonFileId: INDEX_FILE_ID,
+      project: PROJECT,
+      slideId: SLIDE_ID,
+      caption: "Kept",
+      runStep: (operation) => operation(new AbortController().signal),
+    });
+
+    const next = harness.readManifest();
+    expect(next.transition).toBe("fade");
+    expect(next).not.toHaveProperty("transitionStrength");
   });
 });
 

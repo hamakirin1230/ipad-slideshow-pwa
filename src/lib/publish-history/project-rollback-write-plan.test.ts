@@ -316,6 +316,93 @@ describe("rollback write plan", () => {
     );
   });
 
+  it("restores transitionStrength from a newer revision and keeps first-phase absence", () => {
+    const { current, assetMetadata, guard } = fixture();
+    current.transition = "fade";
+    current.transitionStrength = "strong";
+    const target = revision();
+    target.manifest.transition = "wipe";
+    target.manifest.transitionStrength = "subtle";
+    target.sourceManifestCanonicalHash = getProjectManifestContentCanonicalHash(
+      target.manifest,
+    );
+
+    const restored = buildProjectRollbackWritePlan({
+      operationId: "rbop_20260728T020000000Z_abcdef12",
+      workspaceId: WORKSPACE_ID,
+      checkedAt: PUBLISHED_AT,
+      guard,
+      currentManifest: current,
+      currentRevisionId: CURRENT_ID,
+      targetRevision: target,
+      freshAssets: [
+        { assetId: ASSET_ID, driveFileId: "asset-file", metadata: assetMetadata },
+      ],
+      historyFolder: metadata(
+        "history-folder",
+        "history",
+        "projectHistory",
+        "project-folder",
+      ),
+      revisionsFolder: metadata(
+        "revisions-folder",
+        "revisions",
+        "projectRevisions",
+        "history-folder",
+      ),
+      revisionId: NEXT_ID,
+      publishedAt: PUBLISHED_AT,
+    });
+
+    expect(restored.currentManifestUpdate.body.transition).toBe("wipe");
+    expect(restored.currentManifestUpdate.body.transitionStrength).toBe("subtle");
+    expect(restored.revisionFile.body.manifest.transitionStrength).toBe("subtle");
+
+    const firstPhaseTarget = revision();
+    firstPhaseTarget.manifest.transition = "fade";
+    firstPhaseTarget.sourceManifestCanonicalHash =
+      getProjectManifestContentCanonicalHash(firstPhaseTarget.manifest);
+    const rolledBackToFirstPhase = buildProjectRollbackWritePlan({
+      operationId: "rbop_20260728T020000000Z_abcdef12",
+      workspaceId: WORKSPACE_ID,
+      checkedAt: PUBLISHED_AT,
+      guard,
+      currentManifest: current,
+      currentRevisionId: CURRENT_ID,
+      targetRevision: firstPhaseTarget,
+      freshAssets: [
+        { assetId: ASSET_ID, driveFileId: "asset-file", metadata: assetMetadata },
+      ],
+      historyFolder: metadata(
+        "history-folder",
+        "history",
+        "projectHistory",
+        "project-folder",
+      ),
+      revisionsFolder: metadata(
+        "revisions-folder",
+        "revisions",
+        "projectRevisions",
+        "history-folder",
+      ),
+      revisionId: NEXT_ID,
+      publishedAt: PUBLISHED_AT,
+    });
+
+    expect(rolledBackToFirstPhase.currentManifestUpdate.body.transition).toBe(
+      "fade",
+    );
+    expect(
+      rolledBackToFirstPhase.currentManifestUpdate.body.transitionStrength,
+    ).toBeUndefined();
+    expect(
+      rolledBackToFirstPhase.currentManifestUpdate.body,
+    ).not.toHaveProperty("transitionStrength");
+    expect(rolledBackToFirstPhase.revisionFile.body.manifest).not.toHaveProperty(
+      "transitionStrength",
+    );
+  });
+
   it("rejects operation-specific invariant changes", () => {
     const { current, assetMetadata, guard } = fixture();
     const plan = buildProjectRollbackWritePlan({
