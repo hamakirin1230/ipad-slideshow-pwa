@@ -20,8 +20,8 @@ describe("google photos export review UI", () => {
   });
 
   it("shows progress and a Photos open link without calling it a share URL", () => {
-    expect(source.panel).toContain("全体:");
     expect(source.panel).toContain("現在の写真:");
+    expect(source.panel).toContain("完了済み:");
     expect(source.panel).not.toContain("現在のスライド:");
     expect(source.panel).toContain("アップロード:");
     expect(source.panel).toContain("Googleフォト用の画像を作成しています");
@@ -34,6 +34,16 @@ describe("google photos export review UI", () => {
       "共有する場合はGoogleフォトでアルバムを開き、Googleフォトの共有機能からリンクを作成してください。",
     );
     expect(source.panel).not.toContain("共有リンク");
+  });
+
+  it("shows completed upload count and an in-session resume action", () => {
+    expect(source.panel).toContain("completedSlides");
+    expect(source.panel).toContain("枚までアップロード済みです。");
+    expect(source.panel).toContain("続きから再開");
+    expect(source.panel).toContain("この画面を開いている間");
+    expect(source.panel).not.toContain(">再開<");
+    expect(source.panel).not.toContain("sessionUrl");
+    expect(source.panel).not.toContain("uploadToken");
   });
 
   it("requires the album confirmation checkbox before export", () => {

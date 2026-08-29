@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GOOGLE_PHOTOS_RESUMABLE_CHUNK_BYTES,
+  GOOGLE_PHOTOS_UPLOAD_WATCHDOG_TIMEOUT_MS,
   GOOGLE_PHOTOS_UPLOADS_URL,
+  GooglePhotosUploadRequestError,
   isGooglePhotosResumeOffsetValid,
   parseGooglePhotosChunkGranularity,
   parseGooglePhotosUploadSessionQuery,
   queryGooglePhotosResumableSession,
   resolveGooglePhotosResumableChunkSize,
   startGooglePhotosResumableSession,
+  uploadGooglePhotosResumableChunk,
   uploadGooglePhotosResumableStream,
 } from "./resumable-upload";
 import { readFileSync } from "node:fs";
@@ -17,6 +20,7 @@ const GRANULARITY_256K = 256 * 1024;
 const SESSION_URL = "https://photos.example/session";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -248,6 +252,73 @@ describe("google photos resumable upload", () => {
       }),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(uploadChunk).toHaveBeenCalledTimes(1);
+  });
+
+  it("times out a stalled chunk once without automatic retry", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = uploadGooglePhotosResumableChunk({
+      sessionUrl: SESSION_URL,
+      chunk: new Uint8Array(16),
+      offset: 0,
+      finalize: true,
+      signal: new AbortController().signal,
+    });
+    const rejection = expect(pending).rejects.toMatchObject({
+      name: "GooglePhotosUploadRequestError",
+      category: "timeout",
+    });
+    await vi.advanceTimersByTimeAsync(
+      GOOGLE_PHOTOS_UPLOAD_WATCHDOG_TIMEOUT_MS,
+    );
+
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a user abort distinct from the watchdog timeout", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const fetchMock = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = uploadGooglePhotosResumableChunk({
+      sessionUrl: SESSION_URL,
+      chunk: new Uint8Array(16),
+      offset: 0,
+      finalize: true,
+      signal: controller.signal,
+    });
+    const abortRejection = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    controller.abort();
+
+    await abortRejection;
+    await expect(pending).rejects.not.toBeInstanceOf(
+      GooglePhotosUploadRequestError,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("does not read the Drive body into a whole-file Blob or ArrayBuffer", () => {

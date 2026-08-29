@@ -3,6 +3,7 @@ import {
   assertGooglePhotosExportPlanIsImageOnly,
   buildGooglePhotosExportReview,
   createSanitizedGooglePhotosExportError,
+  GOOGLE_PHOTOS_EXPORT_RESUMABLE_UPLOAD_MESSAGE,
   googlePhotosExportSourceMatchesPreparedPlan,
   type GooglePhotosExportPlanItem,
   type GooglePhotosExportProgress,
@@ -243,6 +244,11 @@ export async function executeGooglePhotosExportWithAdapter(
   );
   const renderedImageRef = input.renderedImageRef ?? { current: null };
   let currentUpload = input.runtime.currentUpload;
+  let writePhase:
+    | "uploading"
+    | "creatingMedia"
+    | "creatingAlbum"
+    | "addingToAlbum" = "uploading";
 
   const publishRuntime = () => {
     input.onRuntime({
@@ -252,6 +258,21 @@ export async function executeGooglePhotosExportWithAdapter(
       currentUpload,
     });
   };
+
+  const nextItem = plan.items[uploadTokens.length];
+  if (
+    currentUpload &&
+    (currentUpload.slideIndex !== uploadTokens.length ||
+      !nextItem ||
+      !canResumeCurrentUpload({
+        item: nextItem,
+        currentUpload,
+        renderedImage: renderedImageRef.current,
+      }))
+  ) {
+    currentUpload = null;
+    clearRenderedImage(renderedImageRef);
+  }
 
   try {
     for (
@@ -293,9 +314,11 @@ export async function executeGooglePhotosExportWithAdapter(
       publishRuntime();
     }
 
+    writePhase = "creatingMedia";
     input.onProgress({
       phase: "creatingMedia",
       currentSlide: plan.items.length,
+      completedSlides: plan.items.length,
       totalSlides: plan.items.length,
       mediaKind: plan.items[plan.items.length - 1]?.mediaKind ?? "image",
       uploadedBytes: 0,
@@ -315,9 +338,11 @@ export async function executeGooglePhotosExportWithAdapter(
       return failExport("mediaCreatePartial");
     }
 
+    writePhase = "creatingAlbum";
     input.onProgress({
       phase: "creatingAlbum",
       currentSlide: plan.items.length,
+      completedSlides: plan.items.length,
       totalSlides: plan.items.length,
       mediaKind: plan.items[plan.items.length - 1]?.mediaKind ?? "image",
       uploadedBytes: 0,
@@ -333,9 +358,11 @@ export async function executeGooglePhotosExportWithAdapter(
       return failExport("albumCreateFailed");
     }
 
+    writePhase = "addingToAlbum";
     input.onProgress({
       phase: "addingToAlbum",
       currentSlide: plan.items.length,
+      completedSlides: plan.items.length,
       totalSlides: plan.items.length,
       mediaKind: plan.items[plan.items.length - 1]?.mediaKind ?? "image",
       uploadedBytes: 0,
@@ -368,34 +395,44 @@ export async function executeGooglePhotosExportWithAdapter(
       clearRenderedImage(renderedImageRef);
       return { ...failExport(failKind), canResume: false };
     }
-    if (!currentUpload) {
+    if (
+      failKind === "aborted" ||
+      failKind !== "uploadFailed" ||
+      writePhase !== "uploading" ||
+      uploadTokens.length >= plan.items.length
+    ) {
       clearRenderedImage(renderedImageRef);
       return { ...failExport(failKind), canResume: false };
     }
 
-    const item = plan.items[currentUpload.slideIndex];
-    const queried = await querySessionSafely(
-      adapter.resumable,
-      currentUpload.sessionUrl,
-    );
-    const payloadSize = currentUpload.payloadSizeBytes;
-    if (
-      item &&
-      queried.ok &&
-      isGooglePhotosResumeOffsetValid(queried.offset, payloadSize) &&
-      canResumeCurrentUpload({
-        item,
-        currentUpload,
-        renderedImage: renderedImageRef.current,
-      })
-    ) {
-      currentUpload = { ...currentUpload, offset: queried.offset };
-      publishRuntime();
-      return { ...failExport(failKind), canResume: true };
+    if (currentUpload) {
+      const item = plan.items[currentUpload.slideIndex];
+      const queried = await querySessionSafely(
+        adapter.resumable,
+        currentUpload.sessionUrl,
+        input.signal,
+      );
+      const payloadSize = currentUpload.payloadSizeBytes;
+      if (
+        item &&
+        queried.ok &&
+        isGooglePhotosResumeOffsetValid(queried.offset, payloadSize) &&
+        canResumeCurrentUpload({
+          item,
+          currentUpload,
+          renderedImage: renderedImageRef.current,
+        })
+      ) {
+        currentUpload = { ...currentUpload, offset: queried.offset };
+        publishRuntime();
+        return failResumableUpload();
+      }
+
+      currentUpload = null;
     }
 
-    clearRenderedImage(renderedImageRef);
-    return { ...failExport(failKind), canResume: false };
+    publishRuntime();
+    return failResumableUpload();
   }
 }
 
@@ -406,6 +443,20 @@ function failExport(
     ok: false,
     error: createSanitizedGooglePhotosExportError(kind),
     canResume: false,
+  };
+}
+
+function failResumableUpload(): Extract<
+  CommitGooglePhotosExportResult,
+  { ok: false }
+> {
+  return {
+    ok: false,
+    error: {
+      kind: "uploadFailed",
+      message: GOOGLE_PHOTOS_EXPORT_RESUMABLE_UPLOAD_MESSAGE,
+    },
+    canResume: true,
   };
 }
 
@@ -435,6 +486,7 @@ async function exportRenderedImageSlide(input: {
   input.onProgress({
     phase: "uploading",
     currentSlide: input.exportIndex + 1,
+    completedSlides: input.exportIndex,
     totalSlides: input.totalSlides,
     mediaKind: "image",
     uploadedBytes: 0,
@@ -465,6 +517,7 @@ async function exportRenderedImageSlide(input: {
   input.onProgress({
     phase: "uploading",
     currentSlide: input.exportIndex + 1,
+    completedSlides: input.exportIndex,
     totalSlides: input.totalSlides,
     mediaKind: "image",
     uploadedBytes: session.offset,
@@ -490,6 +543,7 @@ async function exportRenderedImageSlide(input: {
       input.onProgress({
         phase: "uploading",
         currentSlide: input.exportIndex + 1,
+        completedSlides: input.exportIndex,
         totalSlides: input.totalSlides,
         mediaKind: "image",
         uploadedBytes: nextOffset,
@@ -524,10 +578,7 @@ async function resolveRenderedImagePayload(input: {
     input.currentUpload,
     input.exportIndex,
   );
-  if (input.currentUpload?.slideIndex === input.exportIndex) {
-    if (!retained) {
-      return { ...failExport("uploadFailed"), canResume: false };
-    }
+  if (retained) {
     return { ok: true, holder: retained };
   }
 
@@ -535,6 +586,7 @@ async function resolveRenderedImagePayload(input: {
   input.onProgress({
     phase: "renderingImage",
     currentSlide: input.exportIndex + 1,
+    completedSlides: input.exportIndex,
     totalSlides: input.totalSlides,
     mediaKind: "image",
     uploadedBytes: 0,
@@ -592,16 +644,15 @@ async function resolveResumableSession(input: {
       signal: input.signal,
     });
     if (
-      !queried.ok ||
-      !isGooglePhotosResumeOffsetValid(queried.offset, input.payload.sizeBytes)
+      queried.ok &&
+      isGooglePhotosResumeOffsetValid(queried.offset, input.payload.sizeBytes)
     ) {
-      throw new Error("photos-upload-resume-unavailable");
+      return {
+        sessionUrl: input.currentUpload.sessionUrl,
+        chunkGranularity: input.currentUpload.chunkGranularity,
+        offset: queried.offset,
+      };
     }
-    return {
-      sessionUrl: input.currentUpload.sessionUrl,
-      chunkGranularity: input.currentUpload.chunkGranularity,
-      offset: queried.offset,
-    };
   }
 
   const started = await input.adapter.startSession({
@@ -691,11 +742,12 @@ function toBlobPart(chunk: Uint8Array): BlobPart {
 async function querySessionSafely(
   adapter: GooglePhotosResumableUploadAdapter,
   sessionUrl: string,
+  signal: AbortSignal,
 ): Promise<GooglePhotosSessionQueryResult> {
   try {
     return await adapter.querySession({
       sessionUrl,
-      signal: new AbortController().signal,
+      signal,
     });
   } catch {
     return { ok: false };

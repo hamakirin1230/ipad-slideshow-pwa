@@ -105,11 +105,15 @@ export type GooglePhotosExportProgress = {
     | "creatingAlbum"
     | "addingToAlbum";
   currentSlide: number;
+  completedSlides: number;
   totalSlides: number;
   mediaKind: GooglePhotosExportMediaKind;
   uploadedBytes: number;
   fileBytes: number;
 };
+
+export const GOOGLE_PHOTOS_EXPORT_RESUMABLE_UPLOAD_MESSAGE =
+  "Googleフォトへの通信が途中で止まりました。完了済みの写真はそのままにして、続きから再開できます。";
 
 export type SanitizedGooglePhotosExportSuccess = {
   albumTitle: string;

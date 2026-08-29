@@ -208,14 +208,23 @@ function GooglePhotosExportPanelSession() {
                 <p className="font-medium">{uiState.error.message}</p>
               </div>
               {uiState.canResume && uiState.review && canResumeGooglePhotosExport ? (
-                <Button
-                  type="button"
-                  className="min-h-11"
-                  disabled={isGooglePhotosExportInFlight}
-                  onClick={() => void exportToPhotos(uiState.review!)}
-                >
-                  再開
-                </Button>
+                <div className="space-y-3 rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100">
+                  <p>
+                    {googlePhotosExportProgress?.completedSlides ?? 0} /{" "}
+                    {uiState.review.exportPhotoCount} 枚までアップロード済みです。
+                  </p>
+                  <p className="text-sm text-sky-100/90">
+                    この画面を開いている間、続きから再開できます。
+                  </p>
+                  <Button
+                    type="button"
+                    className="min-h-11"
+                    disabled={isGooglePhotosExportInFlight}
+                    onClick={() => void exportToPhotos(uiState.review!)}
+                  >
+                    続きから再開
+                  </Button>
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -339,6 +348,7 @@ function ExportProgress({
   onAbort: () => void;
 }) {
   const currentSlide = progress?.currentSlide ?? 1;
+  const completedSlides = progress?.completedSlides ?? 0;
   const totalSlides = progress?.totalSlides ?? review.exportPhotoCount;
 
   return (
@@ -347,9 +357,9 @@ function ExportProgress({
       className="space-y-3 rounded-2xl border border-sky-400/30 bg-sky-400/10 p-4 text-sky-100"
     >
       <p className="font-medium">
-        全体: {currentSlide} / {totalSlides}
+        現在の写真: {currentSlide} / {totalSlides}
       </p>
-      <p>現在の写真: {currentSlide}</p>
+      <p>完了済み: {completedSlides} / {totalSlides}</p>
       {progress?.phase === "renderingImage" ? (
         <p className="flex items-center gap-2">
           <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />

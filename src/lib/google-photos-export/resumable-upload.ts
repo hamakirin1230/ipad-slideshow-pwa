@@ -1,6 +1,24 @@
 export const GOOGLE_PHOTOS_RESUMABLE_CHUNK_BYTES = 8 * 1024 * 1024;
+export const GOOGLE_PHOTOS_UPLOAD_WATCHDOG_TIMEOUT_MS = 180_000;
 export const GOOGLE_PHOTOS_UPLOADS_URL =
   "https://photoslibrary.googleapis.com/v1/uploads";
+
+export type GooglePhotosUploadFailureCategory =
+  | "network"
+  | "timeout"
+  | "http429"
+  | "http5xx"
+  | "otherHttp";
+
+export class GooglePhotosUploadRequestError extends Error {
+  readonly category: GooglePhotosUploadFailureCategory;
+
+  constructor(category: GooglePhotosUploadFailureCategory) {
+    super("photos-upload-request-failed");
+    this.name = "GooglePhotosUploadRequestError";
+    this.category = category;
+  }
+}
 
 export type GooglePhotosStartedSession = {
   sessionUrl: string;
@@ -83,7 +101,9 @@ export async function startGooglePhotosResumableSession(input: {
   fileName: string;
   signal: AbortSignal;
 }): Promise<GooglePhotosStartedSession> {
-  const response = await fetch(GOOGLE_PHOTOS_UPLOADS_URL, {
+  const response = await fetchGooglePhotosUploadRequest(
+    GOOGLE_PHOTOS_UPLOADS_URL,
+    {
     method: "POST",
     headers: {
       Authorization: `Bearer ${input.accessToken}`,
@@ -96,15 +116,18 @@ export async function startGooglePhotosResumableSession(input: {
     },
     cache: "no-store",
     credentials: "omit",
-    signal: input.signal,
-  });
+    },
+    input.signal,
+  );
 
   const sessionUrl = response.headers.get("X-Goog-Upload-URL");
   const chunkGranularity = parseGooglePhotosChunkGranularity(
     response.headers.get("X-Goog-Upload-Chunk-Granularity"),
   );
   if (!response.ok || !sessionUrl) {
-    throw new Error("photos-upload-session-failed");
+    throw new GooglePhotosUploadRequestError(
+      classifyGooglePhotosUploadHttpStatus(response.status),
+    );
   }
   if (chunkGranularity === null) {
     throw new Error("photos-upload-granularity-invalid");
@@ -117,7 +140,7 @@ export async function queryGooglePhotosResumableSession(input: {
   signal: AbortSignal;
 }): Promise<GooglePhotosSessionQueryResult> {
   try {
-    const response = await fetch(input.sessionUrl, {
+    const response = await fetchGooglePhotosUploadRequest(input.sessionUrl, {
       method: "POST",
       headers: {
         "Content-Length": "0",
@@ -125,8 +148,7 @@ export async function queryGooglePhotosResumableSession(input: {
       },
       cache: "no-store",
       credentials: "omit",
-      signal: input.signal,
-    });
+    }, input.signal);
     if (!response.ok) {
       return { ok: false };
     }
@@ -143,7 +165,7 @@ export async function uploadGooglePhotosResumableChunk(input: {
   finalize: boolean;
   signal: AbortSignal;
 }): Promise<string | null> {
-  const response = await fetch(input.sessionUrl, {
+  const response = await fetchGooglePhotosUploadRequest(input.sessionUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/octet-stream",
@@ -153,11 +175,12 @@ export async function uploadGooglePhotosResumableChunk(input: {
     body: Uint8Array.from(input.chunk),
     cache: "no-store",
     credentials: "omit",
-    signal: input.signal,
-  });
+  }, input.signal);
 
   if (!response.ok) {
-    throw new Error("photos-upload-chunk-failed");
+    throw new GooglePhotosUploadRequestError(
+      classifyGooglePhotosUploadHttpStatus(response.status),
+    );
   }
 
   if (!input.finalize) {
@@ -169,6 +192,55 @@ export async function uploadGooglePhotosResumableChunk(input: {
     throw new Error("photos-upload-token-missing");
   }
   return uploadToken;
+}
+
+async function fetchGooglePhotosUploadRequest(
+  url: string,
+  init: RequestInit,
+  parentSignal: AbortSignal,
+) {
+  if (parentSignal.aborted) {
+    throw new DOMException("aborted", "AbortError");
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromParent = () => controller.abort();
+  parentSignal.addEventListener("abort", abortFromParent, { once: true });
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, GOOGLE_PHOTOS_UPLOAD_WATCHDOG_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (parentSignal.aborted) {
+      throw new DOMException("aborted", "AbortError");
+    }
+    if (timedOut) {
+      throw new GooglePhotosUploadRequestError("timeout");
+    }
+    if (error instanceof GooglePhotosUploadRequestError) {
+      throw error;
+    }
+    throw new GooglePhotosUploadRequestError("network");
+  } finally {
+    clearTimeout(timeoutId);
+    parentSignal.removeEventListener("abort", abortFromParent);
+  }
+}
+
+function classifyGooglePhotosUploadHttpStatus(
+  status: number,
+): GooglePhotosUploadFailureCategory {
+  if (status === 429) {
+    return "http429";
+  }
+  if (status >= 500 && status <= 599) {
+    return "http5xx";
+  }
+  return "otherHttp";
 }
 
 export async function uploadGooglePhotosResumableStream(input: {
