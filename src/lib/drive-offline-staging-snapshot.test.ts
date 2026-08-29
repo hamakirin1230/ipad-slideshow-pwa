@@ -167,6 +167,7 @@ function slide(input: {
   mimeType: string;
   type?: "image" | "video";
   unsupportedReason?: "unsupportedVideoMimeType";
+  imageEdit?: DriveSlideSummary["imageEdit"];
 }): DriveSlideSummary {
   return {
     slideId: input.assetId.replace(/^./, "5"),
@@ -181,6 +182,7 @@ function slide(input: {
     ...(input.unsupportedReason
       ? { unsupportedReason: input.unsupportedReason }
       : {}),
+    ...(input.imageEdit ? { imageEdit: input.imageEdit } : {}),
     durationSeconds: 10,
     caption: "",
     createdAt: "2026-07-30T00:00:00.000Z",
@@ -377,6 +379,30 @@ describe("Drive offline staging manifest guard", () => {
 });
 
 describe("Drive offline staging asset progress", () => {
+  it("carries imageEdit into the offline project without changing the Blob", async () => {
+    const image = slide({
+      assetId: "33333333-3333-4333-8333-333333333333",
+      assetFileId: "image-file",
+      mimeType: "image/jpeg",
+      type: "image",
+      imageEdit: {
+        rotation: 270,
+        crop: { x: 0.2, y: 0.1, width: 0.6, height: 0.8 },
+      },
+    });
+    installAssetManifestPhases({
+      slides: [image],
+      assetMetadata: [assetMetadata(image, 5)],
+    });
+    const blob = new Blob(["image"], { type: "image/jpeg" });
+    mocks.fetchAssetBlob.mockResolvedValueOnce(blob);
+
+    const snapshot = await fetchSnapshot();
+
+    expect(snapshot.project.slides[0]?.imageEdit).toEqual(image.imageEdit);
+    expect(snapshot.assetPairs[0]?.assetBlobRecord.blob).toBe(blob);
+  });
+
   it("counts remoteOnly and unsupported entries exactly once", async () => {
     const remoteOnly = slide({
       assetId: "33333333-3333-4333-8333-333333333333",

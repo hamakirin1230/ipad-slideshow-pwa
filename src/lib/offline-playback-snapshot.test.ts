@@ -176,6 +176,10 @@ describe("offline playback publication provenance", () => {
         type: "image",
         caption: "",
         durationSeconds: 10,
+        imageEdit: {
+          rotation: 90,
+          crop: { x: 0.1, y: 0.2, width: 0.7, height: 0.6 },
+        },
         order: 1,
       },
     ];
@@ -232,6 +236,9 @@ describe("offline playback publication provenance", () => {
       "remoteOnly",
       "offline",
     ]);
+    expect(snapshot.slides[1]?.imageEdit).toEqual(
+      remoteProject.slides[1]?.imageEdit,
+    );
   });
 });
 

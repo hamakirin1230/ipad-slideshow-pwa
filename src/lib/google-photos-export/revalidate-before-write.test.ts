@@ -54,6 +54,28 @@ describe("google photos export revalidation before write", () => {
     expectPhotosWriteNotStarted(write);
   });
 
+  it("blocks image edit changes before any Photos write", async () => {
+    const source = createSource();
+    const prepared = await preparePlan(source.adapter);
+    source.manifest.slides[0] = {
+      ...source.manifest.slides[0]!,
+      imageEdit: {
+        rotation: 90,
+        crop: { x: 0.1, y: 0.2, width: 0.7, height: 0.6 },
+      },
+    };
+    const write = createWriteAdapter();
+
+    const result = await commitWith(prepared, source.adapter, write);
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "sourceChanged" },
+      canResume: false,
+    });
+    expectPhotosWriteNotStarted(write);
+  });
+
   it("blocks slide reorder before any Photos write", async () => {
     const source = createSource();
     const prepared = await preparePlan(source.adapter);

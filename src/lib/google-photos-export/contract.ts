@@ -1,3 +1,8 @@
+import {
+  areProjectSlideImageEditsEqual,
+  type ProjectSlideImageEdit,
+} from "@/lib/project-slide-image-edit";
+
 export const GOOGLE_PHOTOS_EXPORT_MAX_SLIDE_COUNT = 50;
 export const GOOGLE_PHOTOS_ALBUM_TITLE_MAX_LENGTH = 500;
 export const GOOGLE_PHOTOS_EXPORT_FILENAME_MAX_LENGTH = 255;
@@ -68,6 +73,7 @@ export type GooglePhotosExportItem = {
 export type GooglePhotosExportPlanItem = GooglePhotosExportItem & {
   slideId: string;
   assetFileId: string;
+  imageEdit?: ProjectSlideImageEdit;
 };
 
 export type GooglePhotosExportPlan = {
@@ -233,6 +239,7 @@ export function googlePhotosExportSourceMatchesPreparedPlan(
       item.mimeType === other.mimeType &&
       item.sizeBytes === other.sizeBytes &&
       item.description === other.description &&
+      areProjectSlideImageEditsEqual(item.imageEdit, other.imageEdit) &&
       item.fileName === other.fileName
     );
   });

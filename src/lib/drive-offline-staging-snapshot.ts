@@ -29,6 +29,12 @@ import {
 } from "@/lib/offline-sync-progress";
 import { getProjectManifestContentCanonicalHash } from "@/lib/publish-history/project-publish-revision";
 import {
+  isProjectSlideImageForImageEdit,
+  parseProjectSlideImageEdit,
+  pickProjectSlideImageEdit,
+  type ProjectSlideImageEdit,
+} from "@/lib/project-slide-image-edit";
+import {
   DRIVE_VIDEO_OFFLINE_MAX_BYTES,
   getEffectiveDriveVideoUnsupportedReason,
   getDriveVideoStorageDisposition,
@@ -1194,6 +1200,30 @@ function normalizeDriveOfflineManifestSlide(
     diagnostics: localDiagnostics,
   });
 
+  let imageEdit: ProjectSlideImageEdit | undefined;
+  if (hasOwnKey(value, "imageEdit")) {
+    const imageEditResult = parseProjectSlideImageEdit(value.imageEdit);
+    if (imageEditResult.ok) {
+      imageEdit = imageEditResult.value;
+    } else {
+      localDiagnostics.push(
+        ...imageEditResult.errors.map((error) => `${fileLabel} の ${error}`),
+      );
+    }
+  }
+
+  if (
+    imageEdit !== undefined &&
+    !isProjectSlideImageForImageEdit({
+      type: assetType,
+      mimeType: rawMimeType,
+    })
+  ) {
+    localDiagnostics.push(
+      `${fileLabel} の imageEdit は画像スライドにのみ指定できます。`,
+    );
+  }
+
   const createdAt = readRequiredIsoDateString({
     body: value,
     fileLabel,
@@ -1255,6 +1285,7 @@ function normalizeDriveOfflineManifestSlide(
     ...(unsupportedReason ? { unsupportedReason } : {}),
     durationSeconds,
     caption,
+    ...pickProjectSlideImageEdit({ imageEdit }),
     createdAt,
     updatedAt,
   };
@@ -1337,6 +1368,7 @@ function toOfflineProjectSlide(
     ...(slide.type ? { type: slide.type } : {}),
     caption: slide.caption,
     durationSeconds: slide.durationSeconds,
+    ...pickProjectSlideImageEdit({ imageEdit: slide.imageEdit }),
     ...(typeof slide.durationMs === "number" ? { durationMs: slide.durationMs } : {}),
     ...(unsupportedReason ? { unsupportedReason } : {}),
     order,

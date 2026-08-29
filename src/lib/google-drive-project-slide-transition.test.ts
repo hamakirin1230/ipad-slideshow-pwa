@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   parseProjectManifest,
+  duplicateDriveProjectSlide,
   stringifyProjectManifestJson,
   updateDriveProjectSlideCaption,
+  updateDriveProjectSlideImageEdit,
   updateDriveProjectTransition,
   type DriveProjectSummary,
   type ProjectManifest,
@@ -275,6 +277,48 @@ describe("parseProjectManifest transition", () => {
   });
 });
 
+describe("parseProjectManifest imageEdit", () => {
+  it("keeps legacy absent imageEdit valid and round-trips valid edits", () => {
+    const legacy = parseProjectManifest(manifest());
+    expect(legacy.ok).toBe(true);
+    if (!legacy.ok) return;
+    expect(legacy.value.slides[0]).not.toHaveProperty("imageEdit");
+
+    const edited = manifest();
+    edited.slides[0]!.imageEdit = {
+      rotation: 90,
+      crop: { x: 0.1, y: 0.2, width: 0.6, height: 0.5 },
+    };
+    const result = parseProjectManifest(
+      JSON.parse(stringifyProjectManifestJson(edited)),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.slides[0]?.imageEdit).toEqual(
+      edited.slides[0]?.imageEdit,
+    );
+  });
+
+  it("rejects invalid crop values and video slides with imageEdit", () => {
+    const invalidCrop = manifest();
+    invalidCrop.slides[0]!.imageEdit = {
+      rotation: 0,
+      crop: { x: 0.8, y: 0, width: 0.4, height: 1 },
+    };
+    expect(parseProjectManifest(invalidCrop).ok).toBe(false);
+
+    const video = manifest();
+    video.slides[0] = {
+      ...video.slides[0]!,
+      type: "video",
+      mimeType: "video/mp4",
+      sourceMimeType: "video/mp4",
+      imageEdit: { rotation: 90 },
+    };
+    expect(parseProjectManifest(video).ok).toBe(false);
+  });
+});
+
 describe("manifest rewrite preserves transition", () => {
   it("keeps transition and publication across an unrelated caption mutation", async () => {
     vi.spyOn(Date.prototype, "toISOString").mockReturnValue(NOW);
@@ -286,6 +330,10 @@ describe("manifest rewrite preserves transition", () => {
     current.publication = {
       ...PUBLICATION,
       contentCanonicalHash: getProjectManifestContentCanonicalHash(current),
+    };
+    current.slides[0]!.imageEdit = {
+      rotation: 270,
+      crop: { x: 0.1, y: 0.15, width: 0.7, height: 0.75 },
     };
     const harness = stubManifestAndIndex({ manifest: current });
 
@@ -304,11 +352,80 @@ describe("manifest rewrite preserves transition", () => {
     expect(next.transitionStrength).toBe("subtle");
     expect(next.publication).toEqual(current.publication);
     expect(next.slides[0]?.caption).toBe("Changed");
+    expect(next.slides[0]?.imageEdit).toEqual(current.slides[0]?.imageEdit);
     expect(next.updatedAt).toBe(NOW);
     expect(harness.readIndex()).not.toHaveProperty("transition");
     expect(
       (harness.readIndex().projects as DriveProjectSummary[])[0],
     ).not.toHaveProperty("transition");
+  });
+
+  it("saves and verifies canonical imageEdit without changing the asset", async () => {
+    vi.spyOn(Date.prototype, "toISOString").mockReturnValue(NOW);
+    const current = manifest({ transition: "wipe" });
+    const harness = stubManifestAndIndex({ manifest: current });
+
+    const result = await updateDriveProjectSlideImageEdit({
+      accessToken: "access-token",
+      workspaceId: WORKSPACE_ID,
+      indexJsonFileId: INDEX_FILE_ID,
+      project: PROJECT,
+      slideId: SLIDE_ID,
+      imageEdit: {
+        rotation: 90,
+        crop: { x: 0, y: 0, width: 1, height: 1 },
+      },
+      runStep: (operation) => operation(new AbortController().signal),
+    });
+
+    expect(result.imageEdit).toEqual({ rotation: 90 });
+    expect(harness.readManifest().slides[0]?.imageEdit).toEqual({ rotation: 90 });
+    expect(harness.readManifest().slides[0]?.assetFileId).toBe(
+      current.slides[0]?.assetFileId,
+    );
+    expect(harness.readManifest().transition).toBe("wipe");
+
+    const reset = await updateDriveProjectSlideImageEdit({
+      accessToken: "access-token",
+      workspaceId: WORKSPACE_ID,
+      indexJsonFileId: INDEX_FILE_ID,
+      project: { ...PROJECT, updatedAt: NOW },
+      slideId: SLIDE_ID,
+      imageEdit: {
+        rotation: 0,
+        crop: { x: 0, y: 0, width: 1, height: 1 },
+      },
+      runStep: (operation) => operation(new AbortController().signal),
+    });
+    expect(reset.imageEdit).toBeUndefined();
+    expect(harness.readManifest().slides[0]).not.toHaveProperty("imageEdit");
+  });
+
+  it("copies imageEdit when duplicating a slide", async () => {
+    vi.spyOn(Date.prototype, "toISOString").mockReturnValue(NOW);
+    const current = manifest();
+    current.slides[0]!.imageEdit = {
+      rotation: 180,
+      crop: { x: 0.2, y: 0.1, width: 0.6, height: 0.7 },
+    };
+    const harness = stubManifestAndIndex({ manifest: current });
+
+    const result = await duplicateDriveProjectSlide({
+      accessToken: "access-token",
+      workspaceId: WORKSPACE_ID,
+      indexJsonFileId: INDEX_FILE_ID,
+      project: PROJECT,
+      slideId: SLIDE_ID,
+      runStep: (operation) => operation(new AbortController().signal),
+    });
+
+    expect(result.duplicatedSlide.imageEdit).toEqual(
+      current.slides[0]?.imageEdit,
+    );
+    expect(harness.readManifest().slides).toHaveLength(2);
+    expect(harness.readManifest().slides[1]?.imageEdit).toEqual(
+      current.slides[0]?.imageEdit,
+    );
   });
 
   it("rewrites transition with readback and updatedAt while leaving index without transition", async () => {
@@ -442,6 +559,7 @@ describe("manifest rewrite helpers keep optional settings", () => {
     const helperNames = [
       "buildProjectManifestJsonWithAppendedSlides",
       "buildProjectManifestJsonWithUpdatedSlideCaption",
+      "buildProjectManifestJsonWithUpdatedSlideImageEdit",
       "buildProjectManifestJsonWithUpdatedSlideDuration",
       "buildProjectManifestJsonWithReorderedSlides",
       "buildProjectManifestJsonWithDeletedSlides",
@@ -459,5 +577,11 @@ describe("manifest rewrite helpers keep optional settings", () => {
       const block = drive.slice(start, start + 1200);
       expect(block).toContain("withProjectManifestOptionalSettings(input.manifest)");
     }
+
+    const newSlideBuilder = drive.slice(
+      drive.indexOf("function buildDriveProjectManifestSlide("),
+      drive.indexOf("function parseDriveProjectManifestJson("),
+    );
+    expect(newSlideBuilder).not.toContain("imageEdit");
   });
 });

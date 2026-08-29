@@ -9,6 +9,11 @@ import {
   GOOGLE_PHOTOS_CAPTION_TEXT_COLOR,
   measureCaptionLayout,
 } from "./caption-layout";
+import {
+  applyCanvasImageEditTransform,
+  getCanvasImageEditRenderPlan,
+  type ProjectSlideImageEdit,
+} from "@/lib/project-slide-image-edit";
 
 export const GOOGLE_PHOTOS_JPEG_QUALITY = 0.93;
 export const GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE = 1;
@@ -30,6 +35,7 @@ export type GooglePhotosImageRenderInput = {
   source: Blob;
   sourceMimeType: GooglePhotosExportMimeType;
   caption: string;
+  imageEdit?: ProjectSlideImageEdit;
   fileName: string;
   slideIndex: number;
   signal: AbortSignal;
@@ -78,6 +84,14 @@ export function planGooglePhotosImageRender(input: {
     jpegQuality:
       outputMimeType === "image/jpeg" ? GOOGLE_PHOTOS_JPEG_QUALITY : undefined,
   };
+}
+
+export function planGooglePhotosImageEditRender(input: {
+  sourceWidth: number;
+  sourceHeight: number;
+  imageEdit?: ProjectSlideImageEdit;
+}) {
+  return getCanvasImageEditRenderPlan(input);
 }
 
 export async function resolveGooglePhotosExportOutputMime(input: {
@@ -143,9 +157,14 @@ export async function renderGooglePhotosExportImage(
   }
 
   const decoded = await decodeExportImage(input.source, input.signal);
+  const imageEditPlan = planGooglePhotosImageEditRender({
+    sourceWidth: decoded.width,
+    sourceHeight: decoded.height,
+    imageEdit: input.imageEdit,
+  });
   const canvas = document.createElement("canvas");
-  canvas.width = decoded.width;
-  canvas.height = decoded.height;
+  canvas.width = imageEditPlan.outputWidth;
+  canvas.height = imageEditPlan.outputHeight;
   const context = canvas.getContext("2d");
   if (!context) {
     releaseDecodedImage(decoded);
@@ -154,6 +173,7 @@ export async function renderGooglePhotosExportImage(
   }
 
   try {
+    applyCanvasImageEditTransform(context, imageEditPlan);
     context.drawImage(decoded.source, 0, 0);
     const layout = measureCaptionLayout({
       text: input.caption,

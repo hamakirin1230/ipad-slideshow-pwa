@@ -558,6 +558,7 @@ async function resolveRenderedImagePayload(input: {
     source: sourceBlob,
     sourceMimeType: input.item.mimeType,
     caption: input.item.description,
+    imageEdit: input.item.imageEdit,
     fileName: input.item.fileName,
     slideIndex: input.item.slideIndex,
     signal: input.signal,

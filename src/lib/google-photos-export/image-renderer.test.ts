@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   buildGooglePhotosRenderedExportFileName,
   canBrowserEncodeWebp,
   GOOGLE_PHOTOS_WEBP_PROBE_CANVAS_SIZE,
   isGooglePhotosRenderedImageWithinUploadLimit,
   planGooglePhotosImageRender,
+  planGooglePhotosImageEditRender,
   resetGooglePhotosWebpEncodeSupportCache,
   resolveGooglePhotosExportOutputMime,
   resolveGooglePhotosRenderedImageMime,
@@ -18,6 +20,43 @@ afterEach(() => {
 });
 
 describe("google photos image render policy", () => {
+  it("uses the rotated crop as the final canvas dimensions", () => {
+    expect(
+      planGooglePhotosImageEditRender({
+        sourceWidth: 1200,
+        sourceHeight: 800,
+        imageEdit: {
+          rotation: 90,
+          crop: { x: 0.25, y: 0.1, width: 0.5, height: 0.75 },
+        },
+      }),
+    ).toMatchObject({
+      outputWidth: 400,
+      outputHeight: 900,
+      cropX: 200,
+      cropY: 120,
+      rotation: 90,
+    });
+  });
+
+  it("rotates and crops before laying out the caption on the final canvas", () => {
+    const source = readFileSync(
+      new URL("./image-renderer.ts", import.meta.url),
+      "utf8",
+    );
+    const canvasSize = source.indexOf("canvas.width = imageEditPlan.outputWidth");
+    const transform = source.indexOf("applyCanvasImageEditTransform", canvasSize);
+    const drawImage = source.indexOf(
+      "context.drawImage(decoded.source, 0, 0)",
+      transform,
+    );
+    const caption = source.indexOf("const layout = measureCaptionLayout", drawImage);
+    expect(canvasSize).toBeGreaterThan(-1);
+    expect(transform).toBeGreaterThan(canvasSize);
+    expect(drawImage).toBeGreaterThan(transform);
+    expect(caption).toBeGreaterThan(drawImage);
+  });
+
   it("keeps JPEG sources as rendered JPEG", () => {
     expect(
       planGooglePhotosImageRender({

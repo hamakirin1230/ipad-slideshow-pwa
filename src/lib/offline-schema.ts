@@ -2,6 +2,7 @@ import type {
   ProjectSlideTransition,
   ProjectSlideTransitionStrength,
 } from "./project-slide-transition";
+import type { ProjectSlideImageEdit } from "./project-slide-image-edit";
 
 export const OFFLINE_DB_NAME = "ipad-slideshow-offline";
 export const OFFLINE_DB_VERSION = 1;
@@ -63,6 +64,7 @@ export type OfflineProjectSlide = {
   type?: OfflineAssetType;
   caption: string;
   durationSeconds: number;
+  imageEdit?: ProjectSlideImageEdit;
   durationMs?: number;
   unsupportedReason?: OfflineAssetUnsupportedReason;
   order: number;

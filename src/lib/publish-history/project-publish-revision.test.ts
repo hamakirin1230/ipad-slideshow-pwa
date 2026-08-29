@@ -257,6 +257,12 @@ describe("publishable manifest content", () => {
     ["slide order", (manifest: ProjectManifest) => { manifest.slides.reverse(); }],
     ["caption", (manifest: ProjectManifest) => { manifest.slides[0].caption = "Changed"; }],
     ["duration", (manifest: ProjectManifest) => { manifest.slides[0].durationSeconds = 99; }],
+    ["image edit", (manifest: ProjectManifest) => {
+      manifest.slides[0].imageEdit = {
+        rotation: 90,
+        crop: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
+      };
+    }],
     ["transition", (manifest: ProjectManifest) => { manifest.transition = "fade"; }],
     ["transitionStrength", (manifest: ProjectManifest) => {
       manifest.transition = "fade";

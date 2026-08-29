@@ -166,6 +166,14 @@ describe("google photos export contract", () => {
     expect(
       googlePhotosExportSourceMatchesPreparedPlan(prepared, {
         ...fresh,
+        items: prepared.items.map((item, index) =>
+          index === 0 ? { ...item, imageEdit: { rotation: 90 } } : item,
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      googlePhotosExportSourceMatchesPreparedPlan(prepared, {
+        ...fresh,
         items: [prepared.items[1]!, prepared.items[0]!].map(
           (item, slideIndex) => ({ ...item, slideIndex }),
         ),

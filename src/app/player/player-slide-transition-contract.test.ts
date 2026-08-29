@@ -41,6 +41,19 @@ describe("player album slide transition wiring", () => {
     expect(pageSource).toContain("revokeSlideVideo(currentVideo)");
   });
 
+  it("keeps each image edit on the shared SVG inside the transition layer", () => {
+    expect(pageSource).toContain(
+      'import { ProjectSlideImageView } from "@/components/project-slide-image-view"',
+    );
+    expect(pageSource).toContain("imageEdit: currentSlideImageEdit");
+    expect(pageSource).toContain("imageEdit={previousSlideImage.imageEdit}");
+    expect(pageSource).toContain("imageEdit={displayedSlideImage.imageEdit}");
+    expect(pageSource).toContain(
+      "className={`absolute inset-0 h-full w-full ${imageTransitionPlan.outgoingClassName}`}",
+    );
+    expect(pageSource).not.toContain("currentSlide?.imageEdit" + "}\n                className={`absolute");
+  });
+
   it("implements wipe as a left-to-right CSS mask without translating media", () => {
     expect(cssSource).toContain(".player-transition-wipe-in");
     expect(cssSource).toContain("-webkit-mask-image");

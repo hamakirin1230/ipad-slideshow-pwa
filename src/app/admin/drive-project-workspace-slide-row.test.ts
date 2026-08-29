@@ -5,6 +5,10 @@ const source = readFileSync(
   new URL("./drive-project-workspace-panel.tsx", import.meta.url),
   "utf8",
 );
+const imageEditorSource = readFileSync(
+  new URL("./project-slide-image-editor-dialog.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("compact slide editing rows", () => {
   it("keeps duration editing on one row without helper copy", () => {
@@ -69,6 +73,23 @@ describe("compact slide editing rows", () => {
     expect(
       openingButton(source, "onDelete(slideId, event.currentTarget)"),
     ).toContain("min-h-11");
+  });
+
+  it("offers non-destructive image editing only for image rows", () => {
+    expect(source).toContain(
+      'getAssetTypeLabel(slide.type) === "image" ? (',
+    );
+    expect(source).toContain("<ProjectSlideImageEditorButton");
+    expect(source).toContain("onSave={updateProjectSlideImageEdit}");
+    expect(imageEditorSource).toContain("画像を編集");
+    expect(imageEditorSource).toContain("左に回転");
+    expect(imageEditorSource).toContain("右に回転");
+    expect(imageEditorSource).toContain("リセット");
+    expect(imageEditorSource).toContain("キャンセル");
+    expect(imageEditorSource).toContain("画像編集を保存");
+    expect(imageEditorSource).toContain("size-11");
+    expect(imageEditorSource).toContain("!changed ||");
+    expect(imageEditorSource).toContain("isBlocked ||");
   });
 
   it("compacts mobile reorder controls while keeping desktop labels", () => {

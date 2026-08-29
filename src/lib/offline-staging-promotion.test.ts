@@ -38,6 +38,7 @@ describe("offline staging promotion provenance", () => {
           assetId: "dummy-asset",
           caption: "",
           durationSeconds: 10,
+          imageEdit: { rotation: 90 as const },
           order: 0,
         },
       ],
@@ -90,7 +91,10 @@ describe("offline staging promotion provenance", () => {
       },
     );
     expect(projectStore.put).toHaveBeenCalledWith(
-      expect.objectContaining({ publicationProvenance: provenance }),
+      expect.objectContaining({
+        publicationProvenance: provenance,
+        slides: [expect.objectContaining({ imageEdit: { rotation: 90 } })],
+      }),
     );
     expect(assetStore.put).toHaveBeenCalledWith(
       expect.not.objectContaining({ publicationProvenance: expect.anything() }),

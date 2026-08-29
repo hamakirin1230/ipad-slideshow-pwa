@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProductAlertDialog } from "@/components/product-alert-dialog";
 import { ProductDisclosure } from "@/components/product-disclosure";
+import { ProjectSlideImageView } from "@/components/project-slide-image-view";
 import {
   Card,
   CardContent,
@@ -35,8 +36,10 @@ import {
   DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS,
 } from "@/lib/google-drive";
 import { formatUiDateTime } from "@/lib/ui-format";
+import type { ProjectSlideImageEdit } from "@/lib/project-slide-image-edit";
 import { AssetCleanupPreviewPanel } from "./asset-cleanup-preview-panel";
 import { AssetImportPanel } from "./asset-import-panel";
+import { ProjectSlideImageEditorButton } from "./project-slide-image-editor-dialog";
 
 const SLIDE_CAPTION_MAX_LENGTH = 80;
 const PROJECT_SLIDE_MAX_COUNT = 50;
@@ -57,6 +60,7 @@ export function DriveProjectWorkspacePanel() {
     fetchProjectSlidePreviewBlob,
     updateProjectSlideCaption,
     updateProjectSlideDuration,
+    updateProjectSlideImageEdit,
     moveProjectSlide,
     reorderProjectSlidesByDrag,
     deleteProjectSlides,
@@ -67,6 +71,7 @@ export function DriveProjectWorkspacePanel() {
     durationUpdateSlideId,
     durationUpdateMessage,
     durationUpdateDiagnostics,
+    imageEditUpdateSlideId,
     slideEditMessage,
     slideEditDiagnostics,
     isSlideEditInFlight,
@@ -435,6 +440,7 @@ export function DriveProjectWorkspacePanel() {
                                   assetType={getAssetTypeLabel(slide.type)}
                                   mimeType={slide.mimeType}
                                   assetName={slide.assetName}
+                                  imageEdit={slide.imageEdit}
                                   fetchProjectSlidePreviewBlob={
                                     fetchProjectSlidePreviewBlob
                                   }
@@ -517,6 +523,23 @@ export function DriveProjectWorkspacePanel() {
                                     isDisabled={areSlideActionsDisabled}
                                     onSave={updateProjectSlideCaption}
                                   />
+                                  {getAssetTypeLabel(slide.type) === "image" ? (
+                                    <ProjectSlideImageEditorButton
+                                      slideId={slide.slideId}
+                                      assetFileId={slide.assetFileId}
+                                      mimeType={slide.mimeType}
+                                      assetName={slide.assetName}
+                                      imageEdit={slide.imageEdit}
+                                      disabled={areSlideActionsDisabled}
+                                      isSaving={
+                                        imageEditUpdateSlideId === slide.slideId
+                                      }
+                                      fetchProjectSlidePreviewBlob={
+                                        fetchProjectSlidePreviewBlob
+                                      }
+                                      onSave={updateProjectSlideImageEdit}
+                                    />
+                                  ) : null}
                                 </div>
                               </>
                             )}
@@ -914,12 +937,14 @@ function DriveSlidePreview({
   assetType,
   mimeType,
   assetName,
+  imageEdit,
   fetchProjectSlidePreviewBlob,
 }: {
   assetFileId: string;
   assetType: "image" | "video";
   mimeType: string;
   assetName: string;
+  imageEdit?: ProjectSlideImageEdit;
   fetchProjectSlidePreviewBlob: (
     assetFileId: string,
     expectedMimeType: string,
@@ -1004,16 +1029,12 @@ function DriveSlidePreview({
   }
 
   return (
-    <>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={previewState.objectUrl}
-        alt={`${assetName} のプレビュー`}
-        className="h-14 w-20 rounded-lg border border-slate-200 object-cover"
-        loading="lazy"
-        decoding="async"
-      />
-    </>
+    <ProjectSlideImageView
+      src={previewState.objectUrl}
+      alt={`${assetName} のプレビュー`}
+      imageEdit={imageEdit}
+      className="h-14 w-20 rounded-lg border border-slate-200 bg-slate-950"
+    />
   );
 }
 

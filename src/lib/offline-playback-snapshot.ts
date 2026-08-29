@@ -29,6 +29,11 @@ import {
   isSupportedDriveVideoMimeType,
   type SupportedDriveVideoMimeType,
 } from "@/lib/drive-video-policy";
+import {
+  isProjectSlideImageForImageEdit,
+  parseProjectSlideImageEdit,
+  type ProjectSlideImageEdit,
+} from "@/lib/project-slide-image-edit";
 
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
 const MIN_SLIDE_DURATION_SECONDS = 1;
@@ -47,6 +52,7 @@ type OfflinePlaybackSlideBase = {
   order: number;
   caption: string;
   durationSeconds: number;
+  imageEdit?: ProjectSlideImageEdit;
   type?: OfflineAssetType;
   mimeType: string;
   durationMs?: number;
@@ -442,6 +448,20 @@ function validatePlaybackRecords(input: {
 
     const asset = input.assets.find((candidate) => candidate.assetId === slide.assetId);
 
+    if (slide.imageEdit !== undefined) {
+      const parsedImageEdit = parseProjectSlideImageEdit(slide.imageEdit);
+      if (!parsedImageEdit.ok) {
+        diagnostics.push("スライドの画像編集情報が不正です。");
+      } else if (
+        !isProjectSlideImageForImageEdit({
+          type: slide.type ?? asset?.type,
+          mimeType: asset?.blobMimeType,
+        })
+      ) {
+        diagnostics.push("動画スライドには画像編集情報を指定できません。");
+      }
+    }
+
     if (asset?.blobStatus === "ready" && !assetBlobIds.has(slide.assetId)) {
       diagnostics.push(`slide ${slide.slideId}: asset blob が見つかりません。`);
     }
@@ -566,6 +586,7 @@ function toOfflinePlaybackSlide(input: {
     order: input.slide.order,
     caption: input.slide.caption,
     durationSeconds: normalizeDurationSeconds(input.slide.durationSeconds),
+    ...(input.slide.imageEdit ? { imageEdit: input.slide.imageEdit } : {}),
     ...(input.slide.type ?? input.asset.type
       ? { type: input.slide.type ?? input.asset.type }
       : {}),

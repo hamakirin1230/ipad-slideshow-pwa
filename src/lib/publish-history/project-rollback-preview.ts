@@ -486,6 +486,7 @@ function playbackSlideContent(slide: DriveSlideSummary) {
     mimeType: slide.mimeType,
     durationSeconds: slide.durationSeconds,
     caption: slide.caption,
+    imageEdit: slide.imageEdit ?? null,
     durationMs: slide.durationMs ?? null,
   };
 }

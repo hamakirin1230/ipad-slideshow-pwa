@@ -1,4 +1,3 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import {
@@ -35,8 +34,10 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ProjectSlideImageView } from "@/components/project-slide-image-view";
 import type { OfflinePlaybackSlide } from "@/lib/offline-playback-snapshot";
 import type { OfflinePublicationProvenanceView } from "@/lib/offline-publication-provenance";
+import type { ProjectSlideImageEdit } from "@/lib/project-slide-image-edit";
 import {
   isSupportedDriveVideoMimeType,
   type SupportedDriveVideoMimeType,
@@ -92,6 +93,9 @@ type PlayerSlideImage = {
   slideId: string;
   assetId: string;
   assetName: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  imageEdit?: ProjectSlideImageEdit;
 };
 
 type PlayerSlideVideo = {
@@ -829,6 +833,10 @@ function PlayerPageContent() {
     canRenderCurrentSlide ? (currentSlide?.assetId ?? null) : null;
   const currentSlideImageAssetName =
     canRenderCurrentSlide ? (currentSlide?.assetName ?? null) : null;
+  const currentSlideImageEdit =
+    canRenderCurrentSlide && currentSlideMediaKind === "image"
+      ? currentSlide?.imageEdit
+      : undefined;
   const currentSlideVideoDurationMs =
     canRenderCurrentSlide && currentSlideMediaKind === "video"
       ? currentSlide?.durationMs
@@ -1052,6 +1060,9 @@ function PlayerPageContent() {
       slideId: currentSlideImageSlideId,
       assetId: currentSlideImageAssetId,
       assetName: currentSlideImageAssetName ?? "現在のスライド画像",
+      naturalWidth: 0,
+      naturalHeight: 0,
+      ...(currentSlideImageEdit ? { imageEdit: currentSlideImageEdit } : {}),
     };
     const preloadImage = new Image();
 
@@ -1062,6 +1073,8 @@ function PlayerPageContent() {
       }
 
       const currentDisplayed = displayedSlideImageRef.current;
+      nextImage.naturalWidth = preloadImage.naturalWidth;
+      nextImage.naturalHeight = preloadImage.naturalHeight;
 
       if (
         currentDisplayed &&
@@ -1154,6 +1167,7 @@ function PlayerPageContent() {
     currentSlideBlob,
     currentSlideImageAssetId,
     currentSlideImageAssetName,
+    currentSlideImageEdit,
     currentSlideImageSlideId,
     currentSlideMediaKind,
     playbackSlideTransition,
@@ -1902,30 +1916,30 @@ function PlayerPageContent() {
           ) : null}
 
           {previousSlideImage ? (
-            <img
+            <div
               key={`previous-${previousSlideImage.objectUrl}`}
-              src={previousSlideImage.objectUrl}
-              alt=""
-              aria-hidden="true"
-              draggable={false}
-              onDragStart={(event) => event.preventDefault()}
-              className={`absolute inset-0 h-full w-full object-contain ${imageTransitionPlan.outgoingClassName}`}
+              className={`absolute inset-0 h-full w-full ${imageTransitionPlan.outgoingClassName}`}
               style={{
                 userSelect: "none",
                 WebkitUserSelect: "none",
                 ...imageTransitionPlan.outgoingStyle,
               }}
-            />
+            >
+              <ProjectSlideImageView
+                src={previousSlideImage.objectUrl}
+                alt=""
+                sourceWidth={previousSlideImage.naturalWidth}
+                sourceHeight={previousSlideImage.naturalHeight}
+                imageEdit={previousSlideImage.imageEdit}
+                className="h-full w-full"
+              />
+            </div>
           ) : null}
 
           {displayedSlideImage ? (
-            <img
+            <div
               key={`displayed-${displayedSlideImage.objectUrl}`}
-              src={displayedSlideImage.objectUrl}
-              alt={displayedSlideImage.assetName}
-              draggable={false}
-              onDragStart={(event) => event.preventDefault()}
-              className={`absolute inset-0 h-full w-full object-contain ${
+              className={`absolute inset-0 h-full w-full ${
                 isSlideTransitioning ? imageTransitionPlan.incomingClassName : ""
               }`}
               style={{
@@ -1933,7 +1947,16 @@ function PlayerPageContent() {
                 WebkitUserSelect: "none",
                 ...(isSlideTransitioning ? imageTransitionPlan.incomingStyle : {}),
               }}
-            />
+            >
+              <ProjectSlideImageView
+                src={displayedSlideImage.objectUrl}
+                alt={displayedSlideImage.assetName}
+                sourceWidth={displayedSlideImage.naturalWidth}
+                sourceHeight={displayedSlideImage.naturalHeight}
+                imageEdit={displayedSlideImage.imageEdit}
+                className="h-full w-full"
+              />
+            </div>
           ) : null}
 
           {displayedSlideVideo &&

@@ -366,6 +366,7 @@ async function buildPlanFromManifest(input: {
       mimeType: slide.mimeType,
       sizeBytes,
       description: toGooglePhotosDescription(slide.caption),
+      ...(slide.imageEdit ? { imageEdit: slide.imageEdit } : {}),
       fileName: buildGooglePhotosExportFileName({
         slideIndex,
         assetName: slide.assetName,
