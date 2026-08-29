@@ -241,6 +241,81 @@ describe("rollback write plan", () => {
     });
   });
 
+  it("restores transition from a newer revision without converting undefined to none", () => {
+    const { current, assetMetadata, guard } = fixture();
+    current.transition = "zoom";
+    const target = revision();
+    target.manifest.transition = "fade";
+    target.sourceManifestCanonicalHash = getProjectManifestContentCanonicalHash(
+      target.manifest,
+    );
+
+    const restored = buildProjectRollbackWritePlan({
+      operationId: "rbop_20260728T020000000Z_abcdef12",
+      workspaceId: WORKSPACE_ID,
+      checkedAt: PUBLISHED_AT,
+      guard,
+      currentManifest: current,
+      currentRevisionId: CURRENT_ID,
+      targetRevision: target,
+      freshAssets: [
+        { assetId: ASSET_ID, driveFileId: "asset-file", metadata: assetMetadata },
+      ],
+      historyFolder: metadata(
+        "history-folder",
+        "history",
+        "projectHistory",
+        "project-folder",
+      ),
+      revisionsFolder: metadata(
+        "revisions-folder",
+        "revisions",
+        "projectRevisions",
+        "history-folder",
+      ),
+      revisionId: NEXT_ID,
+      publishedAt: PUBLISHED_AT,
+    });
+
+    expect(restored.currentManifestUpdate.body.transition).toBe("fade");
+    expect(restored.revisionFile.body.manifest.transition).toBe("fade");
+
+    const legacyTarget = revision();
+    expect(legacyTarget.manifest.transition).toBeUndefined();
+    const rolledBackToLegacy = buildProjectRollbackWritePlan({
+      operationId: "rbop_20260728T020000000Z_abcdef12",
+      workspaceId: WORKSPACE_ID,
+      checkedAt: PUBLISHED_AT,
+      guard,
+      currentManifest: current,
+      currentRevisionId: CURRENT_ID,
+      targetRevision: legacyTarget,
+      freshAssets: [
+        { assetId: ASSET_ID, driveFileId: "asset-file", metadata: assetMetadata },
+      ],
+      historyFolder: metadata(
+        "history-folder",
+        "history",
+        "projectHistory",
+        "project-folder",
+      ),
+      revisionsFolder: metadata(
+        "revisions-folder",
+        "revisions",
+        "projectRevisions",
+        "history-folder",
+      ),
+      revisionId: NEXT_ID,
+      publishedAt: PUBLISHED_AT,
+    });
+
+    expect(rolledBackToLegacy.currentManifestUpdate.body.transition).toBeUndefined();
+    expect(rolledBackToLegacy.revisionFile.body.manifest.transition).toBeUndefined();
+    expect(rolledBackToLegacy.currentManifestUpdate.body).not.toHaveProperty(
+      "transition",
+    );
+  });
+
   it("rejects operation-specific invariant changes", () => {
     const { current, assetMetadata, guard } = fixture();
     const plan = buildProjectRollbackWritePlan({

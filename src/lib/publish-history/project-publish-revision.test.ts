@@ -257,6 +257,7 @@ describe("publishable manifest content", () => {
     ["slide order", (manifest: ProjectManifest) => { manifest.slides.reverse(); }],
     ["caption", (manifest: ProjectManifest) => { manifest.slides[0].caption = "Changed"; }],
     ["duration", (manifest: ProjectManifest) => { manifest.slides[0].durationSeconds = 99; }],
+    ["transition", (manifest: ProjectManifest) => { manifest.transition = "fade"; }],
   ])("changes content hash for %s changes", async (_label, mutate) => {
     const left: ProjectManifest = buildManifest();
     const right: ProjectManifest = buildManifest();
@@ -291,6 +292,23 @@ describe("parseProjectPublishRevision", () => {
       caption: "Video caption",
     });
     expect(result.value.assets[1].remoteOnly).toBe(true);
+  });
+
+  it("includes album transition in the immutable revision manifest", () => {
+    const revision = buildRevision();
+    revision.manifest.transition = "slideLeft";
+    revision.sourceManifestCanonicalHash =
+      getProjectManifestCanonicalHash(revision.manifest);
+    revision.summary = deriveProjectPublishRevisionSummary(
+      revision.manifest,
+      revision.assets,
+    );
+
+    const result = parseProjectPublishRevision(revision);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.manifest.transition).toBe("slideLeft");
+    expect(result.value.manifest).not.toHaveProperty("publication");
   });
 
   it("parses a rollback revision", () => {

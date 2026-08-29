@@ -18,6 +18,14 @@ import {
 import { DUPLICATE_PROJECT_TITLE_MESSAGE } from "@/lib/project-title-uniqueness";
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 import {
+  PROJECT_SLIDE_TRANSITION_HELPER_COPY,
+  PROJECT_SLIDE_TRANSITION_UI_OPTIONS,
+  projectSlideTransitionFromSelection,
+  projectSlideTransitionToSelection,
+  type ProjectSlideTransition,
+  type ProjectSlideTransitionSelection,
+} from "@/lib/project-slide-transition";
+import {
   buildProjectDeleteConfirmationDescription,
   canStartProjectDeletion,
   getProjectDeleteButtonLabel,
@@ -43,6 +51,8 @@ export function ProjectStatusPanel() {
     selectProject,
     createProject,
     updateSelectedProjectTitle,
+    projectTransition,
+    updateSelectedProjectTransition,
     projectDeleteStatus,
     projectDeleteMessage,
     projectDeleteDiagnostics,
@@ -67,6 +77,11 @@ export function ProjectStatusPanel() {
     (projectStatus === "notCreated" || projectStatus === "ready") &&
     !isDriveOperationInFlight;
   const canUpdateSelectedProjectTitle =
+    driveStatus === "ready" &&
+    projectStatus === "ready" &&
+    projectSummary !== null &&
+    !isDriveOperationInFlight;
+  const canUpdateSelectedProjectTransition =
     driveStatus === "ready" &&
     projectStatus === "ready" &&
     projectSummary !== null &&
@@ -204,6 +219,15 @@ export function ProjectStatusPanel() {
             updateSelectedProjectTitle={updateSelectedProjectTitle}
           />
         </div>
+
+        <SelectedProjectSlideTransitionForm
+          key={`${projectSummary?.projectId ?? "none"}:${projectTransition ?? "standard"}`}
+          projectTransition={projectTransition}
+          hasProject={projectSummary !== null}
+          canUpdateSelectedProjectTransition={canUpdateSelectedProjectTransition}
+          isDriveOperationInFlight={isDriveOperationInFlight}
+          updateSelectedProjectTransition={updateSelectedProjectTransition}
+        />
 
         <SelectedProjectDeleteCard
           hasSelectedProject={
@@ -433,6 +457,71 @@ function SelectedProjectTitleForm(input: {
         disabled={!canSubmit}
       >
         名前を変更
+      </Button>
+    </form>
+  );
+}
+
+export function SelectedProjectSlideTransitionForm(input: {
+  projectTransition: ProjectSlideTransition | undefined;
+  hasProject: boolean;
+  canUpdateSelectedProjectTransition: boolean;
+  isDriveOperationInFlight: boolean;
+  updateSelectedProjectTransition: (
+    transition: ProjectSlideTransition | undefined,
+  ) => void;
+}) {
+  const savedSelection = projectSlideTransitionToSelection(input.projectTransition);
+  const [selection, setSelection] =
+    useState<ProjectSlideTransitionSelection>(savedSelection);
+  const canSubmit =
+    input.canUpdateSelectedProjectTransition && selection !== savedSelection;
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canSubmit) {
+      return;
+    }
+
+    input.updateSelectedProjectTransition(
+      projectSlideTransitionFromSelection(selection),
+    );
+  }
+
+  return (
+    <form
+      className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4"
+      onSubmit={handleSubmit}
+    >
+      <p className="font-semibold text-slate-50">スライド切り替え</p>
+      <p className="mt-2 text-sm leading-6 text-slate-400">
+        {PROJECT_SLIDE_TRANSITION_HELPER_COPY}
+      </p>
+      <label className="mt-3 block text-xs font-medium text-slate-400">
+        再生時の切り替え
+        <select
+          value={selection}
+          onChange={(event) =>
+            setSelection(event.target.value as ProjectSlideTransitionSelection)
+          }
+          className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 disabled:opacity-60"
+          disabled={!input.hasProject || input.isDriveOperationInFlight}
+        >
+          {PROJECT_SLIDE_TRANSITION_UI_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button
+        type="submit"
+        className="mt-4 min-h-11 w-full"
+        variant="secondary"
+        disabled={!canSubmit}
+      >
+        スライド切り替えを保存
       </Button>
     </form>
   );

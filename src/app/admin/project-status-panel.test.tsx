@@ -13,7 +13,9 @@ import {
   ProjectList,
   ProjectTitleDuplicateAlert,
   SelectedProjectDeleteCard,
+  SelectedProjectSlideTransitionForm,
 } from "./project-status-panel";
+import { PROJECT_SLIDE_TRANSITION_HELPER_COPY } from "@/lib/project-slide-transition";
 
 const source = readFileSync(
   new URL("./project-status-panel.tsx", import.meta.url),
@@ -407,3 +409,69 @@ function renderDeleteCard(
     />,
   );
 }
+
+describe("selected project slide transition form", () => {
+  it("shows five choices and treats 標準 as undefined", () => {
+    const html = renderToStaticMarkup(
+      <SelectedProjectSlideTransitionForm
+        projectTransition={undefined}
+        hasProject={true}
+        canUpdateSelectedProjectTransition={true}
+        isDriveOperationInFlight={false}
+        updateSelectedProjectTransition={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("標準");
+    expect(html).toContain("なし");
+    expect(html).toContain("フェード");
+    expect(html).toContain("スライド左");
+    expect(html).toContain("ズーム");
+    expect(html).toContain('value="standard"');
+    expect(html).toContain("selected");
+    expect(html).toContain(PROJECT_SLIDE_TRANSITION_HELPER_COPY);
+    expect(html).toContain("min-h-11");
+    expect(html).toContain("focus-visible:ring-2");
+    expect(html).toContain("スライド切り替えを保存");
+  });
+
+  it("shows the saved explicit value after Drive save", () => {
+    const html = renderToStaticMarkup(
+      <SelectedProjectSlideTransitionForm
+        projectTransition="fade"
+        hasProject={true}
+        canUpdateSelectedProjectTransition={true}
+        isDriveOperationInFlight={false}
+        updateSelectedProjectTransition={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('value="fade"');
+    expect(html).toContain("フェード");
+  });
+
+  it("disables the control when no album is selected", () => {
+    const html = renderToStaticMarkup(
+      <SelectedProjectSlideTransitionForm
+        projectTransition={undefined}
+        hasProject={false}
+        canUpdateSelectedProjectTransition={false}
+        isDriveOperationInFlight={false}
+        updateSelectedProjectTransition={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("disabled");
+    expect(html).toContain('disabled=""');
+  });
+
+  it("does not auto-save locally from the album transition form", () => {
+    const formSource = source.slice(
+      source.indexOf("export function SelectedProjectSlideTransitionForm("),
+    );
+    expect(formSource).not.toContain("startOfflineSync");
+    expect(formSource).toContain("onSubmit={handleSubmit}");
+    expect(formSource).toContain('type="submit"');
+    expect(formSource).toContain("updateSelectedProjectTransition(");
+  });
+});

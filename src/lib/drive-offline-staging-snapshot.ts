@@ -67,6 +67,7 @@ type DriveOfflineProjectManifest = {
   slides: DriveSlideSummary[];
   createdAt: string;
   updatedAt: string;
+  transition?: ProjectManifest["transition"];
   publication?: ProjectManifest["publication"];
 };
 
@@ -1041,6 +1042,9 @@ function parseDriveOfflineProjectManifest(input: {
     slides,
     createdAt,
     updatedAt,
+    ...(formalManifest.ok && formalManifest.value.transition !== undefined
+      ? { transition: formalManifest.value.transition }
+      : {}),
     ...(formalManifest.ok && formalManifest.value.publication
       ? { publication: formalManifest.value.publication }
       : {}),
@@ -1307,6 +1311,9 @@ function buildOfflineProject(input: {
     sourceManifestFileId: input.project.manifestFileId,
     sourceUpdatedAt: input.manifest.updatedAt,
     syncedAt: input.syncedAt,
+    ...(input.manifest.transition !== undefined
+      ? { transition: input.manifest.transition }
+      : {}),
     publicationProvenance: input.publicationProvenance,
   };
 }

@@ -105,6 +105,25 @@ describe("offline playback publication provenance", () => {
     expect(snapshot.publicationProvenance.status).toBe("legacyUnknown");
   });
 
+  it("copies album transition onto the ready playback snapshot", () => {
+    const snapshot = build({
+      project: { ...project(), transition: "slideLeft" },
+    });
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status !== "ready") return;
+    expect(snapshot.transition).toBe("slideLeft");
+  });
+
+  it("keeps a legacy OfflineProject without transition valid", () => {
+    const snapshot = build({
+      project: project(),
+    });
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status !== "ready") return;
+    expect(snapshot.transition).toBeUndefined();
+    expect(snapshot).not.toHaveProperty("transition");
+  });
+
   it("diagnoses project/sync-state provenance mismatch as invalid", () => {
     const snapshot = build({
       state: state({ status: "unpublished", checkedAt }),

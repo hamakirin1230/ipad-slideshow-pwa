@@ -1,3 +1,5 @@
+import type { ProjectSlideTransition } from "./project-slide-transition";
+
 export const OFFLINE_DB_NAME = "ipad-slideshow-offline";
 export const OFFLINE_DB_VERSION = 1;
 export const OFFLINE_SCHEMA_VERSION = 1;
@@ -73,6 +75,7 @@ export type OfflineProject = {
   sourceManifestFileId: string;
   sourceUpdatedAt?: IsoDateTimeString;
   syncedAt: IsoDateTimeString;
+  transition?: ProjectSlideTransition;
   publicationProvenance?: OfflinePublicationProvenance;
 };
 

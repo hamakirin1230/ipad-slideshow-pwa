@@ -49,6 +49,9 @@ function toOfflineProject(
     sourceManifestFileId: stagingProject.sourceManifestFileId,
     sourceUpdatedAt: stagingProject.sourceUpdatedAt,
     syncedAt: stagingProject.syncedAt,
+    ...(stagingProject.transition !== undefined
+      ? { transition: stagingProject.transition }
+      : {}),
     publicationProvenance: stagingProject.publicationProvenance,
   };
 }

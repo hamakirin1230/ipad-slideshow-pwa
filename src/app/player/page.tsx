@@ -43,6 +43,7 @@ import {
 import { useAppState } from "@/app/app-providers";
 import { createPlayerProjectLinkHref } from "@/lib/player-route";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
+import { getPlayerSlideTransitionPlan } from "./player-slide-transition";
 import { getPlayerEmptySnapshotView } from "./empty-snapshot-view";
 import {
   canApplyRemoteVideoResult,
@@ -66,7 +67,7 @@ import {
 const DEFAULT_SLIDE_DURATION_SECONDS = 5;
 const PLAYER_CONTROLS_HIDE_DELAY_MS = 4_000;
 const PLAYER_LOCK_HOLD_DURATION_MS = 2_000;
-const SLIDE_TRANSITION_DURATION_MS = 320;
+const LEGACY_SLIDE_TRANSITION_DURATION_MS = 320;
 const PLAYER_VIDEO_START_TIMEOUT_MS = 4_000;
 const PLAYER_REMOTE_VIDEO_SESSION_TTL_MS = 45 * 60 * 1000;
 const PLAYER_REMOTE_VIDEO_METADATA_TIMEOUT_MS = 15_000;
@@ -432,6 +433,7 @@ function PlayerPageContent() {
       ? snapshot
       : null;
   const slideCount = readySnapshot?.slides.length ?? 0;
+  const playbackSlideTransition = readySnapshot?.transition;
   const isProductionMode = presentationMode === "production";
   const isInteractionLocked = interactionLock === "locked";
   const canUseVisibleControls = !isProductionMode && !isInteractionLocked;
@@ -1072,7 +1074,14 @@ function PlayerPageContent() {
       adopted = true;
       clearPlayerTimeout(slideTransitionTimeoutRef);
 
-      if (currentDisplayed) {
+      const transitionPlan = getPlayerSlideTransitionPlan({
+        transition: playbackSlideTransition,
+        involvesVideo: displayedSlideVideoRef.current !== null,
+        hasCurrentImage: Boolean(currentDisplayed),
+        direction: slideTransitionDirection,
+      });
+
+      if (currentDisplayed && transitionPlan.keepPreviousImage) {
         const stalePrevious = previousSlideImageRef.current;
 
         if (
@@ -1094,12 +1103,24 @@ function PlayerPageContent() {
           setIsSlideTransitioning(false);
           setSlideTransitionDirection("none");
           revokeSlideImage(imageToRevoke);
-        }, SLIDE_TRANSITION_DURATION_MS);
+        }, transitionPlan.durationMs || LEGACY_SLIDE_TRANSITION_DURATION_MS);
       } else {
+        if (currentDisplayed) {
+          revokeSlideImage(currentDisplayed);
+        }
         previousSlideImageRef.current = null;
         setPreviousSlideImage(null);
-        setIsSlideTransitioning(false);
-        setSlideTransitionDirection("none");
+        const shouldAnimateIncoming = transitionPlan.incomingClassName !== "";
+        setIsSlideTransitioning(shouldAnimateIncoming);
+        if (shouldAnimateIncoming && transitionPlan.durationMs > 0) {
+          slideTransitionTimeoutRef.current = setTimeout(() => {
+            slideTransitionTimeoutRef.current = null;
+            setIsSlideTransitioning(false);
+            setSlideTransitionDirection("none");
+          }, transitionPlan.durationMs);
+        } else {
+          setSlideTransitionDirection("none");
+        }
       }
 
       displayedSlideImageRef.current = nextImage;
@@ -1132,6 +1153,8 @@ function PlayerPageContent() {
     currentSlideImageAssetName,
     currentSlideImageSlideId,
     currentSlideMediaKind,
+    playbackSlideTransition,
+    slideTransitionDirection,
   ]);
 
   useEffect(() => {
@@ -1695,6 +1718,20 @@ function PlayerPageContent() {
   const emptySnapshot = snapshot?.status === "empty";
   const invalidSnapshot = snapshot?.status === "invalid";
   const noSlides = readySnapshot !== null && slideCount === 0;
+  const imageTransitionPlan = getPlayerSlideTransitionPlan({
+    transition: playbackSlideTransition,
+    involvesVideo: currentSlideMediaKind === "video",
+    hasCurrentImage:
+      previousSlideImage !== null ||
+      (currentSlideMediaKind === "image" && isSlideTransitioning),
+    direction: slideTransitionDirection,
+  });
+  const videoTransitionPlan = getPlayerSlideTransitionPlan({
+    transition: playbackSlideTransition,
+    involvesVideo: true,
+    hasCurrentImage: false,
+    direction: "none",
+  });
 
   useEffect(() => {
     if (!canPlay || !areControlsVisible) {
@@ -1866,7 +1903,7 @@ function PlayerPageContent() {
               aria-hidden="true"
               draggable={false}
               onDragStart={(event) => event.preventDefault()}
-              className="absolute inset-0 h-full w-full animate-[playerPreviousFadeOut_320ms_ease-out_forwards] object-contain motion-reduce:animate-[playerPreviousFadeOut_60ms_ease-out_forwards]"
+              className={`absolute inset-0 h-full w-full object-contain ${imageTransitionPlan.outgoingClassName}`}
               style={{
                 userSelect: "none",
                 WebkitUserSelect: "none",
@@ -1882,9 +1919,7 @@ function PlayerPageContent() {
               draggable={false}
               onDragStart={(event) => event.preventDefault()}
               className={`absolute inset-0 h-full w-full object-contain ${
-                isSlideTransitioning
-                  ? getSlideTransitionClassName(slideTransitionDirection)
-                  : ""
+                isSlideTransitioning ? imageTransitionPlan.incomingClassName : ""
               }`}
               style={{
                 userSelect: "none",
@@ -1899,6 +1934,7 @@ function PlayerPageContent() {
             <PlayerVideoSlide
               key={`${displayedSlideVideo.slideId}:${displayedSlideVideo.assetId}`}
               video={displayedSlideVideo}
+              incomingClassName={videoTransitionPlan.incomingClassName}
               onEnded={handleVideoPlaybackEnded}
               onPlaybackFailure={handleVideoPlaybackFailure}
               onPlaybackMessage={handleVideoPlaybackMessage}
@@ -2556,6 +2592,7 @@ function ProjectSelectionCard({
 
 function PlayerVideoSlide({
   video,
+  incomingClassName = "",
   onEnded,
   onPlaybackFailure,
   onPlaybackMessage,
@@ -2571,6 +2608,7 @@ function PlayerVideoSlide({
   onToggleDiagnostics,
 }: {
   video: PlayerSlideVideo;
+  incomingClassName?: string;
   onEnded: (slideKey: string, sourceUrl: string) => void;
   onPlaybackFailure: (slideKey: string, sourceUrl: string) => void;
   onPlaybackMessage: (
@@ -3197,7 +3235,7 @@ function PlayerVideoSlide({
           revealVideoControls();
           reportPlaybackFailure();
         }}
-        className="absolute inset-0 h-full w-full object-contain"
+        className={`absolute inset-0 h-full w-full object-contain ${incomingClassName}`}
       />
 
       <PlayerControlGroup
@@ -4152,19 +4190,6 @@ function getPlayerVideoPlaybackTimeoutMs(durationMs: number | undefined) {
     DEFAULT_SLIDE_DURATION_SECONDS * 1000 + PLAYER_VIDEO_FALLBACK_DISPLAY_MS,
     PLAYER_VIDEO_MAX_FALLBACK_MS,
   );
-}
-
-function getSlideTransitionClassName(direction: SlideTransitionDirection) {
-  switch (direction) {
-    case "next":
-      return "animate-[playerSlideInNext_320ms_ease-out_forwards] motion-reduce:animate-[playerSlideInReduced_60ms_ease-out_forwards]";
-    case "previous":
-      return "animate-[playerSlideInPrevious_320ms_ease-out_forwards] motion-reduce:animate-[playerSlideInReduced_60ms_ease-out_forwards]";
-    case "none":
-      return "animate-[playerSlideInReduced_60ms_ease-out_forwards]";
-    default:
-      return "animate-[playerSlideInReduced_60ms_ease-out_forwards]";
-  }
 }
 
 function revokeSlideImage(image: PlayerSlideImage | null) {
