@@ -22,10 +22,10 @@ import {
 } from "@dnd-kit/core";
 import {
   arrayMove,
+  rectSortingStrategy,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
-  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Badge } from "@/components/ui/badge";
@@ -516,7 +516,7 @@ export function DriveProjectWorkspacePanel() {
                 >
                   <SortableContext
                     items={orderedSlideIds}
-                    strategy={verticalListSortingStrategy}
+                    strategy={rectSortingStrategy}
                   >
                     <div className="min-w-0 xl:overflow-hidden xl:rounded-xl xl:border xl:border-slate-200">
                       <div className="hidden gap-2 bg-slate-100 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 xl:grid xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]">
@@ -528,7 +528,10 @@ export function DriveProjectWorkspacePanel() {
                         <p>操作</p>
                         <p>編集</p>
                       </div>
-                      <div className="space-y-3 xl:space-y-0 xl:divide-y xl:divide-slate-200">
+                      <div
+                        data-mobile-slide-card-grid
+                        className="grid min-w-0 gap-3 md:grid-cols-2 xl:block xl:divide-y xl:divide-slate-200"
+                      >
                         {orderedSlides.map((slide, index) => (
                           <SortableSlideRow
                             key={`${slide.slideIdPart}-${slide.assetIdPart}`}
@@ -541,7 +544,7 @@ export function DriveProjectWorkspacePanel() {
                                 <label
                                   className={
                                     isMobileSelectionMode
-                                      ? "flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 xl:border-0 xl:bg-transparent"
+                                      ? "absolute left-3 top-3 z-20 flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/95 text-xs text-slate-600 shadow-sm xl:static xl:rounded-lg xl:border-0 xl:bg-transparent xl:shadow-none"
                                       : "hidden items-center gap-2 text-xs text-slate-600 xl:flex"
                                   }
                                 >
@@ -561,12 +564,20 @@ export function DriveProjectWorkspacePanel() {
                                     スライド {index + 1} を選択
                                   </span>
                                 </label>
-                                <div className="flex min-h-11 w-full items-center justify-between gap-2 sm:w-auto sm:min-w-11 sm:flex-col sm:justify-start xl:items-start">
-                                  <p className="text-sm font-semibold text-slate-900">
+                                <div className="contents xl:flex xl:min-w-11 xl:flex-col xl:items-start xl:gap-2">
+                                  <p
+                                    className={
+                                      isMobileSelectionMode
+                                        ? "absolute left-4 top-16 z-10 rounded-full bg-slate-950/65 px-2 py-0.5 text-xs font-semibold text-white xl:static xl:bg-transparent xl:px-0 xl:py-0 xl:text-sm xl:text-slate-900"
+                                        : "absolute left-4 top-4 z-10 rounded-full bg-slate-950/65 px-2 py-0.5 text-xs font-semibold text-white xl:static xl:bg-transparent xl:px-0 xl:py-0 xl:text-sm xl:text-slate-900"
+                                    }
+                                  >
                                     <span className="xl:hidden">#{index + 1}</span>
                                     <span className="hidden xl:inline">{index + 1}</span>
                                   </p>
-                                  {dragHandle}
+                                  <span className="absolute left-16 top-3 z-10 md:left-24 xl:static">
+                                    {dragHandle}
+                                  </span>
                                 </div>
                                 <DriveSlidePreview
                                   assetFileId={slide.assetFileId}
@@ -579,25 +590,24 @@ export function DriveProjectWorkspacePanel() {
                                   }
                                   size="card"
                                 />
-                                <div className="min-w-0 flex-1 xl:block">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <p className="line-clamp-2 min-w-0 basis-full break-words font-medium text-slate-950 xl:basis-auto">
+                                <div className="flex min-w-0 flex-col xl:block">
+                                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                    <p className="line-clamp-2 min-w-0 basis-full break-words font-semibold leading-5 text-slate-950 xl:basis-auto">
                                       {slide.assetName}
                                     </p>
-                                    <Badge
-                                      variant={
-                                        getAssetTypeLabel(slide.type) === "video"
-                                          ? "secondary"
-                                          : "outline"
-                                      }
-                                    >
+                                    <Badge variant="secondary">
                                       {getAssetTypeDisplayLabel(slide.type)}
                                     </Badge>
-                                    <Badge variant="secondary">
+                                    <Badge variant="default">
                                       {slide.durationSeconds}秒
                                     </Badge>
                                     {slide.imageEdit ? (
-                                      <Badge variant="outline">画像編集あり</Badge>
+                                      <Badge
+                                        variant="outline"
+                                        className="border-sky-200 bg-sky-50 text-sky-800"
+                                      >
+                                        画像編集あり
+                                      </Badge>
                                     ) : null}
                                     {slide.unsupportedReason ? (
                                       <Badge variant="destructive">
@@ -608,7 +618,7 @@ export function DriveProjectWorkspacePanel() {
                                     ) : null}
                                   </div>
                                   {slide.caption ? (
-                                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">
+                                    <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-slate-600">
                                       {slide.caption}
                                     </p>
                                   ) : null}
@@ -623,6 +633,23 @@ export function DriveProjectWorkspacePanel() {
                                     {formatOptionalDurationMs(slide.durationMs)} / 容量:{" "}
                                     {formatOptionalBytes(slide.fileSize)}
                                   </p>
+                                  <div className="mt-auto flex justify-end pt-1 xl:hidden">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      className="min-h-11 min-w-11 px-3 text-slate-700"
+                                      disabled={isMobileSelectionMode}
+                                      aria-label={`スライド ${index + 1} を編集`}
+                                      onClick={(event) =>
+                                        openMobileSlideEditor(
+                                          slide.slideId,
+                                          event.currentTarget,
+                                        )
+                                      }
+                                    >
+                                      編集 <span aria-hidden="true">›</span>
+                                    </Button>
+                                  </div>
                                 </div>
                                 <div className="hidden xl:contents">
                                   <SlideReorderControls
@@ -687,21 +714,6 @@ export function DriveProjectWorkspacePanel() {
                                     />
                                   ) : null}
                                 </div>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="min-h-11 w-full basis-full xl:hidden"
-                                  disabled={isMobileSelectionMode}
-                                  aria-label={`スライド ${index + 1} を編集`}
-                                  onClick={(event) =>
-                                    openMobileSlideEditor(
-                                      slide.slideId,
-                                      event.currentTarget,
-                                    )
-                                  }
-                                >
-                                  スライドを編集
-                                </Button>
                               </>
                             )}
                           </SortableSlideRow>
@@ -1265,7 +1277,7 @@ function SortableSlideRow({
       disabled={isDisabled}
       aria-label="ドラッグして並び替え"
       title="ドラッグして並び替え"
-      className="inline-flex size-11 items-center justify-center rounded-md border border-slate-300 bg-white text-base font-semibold leading-none text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex size-11 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-base font-semibold leading-none text-slate-500 shadow-none hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 xl:rounded-md"
       {...attributes}
       {...listeners}
     >
@@ -1279,8 +1291,8 @@ function SortableSlideRow({
       style={style}
       className={
         isDragging
-          ? "flex min-w-0 flex-wrap items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 sm:p-4 xl:grid xl:rounded-none xl:border-0 xl:px-3 xl:py-2 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
-          : "flex min-w-0 flex-wrap items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm sm:p-4 xl:grid xl:rounded-none xl:border-0 xl:px-3 xl:py-2 xl:shadow-none xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)]"
+          ? "relative grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 sm:p-4 md:p-3 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)] xl:rounded-none xl:border-0 xl:px-3 xl:py-2"
+          : "relative grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm sm:p-4 md:p-3 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)] xl:rounded-none xl:border-0 xl:px-3 xl:py-2 xl:shadow-none"
       }
     >
       {children({ dragHandle })}
@@ -1640,7 +1652,7 @@ function getDriveSlidePreviewClassName(size: "row" | "card" | "detail") {
     return "h-56 w-full sm:h-80";
   }
   if (size === "card") {
-    return "h-24 w-24 shrink-0 sm:h-32 sm:w-40 xl:h-14 xl:w-20";
+    return "h-24 w-24 shrink-0 md:h-28 md:w-32 xl:h-14 xl:w-20";
   }
   return "h-14 w-20 shrink-0";
 }
