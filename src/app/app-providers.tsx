@@ -37,6 +37,7 @@ import {
   type PrepareGooglePhotosExportReviewResult,
 } from "@/lib/google-photos-export/workflow";
 import {
+  GOOGLE_PHOTOS_EXPORT_POPUP_BLOCKED_MESSAGE,
   assertGooglePhotosExportPlanIsImageOnly,
   type GooglePhotosExportPlan,
   type GooglePhotosExportProgress,
@@ -538,20 +539,40 @@ type PendingPhotosTokenRequest = {
 type TokenRequestKind = "drive" | "photos" | "photosExport" | null;
 
 type PhotosTokenRequestFailureStatus = "cancelled" | "error";
+type PhotosTokenRequestFailureCategory = "popupBlocked";
 
 class PhotosTokenRequestError extends Error {
   readonly status: PhotosTokenRequestFailureStatus;
+  readonly category?: PhotosTokenRequestFailureCategory;
   readonly diagnostics: string[];
 
   constructor(input: {
     status: PhotosTokenRequestFailureStatus;
+    category?: PhotosTokenRequestFailureCategory;
     message: string;
     diagnostics: string[];
   }) {
     super(input.message);
     this.name = "PhotosTokenRequestError";
     this.status = input.status;
+    this.category = input.category;
     this.diagnostics = [...input.diagnostics];
+  }
+}
+
+function toPhotosExportTokenPopupFailure(
+  error?: GoogleTokenError,
+): {
+  status: PhotosTokenRequestFailureStatus;
+  category?: PhotosTokenRequestFailureCategory;
+} {
+  switch (error?.type) {
+    case "popup_failed_to_open":
+      return { status: "error", category: "popupBlocked" };
+    case "popup_closed":
+      return { status: "cancelled" };
+    default:
+      return { status: "error" };
   }
 }
 
@@ -1725,7 +1746,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return true;
   }
 
-  function handlePhotosExportTokenErrorCallback() {
+  function handlePhotosExportTokenErrorCallback(error?: GoogleTokenError) {
     const pendingRequest = pendingPhotosExportTokenRequestRef.current;
     if (!pendingRequest) {
       if (tokenRequestKindRef.current === "photosExport") {
@@ -1738,11 +1759,22 @@ export function AppProviders({ children }: { children: ReactNode }) {
     clearTimeout(pendingRequest.timeoutId);
     pendingPhotosExportTokenRequestRef.current = null;
     tokenRequestKindRef.current = null;
+    const failure = toPhotosExportTokenPopupFailure(error);
     pendingRequest.reject(
       new PhotosTokenRequestError({
-        status: "cancelled",
-        message: "Photos export permission did not complete.",
-        diagnostics: ["Googleフォトへの書き出し許可が完了しませんでした。"],
+        ...failure,
+        message:
+          failure.category === "popupBlocked"
+            ? "Photos export popup could not be opened."
+            : failure.status === "cancelled"
+              ? "Photos export permission was cancelled."
+              : "Photos export permission did not complete.",
+        diagnostics:
+          failure.category === "popupBlocked"
+            ? ["Googleフォトへの書き出し認証画面を開けませんでした。"]
+            : failure.status === "cancelled"
+              ? ["Googleフォトへの書き出し許可がキャンセルされました。"]
+              : ["Googleフォトへの書き出し許可が完了しませんでした。"],
       }),
     );
     return true;
@@ -2581,8 +2613,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       callback: (tokenResponse) => {
         handlePhotosExportTokenResponse(tokenResponse);
       },
-      error_callback: () => {
-        handlePhotosExportTokenErrorCallback();
+      error_callback: (error) => {
+        handlePhotosExportTokenErrorCallback(error);
       },
     });
 
@@ -7213,22 +7245,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
         return { ok: false, error: imageOnlyError };
       }
 
-      try {
-        await requestPhotosExportAccessToken(requestSequence);
-      } catch (error) {
-        if (error instanceof PhotosTokenRequestError && error.status === "cancelled") {
-          return createGooglePhotosExportAuthorizationError("authorizationDenied");
-        }
-        return createGooglePhotosExportAuthorizationError("authorizationRequired");
-      }
-
-      if (
-        requestSequence !== googlePhotosExportRequestSequenceRef.current ||
-        accessTokenRef.current !== accessToken
-      ) {
-        return createGooglePhotosExportAuthorizationError("aborted");
-      }
-
       pendingGooglePhotosExportRef.current = source.plan;
       googlePhotosExportRuntimeRef.current = {
         plan: source.plan,
@@ -7259,21 +7275,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   async function commitPreparedGooglePhotosExport(): Promise<CommitGooglePhotosExportResult> {
     const driveAccessToken = accessTokenRef.current;
-    const photosAccessToken = photosExportAccessTokenRef.current;
     const plan = pendingGooglePhotosExportRef.current;
     const runtime = googlePhotosExportRuntimeRef.current;
     const workspace = workspaceReadyContext;
     const project = driveProjectReadyContext;
-    if (!photosAccessToken) {
-      return {
-        ok: false,
-        error: {
-          kind: "authorizationRequired",
-          message: "Googleフォトへの書き出し許可が必要です。",
-        },
-        canResume: false,
-      };
-    }
     if (
       !driveAccessToken ||
       !plan ||
@@ -7291,16 +7296,75 @@ export function AppProviders({ children }: { children: ReactNode }) {
         canResume: false,
       };
     }
+    if (googlePhotosExportInFlightRef.current) {
+      return {
+        ok: false,
+        error: {
+          kind: "aborted",
+          message: "Googleフォトへの書き出し処理はすでに進行中です。",
+        },
+        canResume: canResumeGooglePhotosExport,
+      };
+    }
 
     const requestSequence = googlePhotosExportRequestSequenceRef.current;
     const controller = new AbortController();
     googlePhotosExportAbortRef.current = controller;
     googlePhotosExportInFlightRef.current = true;
+    const photosAccessTokenPromise = requestPhotosExportAccessToken(requestSequence);
     setIsGooglePhotosExportInFlight(true);
     setCanResumeGooglePhotosExport(false);
     setGooglePhotosExportResult(null);
 
     try {
+      let photosAccessToken: string;
+      try {
+        photosAccessToken = await photosAccessTokenPromise;
+      } catch (error) {
+        const canResume = canResumeGooglePhotosExport;
+        setCanResumeGooglePhotosExport(canResume);
+        if (
+          error instanceof PhotosTokenRequestError &&
+          error.category === "popupBlocked"
+        ) {
+          return {
+            ok: false,
+            error: {
+              kind: "authorizationRequired",
+              message: GOOGLE_PHOTOS_EXPORT_POPUP_BLOCKED_MESSAGE,
+            },
+            canResume,
+          };
+        }
+        if (
+          error instanceof PhotosTokenRequestError &&
+          error.status === "cancelled"
+        ) {
+          return {
+            ...createGooglePhotosExportAuthorizationError(
+              "authorizationDenied",
+            ),
+            canResume,
+          };
+        }
+        return {
+          ...createGooglePhotosExportAuthorizationError(
+            "authorizationRequired",
+          ),
+          canResume,
+        };
+      }
+
+      if (
+        requestSequence !== googlePhotosExportRequestSequenceRef.current ||
+        accessTokenRef.current !== driveAccessToken
+      ) {
+        return {
+          ...createGooglePhotosExportAuthorizationError("aborted"),
+          canResume: false,
+        };
+      }
+
       const result = await commitGooglePhotosExportAfterFreshValidation({
         driveAccessToken,
         photosAccessToken,

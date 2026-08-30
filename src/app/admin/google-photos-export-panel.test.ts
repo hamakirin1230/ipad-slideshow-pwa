@@ -106,12 +106,7 @@ describe("google photos export review UI", () => {
     expect(source.panel).not.toContain("sessionStorage");
     expect(source.providers).toContain("assertGooglePhotosExportPlanIsImageOnly");
     expect(source.providers).toContain(
-      "await requestPhotosExportAccessToken(requestSequence);",
-    );
-    expect(
-      source.providers.indexOf("assertGooglePhotosExportPlanIsImageOnly(source.plan)"),
-    ).toBeLessThan(
-      source.providers.indexOf("await requestPhotosExportAccessToken(requestSequence);"),
+      "const photosAccessTokenPromise = requestPhotosExportAccessToken(requestSequence);",
     );
     expect(source.providers).toContain("photosExportAccessTokenRef");
     expect(source.providers).toContain("scope: GOOGLE_PHOTOS_EXPORT_SCOPE");
@@ -174,6 +169,14 @@ describe("google photos export review UI", () => {
     expect(source.providers).toContain(
       "return toGooglePhotosExportReviewResult(source);",
     );
+  });
+
+  it("keeps the review available when Photos authorization must be retried", () => {
+    expect(source.panel).toContain('status: "review", review, error: result.error');
+    expect(source.panel).toContain('result.error.kind === "authorizationRequired"');
+    expect(source.panel).toContain('result.error.kind === "authorizationDenied"');
+    expect(source.panel).toContain("{uiState.error.message}");
+    expect(source.panel).toContain("exportToPhotos(uiState.review!, true)");
   });
 });
 

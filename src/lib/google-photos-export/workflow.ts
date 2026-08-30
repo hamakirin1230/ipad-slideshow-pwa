@@ -106,7 +106,7 @@ export function toGooglePhotosExportReviewResult(
 
 export function createGooglePhotosExportAuthorizationError(
   kind: "authorizationRequired" | "authorizationDenied" | "aborted",
-): PrepareGooglePhotosExportReviewResult {
+): Extract<PrepareGooglePhotosExportReviewResult, { ok: false }> {
   return {
     ok: false,
     error: createSanitizedGooglePhotosExportError(kind),

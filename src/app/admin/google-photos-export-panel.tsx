@@ -23,7 +23,11 @@ import { formatUiDateTime } from "@/lib/ui-format";
 type ExportUiState =
   | { status: "idle" }
   | { status: "preparing" }
-  | { status: "review"; review: GooglePhotosExportReview }
+  | {
+      status: "review";
+      review: GooglePhotosExportReview;
+      error?: SanitizedGooglePhotosExportError;
+    }
   | { status: "exporting"; review: GooglePhotosExportReview }
   | { status: "success"; result: SanitizedGooglePhotosExportSuccess }
   | {
@@ -105,7 +109,10 @@ function GooglePhotosExportPanelSession() {
     );
   }
 
-  async function exportToPhotos(review: GooglePhotosExportReview) {
+  async function exportToPhotos(
+    review: GooglePhotosExportReview,
+    resumeAttempt = false,
+  ) {
     if (actionInFlightRef.current || !confirmed) return;
 
     const requestSequence = requestSequenceRef.current + 1;
@@ -124,6 +131,22 @@ function GooglePhotosExportPanelSession() {
     }
     if (result.error.kind === "sourceChanged") {
       setConfirmed(false);
+    }
+    if (
+      result.error.kind === "authorizationRequired" ||
+      result.error.kind === "authorizationDenied"
+    ) {
+      setUiState(
+        resumeAttempt
+          ? {
+              status: "error",
+              error: result.error,
+              review,
+              canResume: true,
+            }
+          : { status: "review", review, error: result.error },
+      );
+      return;
     }
     setUiState({
       status: "error",
@@ -174,14 +197,24 @@ function GooglePhotosExportPanelSession() {
           ) : null}
 
           {uiState.status === "review" ? (
-            <ExportReview
-              review={uiState.review}
-              confirmed={confirmed}
-              disabled={isGooglePhotosExportInFlight}
-              onConfirmedChange={setConfirmed}
-              onExport={() => void exportToPhotos(uiState.review)}
-              onCancel={cancelReview}
-            />
+            <div className="space-y-3">
+              {uiState.error ? (
+                <div
+                  role="alert"
+                  className="rounded-2xl border border-rose-400/30 bg-rose-400/10 p-4 text-rose-100"
+                >
+                  <p className="font-medium">{uiState.error.message}</p>
+                </div>
+              ) : null}
+              <ExportReview
+                review={uiState.review}
+                confirmed={confirmed}
+                disabled={isGooglePhotosExportInFlight}
+                onConfirmedChange={setConfirmed}
+                onExport={() => void exportToPhotos(uiState.review)}
+                onCancel={cancelReview}
+              />
+            </div>
           ) : null}
 
           {uiState.status === "exporting" ? (
@@ -220,7 +253,7 @@ function GooglePhotosExportPanelSession() {
                     type="button"
                     className="min-h-11"
                     disabled={isGooglePhotosExportInFlight}
-                    onClick={() => void exportToPhotos(uiState.review!)}
+                    onClick={() => void exportToPhotos(uiState.review!, true)}
                   >
                     続きから再開
                   </Button>

@@ -8,6 +8,7 @@ import {
   GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES,
   GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES,
   GOOGLE_PHOTOS_EXPORT_MIME_TYPES,
+  GOOGLE_PHOTOS_EXPORT_POPUP_BLOCKED_MESSAGE,
   GOOGLE_PHOTOS_EXPORT_SKIPPED_VIDEO_MIME_TYPES,
   GOOGLE_PHOTOS_LIBRARY_UPLOADABLE_MIME_TYPES,
   googlePhotosExportSourceMatchesPreparedPlan,
@@ -20,6 +21,21 @@ import {
 } from "./contract";
 
 describe("google photos export contract", () => {
+  it("keeps the popup-blocked message actionable and free of raw auth details", () => {
+    expect(GOOGLE_PHOTOS_EXPORT_POPUP_BLOCKED_MESSAGE).toContain(
+      "もう一度「Googleフォトへ書き出す」を押してください。",
+    );
+    expect(GOOGLE_PHOTOS_EXPORT_POPUP_BLOCKED_MESSAGE).toContain(
+      "ポップアップがブロックされている場合は許可してください。",
+    );
+    expect(GOOGLE_PHOTOS_EXPORT_POPUP_BLOCKED_MESSAGE).toContain(
+      "再開中の場合は「続きから再開」を押してください。",
+    );
+    expect(GOOGLE_PHOTOS_EXPORT_POPUP_BLOCKED_MESSAGE).not.toMatch(
+      /access_token|client_id|https?:\/\//,
+    );
+  });
+
   it("exports image MIME types only while Drive projects can still contain videos", () => {
     expect(GOOGLE_PHOTOS_EXPORT_MIME_TYPES).toEqual([
       "image/jpeg",

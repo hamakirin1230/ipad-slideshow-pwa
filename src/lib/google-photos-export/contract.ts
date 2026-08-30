@@ -115,6 +115,9 @@ export type GooglePhotosExportProgress = {
 export const GOOGLE_PHOTOS_EXPORT_RESUMABLE_UPLOAD_MESSAGE =
   "Googleフォトへの通信が途中で止まりました。完了済みの写真はそのままにして、続きから再開できます。";
 
+export const GOOGLE_PHOTOS_EXPORT_POPUP_BLOCKED_MESSAGE =
+  "Googleの認証画面を開けませんでした。もう一度「Googleフォトへ書き出す」を押してください。再開中の場合は「続きから再開」を押してください。ブラウザでポップアップがブロックされている場合は許可してください。";
+
 export type SanitizedGooglePhotosExportSuccess = {
   albumTitle: string;
   mediaItemCount: number;

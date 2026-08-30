@@ -77,6 +77,106 @@ describe("google auth does not auto-restore after refresh", () => {
     expect(photosExportPanel).not.toContain("trySilentDriveRestore");
   });
 
+  it("starts Photos export authorization from commit before any await or fresh validation", () => {
+    const prepare = extractFunction(
+      providers,
+      "prepareGooglePhotosExportReview",
+    );
+    const commit = extractFunction(
+      providers,
+      "commitPreparedGooglePhotosExport",
+    );
+    const request = extractFunction(
+      providers,
+      "requestPhotosExportAccessToken",
+    );
+    const exportAction = extractFunction(photosExportPanel, "exportToPhotos");
+    const requestStart = commit.indexOf(
+      "const photosAccessTokenPromise = requestPhotosExportAccessToken(requestSequence);",
+    );
+
+    expect(prepare).not.toContain("requestPhotosExportAccessToken");
+    expect(requestStart).toBeGreaterThan(-1);
+    expect(requestStart).toBeLessThan(commit.indexOf("await "));
+    expect(requestStart).toBeLessThan(
+      commit.indexOf("commitGooglePhotosExportAfterFreshValidation"),
+    );
+    expect(request).toContain("tokenClient.requestAccessToken({");
+    expect(request).not.toContain("await ");
+    expect(exportAction).toContain(
+      "const result = await commitPreparedGooglePhotosExport();",
+    );
+    expect(exportAction.indexOf("actionInFlightRef.current")).toBeLessThan(
+      exportAction.indexOf("commitPreparedGooglePhotosExport()"),
+    );
+    expect(
+      exportAction.indexOf("actionInFlightRef.current = true"),
+    ).toBeLessThan(
+      exportAction.indexOf("commitPreparedGooglePhotosExport()"),
+    );
+    expect(
+      exportAction.slice(
+        0,
+        exportAction.indexOf(
+          "const result = await commitPreparedGooglePhotosExport();",
+        ),
+      ),
+    ).not.toContain("await ");
+  });
+
+  it("reuses an existing Photos token for export or resume and guards duplicate requests", () => {
+    const request = extractFunction(
+      providers,
+      "requestPhotosExportAccessToken",
+    );
+    const commit = extractFunction(
+      providers,
+      "commitPreparedGooglePhotosExport",
+    );
+
+    expect(request.indexOf("if (existingToken)")).toBeLessThan(
+      request.indexOf("tokenClient.requestAccessToken({"),
+    );
+    expect(commit.indexOf("googlePhotosExportInFlightRef.current")).toBeLessThan(
+      commit.indexOf("requestPhotosExportAccessToken(requestSequence)"),
+    );
+    expect(photosExportPanel).toContain(
+      "exportToPhotos(uiState.review!, true)",
+    );
+    expect(commit).toContain(
+      "requestPhotosExportAccessToken(requestSequence)",
+    );
+  });
+
+  it("distinguishes a blocked Photos popup from a closed popup without raw details", () => {
+    const callback = extractFunction(
+      providers,
+      "handlePhotosExportTokenErrorCallback",
+    );
+    const classification = extractFunction(
+      providers,
+      "toPhotosExportTokenPopupFailure",
+    );
+    const commit = extractFunction(
+      providers,
+      "commitPreparedGooglePhotosExport",
+    );
+
+    expect(classification).toContain('case "popup_failed_to_open"');
+    expect(classification).toContain(
+      'return { status: "error", category: "popupBlocked" }',
+    );
+    expect(classification).toContain('case "popup_closed"');
+    expect(classification).toContain('return { status: "cancelled" }');
+    expect(callback).toContain("toPhotosExportTokenPopupFailure(error)");
+    expect(commit).toContain('error.category === "popupBlocked"');
+    expect(commit).toContain("GOOGLE_PHOTOS_EXPORT_POPUP_BLOCKED_MESSAGE");
+    expect(commit).toContain('error.status === "cancelled"');
+    expect(photosExportPanel).not.toContain("popup_failed_to_open");
+    expect(photosExportPanel).not.toContain("error_description");
+    expect(photosExportPanel).not.toContain("clientId");
+  });
+
   it("does not persist Google tokens or restore markers", () => {
     expect(providers).not.toContain("localStorage");
     expect(providers).not.toContain("sessionStorage");
