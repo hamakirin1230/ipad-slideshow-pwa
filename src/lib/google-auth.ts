@@ -7,6 +7,15 @@ export const DRIVE_AND_PHOTOS_PICKER_SCOPES = [
 ].join(" ");
 export const PHOTOS_LIBRARY_APPENDONLY_SCOPE =
   "https://www.googleapis.com/auth/photoslibrary.appendonly";
+export const PHOTOS_LIBRARY_EDIT_APPCREATEDDATA_SCOPE =
+  "https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata";
+export const PHOTOS_LIBRARY_READONLY_APPCREATEDDATA_SCOPE =
+  "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata";
+export const PHOTOS_LIBRARY_SYNC_SCOPES = [
+  PHOTOS_LIBRARY_APPENDONLY_SCOPE,
+  PHOTOS_LIBRARY_EDIT_APPCREATEDDATA_SCOPE,
+  PHOTOS_LIBRARY_READONLY_APPCREATEDDATA_SCOPE,
+].join(" ");
 
 export type GoogleConnectionStatus =
   | "scriptLoading"
