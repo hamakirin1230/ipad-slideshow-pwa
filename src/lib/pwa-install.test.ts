@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isStandalonePwaDisplay } from "./pwa-install";
+import {
+  isStandalonePwaDisplay,
+  resolvePwaInstallActionMode,
+} from "./pwa-install";
 
 describe("PWA standalone display detection", () => {
   it("treats display-mode standalone as installed", () => {
@@ -49,5 +52,56 @@ describe("PWA standalone display detection", () => {
         navigatorStandalone: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe("PWA install action mode", () => {
+  it("hides before client display resolution and in standalone mode", () => {
+    expect(
+      resolvePwaInstallActionMode({
+        displayResolved: false,
+        standalone: false,
+        directPromptAvailable: true,
+        promptPending: false,
+      }),
+    ).toBe("hidden");
+    expect(
+      resolvePwaInstallActionMode({
+        displayResolved: true,
+        standalone: true,
+        directPromptAvailable: true,
+        promptPending: false,
+      }),
+    ).toBe("hidden");
+  });
+
+  it("uses direct mode only when an actual prompt event is available", () => {
+    expect(
+      resolvePwaInstallActionMode({
+        displayResolved: true,
+        standalone: false,
+        directPromptAvailable: true,
+        promptPending: false,
+      }),
+    ).toBe("direct");
+    expect(
+      resolvePwaInstallActionMode({
+        displayResolved: true,
+        standalone: false,
+        directPromptAvailable: false,
+        promptPending: false,
+      }),
+    ).toBe("manual");
+  });
+
+  it("blocks a second action while the native prompt choice is pending", () => {
+    expect(
+      resolvePwaInstallActionMode({
+        displayResolved: true,
+        standalone: false,
+        directPromptAvailable: true,
+        promptPending: true,
+      }),
+    ).toBe("promptPending");
   });
 });
