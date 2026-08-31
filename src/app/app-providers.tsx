@@ -47,6 +47,12 @@ import {
   type SanitizedGooglePhotosExportSuccess,
 } from "@/lib/google-photos-export/contract";
 import {
+  runGooglePhotosSameAlbumSync as executeGooglePhotosSameAlbumSync,
+  type GooglePhotosSameAlbumSyncCoordinatorProgress,
+  type GooglePhotosSameAlbumSyncCoordinatorResult,
+} from "@/lib/google-photos-export/sync-coordinator";
+import type { GooglePhotosSyncMediaRuntime } from "@/lib/google-photos-export/sync-media";
+import {
   listProjectPublishRevisions,
   loadProjectPublishRevision,
   type ListProjectPublishRevisionsResult,
@@ -543,6 +549,17 @@ type PendingPhotosSyncTokenRequest = PendingPhotosTokenRequest & {
   promise: Promise<string>;
 };
 
+type GooglePhotosSyncMediaRuntimeOwner = {
+  workspaceId: string;
+  projectId: string;
+  projectFolderId: string;
+};
+
+type GooglePhotosSyncAuthoritySnapshot = GooglePhotosSyncMediaRuntimeOwner & {
+  driveAccessToken: string;
+  projectsRootFolderId: string;
+};
+
 type TokenRequestKind =
   | "drive"
   | "photos"
@@ -571,6 +588,14 @@ class PhotosTokenRequestError extends Error {
     this.diagnostics = [...input.diagnostics];
   }
 }
+
+export type GooglePhotosSyncActionResult =
+  | GooglePhotosSameAlbumSyncCoordinatorResult
+  | { status: "notReady" }
+  | { status: "alreadyRunning" }
+  | { status: "authorizationRequired" }
+  | { status: "authorizationDenied" }
+  | { status: "cancelled" };
 
 function toPhotosExportTokenPopupFailure(
   error?: GoogleTokenError,
@@ -784,6 +809,13 @@ type AppContextValue = {
   googlePhotosExportProgress: GooglePhotosExportProgress | null;
   googlePhotosExportResult: SanitizedGooglePhotosExportSuccess | null;
   canResumeGooglePhotosExport: boolean;
+  syncSelectedProjectToGooglePhotos: (
+    projectId: string,
+  ) => Promise<GooglePhotosSyncActionResult>;
+  abortGooglePhotosSync: () => void;
+  isGooglePhotosSyncInFlight: boolean;
+  googlePhotosSyncProgress: GooglePhotosSameAlbumSyncCoordinatorProgress | null;
+  googlePhotosSyncResult: GooglePhotosSyncActionResult | null;
   isProjectRollbackInFlight: boolean;
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
@@ -979,6 +1011,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const pendingPhotosSyncTokenRequestRef =
     useRef<PendingPhotosSyncTokenRequest | null>(null);
   const photosSyncTokenRequestIdRef = useRef(0);
+  const googlePhotosSyncMediaRuntimeRef =
+    useRef<GooglePhotosSyncMediaRuntime | null>(null);
+  const googlePhotosSyncMediaRuntimeOwnerRef =
+    useRef<GooglePhotosSyncMediaRuntimeOwner | null>(null);
+  const googlePhotosSyncExecutionOwnerRef =
+    useRef<GooglePhotosSyncMediaRuntimeOwner | null>(null);
+  const googlePhotosSyncAbortRef = useRef<AbortController | null>(null);
+  const googlePhotosSyncRequestSequenceRef = useRef(0);
+  const googlePhotosSyncInFlightRef = useRef(false);
   const pendingGooglePhotosExportRef = useRef<GooglePhotosExportPlan | null>(
     null,
   );
@@ -1103,6 +1144,21 @@ export function AppProviders({ children }: { children: ReactNode }) {
     useState<SanitizedGooglePhotosExportSuccess | null>(null);
   const [canResumeGooglePhotosExport, setCanResumeGooglePhotosExport] =
     useState(false);
+  const [isGooglePhotosSyncInFlight, setIsGooglePhotosSyncInFlight] =
+    useState(false);
+  const [googlePhotosSyncProgress, setGooglePhotosSyncProgress] =
+    useState<GooglePhotosSameAlbumSyncCoordinatorProgress | null>(null);
+  const [googlePhotosSyncResult, setGooglePhotosSyncResult] =
+    useState<GooglePhotosSyncActionResult | null>(null);
+  const googlePhotosSyncDriveAuthorityRef = useRef({
+    googleStatus,
+    driveFileGranted,
+    driveStatus,
+    projectStatus,
+    workspace: workspaceReadyContext,
+    project: driveProjectReadyContext,
+    selectedProjectId,
+  });
 
   const [assetImportStatus, setAssetImportStatus] =
     useState<AssetImportStatus>("idle");
@@ -1240,6 +1296,26 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [isOfflineSyncInFlight, setIsOfflineSyncInFlight] = useState(false);
 
   useEffect(() => {
+    googlePhotosSyncDriveAuthorityRef.current = {
+      googleStatus,
+      driveFileGranted,
+      driveStatus,
+      projectStatus,
+      workspace: workspaceReadyContext,
+      project: driveProjectReadyContext,
+      selectedProjectId,
+    };
+  }, [
+    driveFileGranted,
+    driveProjectReadyContext,
+    driveStatus,
+    googleStatus,
+    projectStatus,
+    selectedProjectId,
+    workspaceReadyContext,
+  ]);
+
+  useEffect(() => {
     return () => {
       projectPublishRequestSequenceRef.current += 1;
       pendingProjectPublishRef.current = null;
@@ -1253,6 +1329,31 @@ export function AppProviders({ children }: { children: ReactNode }) {
       projectRollbackAbortRef.current?.abort();
       projectRollbackAbortRef.current = null;
       projectRollbackInFlightRef.current = false;
+      googlePhotosSyncRequestSequenceRef.current += 1;
+      googlePhotosSyncAbortRef.current?.abort();
+      googlePhotosSyncAbortRef.current = null;
+      googlePhotosSyncInFlightRef.current = false;
+      googlePhotosSyncMediaRuntimeRef.current = null;
+      googlePhotosSyncMediaRuntimeOwnerRef.current = null;
+      googlePhotosSyncExecutionOwnerRef.current = null;
+      photosSyncTokenRequestIdRef.current += 1;
+      if (tokenRequestKindRef.current === "photosSync") {
+        tokenRequestKindRef.current = null;
+      }
+      const pendingSyncAuthorization =
+        pendingPhotosSyncTokenRequestRef.current;
+      if (pendingSyncAuthorization) {
+        clearTimeout(pendingSyncAuthorization.timeoutId);
+        pendingPhotosSyncTokenRequestRef.current = null;
+        pendingSyncAuthorization.reject(
+          new PhotosTokenRequestError({
+            status: "cancelled",
+            message: "Photos sync permission was cleared.",
+            diagnostics: ["Googleフォト同期の利用許可を破棄しました。"],
+          }),
+        );
+      }
+      photosSyncAccessTokenRef.current = null;
       assetCleanupDeleteRequestIdRef.current += 1;
       pendingAssetCleanupDeletePlanRef.current = null;
       assetCleanupDeletePreflightOwnerRef.current = null;
@@ -1876,9 +1977,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return promise;
   }
 
-  // Kept private until the same-album sync action is wired in a later commit.
-  void requestPhotosSyncAccessToken;
-
   function handlePhotosSyncTokenResponse(tokenResponse: GoogleTokenResponse) {
     const pendingRequest = pendingPhotosSyncTokenRequestRef.current;
     if (!pendingRequest) {
@@ -1994,6 +2092,73 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
     }
     photosSyncAccessTokenRef.current = null;
+  }
+
+  function clearGooglePhotosSyncMediaRuntime() {
+    googlePhotosSyncMediaRuntimeRef.current = null;
+    googlePhotosSyncMediaRuntimeOwnerRef.current = null;
+  }
+
+  function clearGooglePhotosSyncExecution() {
+    googlePhotosSyncRequestSequenceRef.current += 1;
+    googlePhotosSyncAbortRef.current?.abort();
+    googlePhotosSyncAbortRef.current = null;
+    googlePhotosSyncExecutionOwnerRef.current = null;
+    googlePhotosSyncInFlightRef.current = false;
+    setIsGooglePhotosSyncInFlight(false);
+    setGooglePhotosSyncProgress(null);
+    setGooglePhotosSyncResult(null);
+    clearGooglePhotosSyncMediaRuntime();
+  }
+
+  function googlePhotosSyncOwnerMatches(
+    left: GooglePhotosSyncMediaRuntimeOwner | null,
+    right: GooglePhotosSyncMediaRuntimeOwner,
+  ) {
+    return (
+      left?.workspaceId === right.workspaceId &&
+      left.projectId === right.projectId &&
+      left.projectFolderId === right.projectFolderId
+    );
+  }
+
+  function googlePhotosSyncAuthorityIsCurrent(
+    snapshot: GooglePhotosSyncAuthoritySnapshot,
+  ) {
+    const current = googlePhotosSyncDriveAuthorityRef.current;
+    return (
+      current.googleStatus === "connected" &&
+      current.driveFileGranted === true &&
+      current.driveStatus === "ready" &&
+      current.projectStatus === "ready" &&
+      accessTokenRef.current === snapshot.driveAccessToken &&
+      current.workspace?.workspaceId === snapshot.workspaceId &&
+      current.workspace.projectsRootFolderId ===
+        snapshot.projectsRootFolderId &&
+      current.project?.projectId === snapshot.projectId &&
+      current.project.projectFolderId === snapshot.projectFolderId &&
+      current.selectedProjectId === snapshot.projectId
+    );
+  }
+
+  function mapPhotosSyncAuthorizationError(
+    error: unknown,
+  ): GooglePhotosSyncActionResult {
+    if (error instanceof PhotosTokenRequestError) {
+      if (error.category === "popupBlocked") {
+        return { status: "authorizationRequired" };
+      }
+      if (error.status === "cancelled") {
+        return { status: "authorizationDenied" };
+      }
+    }
+    return { status: "authorizationRequired" };
+  }
+
+  function shouldRetainGooglePhotosSyncMediaRuntime(
+    result: GooglePhotosSameAlbumSyncCoordinatorResult,
+  ) {
+    return result.status === "interrupted" && result.stage === "media";
   }
 
   function discardPendingGooglePhotosExport() {
@@ -2589,6 +2754,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
       preserveProjectRollback?: boolean;
     },
   ) {
+    const syncOwner =
+      googlePhotosSyncExecutionOwnerRef.current ??
+      googlePhotosSyncMediaRuntimeOwnerRef.current;
+    if (
+      syncOwner &&
+      (syncOwner.projectId !== project.projectId ||
+        syncOwner.projectFolderId !== project.projectFolderId)
+    ) {
+      clearGooglePhotosSyncExecution();
+    }
     if (!options?.preserveProjectPublish) {
       discardPendingProjectPublish();
     }
@@ -2621,6 +2796,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function resetProjectState() {
+    clearGooglePhotosSyncExecution();
     clearDriveVideoPlaybackSessions();
     setProjectStatus("idle");
     setProjectMessage(initialProjectMessage);
@@ -2870,6 +3046,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     abortDriveOperation();
     clearGoogleAuthTimeout();
     invalidateGoogleSessionForConnectionChange();
+    clearPhotosSyncAuthorization();
 
     if (!hasClientId) {
       accessTokenRef.current = null;
@@ -4807,6 +4984,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   async function selectProject(projectId: string) {
+    if (
+      (googlePhotosSyncExecutionOwnerRef.current &&
+        googlePhotosSyncExecutionOwnerRef.current.projectId !== projectId) ||
+      (googlePhotosSyncMediaRuntimeOwnerRef.current &&
+        googlePhotosSyncMediaRuntimeOwnerRef.current.projectId !== projectId)
+    ) {
+      clearGooglePhotosSyncExecution();
+    }
+
     if (driveOperationInFlightRef.current) {
       return;
     }
@@ -7425,6 +7611,204 @@ export function AppProviders({ children }: { children: ReactNode }) {
     discardPendingProjectPublish();
   }
 
+  async function syncSelectedProjectToGooglePhotos(
+    projectId: string,
+  ): Promise<GooglePhotosSyncActionResult> {
+    if (googlePhotosSyncInFlightRef.current) {
+      return { status: "alreadyRunning" };
+    }
+
+    if (googlePhotosExportInFlightRef.current) {
+      return { status: "alreadyRunning" };
+    }
+
+    const driveAccessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+    if (
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      !driveAccessToken ||
+      !workspace ||
+      !project ||
+      project.projectId !== projectId ||
+      selectedProjectId !== projectId ||
+      driveOperationInFlightRef.current ||
+      assetImportInFlightRef.current ||
+      offlineSyncInFlightRef.current ||
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current ||
+      projectDeleteInFlightRef.current
+    ) {
+      return { status: "notReady" };
+    }
+
+    googlePhotosSyncDriveAuthorityRef.current = {
+      googleStatus,
+      driveFileGranted,
+      driveStatus,
+      projectStatus,
+      workspace,
+      project,
+      selectedProjectId,
+    };
+
+    const owner: GooglePhotosSyncMediaRuntimeOwner = {
+      workspaceId: workspace.workspaceId,
+      projectId: project.projectId,
+      projectFolderId: project.projectFolderId,
+    };
+    if (
+      googlePhotosSyncMediaRuntimeRef.current &&
+      !googlePhotosSyncOwnerMatches(
+        googlePhotosSyncMediaRuntimeOwnerRef.current,
+        owner,
+      )
+    ) {
+      clearGooglePhotosSyncMediaRuntime();
+    }
+    const mediaRuntime = googlePhotosSyncOwnerMatches(
+      googlePhotosSyncMediaRuntimeOwnerRef.current,
+      owner,
+    )
+      ? (googlePhotosSyncMediaRuntimeRef.current ?? undefined)
+      : undefined;
+    const authoritySnapshot: GooglePhotosSyncAuthoritySnapshot = {
+      ...owner,
+      driveAccessToken,
+      projectsRootFolderId: workspace.projectsRootFolderId,
+    };
+    const requestSequence = googlePhotosSyncRequestSequenceRef.current + 1;
+    googlePhotosSyncRequestSequenceRef.current = requestSequence;
+    const controller = new AbortController();
+    googlePhotosSyncAbortRef.current = controller;
+    googlePhotosSyncExecutionOwnerRef.current = owner;
+    googlePhotosSyncInFlightRef.current = true;
+    const photosAccessTokenPromise =
+      requestPhotosSyncAccessToken(requestSequence);
+    setIsGooglePhotosSyncInFlight(true);
+    setGooglePhotosSyncProgress(null);
+    setGooglePhotosSyncResult(null);
+
+    try {
+      let photosAccessToken: string;
+      try {
+        photosAccessToken = await photosAccessTokenPromise;
+      } catch (error) {
+        if (
+          requestSequence !== googlePhotosSyncRequestSequenceRef.current ||
+          controller.signal.aborted
+        ) {
+          return { status: "cancelled" };
+        }
+        const authorizationResult = mapPhotosSyncAuthorizationError(error);
+        setGooglePhotosSyncResult(authorizationResult);
+        return authorizationResult;
+      }
+
+      if (
+        requestSequence !== googlePhotosSyncRequestSequenceRef.current ||
+        controller.signal.aborted ||
+        !googlePhotosSyncAuthorityIsCurrent(authoritySnapshot)
+      ) {
+        const cancelled: GooglePhotosSyncActionResult = {
+          status: "cancelled",
+        };
+        if (requestSequence === googlePhotosSyncRequestSequenceRef.current) {
+          setGooglePhotosSyncResult(cancelled);
+        }
+        return cancelled;
+      }
+
+      const result = await executeGooglePhotosSameAlbumSync({
+        driveAccessToken,
+        photosAccessToken,
+        selectedProjectId: project.projectId,
+        workspaceId: workspace.workspaceId,
+        projectsRootFolderId: workspace.projectsRootFolderId,
+        project,
+        signal: controller.signal,
+        mediaRuntime,
+        onMediaRuntime(runtime) {
+          if (
+            requestSequence === googlePhotosSyncRequestSequenceRef.current &&
+            !controller.signal.aborted &&
+            googlePhotosSyncAuthorityIsCurrent(authoritySnapshot)
+          ) {
+            googlePhotosSyncMediaRuntimeRef.current = runtime;
+            googlePhotosSyncMediaRuntimeOwnerRef.current = owner;
+          }
+        },
+        onProgress(progress) {
+          if (
+            requestSequence === googlePhotosSyncRequestSequenceRef.current &&
+            !controller.signal.aborted &&
+            googlePhotosSyncAuthorityIsCurrent(authoritySnapshot)
+          ) {
+            setGooglePhotosSyncProgress(progress);
+          }
+        },
+      });
+
+      if (
+        requestSequence !== googlePhotosSyncRequestSequenceRef.current ||
+        controller.signal.aborted ||
+        !googlePhotosSyncAuthorityIsCurrent(authoritySnapshot)
+      ) {
+        return { status: "cancelled" };
+      }
+
+      if (!shouldRetainGooglePhotosSyncMediaRuntime(result)) {
+        clearGooglePhotosSyncMediaRuntime();
+      }
+      setGooglePhotosSyncResult(result);
+      return result;
+    } catch (error) {
+      const cancelled =
+        isAbortError(error) ||
+        controller.signal.aborted ||
+        requestSequence !== googlePhotosSyncRequestSequenceRef.current;
+      const safeResult: GooglePhotosSyncActionResult = cancelled
+        ? { status: "cancelled" }
+        : { status: "notReady" };
+      if (requestSequence === googlePhotosSyncRequestSequenceRef.current) {
+        if (!cancelled) {
+          clearGooglePhotosSyncMediaRuntime();
+        }
+        setGooglePhotosSyncResult(safeResult);
+      }
+      return safeResult;
+    } finally {
+      if (requestSequence === googlePhotosSyncRequestSequenceRef.current) {
+        if (googlePhotosSyncAbortRef.current === controller) {
+          googlePhotosSyncAbortRef.current = null;
+        }
+        googlePhotosSyncExecutionOwnerRef.current = null;
+        googlePhotosSyncInFlightRef.current = false;
+        setIsGooglePhotosSyncInFlight(false);
+        setGooglePhotosSyncProgress(null);
+      }
+    }
+  }
+
+  function abortGooglePhotosSync() {
+    const wasInFlight = googlePhotosSyncInFlightRef.current;
+    googlePhotosSyncRequestSequenceRef.current += 1;
+    googlePhotosSyncAbortRef.current?.abort();
+    googlePhotosSyncAbortRef.current = null;
+    googlePhotosSyncExecutionOwnerRef.current = null;
+    googlePhotosSyncInFlightRef.current = false;
+    clearPhotosSyncAuthorization();
+    setIsGooglePhotosSyncInFlight(false);
+    setGooglePhotosSyncProgress(null);
+    if (wasInFlight) {
+      setGooglePhotosSyncResult({ status: "cancelled" });
+    }
+  }
+
   async function prepareGooglePhotosExportReview(
     projectId: string,
   ): Promise<PrepareGooglePhotosExportReviewResult> {
@@ -8174,6 +8558,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
     googlePhotosExportProgress,
     googlePhotosExportResult,
     canResumeGooglePhotosExport,
+    syncSelectedProjectToGooglePhotos,
+    abortGooglePhotosSync,
+    isGooglePhotosSyncInFlight,
+    googlePhotosSyncProgress,
+    googlePhotosSyncResult,
     isProjectRollbackInFlight,
     createProject,
     updateSelectedProjectTitle,
