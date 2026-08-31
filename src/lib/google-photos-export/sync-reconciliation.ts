@@ -250,7 +250,7 @@ export async function prepareGooglePhotosSyncReconciliation(
     return { status: "targetNotWritable", ...albumContext };
   }
 
-  const membership = await readAllAlbumMediaItemIds(
+  const membership = await readAllGooglePhotosSyncAlbumMediaItemIds(
     {
       accessToken: input.photosAccessToken,
       albumId: albumResult.album.id,
@@ -305,7 +305,7 @@ export async function prepareGooglePhotosSyncReconciliation(
   };
 }
 
-async function readAllAlbumMediaItemIds(
+export async function readAllGooglePhotosSyncAlbumMediaItemIds(
   input: {
     accessToken: string;
     albumId: string;
