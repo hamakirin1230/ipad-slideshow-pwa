@@ -69,6 +69,13 @@ function preparedItem(input: {
     outputMimeType: "image/jpeg",
     renderKey: input.renderKey,
     reuseEligible: true,
+    snapshot: {
+      mediaKind: "image",
+      displayName: `${input.slideId}.jpg`,
+      caption: input.caption ?? "caption",
+      durationMs: 10_000,
+      imageEdit: { rotation: 90 },
+    },
   };
 }
 
@@ -127,6 +134,7 @@ function albumBoundBinding(): GooglePhotosSyncBinding {
           slideId: "slide-reuse",
           renderKey: KEY_REUSE,
           mediaItemId: "media-reuse",
+          snapshot: null,
         },
       ],
     },
@@ -415,8 +423,18 @@ describe("Google Photos sync media execution", () => {
     expect(harness.spies.getAlbum).toHaveBeenCalledTimes(2);
     expect(harness.spies.planSync).toHaveBeenCalledTimes(2);
     expect(harness.remote().pending?.targetItems).toEqual([
-      { slideId: "slide-reuse", renderKey: KEY_REUSE, mediaItemId: "media-reuse" },
-      { slideId: "slide-create", renderKey: KEY_CREATE, mediaItemId: "media-created" },
+      {
+        slideId: "slide-reuse",
+        renderKey: KEY_REUSE,
+        mediaItemId: "media-reuse",
+        snapshot: preparedSource().items[0]!.snapshot,
+      },
+      {
+        slideId: "slide-create",
+        renderKey: KEY_CREATE,
+        mediaItemId: "media-created",
+        snapshot: preparedSource().items[1]!.snapshot,
+      },
     ]);
     expect(harness.remote().stable?.generation).toBe(3);
   });
@@ -492,8 +510,8 @@ describe("Google Photos sync media execution", () => {
       }),
     );
     expect(harness.remote().pending?.targetItems).toEqual([
-      { slideId: first.slideId, renderKey: first.renderKey, mediaItemId: "created-first" },
-      { slideId: second.slideId, renderKey: second.renderKey, mediaItemId: "created-second" },
+      { slideId: first.slideId, renderKey: first.renderKey, mediaItemId: "created-first", snapshot: first.snapshot },
+      { slideId: second.slideId, renderKey: second.renderKey, mediaItemId: "created-second", snapshot: second.snapshot },
     ]);
   });
 
@@ -618,8 +636,18 @@ describe("Google Photos sync media execution", () => {
     expect(harness.spies.batchCreate).toHaveBeenCalledTimes(1);
     expect(harness.remote().pending?.phase).toBe("mediaCreating");
     expect(runtimeEvents.at(-1)?.createdTargetItems).toEqual([
-      { slideId: "slide-reuse", renderKey: KEY_REUSE, mediaItemId: "media-reuse" },
-      { slideId: "slide-create", renderKey: KEY_CREATE, mediaItemId: "media-created" },
+      {
+        slideId: "slide-reuse",
+        renderKey: KEY_REUSE,
+        mediaItemId: "media-reuse",
+        snapshot: preparedSource().items[0]!.snapshot,
+      },
+      {
+        slideId: "slide-create",
+        renderKey: KEY_CREATE,
+        mediaItemId: "media-created",
+        snapshot: preparedSource().items[1]!.snapshot,
+      },
     ]);
     expect(JSON.stringify(result)).not.toContain("media-created");
   });

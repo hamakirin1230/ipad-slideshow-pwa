@@ -40,6 +40,14 @@ function binding(generation = 1): GooglePhotosSyncBinding {
   };
 }
 
+function legacyV1Text(value: GooglePhotosSyncBinding) {
+  const body = JSON.parse(stringifyGooglePhotosSyncBinding(value));
+  body.schemaVersion = 1;
+  for (const item of body.stable?.items ?? []) delete item.snapshot;
+  for (const item of body.pending?.targetItems ?? []) delete item.snapshot;
+  return `${JSON.stringify(body, null, 2)}\n`;
+}
+
 function candidate(
   overrides: Partial<DriveFileCandidate> = {},
 ): DriveFileCandidate {
@@ -115,6 +123,7 @@ describe("Drive Google Photos sync binding read", () => {
     expect(query).toContain("key='app' and value='ipad-slideshow-pwa'");
     expect(query).toContain("key='role' and value='googlePhotosSync'");
     expect(query).toContain("key='schemaVersion' and value='1'");
+    expect(query).toContain("key='schemaVersion' and value='2'");
     expect(query).toContain(`key='workspaceId' and value='${WORKSPACE_ID}'`);
     expect(query).toContain(`key='projectId' and value='${PROJECT_ID}'`);
   });
@@ -142,6 +151,48 @@ describe("Drive Google Photos sync binding read", () => {
     ).resolves.toEqual({ status: "duplicate" });
     expect(duplicateAdapter.readText).not.toHaveBeenCalled();
     expect(duplicateAdapter.updateJson).not.toHaveBeenCalled();
+  });
+
+  it("reads a v1 metadata candidate without migration or duplicate creation", async () => {
+    const value = binding();
+    const drive = adapter({
+      pages: [
+        {
+          files: [
+            candidate({
+              appProperties: {
+                ...candidate().appProperties,
+                schemaVersion: "1",
+              },
+            }),
+          ],
+        },
+      ],
+      texts: [legacyV1Text(value)],
+    });
+
+    await expect(readDrivePhotosSyncBinding(readInput(), drive)).resolves.toEqual({
+      status: "ready",
+      fileId: FILE_ID,
+      binding: value,
+    });
+    expect(drive.updateJson).not.toHaveBeenCalled();
+    expect(drive.createJson).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when v1 and v2 candidates both exist", async () => {
+    const legacy = candidate({
+      appProperties: { ...candidate().appProperties, schemaVersion: "1" },
+    });
+    const drive = adapter({
+      pages: [{ files: [legacy, candidate({ id: "v2-file" })] }],
+    });
+
+    await expect(readDrivePhotosSyncBinding(readInput(), drive)).resolves.toEqual({
+      status: "duplicate",
+    });
+    expect(drive.readText).not.toHaveBeenCalled();
+    expect(drive.updateJson).not.toHaveBeenCalled();
   });
 
   it("fails closed for candidate metadata mismatch and malformed body", async () => {
@@ -297,9 +348,47 @@ describe("Drive Google Photos sync binding best-effort update", () => {
     expect(result).toEqual({ status: "updated", fileId: FILE_ID, binding: next });
     expect(drive.updateJson).toHaveBeenCalledTimes(1);
     expect(drive.updateJson).toHaveBeenCalledWith(
-      expect.objectContaining({ fileId: FILE_ID }),
+      expect.objectContaining({
+        fileId: FILE_ID,
+        name: "google-photos-sync.json",
+        appProperties: expect.objectContaining({ schemaVersion: "2" }),
+      }),
     );
     expect(drive.readText).toHaveBeenCalledTimes(2);
+  });
+
+  it("updates a v1 candidate in place with canonical v2 body and metadata", async () => {
+    const current = binding(2);
+    const next = binding(3);
+    const legacyCandidate = candidate({
+      appProperties: { ...candidate().appProperties, schemaVersion: "1" },
+    });
+    const drive = adapter({
+      pages: [
+        { files: [legacyCandidate] },
+        { files: [candidate()] },
+      ],
+      texts: [legacyV1Text(current), stringifyGooglePhotosSyncBinding(next)],
+    });
+
+    await expect(
+      updateDrivePhotosSyncBindingBestEffort(
+        {
+          ...readInput(),
+          expectedStableGeneration: 2,
+          binding: next,
+        },
+        drive,
+      ),
+    ).resolves.toEqual({ status: "updated", fileId: FILE_ID, binding: next });
+    expect(drive.updateJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: FILE_ID,
+        appProperties: expect.objectContaining({ schemaVersion: "2" }),
+        jsonText: expect.stringContaining('"schemaVersion": 2'),
+      }),
+    );
+    expect(drive.createJson).not.toHaveBeenCalled();
   });
 
   it("reports staleGeneration without writing", async () => {

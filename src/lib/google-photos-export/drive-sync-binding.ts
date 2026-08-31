@@ -3,7 +3,7 @@ import {
   escapeDriveReadOnlyQueryValue,
   listDriveFilesReadOnlyPage,
   readDriveTextFile,
-  updateDriveJsonFileContent,
+  updateDriveJsonFileContentWithAppProperties,
   type DriveFileCandidate,
 } from "../google-drive";
 import { DRIVE_PREFLIGHT_APP_ID } from "../drive-preflight-diagnostics";
@@ -11,6 +11,7 @@ import {
   buildEmptyGooglePhotosSyncBinding,
   GOOGLE_PHOTOS_SYNC_BINDING_FILE_NAME,
   GOOGLE_PHOTOS_SYNC_BINDING_ROLE,
+  GOOGLE_PHOTOS_SYNC_BINDING_READABLE_SCHEMA_VERSION_PROPERTIES,
   GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION_PROPERTY,
   parseGooglePhotosSyncBindingJson,
   stringifyGooglePhotosSyncBinding,
@@ -46,6 +47,8 @@ export type DrivePhotosSyncBindingAdapter = {
   updateJson: (input: {
     accessToken: string;
     fileId: string;
+    name: string;
+    appProperties: Record<string, string>;
     jsonText: string;
     signal: AbortSignal;
   }) => Promise<void>;
@@ -101,7 +104,7 @@ const defaultAdapter: DrivePhotosSyncBindingAdapter = {
   },
   readText: readDriveTextFile,
   createJson: createDriveJsonFileWithAppProperties,
-  updateJson: updateDriveJsonFileContent,
+  updateJson: updateDriveJsonFileContentWithAppProperties,
 };
 
 export function buildDrivePhotosSyncBindingAppProperties(input: {
@@ -127,7 +130,10 @@ export function buildDrivePhotosSyncBindingQuery(input: {
     "trashed = false",
     `appProperties has { key='app' and value='${DRIVE_PREFLIGHT_APP_ID}' }`,
     `appProperties has { key='role' and value='${GOOGLE_PHOTOS_SYNC_BINDING_ROLE}' }`,
-    `appProperties has { key='schemaVersion' and value='${GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION_PROPERTY}' }`,
+    `(${GOOGLE_PHOTOS_SYNC_BINDING_READABLE_SCHEMA_VERSION_PROPERTIES.map(
+      (version) =>
+        `appProperties has { key='schemaVersion' and value='${version}' }`,
+    ).join(" or ")})`,
     `appProperties has { key='workspaceId' and value='${escapeDriveReadOnlyQueryValue(input.workspaceId)}' }`,
     `appProperties has { key='projectId' and value='${escapeDriveReadOnlyQueryValue(input.projectId)}' }`,
   ].join(" and ");
@@ -257,6 +263,8 @@ export async function updateDrivePhotosSyncBindingBestEffort(
     await adapter.updateJson({
       accessToken: input.accessToken,
       fileId: current.fileId,
+      name: GOOGLE_PHOTOS_SYNC_BINDING_FILE_NAME,
+      appProperties: buildDrivePhotosSyncBindingAppProperties(input),
       jsonText: stringifyGooglePhotosSyncBinding(parsed),
       signal: input.signal,
     });
@@ -291,6 +299,7 @@ function metadataMatches(
   },
 ) {
   const properties = buildDrivePhotosSyncBindingAppProperties(expected);
+  const schemaVersion = file.appProperties.schemaVersion;
   return (
     file.name === GOOGLE_PHOTOS_SYNC_BINDING_FILE_NAME &&
     file.mimeType === JSON_MIME_TYPE &&
@@ -298,7 +307,11 @@ function metadataMatches(
     file.parents?.length === 1 &&
     file.parents[0] === expected.projectRootFolderId &&
     Object.entries(properties).every(
-      ([key, value]) => file.appProperties[key] === value,
+      ([key, value]) =>
+        key === "schemaVersion" || file.appProperties[key] === value,
+    ) &&
+    GOOGLE_PHOTOS_SYNC_BINDING_READABLE_SCHEMA_VERSION_PROPERTIES.includes(
+      schemaVersion as "1" | "2",
     ) &&
     typeof file.sizeBytes === "number" &&
     file.sizeBytes > 0 &&

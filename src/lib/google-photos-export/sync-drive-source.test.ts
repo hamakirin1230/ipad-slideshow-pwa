@@ -236,6 +236,13 @@ describe("Google Photos sync Drive source", () => {
       sizeBytes: 1000,
       description: "朝",
       imageEdit: { rotation: 90 },
+      snapshot: {
+        mediaKind: "image",
+        displayName: "beach.jpg",
+        caption: "  朝  ",
+        durationMs: 10_000,
+        imageEdit: { rotation: 90 },
+      },
       sourceChecksum: "checksum-a",
       sourceModifiedTime: "2026-08-16T03:00:00.000Z",
       outputMimeType: "image/jpeg",
@@ -250,6 +257,10 @@ describe("Google Photos sync Drive source", () => {
       })),
     );
     expect(result.source.sourceFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(JSON.stringify(result.source.items[0]?.snapshot)).not.toMatch(
+      /assetFileId|assetIdentity|sourceFingerprint|token|https?:\/\//,
+    );
+    expect(adapter.readText).toHaveBeenCalledTimes(1);
     expect(adapter.readMetadata).toHaveBeenCalledTimes(6);
     for (const fileId of [
       "project-folder",

@@ -251,6 +251,12 @@ function preparedSource(): GooglePhotosSyncPreparedSource {
         outputMimeType: "image/jpeg",
         renderKey: RENDER_KEY,
         reuseEligible: false,
+        snapshot: {
+          mediaKind: "image",
+          displayName: "元素材.jpg",
+          caption: "caption",
+          durationMs: 10_000,
+        },
       },
       {
         slideIndex: 1,
@@ -266,6 +272,12 @@ function preparedSource(): GooglePhotosSyncPreparedSource {
         outputMimeType: "image/png",
         renderKey: `sha256:${"d".repeat(64)}`,
         reuseEligible: false,
+        snapshot: {
+          mediaKind: "image",
+          displayName: "元素材.png",
+          caption: "",
+          durationMs: 8_000,
+        },
       },
     ],
     desiredSlides: [
@@ -314,6 +326,12 @@ function pendingBinding(
           slideId: "slide-1",
           renderKey: RENDER_KEY,
           mediaItemId: "media-secret",
+          snapshot: {
+            mediaKind: "image" as const,
+            displayName: "元素材.jpg",
+            caption: "caption",
+            durationMs: 10_000,
+          },
         },
       ]
     : [];

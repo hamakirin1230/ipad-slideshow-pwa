@@ -34,6 +34,55 @@ export type SafeSlideSnapshot = {
   imageEdit?: ProjectSlideImageEdit;
 };
 
+export type SafeSlideSnapshotParseResult =
+  | { ok: true; value: SafeSlideSnapshot }
+  | { ok: false };
+
+const SAFE_SLIDE_SNAPSHOT_KEYS = [
+  "mediaKind",
+  "displayName",
+  "caption",
+  "durationMs",
+] as const;
+
+export function parseSafeSlideSnapshot(
+  input: unknown,
+): SafeSlideSnapshotParseResult {
+  if (!isRecord(input)) return { ok: false };
+  const expectedKeys = Object.prototype.hasOwnProperty.call(input, "imageEdit")
+    ? [...SAFE_SLIDE_SNAPSHOT_KEYS, "imageEdit"]
+    : SAFE_SLIDE_SNAPSHOT_KEYS;
+  if (!hasExactKeys(input, expectedKeys)) return { ok: false };
+  if (
+    (input.mediaKind !== "image" && input.mediaKind !== "video") ||
+    !isNonEmptyString(input.displayName) ||
+    typeof input.caption !== "string" ||
+    typeof input.durationMs !== "number" ||
+    !Number.isFinite(input.durationMs) ||
+    input.durationMs <= 0
+  ) {
+    return { ok: false };
+  }
+
+  let imageEdit: ProjectSlideImageEdit | undefined;
+  if (Object.prototype.hasOwnProperty.call(input, "imageEdit")) {
+    const parsed = parseProjectSlideImageEdit(input.imageEdit);
+    if (!parsed.ok || input.mediaKind !== "image") return { ok: false };
+    imageEdit = normalizeProjectSlideImageEditForWrite(parsed.value);
+  }
+
+  return {
+    ok: true,
+    value: {
+      mediaKind: input.mediaKind,
+      displayName: input.displayName,
+      caption: input.caption,
+      durationMs: input.durationMs,
+      ...(imageEdit ? { imageEdit } : {}),
+    },
+  };
+}
+
 export type SlideFieldChange =
   | "asset"
   | "caption"
@@ -408,4 +457,15 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+) {
+  const keys = Object.keys(value);
+  return (
+    keys.length === expected.length &&
+    expected.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+  );
 }

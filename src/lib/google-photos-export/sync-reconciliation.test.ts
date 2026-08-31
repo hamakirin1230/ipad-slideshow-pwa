@@ -12,6 +12,7 @@ import {
 } from "./sync-reconciliation";
 import {
   buildEmptyGooglePhotosSyncBinding,
+  parseGooglePhotosSyncBinding,
   type GooglePhotosSyncBinding,
 } from "./sync-binding";
 import type { GooglePhotosSyncPreparedSource } from "./sync-drive-source";
@@ -27,6 +28,7 @@ const KEY_A = `sha256:${"c".repeat(64)}`;
 const KEY_B = `sha256:${"d".repeat(64)}`;
 const KEY_C = `sha256:${"e".repeat(64)}`;
 const TITLE = "夏の作品";
+const LEGACY_SNAPSHOT = null;
 
 const PROJECT: DriveProjectSummary = {
   projectId: PROJECT_ID,
@@ -96,8 +98,8 @@ function binding(input: {
             completedAt: "2026-08-30T01:30:00.000Z",
             rendererVersion: 1,
             items: [
-              { slideId: "slide-1", renderKey: KEY_A, mediaItemId: "media-1" },
-              { slideId: "slide-2", renderKey: KEY_B, mediaItemId: "media-2" },
+              { slideId: "slide-1", renderKey: KEY_A, mediaItemId: "media-1", snapshot: LEGACY_SNAPSHOT },
+              { slideId: "slide-2", renderKey: KEY_B, mediaItemId: "media-2", snapshot: LEGACY_SNAPSHOT },
             ],
           }
         : input.stable,
@@ -549,6 +551,34 @@ describe("Google Photos reconciliation membership pagination", () => {
 });
 
 describe("Google Photos reconciliation planner integration", () => {
+  it("keeps a no-change legacy v1 baseline read-only and snapshot-null", async () => {
+    const raw = JSON.parse(JSON.stringify(binding())) as Record<string, unknown>;
+    raw.schemaVersion = 1;
+    const stable = raw.stable as Record<string, unknown>;
+    for (const item of stable.items as Array<Record<string, unknown>>) {
+      delete item.snapshot;
+    }
+    const parsed = parseGooglePhotosSyncBinding(raw, {
+      workspaceId: WORKSPACE_ID,
+      projectId: PROJECT_ID,
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const deps = adapters({
+      bindingResult: {
+        status: "ready",
+        fileId: "legacy-binding-file",
+        binding: parsed.value,
+      },
+    });
+
+    const result = await prepareGooglePhotosSyncReconciliation(input(), deps);
+    expect(result).toMatchObject({ status: "noChanges" });
+    expect(parsed.value.stable?.items.every((item) => item.snapshot === null)).toBe(
+      true,
+    );
+  });
+
   it("classifies a full match as noChanges without altering generation", async () => {
     const current = binding();
     const deps = adapters({

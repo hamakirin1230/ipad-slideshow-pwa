@@ -32,6 +32,12 @@ const KEY_OLD_B = `sha256:${"c".repeat(64)}`;
 const KEY_NEW_C = `sha256:${"d".repeat(64)}`;
 const TITLE = "夏の作品";
 const COMPLETED_AT = "2026-08-31T12:00:00.000Z";
+const SNAPSHOT = {
+  mediaKind: "image" as const,
+  displayName: "素材.jpg",
+  caption: "caption",
+  durationMs: 10_000,
+};
 
 const PROJECT: DriveProjectSummary = {
   projectId: PROJECT_ID,
@@ -96,8 +102,8 @@ function finalizeBinding(
       completedAt: "2026-08-30T02:00:00.000Z",
       rendererVersion: 2,
       items: [
-        { slideId: "slide-old-a", renderKey: KEY_OLD_A, mediaItemId: "old-a" },
-        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b" },
+        { slideId: "slide-old-a", renderKey: KEY_OLD_A, mediaItemId: "old-a", snapshot: null },
+        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b", snapshot: null },
       ],
     },
     pending: {
@@ -108,8 +114,8 @@ function finalizeBinding(
       targetTitle: TITLE,
       previousManagedMediaItemIds: ["old-a", "old-b"],
       targetItems: [
-        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b" },
-        { slideId: "slide-new-c", renderKey: KEY_NEW_C, mediaItemId: "new-c" },
+        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b", snapshot: SNAPSHOT },
+        { slideId: "slide-new-c", renderKey: KEY_NEW_C, mediaItemId: "new-c", snapshot: SNAPSHOT },
       ],
     },
   };
@@ -300,8 +306,8 @@ describe("Google Photos same-album sync finalization", () => {
       completedAt: COMPLETED_AT,
       rendererVersion: 7,
       items: [
-        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b" },
-        { slideId: "slide-new-c", renderKey: KEY_NEW_C, mediaItemId: "new-c" },
+        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b", snapshot: SNAPSHOT },
+        { slideId: "slide-new-c", renderKey: KEY_NEW_C, mediaItemId: "new-c", snapshot: SNAPSHOT },
       ],
     });
   });

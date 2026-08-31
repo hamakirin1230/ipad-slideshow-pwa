@@ -35,10 +35,16 @@ const COMPLETED_AT = "2026-08-31T01:30:00.000Z";
 const TITLE = "夏の作品";
 const KEY_A = `sha256:${"c".repeat(64)}`;
 const KEY_B = `sha256:${"d".repeat(64)}`;
+const SNAPSHOT = {
+  mediaKind: "image" as const,
+  displayName: "素材.jpg",
+  caption: "caption",
+  durationMs: 10_000,
+};
 
 const TARGET_ITEMS: GooglePhotosSyncManagedItem[] = [
-  { slideId: "slide-2", renderKey: KEY_B, mediaItemId: "media-2" },
-  { slideId: "slide-1", renderKey: KEY_A, mediaItemId: "media-1" },
+  { slideId: "slide-2", renderKey: KEY_B, mediaItemId: "media-2", snapshot: SNAPSHOT },
+  { slideId: "slide-1", renderKey: KEY_A, mediaItemId: "media-1", snapshot: SNAPSHOT },
 ];
 
 function emptyBinding(): GooglePhotosSyncBinding {
@@ -58,8 +64,8 @@ function boundBinding(generation = 2): GooglePhotosSyncBinding {
       completedAt: "2026-08-30T01:30:00.000Z",
       rendererVersion: 1,
       items: [
-        { slideId: "slide-old-1", renderKey: KEY_A, mediaItemId: "media-old-1" },
-        { slideId: "slide-old-2", renderKey: KEY_B, mediaItemId: "media-old-2" },
+        { slideId: "slide-old-1", renderKey: KEY_A, mediaItemId: "media-old-1", snapshot: null },
+        { slideId: "slide-old-2", renderKey: KEY_B, mediaItemId: "media-old-2", snapshot: null },
       ],
     },
   };

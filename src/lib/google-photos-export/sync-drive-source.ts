@@ -5,6 +5,10 @@ import {
   type DriveProjectSummary,
 } from "../google-drive";
 import {
+  parseSafeSlideSnapshot,
+  type SafeSlideSnapshot,
+} from "../project-diff";
+import {
   createSanitizedGooglePhotosExportError,
   GOOGLE_PHOTOS_ALBUM_TITLE_MAX_LENGTH,
   type GooglePhotosExportPlanItem,
@@ -33,6 +37,7 @@ export type GooglePhotosSyncPreparedItem = GooglePhotosExportPlanItem & {
   outputMimeType: GooglePhotosRenderedImageMimeType;
   renderKey: string;
   reuseEligible: boolean;
+  snapshot: SafeSlideSnapshot;
 };
 
 export type GooglePhotosSyncPreparedSource = {
@@ -89,6 +94,7 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
   host: GooglePhotosSyncSourcePreparationHost = {},
 ): Promise<PrepareGooglePhotosSyncSourceResult> {
   const metadataCache = new Map<string, DriveFileCandidate>();
+  let manifestText: string | undefined;
   const cachedAdapter: GooglePhotosExportSourceAdapter = {
     async readMetadata(metadataInput) {
       const cached = metadataCache.get(metadataInput.fileId);
@@ -97,7 +103,11 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
       metadataCache.set(metadataInput.fileId, metadata);
       return metadata;
     },
-    readText: adapter.readText,
+    async readText(accessToken, fileId, signal) {
+      const text = await adapter.readText(accessToken, fileId, signal);
+      if (fileId === input.project.manifestFileId) manifestText = text;
+      return text;
+    },
   };
 
   const prepared = await prepareGooglePhotosExportSourceWithAdapter(
@@ -105,6 +115,10 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
     cachedAdapter,
   );
   if (!prepared.ok) return prepared;
+  const snapshots = parseGooglePhotosSyncSnapshotSources(manifestText);
+  if (!snapshots) {
+    return fail("sourceMetadataUnavailable", "drivePreflightFailed");
+  }
 
   const targetAlbumTitle = prepared.plan.projectTitle;
   if (
@@ -153,6 +167,10 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
     if (!identity.ok) {
       return fail("renderIdentityFailed", "imageRenderFailed");
     }
+    const snapshot = snapshots.get(item.slideId) ?? null;
+    if (!snapshot) {
+      return fail("sourceMetadataUnavailable", "drivePreflightFailed");
+    }
     items.push({
       ...item,
       sourceChecksum: source.checksum,
@@ -160,6 +178,7 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
       outputMimeType,
       renderKey: identity.renderKey,
       reuseEligible: identity.reuseEligible,
+      snapshot,
     });
   }
 
@@ -198,6 +217,56 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
       sourceFingerprint: fingerprint.sourceFingerprint,
     },
   };
+}
+
+export function toGooglePhotosSyncSafeSnapshot(
+  input: unknown,
+): SafeSlideSnapshot | null {
+  const parsed = parseSafeSlideSnapshot(input);
+  return parsed.ok && parsed.value.mediaKind === "image" ? parsed.value : null;
+}
+
+function parseGooglePhotosSyncSnapshotSources(manifestText: string | undefined) {
+  if (manifestText === undefined) return null;
+  let body: unknown;
+  try {
+    body = JSON.parse(manifestText) as unknown;
+  } catch {
+    return null;
+  }
+  if (!isRecord(body) || !Array.isArray(body.slides)) return null;
+
+  const snapshots = new Map<string, SafeSlideSnapshot>();
+  for (const slide of body.slides) {
+    if (
+      !isRecord(slide) ||
+      typeof slide.slideId !== "string" ||
+      snapshots.has(slide.slideId)
+    ) {
+      return null;
+    }
+    const mediaKind =
+      slide.type === "video" ||
+      (typeof slide.mimeType === "string" && slide.mimeType.startsWith("video/"))
+        ? "video"
+        : "image";
+    if (mediaKind === "video") continue;
+    const snapshot = toGooglePhotosSyncSafeSnapshot({
+      mediaKind,
+      displayName: slide.assetName,
+      caption: slide.caption,
+      durationMs:
+        typeof slide.durationSeconds === "number"
+          ? slide.durationSeconds * 1000
+          : Number.NaN,
+      ...(Object.prototype.hasOwnProperty.call(slide, "imageEdit")
+        ? { imageEdit: slide.imageEdit }
+        : {}),
+    });
+    if (!snapshot) return null;
+    snapshots.set(slide.slideId, snapshot);
+  }
+  return snapshots;
 }
 
 function parseSyncAssetMetadata(
@@ -243,6 +312,10 @@ function isValidDriveModifiedTime(value: string) {
     ) &&
     !Number.isNaN(Date.parse(value))
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isNonBlankTrimmedString(value: unknown): value is string {

@@ -91,7 +91,7 @@ function stableBinding(generation = 2): GooglePhotosSyncBinding {
       completedAt: "2026-08-30T01:30:00.000Z",
       rendererVersion: 1,
       items: [
-        { slideId: "slide-1", renderKey: KEY_A, mediaItemId: "media-1" },
+        { slideId: "slide-1", renderKey: KEY_A, mediaItemId: "media-1", snapshot: null },
       ],
     },
   };

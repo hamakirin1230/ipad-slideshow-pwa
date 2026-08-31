@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   planProjectDiff,
+  parseSafeSlideSnapshot,
   projectDiffHasChanges,
   projectDiffRequiresGooglePhotosTitleUpdate,
   projectSlideDiffIsMetadataOnly,
@@ -291,5 +292,40 @@ describe("project diff safe output", () => {
       expect(serialized, key).not.toContain(value);
     }
     expect(serialized).toContain('"displayName"');
+  });
+
+  it("parses and normalizes an exact safe snapshot", () => {
+    expect(
+      parseSafeSlideSnapshot({
+        mediaKind: "image",
+        displayName: "素材.jpg",
+        caption: "  caption  ",
+        durationMs: 10_000,
+        imageEdit: {
+          rotation: 0,
+          crop: { x: 0, y: 0, width: 1, height: 1 },
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        mediaKind: "image",
+        displayName: "素材.jpg",
+        caption: "  caption  ",
+        durationMs: 10_000,
+      },
+    });
+  });
+
+  it("rejects unknown safe snapshot fields", () => {
+    expect(
+      parseSafeSlideSnapshot({
+        mediaKind: "image",
+        displayName: "素材.jpg",
+        caption: "caption",
+        durationMs: 10_000,
+        assetFileId: "secret",
+      }),
+    ).toEqual({ ok: false });
   });
 });

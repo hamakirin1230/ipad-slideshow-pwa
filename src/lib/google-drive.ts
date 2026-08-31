@@ -1386,6 +1386,30 @@ export async function updateDriveJsonFileContent(input: {
   });
 }
 
+/** Updates one existing JSON file body and its app-managed metadata in place. */
+export async function updateDriveJsonFileContentWithAppProperties(input: {
+  accessToken: string;
+  fileId: string;
+  name: string;
+  appProperties: Record<string, string>;
+  jsonText: string;
+  signal: AbortSignal;
+}): Promise<void> {
+  await updateDriveMultipartJsonFileContent({
+    accessToken: input.accessToken,
+    fileId: input.fileId,
+    metadata: {
+      name: input.name,
+      mimeType: JSON_MIME_TYPE,
+      appProperties: input.appProperties,
+    },
+    expectedAppProperties: input.appProperties,
+    jsonText: input.jsonText,
+    fields: CREATE_JSON_FIELDS,
+    signal: input.signal,
+  });
+}
+
 export async function previewDriveProjectUnusedAssets(input: {
   accessToken: string;
   workspaceId: string;

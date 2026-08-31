@@ -23,7 +23,7 @@ function stable(
   renderKey: string,
   mediaItemId: string,
 ): GooglePhotosSyncManagedItem {
-  return { slideId, renderKey, mediaItemId };
+  return { slideId, renderKey, mediaItemId, snapshot: null };
 }
 
 function baseInput() {
@@ -76,6 +76,23 @@ describe("Google Photos incremental sync planner", () => {
     expect(result.membershipNeedsRebuild).toBe(false);
     expect(result.titleNeedsUpdate).toBe(false);
     expect(result.sourceFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("does not use snapshot content as sync decision authority", async () => {
+    const baseline = await plan();
+    const changedSnapshot = baseInput();
+    changedSnapshot.stableManagedItems[0]!.snapshot = {
+      mediaKind: "image",
+      displayName: "以前の素材.jpg",
+      caption: "以前のcaption",
+      durationMs: 99_000,
+      imageEdit: { rotation: 180 },
+    };
+
+    const result = await plan(changedSnapshot);
+    expect(result.targetItems).toEqual(baseline.targetItems);
+    expect(result.createItems).toEqual([]);
+    expect(result.membershipNeedsRebuild).toBe(false);
   });
 
   it("plans rename-only without touching image membership", async () => {

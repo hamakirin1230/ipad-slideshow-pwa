@@ -5,6 +5,7 @@ import {
   type GooglePhotosSyncManagedItem,
   type GooglePhotosSyncPendingPhase,
 } from "./sync-binding";
+import { parseSafeSlideSnapshot } from "../project-diff";
 
 export type GooglePhotosSyncPendingFailureReason =
   | "noPending"
@@ -393,7 +394,7 @@ function cloneTargetItems(
   for (const item of input) {
     if (
       !isObject(item) ||
-      !hasExactKeys(item, ["slideId", "renderKey", "mediaItemId"]) ||
+      !hasExactKeys(item, ["slideId", "renderKey", "mediaItemId", "snapshot"]) ||
       !isNonBlankTrimmedString(item.slideId) ||
       !isSha256Identity(item.renderKey) ||
       !isNonBlankTrimmedString(item.mediaItemId) ||
@@ -402,12 +403,15 @@ function cloneTargetItems(
     ) {
       return null;
     }
+    const snapshot = parseSafeSlideSnapshot(item.snapshot);
+    if (!snapshot.ok || snapshot.value.mediaKind !== "image") return null;
     slideIds.add(item.slideId);
     mediaItemIds.add(item.mediaItemId);
     result.push({
       slideId: item.slideId,
       renderKey: item.renderKey,
       mediaItemId: item.mediaItemId,
+      snapshot: snapshot.value,
     });
   }
   return result;

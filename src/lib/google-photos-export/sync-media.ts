@@ -242,7 +242,7 @@ async function runMediaInsideLock(
   if (!mapped.ok) return { status: "invalidCreateMapping" };
 
   if (plan.createItems.length === 0) {
-    const targetItems = resolveReuseOnlyTargetItems(plan);
+    const targetItems = resolveReuseOnlyTargetItems(preparedSource, plan);
     if (!targetItems) return { status: "invalidCreateMapping" };
     return checkpointReuseOnlyMedia(input, initial.value, targetItems, adapters);
   }
@@ -372,7 +372,11 @@ async function runMediaInsideLock(
 
   const createdIds = validateCreatedMediaIds(created, plan.createItems.length);
   if (!createdIds) return { status: "mediaCreateRecoveryRequired" };
-  const completeTargetItems = resolveCompleteTargetItems(fresh.value.plan, createdIds);
+  const completeTargetItems = resolveCompleteTargetItems(
+    fresh.value.preparedSource,
+    fresh.value.plan,
+    createdIds,
+  );
   if (!completeTargetItems) return { status: "mediaCreateRecoveryRequired" };
   runtime = { ...runtime, createdTargetItems: completeTargetItems };
   publishRuntime();
@@ -825,8 +829,31 @@ function cloneRuntime(runtime: GooglePhotosSyncMediaRuntime): GooglePhotosSyncMe
     completedUploads: runtime.completedUploads.map((item) => ({ ...item })),
     currentUpload: runtime.currentUpload ? { ...runtime.currentUpload } : null,
     ...(runtime.createdTargetItems
-      ? { createdTargetItems: runtime.createdTargetItems.map((item) => ({ ...item })) }
+      ? { createdTargetItems: runtime.createdTargetItems.map(cloneManagedItem) }
       : {}),
+  };
+}
+
+function cloneManagedItem(
+  item: GooglePhotosSyncManagedItem,
+): GooglePhotosSyncManagedItem {
+  return {
+    ...item,
+    snapshot: item.snapshot
+      ? {
+          ...item.snapshot,
+          ...(item.snapshot.imageEdit
+            ? {
+                imageEdit: {
+                  ...item.snapshot.imageEdit,
+                  ...(item.snapshot.imageEdit.crop
+                    ? { crop: { ...item.snapshot.imageEdit.crop } }
+                    : {}),
+                },
+              }
+            : {}),
+        }
+      : null,
   };
 }
 
@@ -936,16 +963,28 @@ function createIdentityEqual(
   );
 }
 
-function resolveReuseOnlyTargetItems(plan: GooglePhotosIncrementalSyncPlan) {
+function resolveReuseOnlyTargetItems(
+  source: GooglePhotosSyncPreparedSource,
+  plan: GooglePhotosIncrementalSyncPlan,
+) {
   if (plan.targetItems.some((item) => item.kind !== "reuse")) return null;
-  return plan.targetItems.map((item) => ({
-    slideId: item.slideId,
-    renderKey: item.renderKey,
-    mediaItemId: (item as Extract<typeof item, { kind: "reuse" }>).mediaItemId,
-  }));
+  const snapshots = snapshotsBySlideId(source);
+  const targetItems: GooglePhotosSyncManagedItem[] = [];
+  for (const item of plan.targetItems) {
+    const snapshot = snapshots.get(item.slideId);
+    if (!snapshot) return null;
+    targetItems.push({
+      slideId: item.slideId,
+      renderKey: item.renderKey,
+      mediaItemId: (item as Extract<typeof item, { kind: "reuse" }>).mediaItemId,
+      snapshot,
+    });
+  }
+  return targetItems;
 }
 
 function resolveCompleteTargetItems(
+  source: GooglePhotosSyncPreparedSource,
   plan: GooglePhotosIncrementalSyncPlan,
   createdIds: string[],
 ): GooglePhotosSyncManagedItem[] | null {
@@ -953,17 +992,20 @@ function resolveCompleteTargetItems(
   plan.createItems.forEach((item, index) => {
     createdByIdentity.set(identityKey(item), createdIds[index] ?? "");
   });
+  const snapshots = snapshotsBySlideId(source);
   const targetItems = plan.targetItems.map((item) => ({
     slideId: item.slideId,
     renderKey: item.renderKey,
     mediaItemId:
       item.kind === "reuse" ? item.mediaItemId : createdByIdentity.get(identityKey(item)) ?? "",
+    snapshot: snapshots.get(item.slideId) ?? null,
   }));
   const slideIds = new Set<string>();
   const mediaIds = new Set<string>();
   for (const item of targetItems) {
     if (
       !isNonBlankTrimmedString(item.mediaItemId) ||
+      item.snapshot === null ||
       slideIds.has(item.slideId) ||
       mediaIds.has(item.mediaItemId)
     ) {
@@ -973,6 +1015,10 @@ function resolveCompleteTargetItems(
     mediaIds.add(item.mediaItemId);
   }
   return targetItems;
+}
+
+function snapshotsBySlideId(source: GooglePhotosSyncPreparedSource) {
+  return new Map(source.items.map((item) => [item.slideId, item.snapshot]));
 }
 
 function validateCreatedMediaIds(

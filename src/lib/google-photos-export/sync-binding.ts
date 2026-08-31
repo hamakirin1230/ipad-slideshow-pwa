@@ -1,9 +1,18 @@
 import { DRIVE_PREFLIGHT_APP_ID } from "../drive-preflight-diagnostics";
+import {
+  parseSafeSlideSnapshot,
+  type SafeSlideSnapshot,
+} from "../project-diff";
 
 export const GOOGLE_PHOTOS_SYNC_BINDING_FILE_NAME = "google-photos-sync.json";
 export const GOOGLE_PHOTOS_SYNC_BINDING_ROLE = "googlePhotosSync";
-export const GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION = 1;
-export const GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION_PROPERTY = "1";
+export const GOOGLE_PHOTOS_SYNC_BINDING_LEGACY_SCHEMA_VERSION = 1;
+export const GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION = 2;
+export const GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION_PROPERTY = "2";
+export const GOOGLE_PHOTOS_SYNC_BINDING_READABLE_SCHEMA_VERSION_PROPERTIES = [
+  "1",
+  GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION_PROPERTY,
+] as const;
 
 export const GOOGLE_PHOTOS_SYNC_PENDING_PHASES = [
   "creatingAlbum",
@@ -23,6 +32,7 @@ export type GooglePhotosSyncManagedItem = {
   slideId: string;
   renderKey: string;
   mediaItemId: string;
+  snapshot: SafeSlideSnapshot | null;
 };
 
 export type GooglePhotosSyncBinding = {
@@ -98,7 +108,13 @@ const PENDING_KEYS = [
   "previousManagedMediaItemIds",
   "targetItems",
 ] as const;
-const MANAGED_ITEM_KEYS = ["slideId", "renderKey", "mediaItemId"] as const;
+const V1_MANAGED_ITEM_KEYS = ["slideId", "renderKey", "mediaItemId"] as const;
+const V2_MANAGED_ITEM_KEYS = [
+  "slideId",
+  "renderKey",
+  "mediaItemId",
+  "snapshot",
+] as const;
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_8601_UTC_PATTERN =
@@ -112,9 +128,13 @@ export function parseGooglePhotosSyncBinding(
   if (!hasExactKeys(input, TOP_LEVEL_KEYS)) return fail("unknownProperty");
   if (input.app !== DRIVE_PREFLIGHT_APP_ID) return fail("appMismatch");
   if (input.role !== GOOGLE_PHOTOS_SYNC_BINDING_ROLE) return fail("roleMismatch");
-  if (input.schemaVersion !== GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION) {
+  if (
+    input.schemaVersion !== GOOGLE_PHOTOS_SYNC_BINDING_LEGACY_SCHEMA_VERSION &&
+    input.schemaVersion !== GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION
+  ) {
     return fail("schemaVersionMismatch");
   }
+  const sourceSchemaVersion = input.schemaVersion;
   if (!isUuidV4(input.workspaceId) || input.workspaceId !== expected.workspaceId) {
     return fail("workspaceMismatch");
   }
@@ -124,9 +144,9 @@ export function parseGooglePhotosSyncBinding(
 
   const album = parseAlbum(input.album);
   if (!album.ok) return album;
-  const stable = parseStable(input.stable);
+  const stable = parseStable(input.stable, sourceSchemaVersion);
   if (!stable.ok) return stable;
-  const pending = parsePending(input.pending);
+  const pending = parsePending(input.pending, sourceSchemaVersion);
   if (!pending.ok) return pending;
 
   return {
@@ -210,6 +230,7 @@ function parseAlbum(
 
 function parseStable(
   input: unknown,
+  sourceSchemaVersion: 1 | 2,
 ):
   | { ok: true; value: GooglePhotosSyncBinding["stable"] }
   | { ok: false; reason: GooglePhotosSyncBindingValidationFailureReason } {
@@ -221,7 +242,7 @@ function parseStable(
   if (!isPositiveInteger(input.rendererVersion)) {
     return fail("invalidRendererVersion");
   }
-  const items = parseManagedItems(input.items);
+  const items = parseManagedItems(input.items, sourceSchemaVersion);
   if (!items.ok) return items;
   return {
     ok: true,
@@ -236,6 +257,7 @@ function parseStable(
 
 function parsePending(
   input: unknown,
+  sourceSchemaVersion: 1 | 2,
 ):
   | { ok: true; value: GooglePhotosSyncBinding["pending"] }
   | { ok: false; reason: GooglePhotosSyncBindingValidationFailureReason } {
@@ -255,7 +277,7 @@ function parsePending(
     input.previousManagedMediaItemIds,
   );
   if (!previousIds.ok) return previousIds;
-  const targetItems = parseManagedItems(input.targetItems);
+  const targetItems = parseManagedItems(input.targetItems, sourceSchemaVersion);
   if (!targetItems.ok) return targetItems;
   return {
     ok: true,
@@ -273,6 +295,7 @@ function parsePending(
 
 function parseManagedItems(
   input: unknown,
+  sourceSchemaVersion: 1 | 2,
 ):
   | { ok: true; value: GooglePhotosSyncManagedItem[] }
   | { ok: false; reason: GooglePhotosSyncBindingValidationFailureReason } {
@@ -282,7 +305,16 @@ function parseManagedItems(
   const mediaItemIds = new Set<string>();
   for (const value of input) {
     if (!isJsonObject(value)) return fail("malformed");
-    if (!hasExactKeys(value, MANAGED_ITEM_KEYS)) return fail("unknownProperty");
+    if (
+      !hasExactKeys(
+        value,
+        sourceSchemaVersion === GOOGLE_PHOTOS_SYNC_BINDING_LEGACY_SCHEMA_VERSION
+          ? V1_MANAGED_ITEM_KEYS
+          : V2_MANAGED_ITEM_KEYS,
+      )
+    ) {
+      return fail("unknownProperty");
+    }
     if (
       !isNonBlankString(value.slideId) ||
       !isNonBlankString(value.renderKey) ||
@@ -296,10 +328,21 @@ function parseManagedItems(
     }
     slideIds.add(value.slideId);
     mediaItemIds.add(value.mediaItemId);
+    let snapshot: SafeSlideSnapshot | null = null;
+    if (sourceSchemaVersion === GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION) {
+      if (value.snapshot !== null) {
+        const parsedSnapshot = parseSafeSlideSnapshot(value.snapshot);
+        if (!parsedSnapshot.ok || parsedSnapshot.value.mediaKind !== "image") {
+          return fail("malformed");
+        }
+        snapshot = parsedSnapshot.value;
+      }
+    }
     items.push({
       slideId: value.slideId,
       renderKey: value.renderKey,
       mediaItemId: value.mediaItemId,
+      snapshot,
     });
   }
   return { ok: true, value: items };

@@ -32,6 +32,12 @@ const KEY_OLD_A = `sha256:${"b".repeat(64)}`;
 const KEY_OLD_B = `sha256:${"c".repeat(64)}`;
 const KEY_NEW_C = `sha256:${"d".repeat(64)}`;
 const TITLE = "夏の作品";
+const SNAPSHOT = {
+  mediaKind: "image" as const,
+  displayName: "素材.jpg",
+  caption: "caption",
+  durationMs: 10_000,
+};
 
 const PROJECT: DriveProjectSummary = {
   projectId: PROJECT_ID,
@@ -93,8 +99,8 @@ function membershipBinding(
       completedAt: "2026-08-30T02:00:00.000Z",
       rendererVersion: 1,
       items: [
-        { slideId: "slide-old-a", renderKey: KEY_OLD_A, mediaItemId: "old-a" },
-        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b" },
+        { slideId: "slide-old-a", renderKey: KEY_OLD_A, mediaItemId: "old-a", snapshot: null },
+        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b", snapshot: null },
       ],
     },
     pending: {
@@ -105,8 +111,8 @@ function membershipBinding(
       targetTitle: TITLE,
       previousManagedMediaItemIds: ["old-a", "old-b"],
       targetItems: [
-        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b" },
-        { slideId: "slide-new-c", renderKey: KEY_NEW_C, mediaItemId: "new-c" },
+        { slideId: "slide-old-b", renderKey: KEY_OLD_B, mediaItemId: "old-b", snapshot: SNAPSHOT },
+        { slideId: "slide-new-c", renderKey: KEY_NEW_C, mediaItemId: "new-c", snapshot: SNAPSHOT },
       ],
     },
   };
@@ -307,6 +313,9 @@ describe("Google Photos sync membership reconciliation", () => {
       expect(test.spies.batchAdd).not.toHaveBeenCalled();
       expect(test.spies.updateBinding).toHaveBeenCalledTimes(1);
       expect(test.remoteBinding().pending?.phase).toBe(nextPhase);
+      expect(test.remoteBinding().pending?.targetItems).toEqual(
+        membershipBinding().pending?.targetItems,
+      );
       expect(test.remoteBinding().stable).toEqual(membershipBinding().stable);
       expect(test.membership()).toEqual([
         "unmanaged-a",
