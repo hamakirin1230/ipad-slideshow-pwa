@@ -6,6 +6,7 @@ import {
   PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
   type GoogleTokenResponse,
   hasGrantedPhotosLibraryAppendonlyScope,
+  hasGrantedPhotosLibrarySyncScopes,
 } from "../google-auth";
 
 export const GOOGLE_PHOTOS_EXPORT_SCOPE = PHOTOS_LIBRARY_APPENDONLY_SCOPE;
@@ -33,6 +34,22 @@ export function tokenResponseGrantsPhotosLibraryAppendonly(
     return false;
   }
   return hasGrantedPhotosLibraryAppendonlyScope(tokenResponse);
+}
+
+export function tokenResponseGrantsPhotosLibrarySync(
+  tokenResponse: GoogleTokenResponse,
+) {
+  const responseScopes = tokenScopeList(tokenResponse.scope);
+  if (responseScopes.length > 0) {
+    const grantedScopes = new Set(responseScopes);
+    return GOOGLE_PHOTOS_SYNC_SCOPE_LIST.every((required) =>
+      grantedScopes.has(required),
+    );
+  }
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return hasGrantedPhotosLibrarySyncScopes(tokenResponse);
 }
 
 export function tokenScopeList(scope: string | undefined) {

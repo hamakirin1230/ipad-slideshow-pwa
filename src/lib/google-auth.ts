@@ -116,3 +116,16 @@ export function hasGrantedPhotosLibraryAppendonlyScope(
     ) ?? false
   );
 }
+
+export function hasGrantedPhotosLibrarySyncScopes(
+  tokenResponse: GoogleTokenResponse,
+) {
+  return (
+    window.google?.accounts?.oauth2?.hasGrantedAllScopes(
+      tokenResponse,
+      PHOTOS_LIBRARY_APPENDONLY_SCOPE,
+      PHOTOS_LIBRARY_EDIT_APPCREATEDDATA_SCOPE,
+      PHOTOS_LIBRARY_READONLY_APPCREATEDDATA_SCOPE,
+    ) ?? false
+  );
+}

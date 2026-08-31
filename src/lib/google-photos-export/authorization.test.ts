@@ -13,6 +13,7 @@ import {
   isPhotosExportScopeRequest,
   isPhotosLibrarySyncScopeRequest,
   tokenResponseGrantsPhotosLibraryAppendonly,
+  tokenResponseGrantsPhotosLibrarySync,
   tokenScopeList,
 } from "./authorization";
 
@@ -103,6 +104,53 @@ describe("google photos export authorization", () => {
           .map((scope, index) => (index === 2 ? "scope:unrelated" : scope))
           .join(" "),
       ),
+    ).toBe(false);
+  });
+
+  it("accepts sync token responses containing every required scope", () => {
+    const required = tokenScopeList(GOOGLE_PHOTOS_SYNC_SCOPES);
+
+    expect(
+      tokenResponseGrantsPhotosLibrarySync({
+        scope: GOOGLE_PHOTOS_SYNC_SCOPES,
+      }),
+    ).toBe(true);
+    expect(
+      tokenResponseGrantsPhotosLibrarySync({
+        scope: [...required].reverse().join(" "),
+      }),
+    ).toBe(true);
+    expect(
+      tokenResponseGrantsPhotosLibrarySync({
+        scope: `${DRIVE_FILE_SCOPE} ${GOOGLE_PHOTOS_SYNC_SCOPES}`,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects sync token responses missing any required scope", () => {
+    const required = tokenScopeList(GOOGLE_PHOTOS_SYNC_SCOPES);
+
+    for (const missingScope of required) {
+      expect(
+        tokenResponseGrantsPhotosLibrarySync({
+          scope: required
+            .filter((scope) => scope !== missingScope)
+            .join(" "),
+        }),
+      ).toBe(false);
+    }
+    expect(tokenResponseGrantsPhotosLibrarySync({ scope: DRIVE_FILE_SCOPE })).toBe(
+      false,
+    );
+    expect(
+      tokenResponseGrantsPhotosLibrarySync({
+        scope: PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
+      }),
+    ).toBe(false);
+    expect(
+      tokenResponseGrantsPhotosLibrarySync({
+        scope: PHOTOS_LIBRARY_APPENDONLY_SCOPE,
+      }),
     ).toBe(false);
   });
 

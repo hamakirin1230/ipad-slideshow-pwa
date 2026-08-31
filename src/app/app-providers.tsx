@@ -25,7 +25,9 @@ import { createGoogleSessionClientController } from "@/lib/google-session/browse
 import { createGooglePhotosPickerSessionClientController } from "@/lib/google-photos-picker-session/browser-session";
 import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
+  GOOGLE_PHOTOS_SYNC_SCOPES,
   tokenResponseGrantsPhotosLibraryAppendonly,
+  tokenResponseGrantsPhotosLibrarySync,
 } from "@/lib/google-photos-export/authorization";
 import {
   createGooglePhotosExportAuthorizationError,
@@ -254,6 +256,7 @@ const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 const ASSET_IMPORT_MAX_BATCH_COUNT = 10;
 const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const PHOTOS_EXPORT_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
+const PHOTOS_SYNC_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
 const OFFLINE_SYNC_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -536,7 +539,16 @@ type PendingPhotosTokenRequest = {
   reject: (error: unknown) => void;
 };
 
-type TokenRequestKind = "drive" | "photos" | "photosExport" | null;
+type PendingPhotosSyncTokenRequest = PendingPhotosTokenRequest & {
+  promise: Promise<string>;
+};
+
+type TokenRequestKind =
+  | "drive"
+  | "photos"
+  | "photosExport"
+  | "photosSync"
+  | null;
 
 type PhotosTokenRequestFailureStatus = "cancelled" | "error";
 type PhotosTokenRequestFailureCategory = "popupBlocked";
@@ -962,6 +974,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const photosExportTokenClientRef = useRef<GoogleTokenClient | null>(null);
   const pendingPhotosExportTokenRequestRef =
     useRef<PendingPhotosTokenRequest | null>(null);
+  const photosSyncAccessTokenRef = useRef<string | null>(null);
+  const photosSyncTokenClientRef = useRef<GoogleTokenClient | null>(null);
+  const pendingPhotosSyncTokenRequestRef =
+    useRef<PendingPhotosSyncTokenRequest | null>(null);
+  const photosSyncTokenRequestIdRef = useRef(0);
   const pendingGooglePhotosExportRef = useRef<GooglePhotosExportPlan | null>(
     null,
   );
@@ -1780,6 +1797,205 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return true;
   }
 
+  function requestPhotosSyncAccessToken(requestId: number) {
+    const existingToken = photosSyncAccessTokenRef.current;
+    if (existingToken) {
+      return Promise.resolve(existingToken);
+    }
+
+    const pendingRequest = pendingPhotosSyncTokenRequestRef.current;
+    if (pendingRequest) {
+      return pendingRequest.promise;
+    }
+
+    const tokenClient = photosSyncTokenClientRef.current;
+    if (!tokenClient) {
+      return Promise.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Google Photos sync token client was not ready.",
+          diagnostics: ["Googleフォト同期の認証準備が完了していません。"],
+        }),
+      );
+    }
+
+    let resolveRequest!: (accessToken: string) => void;
+    let rejectRequest!: (error: unknown) => void;
+    const promise = new Promise<string>((resolve, reject) => {
+      resolveRequest = resolve;
+      rejectRequest = reject;
+    });
+    const timeoutId = setTimeout(() => {
+      const currentRequest = pendingPhotosSyncTokenRequestRef.current;
+      if (!currentRequest || currentRequest.requestId !== requestId) {
+        return;
+      }
+      pendingPhotosSyncTokenRequestRef.current = null;
+      tokenRequestKindRef.current = null;
+      currentRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos sync token request timed out.",
+          diagnostics: ["Googleフォト同期の利用許可待ちがタイムアウトしました。"],
+        }),
+      );
+    }, PHOTOS_SYNC_TOKEN_REQUEST_TIMEOUT_MS);
+
+    photosSyncTokenRequestIdRef.current = requestId;
+    pendingPhotosSyncTokenRequestRef.current = {
+      requestId,
+      timeoutId,
+      resolve: resolveRequest,
+      reject: rejectRequest,
+      promise,
+    };
+    tokenRequestKindRef.current = "photosSync";
+
+    try {
+      tokenClient.requestAccessToken({
+        scope: GOOGLE_PHOTOS_SYNC_SCOPES,
+        include_granted_scopes: false,
+        prompt: "consent",
+      });
+    } catch {
+      const currentRequest = pendingPhotosSyncTokenRequestRef.current;
+      if (currentRequest?.requestId === requestId) {
+        clearTimeout(currentRequest.timeoutId);
+        pendingPhotosSyncTokenRequestRef.current = null;
+      }
+      tokenRequestKindRef.current = null;
+      rejectRequest(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos sync token request could not be started.",
+          diagnostics: ["Googleフォト同期の利用許可要求を開始できませんでした。"],
+        }),
+      );
+    }
+
+    return promise;
+  }
+
+  // Kept private until the same-album sync action is wired in a later commit.
+  void requestPhotosSyncAccessToken;
+
+  function handlePhotosSyncTokenResponse(tokenResponse: GoogleTokenResponse) {
+    const pendingRequest = pendingPhotosSyncTokenRequestRef.current;
+    if (!pendingRequest) {
+      if (tokenRequestKindRef.current === "photosSync") {
+        tokenRequestKindRef.current = null;
+        return true;
+      }
+      return false;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingPhotosSyncTokenRequestRef.current = null;
+    tokenRequestKindRef.current = null;
+
+    if (pendingRequest.requestId !== photosSyncTokenRequestIdRef.current) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos sync token response was stale.",
+          diagnostics: ["以前のGoogleフォト同期の利用許可応答を破棄しました。"],
+        }),
+      );
+      return true;
+    }
+
+    if (tokenResponse.error === "access_denied") {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos sync permission was cancelled.",
+          diagnostics: ["Googleフォト同期の利用許可がキャンセルされました。"],
+        }),
+      );
+      return true;
+    }
+
+    if (tokenResponse.error || !tokenResponse.access_token) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos sync token request returned an error.",
+          diagnostics: ["Googleフォト同期の利用許可でエラーが返されました。"],
+        }),
+      );
+      return true;
+    }
+
+    if (!tokenResponseGrantsPhotosLibrarySync(tokenResponse)) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos Library sync scopes were not granted.",
+          diagnostics: ["Googleフォト同期に必要な利用許可を確認できませんでした。"],
+        }),
+      );
+      return true;
+    }
+
+    photosSyncAccessTokenRef.current = tokenResponse.access_token;
+    pendingRequest.resolve(tokenResponse.access_token);
+    return true;
+  }
+
+  function handlePhotosSyncTokenErrorCallback(error?: GoogleTokenError) {
+    const pendingRequest = pendingPhotosSyncTokenRequestRef.current;
+    if (!pendingRequest) {
+      if (tokenRequestKindRef.current === "photosSync") {
+        tokenRequestKindRef.current = null;
+        return true;
+      }
+      return false;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingPhotosSyncTokenRequestRef.current = null;
+    tokenRequestKindRef.current = null;
+    const failure = toPhotosExportTokenPopupFailure(error);
+    pendingRequest.reject(
+      new PhotosTokenRequestError({
+        ...failure,
+        message:
+          failure.category === "popupBlocked"
+            ? "Photos sync popup could not be opened."
+            : failure.status === "cancelled"
+              ? "Photos sync permission was cancelled."
+              : "Photos sync permission did not complete.",
+        diagnostics:
+          failure.category === "popupBlocked"
+            ? ["Googleフォト同期の認証画面を開けませんでした。"]
+            : failure.status === "cancelled"
+              ? ["Googleフォト同期の利用許可がキャンセルされました。"]
+              : ["Googleフォト同期の利用許可が完了しませんでした。"],
+      }),
+    );
+    return true;
+  }
+
+  function clearPhotosSyncAuthorization() {
+    photosSyncTokenRequestIdRef.current += 1;
+    if (tokenRequestKindRef.current === "photosSync") {
+      tokenRequestKindRef.current = null;
+    }
+    const pendingRequest = pendingPhotosSyncTokenRequestRef.current;
+    if (pendingRequest) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingPhotosSyncTokenRequestRef.current = null;
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos sync permission was cleared.",
+          diagnostics: ["Googleフォト同期の利用許可を破棄しました。"],
+        }),
+      );
+    }
+    photosSyncAccessTokenRef.current = null;
+  }
+
   function discardPendingGooglePhotosExport() {
     googlePhotosExportRequestSequenceRef.current += 1;
     googlePhotosExportAbortRef.current?.abort();
@@ -2447,6 +2663,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     clearGoogleAuthTimeout();
     tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
+    clearPhotosSyncAuthorization();
     setDriveFileGranted(null);
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
     setGoogleMessage(
@@ -2503,6 +2720,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       accessTokenRef.current = null;
       tokenClientRef.current = null;
       photosExportTokenClientRef.current = null;
+      clearPhotosSyncAuthorization();
+      photosSyncTokenClientRef.current = null;
       setDriveFileGranted(null);
       setGoogleStatus("missingClientId");
       setGoogleMessage("NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。");
@@ -2517,6 +2736,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       accessTokenRef.current = null;
       tokenClientRef.current = null;
       photosExportTokenClientRef.current = null;
+      clearPhotosSyncAuthorization();
+      photosSyncTokenClientRef.current = null;
       setDriveFileGranted(null);
       setGoogleStatus("error");
       setGoogleMessage("Google認証ライブラリを利用できませんでした。");
@@ -2618,6 +2839,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
       },
     });
 
+    photosSyncTokenClientRef.current = oauth2.initTokenClient({
+      client_id: clientId,
+      scope: GOOGLE_PHOTOS_SYNC_SCOPES,
+      prompt: "consent",
+      include_granted_scopes: false,
+      callback: (tokenResponse) => {
+        handlePhotosSyncTokenResponse(tokenResponse);
+      },
+      error_callback: (error) => {
+        handlePhotosSyncTokenErrorCallback(error);
+      },
+    });
+
     if (accessTokenRef.current) {
       setDriveFileGranted(true);
       setGoogleStatus("connected");
@@ -2706,6 +2940,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
     clearPhotosExportAuthorization();
+    clearPhotosSyncAuthorization();
     discardPendingGooglePhotosExport();
     setDriveFileGranted(null);
     abortDriveOperation();
@@ -2728,6 +2963,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
     clearPhotosExportAuthorization();
+    clearPhotosSyncAuthorization();
     discardPendingGooglePhotosExport();
     setDriveFileGranted(null);
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
@@ -7980,6 +8216,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
             clearGoogleAuthTimeout();
             tokenRequestKindRef.current = null;
             accessTokenRef.current = null;
+            clearPhotosSyncAuthorization();
+            photosSyncTokenClientRef.current = null;
             setDriveFileGranted(null);
             setGoogleStatus("error");
             setGoogleMessage("Google認証ライブラリの読み込みに失敗しました。");

@@ -77,6 +77,129 @@ describe("google auth does not auto-restore after refresh", () => {
     expect(photosExportPanel).not.toContain("trySilentDriveRestore");
   });
 
+  it("defines an isolated same-album sync token client with exact scopes", () => {
+    const syncInitStart = providers.indexOf(
+      "photosSyncTokenClientRef.current = oauth2.initTokenClient({",
+    );
+    const syncInit = providers.slice(
+      syncInitStart,
+      providers.indexOf("if (accessTokenRef.current)", syncInitStart),
+    );
+    const exportInitStart = providers.indexOf(
+      "photosExportTokenClientRef.current = oauth2.initTokenClient({",
+    );
+    const exportInit = providers.slice(exportInitStart, syncInitStart);
+
+    expect(syncInitStart).toBeGreaterThan(-1);
+    expect(syncInit).toContain("scope: GOOGLE_PHOTOS_SYNC_SCOPES");
+    expect(syncInit).toContain("include_granted_scopes: false");
+    expect(syncInit).toContain('prompt: "consent"');
+    expect(syncInit).not.toContain("DRIVE_FILE_SCOPE");
+    expect(syncInit).not.toContain("DRIVE_AND_PHOTOS_PICKER_SCOPES");
+    expect(syncInit).not.toContain("GOOGLE_PHOTOS_EXPORT_SCOPE");
+    expect(exportInit).toContain("scope: GOOGLE_PHOTOS_EXPORT_SCOPE");
+    expect(exportInit).not.toContain("GOOGLE_PHOTOS_SYNC_SCOPES");
+  });
+
+  it("keeps the same-album sync token in private refs only", () => {
+    expect(providers).toContain(
+      "const photosSyncAccessTokenRef = useRef<string | null>(null)",
+    );
+    expect(providers).toContain(
+      "const photosSyncTokenClientRef = useRef<GoogleTokenClient | null>(null)",
+    );
+    expect(providers).toContain(
+      "pendingPhotosSyncTokenRequestRef",
+    );
+    expect(providers).not.toContain("setPhotosSyncAccessToken");
+    expect(providers).not.toContain("photosSyncAccessToken:");
+    expect(providers).not.toContain("getPhotosSyncAccessToken");
+  });
+
+  it("starts a guarded sync scope request synchronously and reuses only its own token", () => {
+    const request = extractFunction(providers, "requestPhotosSyncAccessToken");
+    const requestStart = request.indexOf("tokenClient.requestAccessToken({");
+
+    expect(requestStart).toBeGreaterThan(-1);
+    expect(request.slice(0, requestStart)).not.toContain("await ");
+    expect(request).toContain("const existingToken = photosSyncAccessTokenRef.current");
+    expect(request).toContain("if (pendingRequest)");
+    expect(request).toContain("return pendingRequest.promise");
+    expect(request.indexOf("if (pendingRequest)")).toBeLessThan(requestStart);
+    expect(request).toContain("scope: GOOGLE_PHOTOS_SYNC_SCOPES");
+    expect(request).toContain("include_granted_scopes: false");
+    expect(request).toContain('prompt: "consent"');
+    expect(request).toContain("PHOTOS_SYNC_TOKEN_REQUEST_TIMEOUT_MS");
+    expect(request).toContain("pendingPhotosSyncTokenRequestRef.current = null");
+    expect(request).not.toContain("photosExportAccessTokenRef");
+    expect(request).not.toContain("accessTokenRef.current");
+    expect(request).not.toContain("photosPickerAccessTokenRef");
+  });
+
+  it("validates sync responses and safely classifies cancellation and popup failures", () => {
+    const response = extractFunction(providers, "handlePhotosSyncTokenResponse");
+    const errorCallback = extractFunction(
+      providers,
+      "handlePhotosSyncTokenErrorCallback",
+    );
+
+    expect(response).toContain("pendingPhotosSyncTokenRequestRef.current = null");
+    expect(response).toContain(
+      "pendingRequest.requestId !== photosSyncTokenRequestIdRef.current",
+    );
+    expect(response).toContain('tokenResponse.error === "access_denied"');
+    expect(response).toContain('status: "cancelled"');
+    expect(response).toContain("!tokenResponse.access_token");
+    expect(response).toContain("tokenResponseGrantsPhotosLibrarySync(tokenResponse)");
+    expect(response).toContain(
+      "photosSyncAccessTokenRef.current = tokenResponse.access_token",
+    );
+    expect(response).not.toContain("error_description");
+    expect(response).not.toContain("error_uri");
+    expect(errorCallback).toContain("toPhotosExportTokenPopupFailure(error)");
+    expect(errorCallback).toContain('failure.category === "popupBlocked"');
+    expect(errorCallback).toContain('failure.status === "cancelled"');
+    expect(errorCallback).not.toContain("console.");
+  });
+
+  it("clears sync authorization on reset and disconnect without session persistence", () => {
+    const reset = extractFunction(providers, "resetGoogleAuthFlow");
+    const disconnect = extractFunction(providers, "disconnectGoogle");
+    const syncRequest = extractFunction(providers, "requestPhotosSyncAccessToken");
+    const syncResponse = extractFunction(providers, "handlePhotosSyncTokenResponse");
+    const syncError = extractFunction(
+      providers,
+      "handlePhotosSyncTokenErrorCallback",
+    );
+    const clearSync = extractFunction(providers, "clearPhotosSyncAuthorization");
+
+    expect(reset).toContain("clearPhotosSyncAuthorization()");
+    expect(disconnect).toContain("clearPhotosSyncAuthorization()");
+    expect(providers).toContain(`clearPhotosSyncAuthorization();
+      photosSyncTokenClientRef.current = null;`);
+    expect(clearSync).toContain('tokenRequestKindRef.current === "photosSync"');
+    expect(clearSync).toContain("photosSyncAccessTokenRef.current = null");
+    for (const syncFn of [syncRequest, syncResponse, syncError]) {
+      expect(syncFn).not.toContain("persistAfterManualConnect");
+      expect(syncFn).not.toContain("persistAfterPhotosPickerConnect");
+      expect(syncFn).not.toContain("googleSessionControllerRef");
+      expect(syncFn).not.toContain("photosPickerSessionControllerRef");
+      expect(syncFn).not.toContain("localStorage");
+      expect(syncFn).not.toContain("sessionStorage");
+    }
+  });
+
+  it("does not wire sync authorization to cloud execution or UI", () => {
+    expect(providers).not.toContain("startGooglePhotosSyncAfterFreshReconciliation");
+    expect(providers).not.toContain(
+      "createGooglePhotosSyncMediaItemsAfterAlbumBound",
+    );
+    expect(providers).not.toContain("reconcileGooglePhotosSyncMembership");
+    expect(providers).not.toContain("finalizeGooglePhotosSameAlbumSync");
+    expect(photosExportPanel).not.toContain("GOOGLE_PHOTOS_SYNC_SCOPES");
+    expect(photosExportPanel).not.toContain("Googleフォトを更新");
+  });
+
   it("starts Photos export authorization from commit before any await or fresh validation", () => {
     const prepare = extractFunction(
       providers,
