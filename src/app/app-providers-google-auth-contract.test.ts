@@ -189,7 +189,7 @@ describe("google auth does not auto-restore after refresh", () => {
     }
   });
 
-  it("does not wire sync authorization to cloud execution or UI", () => {
+  it("wires sync only through the coordinator and keeps OAuth details out of UI", () => {
     expect(providers).not.toContain("startGooglePhotosSyncAfterFreshReconciliation");
     expect(providers).not.toContain(
       "createGooglePhotosSyncMediaItemsAfterAlbumBound",
@@ -197,7 +197,9 @@ describe("google auth does not auto-restore after refresh", () => {
     expect(providers).not.toContain("reconcileGooglePhotosSyncMembership");
     expect(providers).not.toContain("finalizeGooglePhotosSameAlbumSync");
     expect(photosExportPanel).not.toContain("GOOGLE_PHOTOS_SYNC_SCOPES");
-    expect(photosExportPanel).not.toContain("Googleフォトを更新");
+    expect(photosExportPanel).toContain("syncSelectedProjectToGooglePhotos");
+    expect(photosExportPanel).toContain("Googleフォトを更新");
+    expect(photosExportPanel).not.toContain("requestPhotosSyncAccessToken");
   });
 
   it("starts Photos export authorization from commit before any await or fresh validation", () => {
@@ -213,7 +215,6 @@ describe("google auth does not auto-restore after refresh", () => {
       providers,
       "requestPhotosExportAccessToken",
     );
-    const exportAction = extractFunction(photosExportPanel, "exportToPhotos");
     const requestStart = commit.indexOf(
       "const photosAccessTokenPromise = requestPhotosExportAccessToken(requestSequence);",
     );
@@ -226,25 +227,7 @@ describe("google auth does not auto-restore after refresh", () => {
     );
     expect(request).toContain("tokenClient.requestAccessToken({");
     expect(request).not.toContain("await ");
-    expect(exportAction).toContain(
-      "const result = await commitPreparedGooglePhotosExport();",
-    );
-    expect(exportAction.indexOf("actionInFlightRef.current")).toBeLessThan(
-      exportAction.indexOf("commitPreparedGooglePhotosExport()"),
-    );
-    expect(
-      exportAction.indexOf("actionInFlightRef.current = true"),
-    ).toBeLessThan(
-      exportAction.indexOf("commitPreparedGooglePhotosExport()"),
-    );
-    expect(
-      exportAction.slice(
-        0,
-        exportAction.indexOf(
-          "const result = await commitPreparedGooglePhotosExport();",
-        ),
-      ),
-    ).not.toContain("await ");
+    expect(photosExportPanel).not.toContain("commitPreparedGooglePhotosExport");
   });
 
   it("reuses an existing Photos token for export or resume and guards duplicate requests", () => {
@@ -262,9 +245,6 @@ describe("google auth does not auto-restore after refresh", () => {
     );
     expect(commit.indexOf("googlePhotosExportInFlightRef.current")).toBeLessThan(
       commit.indexOf("requestPhotosExportAccessToken(requestSequence)"),
-    );
-    expect(photosExportPanel).toContain(
-      "exportToPhotos(uiState.review!, true)",
     );
     expect(commit).toContain(
       "requestPhotosExportAccessToken(requestSequence)",

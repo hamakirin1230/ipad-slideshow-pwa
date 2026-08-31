@@ -53,6 +53,10 @@ import {
 } from "@/lib/google-photos-export/sync-coordinator";
 import type { GooglePhotosSyncMediaRuntime } from "@/lib/google-photos-export/sync-media";
 import {
+  prepareGooglePhotosSyncUiReviewInDrive,
+  type GooglePhotosSyncUiReviewResult,
+} from "@/lib/google-photos-export/sync-ui-review";
+import {
   listProjectPublishRevisions,
   loadProjectPublishRevision,
   type ListProjectPublishRevisionsResult,
@@ -597,6 +601,10 @@ export type GooglePhotosSyncActionResult =
   | { status: "authorizationDenied" }
   | { status: "cancelled" };
 
+export type GooglePhotosSyncReviewActionResult =
+  | GooglePhotosSyncUiReviewResult
+  | { ok: false; reason: "notReady" | "cancelled" };
+
 function toPhotosExportTokenPopupFailure(
   error?: GoogleTokenError,
 ): {
@@ -812,6 +820,10 @@ type AppContextValue = {
   syncSelectedProjectToGooglePhotos: (
     projectId: string,
   ) => Promise<GooglePhotosSyncActionResult>;
+  prepareGooglePhotosSyncReview: (
+    projectId: string,
+    signal: AbortSignal,
+  ) => Promise<GooglePhotosSyncReviewActionResult>;
   abortGooglePhotosSync: () => void;
   isGooglePhotosSyncInFlight: boolean;
   googlePhotosSyncProgress: GooglePhotosSameAlbumSyncCoordinatorProgress | null;
@@ -7611,6 +7623,78 @@ export function AppProviders({ children }: { children: ReactNode }) {
     discardPendingProjectPublish();
   }
 
+  async function prepareGooglePhotosSyncReview(
+    projectId: string,
+    signal: AbortSignal,
+  ): Promise<GooglePhotosSyncReviewActionResult> {
+    const driveAccessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+    if (
+      signal.aborted ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      !driveAccessToken ||
+      !workspace ||
+      !project ||
+      project.projectId !== projectId ||
+      selectedProjectId !== projectId ||
+      googlePhotosSyncInFlightRef.current ||
+      googlePhotosExportInFlightRef.current ||
+      driveOperationInFlightRef.current ||
+      assetImportInFlightRef.current ||
+      offlineSyncInFlightRef.current ||
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current ||
+      projectDeleteInFlightRef.current
+    ) {
+      return { ok: false, reason: "notReady" };
+    }
+
+    googlePhotosSyncDriveAuthorityRef.current = {
+      googleStatus,
+      driveFileGranted,
+      driveStatus,
+      projectStatus,
+      workspace,
+      project,
+      selectedProjectId,
+    };
+    const authoritySnapshot: GooglePhotosSyncAuthoritySnapshot = {
+      driveAccessToken,
+      workspaceId: workspace.workspaceId,
+      projectsRootFolderId: workspace.projectsRootFolderId,
+      projectId: project.projectId,
+      projectFolderId: project.projectFolderId,
+    };
+
+    try {
+      const result = await prepareGooglePhotosSyncUiReviewInDrive({
+        accessToken: driveAccessToken,
+        selectedProjectId: project.projectId,
+        workspaceId: workspace.workspaceId,
+        projectsRootFolderId: workspace.projectsRootFolderId,
+        project,
+        signal,
+      });
+      if (
+        signal.aborted ||
+        !googlePhotosSyncAuthorityIsCurrent(authoritySnapshot)
+      ) {
+        return { ok: false, reason: "notReady" };
+      }
+      return result;
+    } catch (error) {
+      return {
+        ok: false,
+        reason: isAbortError(error) || signal.aborted ? "cancelled" : "notReady",
+      };
+    }
+  }
+
   async function syncSelectedProjectToGooglePhotos(
     projectId: string,
   ): Promise<GooglePhotosSyncActionResult> {
@@ -8558,6 +8642,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     googlePhotosExportProgress,
     googlePhotosExportResult,
     canResumeGooglePhotosExport,
+    prepareGooglePhotosSyncReview,
     syncSelectedProjectToGooglePhotos,
     abortGooglePhotosSync,
     isGooglePhotosSyncInFlight,

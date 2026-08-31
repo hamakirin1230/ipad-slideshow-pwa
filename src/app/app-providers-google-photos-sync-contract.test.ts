@@ -36,6 +36,45 @@ function extractType(source: string, name: string) {
 }
 
 describe("AppProviders Google Photos same-album sync action", () => {
+  it("prepares UI review with Drive only and no Photos authorization", () => {
+    const review = extractFunction(
+      providers,
+      "prepareGooglePhotosSyncReview",
+    );
+
+    expect(review).toContain("prepareGooglePhotosSyncUiReviewInDrive({");
+    expect(review).toContain("accessToken: driveAccessToken");
+    expect(review).toContain("signal,");
+    expect(review).not.toContain("requestPhotosSyncAccessToken");
+    expect(review).not.toContain("requestPhotosExportAccessToken");
+    expect(review).not.toContain("photosAccessToken");
+    expect(review).not.toContain("executeGooglePhotosSameAlbumSync");
+  });
+
+  it("guards review readiness and rejects stale Drive authority safely", () => {
+    const review = extractFunction(
+      providers,
+      "prepareGooglePhotosSyncReview",
+    );
+    const helperCall = review.indexOf(
+      "await prepareGooglePhotosSyncUiReviewInDrive({",
+    );
+    const beforeRead = review.slice(0, helperCall);
+
+    expect(beforeRead).toContain('googleStatus !== "connected"');
+    expect(beforeRead).toContain("driveFileGranted !== true");
+    expect(beforeRead).toContain('driveStatus !== "ready"');
+    expect(beforeRead).toContain('projectStatus !== "ready"');
+    expect(beforeRead).toContain("selectedProjectId !== projectId");
+    expect(beforeRead).toContain("googlePhotosSyncInFlightRef.current");
+    expect(beforeRead).toContain("driveOperationInFlightRef.current");
+    expect(beforeRead).toContain('return { ok: false, reason: "notReady" }');
+    expect(review).toContain(
+      "!googlePhotosSyncAuthorityIsCurrent(authoritySnapshot)",
+    );
+    expect(review).toContain('? "cancelled" : "notReady"');
+  });
+
   it("starts the dedicated sync OAuth request before the first await", () => {
     const action = extractFunction(
       providers,
@@ -237,6 +276,7 @@ describe("AppProviders Google Photos same-album runtime boundary", () => {
     );
 
     expect(context).toContain("syncSelectedProjectToGooglePhotos:");
+    expect(context).toContain("prepareGooglePhotosSyncReview:");
     expect(context).toContain("abortGooglePhotosSync: () => void");
     expect(context).toContain("isGooglePhotosSyncInFlight: boolean");
     expect(context).toContain("googlePhotosSyncProgress:");
@@ -350,10 +390,11 @@ describe("AppProviders Google Photos same-album safe completion", () => {
     expect(publicResult).toContain('status: "cancelled"');
   });
 
-  it("leaves the current one-shot export UI and sync UI unwired", () => {
-    expect(photosExportPanel).not.toContain("syncSelectedProjectToGooglePhotos");
-    expect(photosExportPanel).not.toContain("abortGooglePhotosSync");
-    expect(photosExportPanel).not.toContain("Googleフォトを更新");
-    expect(photosExportPanel).toContain("commitPreparedGooglePhotosExport");
+  it("exposes the sync action to UI while leaving one-shot backend private", () => {
+    expect(photosExportPanel).toContain("syncSelectedProjectToGooglePhotos");
+    expect(photosExportPanel).toContain("abortGooglePhotosSync");
+    expect(photosExportPanel).toContain("Googleフォトを更新");
+    expect(photosExportPanel).not.toContain("commitPreparedGooglePhotosExport");
+    expect(providers).toContain("commitPreparedGooglePhotosExport");
   });
 });

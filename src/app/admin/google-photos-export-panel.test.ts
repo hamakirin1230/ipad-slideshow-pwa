@@ -7,178 +7,216 @@ const source = {
   providers: read("../app-providers.tsx"),
 };
 
-describe("google photos export review UI", () => {
-  it("places a separate export card above Drive publish", () => {
+describe("Google Photos same-album sync UI", () => {
+  it("places a same-album sync card above Drive publish", () => {
     expect(source.workspace).toContain("<GooglePhotosExportPanel />");
     expect(source.workspace.indexOf("<GooglePhotosExportPanel />")).toBeLessThan(
       source.workspace.indexOf("<ProjectPublishPanel />"),
     );
-    expect(source.panel).toContain("Googleフォトへ書き出す");
-    expect(source.panel).toContain("動画は書き出しません");
-    expect(source.panel).toContain("Driveの公開版作成とは別の操作です");
-    expect(source.panel).not.toMatch(/公開URL|共有URL|共有リンク/);
-  });
-
-  it("shows progress and a Photos open link without calling it a share URL", () => {
-    expect(source.panel).toContain("現在の写真:");
-    expect(source.panel).toContain("完了済み:");
-    expect(source.panel).not.toContain("現在のスライド:");
-    expect(source.panel).toContain("アップロード:");
-    expect(source.panel).toContain("Googleフォト用の画像を作成しています");
-    expect(source.panel).toContain("Googleフォトへアップロードしています");
-    expect(source.panel).toContain("中止");
-    expect(source.panel).toContain("Googleフォトへの書き出しが完了しました");
-    expect(source.panel).toContain("Googleフォトで開く");
-    expect(source.panel).toContain("result.productUrl");
+    expect(source.panel).toContain("Googleフォトと同期");
     expect(source.panel).toContain(
-      "共有する場合はGoogleフォトでアルバムを開き、Googleフォトの共有機能からリンクを作成してください。",
+      "初回は同期先を作成し、2回目以降は同じ同期先の名前と写真構成を更新します。",
     );
-    expect(source.panel).not.toContain("共有リンク");
+    expect(source.panel).toContain("動画は対象外です");
   });
 
-  it("shows completed upload count and an in-session resume action", () => {
-    expect(source.panel).toContain("completedSlides");
-    expect(source.panel).toContain("枚までアップロード済みです。");
-    expect(source.panel).toContain("続きから再開");
-    expect(source.panel).toContain("この画面を開いている間");
-    expect(source.panel).not.toContain(">再開<");
-    expect(source.panel).not.toContain("sessionUrl");
-    expect(source.panel).not.toContain("uploadToken");
+  it("uses a Drive-only review action without starting Photos sync", () => {
+    const review = extractFunction(source.panel, "startReview");
+    expect(review).toContain("prepareGooglePhotosSyncReview(");
+    expect(review).toContain("controller.signal");
+    expect(review).not.toContain("syncSelectedProjectToGooglePhotos");
+    expect(review).not.toContain("requestAccessToken");
+    expect(review).not.toContain("requestPhotosSyncAccessToken");
+    expect(source.panel).toContain("同期内容を確認");
   });
 
-  it("requires the album confirmation checkbox before export", () => {
-    expect(source.panel).toContain(
-      "Googleフォトに新しいアルバムを作成することを確認しました",
+  it("shows exact initial, update, and continuation action labels", () => {
+    const labels = extractFunction(source.panel, "syncActionLabel");
+    expect(labels).toContain('return "Googleフォトへ書き出す"');
+    expect(labels).toContain('return "Googleフォトを更新"');
+    expect(labels).toContain('return "Googleフォトの更新を続ける"');
+  });
+
+  it("shows mode-specific confirmation semantics", () => {
+    const confirmation = extractFunction(source.panel, "confirmationText");
+    expect(confirmation).toContain(
+      "Googleフォトに新しい同期先アルバムを作成し、今後は同じアルバムを更新することを確認しました",
+    );
+    expect(confirmation).toContain(
+      "同じGoogleフォトアルバムを現在の内容に更新することを確認しました",
+    );
+    expect(confirmation).toContain(
+      "前回のGoogleフォト更新の続きから状態を確認して再開することを確認しました",
     );
     expect(source.panel).toContain("disabled={!confirmed || disabled}");
-    expect(source.panel).toContain("Googleアカウントの保存容量を使用します。");
-    expect(source.panel).toContain("表示時間はGoogleフォトへ引き継がれません。");
-    expect(source.panel).toContain(
-      "画像スライドのテロップは、Googleフォト用の画像に焼き込んで書き出します。",
+  });
+
+  it("calls the sync action in the click stack before its first await", () => {
+    const action = extractFunction(source.panel, "syncToGooglePhotos");
+    const call = action.indexOf(
+      "syncSelectedProjectToGooglePhotos(selectedProjectId)",
     );
-    expect(source.panel).toContain(
-      "画像のテロップは、Googleフォトの説明にも保存します。",
-    );
-    expect(source.panel).toContain(
-      "動画はGoogleフォトへ書き出しません。アルバムとDrive上の動画はそのまま残ります。",
-    );
-    expect(source.panel).toContain("書き出し対象外");
-    expect(source.panel).toContain("review.exportPhotoCount");
+    const firstAwait = action.indexOf("await ");
+
+    expect(call).toBeGreaterThan(-1);
+    expect(call).toBeLessThan(firstAwait);
+    expect(action).toContain("const resultPromise =");
+    expect(action).toContain("const result = await resultPromise");
+    expect(action.match(/syncSelectedProjectToGooglePhotos\(/g)).toHaveLength(1);
+    expect(action.indexOf("actionInFlightRef.current = true")).toBeLessThan(call);
+    expect(action).not.toContain("prepareGooglePhotosSyncReview");
+  });
+
+  it("shows safe review details without binding internals", () => {
+    expect(source.panel).toContain('label="アルバム名"');
+    expect(source.panel).toContain('label="元のスライド数"');
+    expect(source.panel).toContain('label="Googleフォト同期対象写真"');
+    expect(source.panel).toContain('label="対象外の動画"');
+    expect(source.panel).toContain('label="対象写真の合計容量"');
+    expect(source.panel).toContain('label="同期先アルバム名"');
+    expect(source.panel).toContain("review.syncPhotoCount");
     expect(source.panel).toContain("review.skippedVideoCount");
-    expect(source.panel).toContain("review.sourceSlideCount");
-    expect(source.panel).toContain("書き出す写真の合計容量");
-    expect(source.panel).not.toContain("review.videoCount");
-    expect(source.panel).not.toContain('label="スライド数"');
-    expect(source.panel).not.toContain('label="動画"');
+    expect(source.panel).toContain("review.totalBytes");
+  });
+
+  it("maps all sanitized progress stages and exposes abort", () => {
+    const progress = extractFunction(source.panel, "progressStageMessage");
+    expect(progress).toContain("同期状態を確認しています。");
+    expect(progress).toContain("同期先を準備しています。");
+    expect(progress).toContain("写真を準備・アップロードしています。");
+    expect(progress).toContain(
+      "同期先アルバムの写真構成を更新しています。",
+    );
+    expect(progress).toContain("同期結果を確認しています。");
+    expect(source.panel).toContain("progress.completedCount");
+    expect(source.panel).toContain("progress.totalCount");
+    expect(source.panel).toContain("abortGooglePhotosSync()");
+    expect(source.panel).toContain("中止");
+  });
+
+  it("shows safe completed, no-change, authorization, and abort messages", () => {
+    expect(source.panel).toContain("Googleフォトへの初回同期が完了しました。");
+    expect(source.panel).toContain("Googleフォトの更新が完了しました。");
+    expect(source.panel).toContain("Googleフォトは最新です。");
+    expect(source.panel).toContain(
+      "Googleフォト同期の利用許可を確認できませんでした。もう一度実行してください。",
+    );
+    expect(source.panel).toContain(
+      "Googleフォト同期の利用許可がキャンセルされました。",
+    );
+    expect(source.panel).toContain(
+      "更新を中止しました。GoogleフォトまたはDrive側の処理が途中まで進んでいる場合があります。状態を再確認してください。",
+    );
+  });
+
+  it("fails closed for source changes and ambiguous recovery", () => {
+    expect(source.panel).toContain(
+      "前回のGoogleフォト同期処理中からアルバム内容が変更されています。自動では続行しません。",
+    );
+    expect(source.panel).toContain(
+      "前回のGoogleフォト処理の結果を自動では確定できません。新しい同期先を自動作成したり、写真を再送したりしません。",
+    );
+    expect(source.panel).toContain(
+      "Googleフォト側の処理結果を自動では判断できません。状態を再確認してください。",
+    );
+    expect(source.panel).toContain("状態を再確認");
+  });
+
+  it("maps target missing and invalid binding without IDs", () => {
+    expect(source.panel).toContain(
+      "同期先のGoogleフォトアルバムが見つかりません。自動で新しいアルバムは作成しません。",
+    );
+    expect(source.panel).toContain(
+      "Googleフォト同期設定を一意に確認できません。自動修復は行いません。",
+    );
+    expect(source.panel).not.toContain("result.stage");
+    expect(source.panel).not.toContain("{result.reason}");
+  });
+
+  it("discloses legacy unbound behavior without title-based auto-link", () => {
+    expect(source.panel).toContain(
+      "以前に作成したGoogleフォトアルバムが存在していても、このアプリは名前だけで自動的に同期先へ関連付けません。同期設定がない場合は、新しい同期先を作成します。",
+    );
+    expect(source.panel).not.toContain("同名アルバムを検索");
+    expect(source.panel).not.toContain("既存の同名");
+  });
+
+  it("discloses user-added and removed media semantics", () => {
+    expect(source.panel).toContain(
+      "同期先アルバムへユーザー自身が追加した写真は、このアプリの同期対象として扱わず、削除しません。",
+    );
+    expect(source.panel).toContain(
+      "Googleフォトのライブラリ全体には残り、保存容量を使用し続ける場合があります。",
+    );
+    expect(source.panel).toContain(
+      "次回Googleフォト更新時に同じ同期先アルバム名へ反映します。",
+    );
+  });
+
+  it("keeps Google Photos sync, local save, and publish separate", () => {
+    expect(source.panel).toContain(
+      "Googleフォト同期と「ローカルに保存」と「公開」は別操作です。ローカル保存や公開を自動実行しません。",
+    );
     expect(source.panel).toContain(
       "Google Drive上の元画像・元動画は変更しません。",
     );
-    expect(source.panel).toContain("元素材と異なる場合があります。");
-    expect(source.panel).not.toContain(
-      "テロップはGoogleフォトの説明として書き出します。",
-    );
-    expect(source.panel).not.toContain(
-      "同じ素材を使うスライドも、それぞれ1件として容量に含みます。",
-    );
-    expect(source.panel).not.toMatch(/重複スライドも別アイテムとして書き出す/);
-    expect(source.panel).toContain("ローカルに保存");
   });
 
-  it("asks the user to review again after the export source changes", () => {
-    expect(source.panel).toContain('result.error.kind === "sourceChanged"');
-    expect(source.providers).toContain(
-      "commitGooglePhotosExportAfterFreshValidation",
+  it("aborts stale review work on cancel, unmount, and project-key change", () => {
+    expect(source.panel).toContain("reviewAbortRef.current?.abort()");
+    expect(source.panel).toContain("requestSequenceRef.current += 1");
+    expect(source.panel).toContain(
+      'key={`${googleStatus}:${driveStatus}:${projectStatus}:${selectedProjectId ?? "none"}`}',
     );
-    expect(source.providers).not.toContain(
-      "executeGooglePhotosExportWithAdapter({",
-    );
-    expect(source.providers).toContain('result.error.kind === "sourceChanged"');
   });
 
-  it("does not persist or display Photos or Drive tokens", () => {
-    expect(source.panel).not.toContain("accessToken");
-    expect(source.panel).not.toContain("photosExportAccessTokenRef");
-    expect(source.providers).toContain("googlePhotosRenderedImageRef");
-    expect(source.providers).not.toContain(
-      "setGooglePhotosRenderedImage",
-    );
-    expect(source.providers).not.toContain("localStorage");
-    expect(source.panel).not.toContain("sessionStorage");
-    expect(source.providers).toContain("assertGooglePhotosExportPlanIsImageOnly");
-    expect(source.providers).toContain(
-      "const photosAccessTokenPromise = requestPhotosExportAccessToken(requestSequence);",
-    );
+  it("does not expose internal IDs, tokens, URLs, runtime, or raw errors", () => {
+    for (const forbidden of [
+      "albumId",
+      "mediaItemId",
+      "operationId",
+      "workspaceId",
+      "projectFolderId",
+      "sourceFingerprint",
+      "renderKey",
+      "sessionUrl",
+      "uploadToken",
+      "accessToken",
+      "productUrl",
+      "console.",
+    ]) {
+      expect(source.panel).not.toContain(forbidden);
+    }
+  });
+
+  it("removes one-shot UI dependencies while preserving its backend", () => {
+    for (const oldUiDependency of [
+      "prepareGooglePhotosExportReview",
+      "commitPreparedGooglePhotosExport",
+      "cancelPreparedGooglePhotosExport",
+      "abortGooglePhotosExport",
+      "googlePhotosExportProgress",
+    ]) {
+      expect(source.panel).not.toContain(oldUiDependency);
+      expect(source.providers).toContain(oldUiDependency);
+    }
+    expect(source.providers).toContain("GOOGLE_PHOTOS_EXPORT_SCOPE");
     expect(source.providers).toContain("photosExportAccessTokenRef");
-    expect(source.providers).toContain("scope: GOOGLE_PHOTOS_EXPORT_SCOPE");
-    expect(source.providers).toContain(
-      "photosExportAccessTokenRef.current = tokenResponse.access_token",
-    );
-    expect(source.providers).not.toContain(
-      "accessTokenRef.current = tokenResponse.access_token;\n    pendingRequest.resolve",
-    );
-  });
-
-  it("uses a dedicated Photos export token client with appendonly only", () => {
-    expect(source.providers).toContain("photosExportTokenClientRef");
-    expect(source.providers).toContain(
-      "photosExportTokenClientRef.current = oauth2.initTokenClient({",
-    );
-    expect(source.providers).toContain(
-      "tokenClientRef.current = oauth2.initTokenClient({",
-    );
-
-    const driveInitStart = source.providers.indexOf(
-      "tokenClientRef.current = oauth2.initTokenClient({",
-    );
-    const exportInitStart = source.providers.indexOf(
-      "photosExportTokenClientRef.current = oauth2.initTokenClient({",
-    );
-    expect(driveInitStart).toBeGreaterThan(-1);
-    expect(exportInitStart).toBeGreaterThan(driveInitStart);
-
-    const driveInit = source.providers.slice(driveInitStart, exportInitStart);
-    expect(driveInit).toContain("scope: DRIVE_FILE_SCOPE");
-    expect(driveInit).not.toContain("handlePhotosExportTokenResponse");
-    expect(driveInit).not.toContain("GOOGLE_PHOTOS_EXPORT_SCOPE");
-
-    const exportInitEnd = source.providers.indexOf(
-      'setGoogleStatus("notConnected")',
-      exportInitStart,
-    );
-    const exportInit = source.providers.slice(exportInitStart, exportInitEnd);
-    expect(exportInit).toContain("scope: GOOGLE_PHOTOS_EXPORT_SCOPE");
-    expect(exportInit).toContain("include_granted_scopes: false");
-    expect(exportInit).not.toContain("photospicker");
-    expect(exportInit).not.toContain("DRIVE_FILE_SCOPE");
-    expect(exportInit).toContain("handlePhotosExportTokenResponse");
-
-    expect(source.providers).toContain(
-      "const tokenClient = photosExportTokenClientRef.current;",
-    );
-    expect(source.providers).toContain(
-      "scope: GOOGLE_PHOTOS_EXPORT_SCOPE,\n          include_granted_scopes: false,",
-    );
-    expect(source.providers).not.toContain("setPhotosExportAccessToken");
-  });
-
-  it("keeps sanitized export errors and does not render internal diagnostics", () => {
-    expect(source.panel).toContain("{uiState.error.message}");
-    expect(source.panel).not.toContain("diagnostics");
-    expect(source.panel).not.toContain("assetDiagnostics");
-    expect(source.panel).not.toContain("issueCodes");
-    expect(source.providers).toContain(
-      "return toGooglePhotosExportReviewResult(source);",
-    );
-  });
-
-  it("keeps the review available when Photos authorization must be retried", () => {
-    expect(source.panel).toContain('status: "review", review, error: result.error');
-    expect(source.panel).toContain('result.error.kind === "authorizationRequired"');
-    expect(source.panel).toContain('result.error.kind === "authorizationDenied"');
-    expect(source.panel).toContain("{uiState.error.message}");
-    expect(source.panel).toContain("exportToPhotos(uiState.review!, true)");
   });
 });
+
+function extractFunction(text: string, name: string) {
+  const start = text.indexOf(`function ${name}(`);
+  expect(start).toBeGreaterThan(-1);
+  const candidates = [
+    text.indexOf("\n  function ", start + 1),
+    text.indexOf("\n  async function ", start + 1),
+    text.indexOf("\nfunction ", start + 1),
+    text.indexOf("\nasync function ", start + 1),
+  ].filter((index) => index !== -1);
+  const end = candidates.length === 0 ? undefined : Math.min(...candidates);
+  return text.slice(start, end);
+}
 
 function read(relativePath: string) {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
