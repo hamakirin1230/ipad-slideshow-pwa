@@ -15,7 +15,7 @@ describe("Google Photos same-album sync UI", () => {
     );
     expect(source.panel).toContain("Googleフォトと同期");
     expect(source.panel).toContain(
-      "初回は同期先を作成し、2回目以降は同じ同期先の名前と写真構成を更新します。",
+      "選択中のアルバムからGoogleフォトへ反映される変更を確認します。",
     );
     expect(source.panel).toContain("動画は対象外です");
   });
@@ -67,16 +67,25 @@ describe("Google Photos same-album sync UI", () => {
     expect(action).not.toContain("prepareGooglePhotosSyncReview");
   });
 
-  it("shows safe review details without binding internals", () => {
-    expect(source.panel).toContain('label="アルバム名"');
-    expect(source.panel).toContain('label="元のスライド数"');
-    expect(source.panel).toContain('label="Googleフォト同期対象写真"');
-    expect(source.panel).toContain('label="対象外の動画"');
-    expect(source.panel).toContain('label="対象写真の合計容量"');
-    expect(source.panel).toContain('label="同期先アルバム名"');
-    expect(source.panel).toContain("review.syncPhotoCount");
+  it("shows safe before/after diffs, summaries, and legacy fallback", () => {
+    expect(source.panel).toContain("review.diff.albumTitleChange.before");
+    expect(source.panel).toContain("review.diff.albumTitleChange.after");
+    expect(source.panel).toContain('<SummaryChip label="追加"');
+    expect(source.panel).toContain('<SummaryChip label="削除"');
+    expect(source.panel).toContain('<SummaryChip label="変更"');
+    expect(source.panel).toContain('<SummaryChip label="並び替え"');
+    expect(source.panel).toContain('return "素材"');
+    expect(source.panel).toContain('return "テロップ"');
+    expect(source.panel).toContain('return "表示時間"');
+    expect(source.panel).toContain('return "画像調整"');
+    expect(source.panel).toContain('return "順番"');
+    expect(source.panel).toContain("前回の詳細は表示できません。");
+    expect(source.panel).toContain("今回の同期内容のみ確認できます。");
+    expect(source.panel).toContain("Googleフォト側の写真変更はありません。");
+    expect(source.panel).toContain("変更前");
+    expect(source.panel).toContain("変更後");
+    expect(source.panel).toContain("item.displayName");
     expect(source.panel).toContain("review.skippedVideoCount");
-    expect(source.panel).toContain("review.totalBytes");
   });
 
   it("maps all sanitized progress stages and exposes abort", () => {
@@ -135,7 +144,7 @@ describe("Google Photos same-album sync UI", () => {
 
   it("discloses legacy unbound behavior without title-based auto-link", () => {
     expect(source.panel).toContain(
-      "以前に作成したGoogleフォトアルバムが存在していても、このアプリは名前だけで自動的に同期先へ関連付けません。同期設定がない場合は、新しい同期先を作成します。",
+      "同期設定がない場合は新しい同期先を作成し、名前だけで既存アルバムへ自動関連付けしません。",
     );
     expect(source.panel).not.toContain("同名アルバムを検索");
     expect(source.panel).not.toContain("既存の同名");
@@ -143,22 +152,17 @@ describe("Google Photos same-album sync UI", () => {
 
   it("discloses user-added and removed media semantics", () => {
     expect(source.panel).toContain(
-      "同期先アルバムへユーザー自身が追加した写真は、このアプリの同期対象として扱わず、削除しません。",
+      "ユーザー自身が同期先へ追加した写真は削除しません。",
     );
     expect(source.panel).toContain(
-      "Googleフォトのライブラリ全体には残り、保存容量を使用し続ける場合があります。",
+      "アルバムから外れた写真はGoogleフォトのライブラリに残る場合があります。",
     );
-    expect(source.panel).toContain(
-      "次回Googleフォト更新時に同じ同期先アルバム名へ反映します。",
-    );
+    expect(source.panel).toContain("同期について");
   });
 
   it("keeps Google Photos sync, local save, and publish separate", () => {
     expect(source.panel).toContain(
-      "Googleフォト同期と「ローカルに保存」と「公開」は別操作です。ローカル保存や公開を自動実行しません。",
-    );
-    expect(source.panel).toContain(
-      "Google Drive上の元画像・元動画は変更しません。",
+      "Driveの元画像・元動画、ローカル保存、公開状態は変更しません。",
     );
   });
 

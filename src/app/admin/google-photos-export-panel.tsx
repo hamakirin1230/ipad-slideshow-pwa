@@ -14,8 +14,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { formatGooglePhotosExportBytes } from "@/lib/google-photos-export/contract";
 import type {
+  GooglePhotosSyncUiDiffChange,
+  GooglePhotosSyncUiDiffItem,
   GooglePhotosSyncUiReview,
   GooglePhotosSyncUiReviewMode,
 } from "@/lib/google-photos-export/sync-ui-review";
@@ -299,7 +300,7 @@ function GooglePhotosSyncPanelSession() {
             <h2 id="google-photos-sync-heading">Googleフォトと同期</h2>
           </CardTitle>
           <CardDescription className="text-slate-300">
-            選択中のアルバムの写真をGoogleフォトへ同期します。初回は同期先を作成し、2回目以降は同じ同期先の名前と写真構成を更新します。動画は対象外です。
+            選択中のアルバムからGoogleフォトへ反映される変更を確認します。動画は対象外です。
           </CardDescription>
         </CardHeader>
 
@@ -418,53 +419,81 @@ function SyncReview({
         </div>
       ) : null}
 
-      <dl className="grid gap-2 sm:grid-cols-2">
-        <ReviewItem label="アルバム名" value={review.projectTitle} />
-        <ReviewItem
-          label="元のスライド数"
-          value={`${review.sourceSlideCount}件`}
-        />
-        <ReviewItem
-          label="Googleフォト同期対象写真"
-          value={`${review.syncPhotoCount}件`}
-        />
-        <ReviewItem
-          label="対象外の動画"
-          value={`${review.skippedVideoCount}件`}
-        />
-        <ReviewItem
-          label="対象写真の合計容量"
-          value={formatGooglePhotosExportBytes(review.totalBytes)}
-        />
-        <ReviewItem label="同期先アルバム名" value={review.targetAlbumTitle} />
-      </dl>
+      {review.diff.albumTitleChange ? (
+        <div className="rounded-xl border border-sky-300/20 bg-sky-300/10 p-3">
+          <p className="text-xs font-medium text-sky-100">アルバム名</p>
+          <BeforeAfter
+            before={review.diff.albumTitleChange.before}
+            after={review.diff.albumTitleChange.after}
+          />
+        </div>
+      ) : null}
 
-      <ul className="list-disc space-y-2 pl-5 text-slate-300">
-        <li>
-          写真 {review.syncPhotoCount}件を同期します。動画{" "}
-          {review.skippedVideoCount}件はGoogleフォト同期の対象外です。
-        </li>
-        {review.mode === "initial" ? (
-          <li>
-            以前に作成したGoogleフォトアルバムが存在していても、このアプリは名前だけで自動的に同期先へ関連付けません。同期設定がない場合は、新しい同期先を作成します。
-          </li>
-        ) : null}
-        <li>
-          同期先アルバムへユーザー自身が追加した写真は、このアプリの同期対象として扱わず、削除しません。
-        </li>
-        <li>
-          スライドから削除・差し替えた写真は同期先アルバムから外れますが、Googleフォトのライブラリ全体には残り、保存容量を使用し続ける場合があります。
-        </li>
-        <li>
-          Drive上のアルバム名変更は、次回Googleフォト更新時に同じ同期先アルバム名へ反映します。
-        </li>
-        <li>画像スライドのテロップは、Googleフォト用の画像に焼き込みます。</li>
-        <li>動画はGoogleフォトへ同期しません。アルバムとDrive上の動画はそのまま残ります。</li>
-        <li>Google Drive上の元画像・元動画は変更しません。</li>
-        <li>
-          Googleフォト同期と「ローカルに保存」と「公開」は別操作です。ローカル保存や公開を自動実行しません。
-        </li>
-      </ul>
+      {review.diff.baselineStatus === "unavailable" ? (
+        <div className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-amber-50">
+          <p className="font-medium">前回の詳細は表示できません。</p>
+          <p className="mt-1 text-xs text-amber-100/80">
+            今回の同期内容のみ確認できます。前回の内容は推測しません。
+          </p>
+        </div>
+      ) : null}
+
+      {review.diff.summary ? <DiffSummary review={review} /> : null}
+
+      {review.diff.baselineStatus === "unavailable" ? (
+        <div className="space-y-2">
+          <p className="font-medium text-slate-100">今回の同期対象</p>
+          <ul className="space-y-2">
+            {review.diff.currentDisplayNames.map((displayName, index) => (
+              <li
+                key={`${displayName}-${index}`}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+              >
+                {displayName}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : review.diff.items.length > 0 ? (
+        <ul className="space-y-2">
+          {review.diff.items.map((item, index) => (
+            <DiffItem key={`${item.kind}-${item.displayName}-${index}`} item={item} />
+          ))}
+        </ul>
+      ) : (
+        <p className="rounded-xl border border-white/10 bg-white/5 p-3 text-slate-200">
+          Googleフォトへ反映するアルバム内容の変更はありません。
+        </p>
+      )}
+
+      {review.diff.hasGooglePhotosChanges === false &&
+      review.diff.metadataOnlyChangeCount > 0 ? (
+        <p className="rounded-xl border border-violet-300/20 bg-violet-300/10 p-3 text-violet-50">
+          アルバム内スライド情報の変更は確認できますが、Googleフォト側の写真変更はありません。
+        </p>
+      ) : null}
+
+      {review.skippedVideoCount > 0 ? (
+        <p className="text-xs text-slate-400">
+          動画 {review.skippedVideoCount}件はGoogleフォト同期の対象外です。
+        </p>
+      ) : null}
+
+      <details className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-slate-300">
+        <summary className="cursor-pointer font-medium text-slate-100">
+          同期について
+        </summary>
+        <ul className="mt-3 list-disc space-y-2 pl-5 text-xs">
+          {review.mode === "initial" ? (
+            <li>
+              同期設定がない場合は新しい同期先を作成し、名前だけで既存アルバムへ自動関連付けしません。
+            </li>
+          ) : null}
+          <li>ユーザー自身が同期先へ追加した写真は削除しません。</li>
+          <li>アルバムから外れた写真はGoogleフォトのライブラリに残る場合があります。</li>
+          <li>Driveの元画像・元動画、ローカル保存、公開状態は変更しません。</li>
+        </ul>
+      </details>
 
       <label className="flex min-h-11 items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
         <input
@@ -498,6 +527,105 @@ function SyncReview({
       </div>
     </div>
   );
+}
+
+function DiffSummary({ review }: { review: GooglePhotosSyncUiReview }) {
+  const summary = review.diff.summary;
+  if (!summary) return null;
+  return (
+    <div className="flex flex-wrap gap-2" aria-label="変更件数">
+      <SummaryChip label="追加" value={summary.added} />
+      <SummaryChip label="削除" value={summary.removed} />
+      <SummaryChip label="変更" value={summary.changed} />
+      <SummaryChip label="並び替え" value={summary.moved} />
+      {summary.unchanged > 0 ? (
+        <span className="px-2 py-1 text-xs text-slate-400">
+          変更なし {summary.unchanged}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function SummaryChip({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs">
+      {label} {value}
+    </span>
+  );
+}
+
+function DiffItem({ item }: { item: GooglePhotosSyncUiDiffItem }) {
+  return (
+    <li className="rounded-xl border border-white/10 bg-white/5 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-medium text-slate-50">{item.displayName}</p>
+        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-200">
+          {item.kind === "added"
+            ? "追加"
+            : item.kind === "removed"
+              ? "削除"
+              : "変更"}
+        </span>
+      </div>
+      {item.kind === "changed" ? (
+        <dl className="mt-3 space-y-3">
+          {item.changes.map((change) => (
+            <DiffChange key={change.field} change={change} />
+          ))}
+        </dl>
+      ) : null}
+    </li>
+  );
+}
+
+function DiffChange({ change }: { change: GooglePhotosSyncUiDiffChange }) {
+  return (
+    <div>
+      <dt className="text-xs text-slate-400">{diffFieldLabel(change.field)}</dt>
+      <dd>
+        <BeforeAfter before={change.before} after={change.after} />
+        {!change.affectsGooglePhotos ? (
+          <span className="mt-1 block text-xs text-violet-200">
+            Googleフォト側の写真には反映されません
+          </span>
+        ) : null}
+      </dd>
+    </div>
+  );
+}
+
+function BeforeAfter({ before, after }: { before: string; after: string }) {
+  return (
+    <span className="mt-1 grid gap-1 text-sm sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+      <span className="rounded-lg bg-black/20 px-2 py-1">
+        <span className="block text-[0.65rem] text-slate-400">変更前</span>
+        {before}
+      </span>
+      <span className="text-center text-slate-500" aria-hidden="true">
+        →
+      </span>
+      <span className="rounded-lg bg-sky-300/10 px-2 py-1 text-sky-50">
+        <span className="block text-[0.65rem] text-sky-200">変更後</span>
+        {after}
+      </span>
+    </span>
+  );
+}
+
+function diffFieldLabel(field: GooglePhotosSyncUiDiffChange["field"]) {
+  switch (field) {
+    case "asset":
+      return "素材";
+    case "caption":
+      return "テロップ";
+    case "duration":
+      return "表示時間";
+    case "imageEdit":
+      return "画像調整";
+    case "position":
+      return "順番";
+  }
 }
 
 function SyncProgress({
@@ -587,15 +715,6 @@ function StatusBox({ children }: { children: ReactNode }) {
       className="rounded-2xl border border-white/10 bg-black/30 p-4"
     >
       {children}
-    </div>
-  );
-}
-
-function ReviewItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs text-slate-400">{label}</dt>
-      <dd className="mt-1 font-medium text-slate-50">{value}</dd>
     </div>
   );
 }
