@@ -34,6 +34,7 @@ const FINGERPRINT = `sha256:${"a".repeat(64)}`;
 const KEY_REUSE = `sha256:${"b".repeat(64)}`;
 const KEY_CREATE = `sha256:${"c".repeat(64)}`;
 const KEY_CREATE_2 = `sha256:${"d".repeat(64)}`;
+const KEY_CREATE_3 = `sha256:${"e".repeat(64)}`;
 const TITLE = "夏の作品";
 
 const PROJECT: DriveProjectSummary = {
@@ -169,6 +170,44 @@ function createPlan(): GooglePhotosIncrementalSyncPlan {
     titleNeedsUpdate: false,
     sourceFingerprint: FINGERPRINT,
   };
+}
+
+function createOnlyFixture(count = 3) {
+  const identities = [
+    ["slide-create", KEY_CREATE, "asset-create", "first caption"],
+    ["slide-create-2", KEY_CREATE_2, "asset-create-2", "second caption"],
+    ["slide-create-3", KEY_CREATE_3, "asset-create-3", "third caption"],
+  ] as const;
+  const items = identities
+    .slice(0, count)
+    .map(([slideId, renderKey, assetFileId, caption], slideIndex) =>
+      preparedItem({ slideId, renderKey, assetFileId, caption, slideIndex }),
+    );
+  const createItems = items.map((item) => ({
+    kind: "create" as const,
+    slideId: item.slideId,
+    renderKey: item.renderKey,
+  }));
+  return {
+    items,
+    source: preparedSource(items),
+    plan: {
+      ...createPlan(),
+      targetItems: createItems,
+      createItems,
+      removeManagedMediaItemIds: [],
+    },
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 function reusePlan(): GooglePhotosIncrementalSyncPlan {
@@ -515,6 +554,222 @@ describe("Google Photos sync media execution", () => {
     ]);
   });
 
+  it("runs whole-item jobs with at most two active workers and keeps batchCreate in plan order", async () => {
+    const fixture = createOnlyFixture();
+    const harness = adapterHarness({
+      sourceResults: [fixture.source],
+      plans: [fixture.plan],
+      batchResult: {
+        ok: true,
+        mediaItemIds: ["created-first", "created-second", "created-third"],
+      },
+    });
+    const uploadGates = new Map(
+      fixture.items.map((item) => [item.description, deferred<string | null>()]),
+    );
+    const started: string[] = [];
+    let activeUploads = 0;
+    let maxActiveUploads = 0;
+    let retainedRenderedBlobs = 0;
+    let maxRetainedRenderedBlobs = 0;
+    let latestRuntime: GooglePhotosSyncMediaRuntime | undefined;
+
+    harness.adapters.renderImage = vi.fn(async (input) => {
+      retainedRenderedBlobs += 1;
+      maxRetainedRenderedBlobs = Math.max(
+        maxRetainedRenderedBlobs,
+        retainedRenderedBlobs,
+      );
+      return {
+        blob: new Blob([1], { type: "image/jpeg" }),
+        mimeType: "image/jpeg" as const,
+        fileName: input.caption,
+      };
+    });
+    harness.adapters.resumable.startSession = vi.fn(async (input) => ({
+      sessionUrl: `session-${input.fileName}`,
+      chunkGranularity: 1,
+    }));
+    harness.adapters.resumable.uploadChunk = vi.fn(async (input) => {
+      if (!input.finalize) return null;
+      const name = input.sessionUrl.replace("session-", "");
+      started.push(name);
+      activeUploads += 1;
+      maxActiveUploads = Math.max(maxActiveUploads, activeUploads);
+      try {
+        return await uploadGates.get(name)!.promise;
+      } finally {
+        activeUploads -= 1;
+        retainedRenderedBlobs -= 1;
+      }
+    });
+
+    const execution = createGooglePhotosSyncMediaItemsAfterAlbumBound(
+      {
+        ...mediaInput(),
+        onRuntime(runtime) {
+          latestRuntime = runtime;
+        },
+      },
+      harness.adapters,
+    );
+    await vi.waitFor(() => expect(started).toEqual(["first caption", "second caption"]));
+    expect(started).not.toContain("third caption");
+
+    uploadGates.get("second caption")!.resolve("token-second");
+    await vi.waitFor(() => expect(started).toContain("third caption"));
+    uploadGates.get("third caption")!.resolve("token-third");
+    uploadGates.get("first caption")!.resolve("token-first");
+
+    await expect(execution).resolves.toEqual({ status: "mediaPrepared" });
+    expect(maxActiveUploads).toBe(2);
+    expect(maxRetainedRenderedBlobs).toBe(2);
+    expect(latestRuntime?.activeUploads).toEqual([]);
+    expect(latestRuntime?.completedUploads.map((item) => item.slideId)).toEqual(
+      fixture.items.map((item) => item.slideId),
+    );
+    expect(harness.spies.batchCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({ uploadToken: "token-first" }),
+          expect.objectContaining({ uploadToken: "token-second" }),
+          expect.objectContaining({ uploadToken: "token-third" }),
+        ],
+      }),
+    );
+  });
+
+  it("stops dispatch and aborts the other active worker after a render failure", async () => {
+    const fixture = createOnlyFixture();
+    const harness = adapterHarness({
+      sourceResults: [fixture.source],
+      plans: [fixture.plan],
+    });
+    const firstRender = deferred<GooglePhotosRenderedImage>();
+    const started: string[] = [];
+    let secondAborted = false;
+    harness.adapters.renderImage = vi.fn(async (input) => {
+      started.push(input.caption);
+      if (input.caption === "first caption") return firstRender.promise;
+      if (input.caption === "second caption") {
+        return new Promise<GooglePhotosRenderedImage>((_resolve, reject) => {
+          input.signal.addEventListener(
+            "abort",
+            () => {
+              secondAborted = true;
+              reject(input.signal.reason);
+            },
+            { once: true },
+          );
+        });
+      }
+      return {
+        blob: new Blob([1], { type: "image/jpeg" }),
+        mimeType: "image/jpeg",
+        fileName: input.caption,
+      };
+    });
+
+    const execution = createGooglePhotosSyncMediaItemsAfterAlbumBound(
+      mediaInput(),
+      harness.adapters,
+    );
+    await vi.waitFor(() => expect(started).toEqual(["first caption", "second caption"]));
+    firstRender.reject(new Error("private render failure"));
+
+    await expect(execution).resolves.toEqual({ status: "renderFailed" });
+    expect(secondAborted).toBe(true);
+    expect(started).not.toContain("third caption");
+    expect(harness.spies.batchCreate).not.toHaveBeenCalled();
+  });
+
+  it("stops dispatch and batchCreate after one concurrent upload fails", async () => {
+    const fixture = createOnlyFixture();
+    const harness = adapterHarness({
+      sourceResults: [fixture.source],
+      plans: [fixture.plan],
+    });
+    const firstUpload = deferred<string | null>();
+    const started: string[] = [];
+    let secondAborted = false;
+    harness.adapters.renderImage = vi.fn(async (input) => ({
+      blob: new Blob([1], { type: "image/jpeg" }),
+      mimeType: "image/jpeg" as const,
+      fileName: input.caption,
+    }));
+    harness.adapters.resumable.startSession = vi.fn(async (input) => ({
+      sessionUrl: `session-${input.fileName}`,
+      chunkGranularity: 1,
+    }));
+    harness.adapters.resumable.uploadChunk = vi.fn(async (input) => {
+      if (!input.finalize) return null;
+      const name = input.sessionUrl.replace("session-", "");
+      started.push(name);
+      if (name === "first caption") return firstUpload.promise;
+      if (name === "second caption") {
+        return new Promise<string | null>((_resolve, reject) => {
+          input.signal.addEventListener(
+            "abort",
+            () => {
+              secondAborted = true;
+              reject(input.signal.reason);
+            },
+            { once: true },
+          );
+        });
+      }
+      return "unexpected-third-token";
+    });
+
+    const execution = createGooglePhotosSyncMediaItemsAfterAlbumBound(
+      mediaInput(),
+      harness.adapters,
+    );
+    await vi.waitFor(() => expect(started).toEqual(["first caption", "second caption"]));
+    firstUpload.reject(new Error("private upload failure"));
+
+    await expect(execution).resolves.toEqual({ status: "uploadFailed" });
+    expect(secondAborted).toBe(true);
+    expect(started).not.toContain("third caption");
+    expect(harness.spies.batchCreate).not.toHaveBeenCalled();
+  });
+
+  it("aborts all active workers and never dispatches another item", async () => {
+    const fixture = createOnlyFixture();
+    const harness = adapterHarness({
+      sourceResults: [fixture.source],
+      plans: [fixture.plan],
+    });
+    const controller = new AbortController();
+    const started: string[] = [];
+    const aborted: string[] = [];
+    harness.adapters.renderImage = vi.fn(async (input) => {
+      started.push(input.caption);
+      return new Promise<GooglePhotosRenderedImage>((_resolve, reject) => {
+        input.signal.addEventListener(
+          "abort",
+          () => {
+            aborted.push(input.caption);
+            reject(input.signal.reason);
+          },
+          { once: true },
+        );
+      });
+    });
+
+    const execution = createGooglePhotosSyncMediaItemsAfterAlbumBound(
+      mediaInput(controller.signal),
+      harness.adapters,
+    );
+    await vi.waitFor(() => expect(started).toEqual(["first caption", "second caption"]));
+    controller.abort(new DOMException("cancelled", "AbortError"));
+
+    await expect(execution).rejects.toMatchObject({ name: "AbortError" });
+    expect(aborted).toEqual(["first caption", "second caption"]);
+    expect(started).not.toContain("third caption");
+    expect(harness.spies.batchCreate).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["output MIME", { blob: new Blob([1], { type: "image/png" }), mimeType: "image/png", fileName: "bad.png" }],
     ["upload size", { blob: new Blob([], { type: "image/jpeg" }), mimeType: "image/jpeg", fileName: "empty.jpg" }],
@@ -675,9 +930,74 @@ describe("Google Photos sync media execution", () => {
     expect(result).toEqual({ status: "mediaPrepared" });
     expect(harness.spies.openDriveAssetStream).not.toHaveBeenCalled();
     expect(harness.spies.startSession).not.toHaveBeenCalled();
+    expect(harness.spies.prepareSource).toHaveBeenCalledTimes(1);
+    expect(harness.spies.getAlbum).toHaveBeenCalledTimes(1);
+    expect(harness.spies.searchAlbumMediaItemsPage).toHaveBeenCalledTimes(1);
+    expect(harness.spies.planSync).toHaveBeenCalledTimes(1);
     expect(harness.spies.batchCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         items: [expect.objectContaining({ uploadToken: "retained-private-token" })],
+      }),
+    );
+  });
+
+  it("resumes around an out-of-order completed upload without sending it again", async () => {
+    const fixture = createOnlyFixture();
+    const runtime: GooglePhotosSyncMediaRuntime = {
+      operationId: OPERATION_ID,
+      sourceFingerprint: FINGERPRINT,
+      createIdentity: fixture.plan.createItems.map(({ slideId, renderKey }) => ({
+        slideId,
+        renderKey,
+      })),
+      completedUploads: [
+        {
+          slideId: fixture.items[1]!.slideId,
+          renderKey: fixture.items[1]!.renderKey,
+          uploadToken: "retained-second-token",
+          fileName: "retained-second.jpg",
+        },
+      ],
+      activeUploads: [],
+      currentUpload: null,
+    };
+    const harness = adapterHarness({
+      sourceResults: [fixture.source],
+      plans: [fixture.plan],
+      batchResult: {
+        ok: true,
+        mediaItemIds: ["created-first", "created-second", "created-third"],
+      },
+    });
+    harness.adapters.renderImage = vi.fn(async (input) => ({
+      blob: new Blob([1], { type: "image/jpeg" }),
+      mimeType: "image/jpeg" as const,
+      fileName: input.caption,
+    }));
+    harness.adapters.resumable.startSession = vi.fn(async (input) => ({
+      sessionUrl: `session-${input.fileName}`,
+      chunkGranularity: 1,
+    }));
+    harness.adapters.resumable.uploadChunk = vi.fn(async (input) =>
+      input.finalize ? `token-${input.sessionUrl}` : null,
+    );
+
+    await expect(
+      createGooglePhotosSyncMediaItemsAfterAlbumBound(
+        { ...mediaInput(), runtime },
+        harness.adapters,
+      ),
+    ).resolves.toEqual({ status: "mediaPrepared" });
+
+    expect(harness.spies.openDriveAssetStream.mock.calls.map(([call]) => call.assetFileId))
+      .toEqual(["asset-create", "asset-create-3"]);
+    expect(harness.spies.batchCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({ uploadToken: "token-session-first caption" }),
+          expect.objectContaining({ uploadToken: "retained-second-token" }),
+          expect.objectContaining({ uploadToken: "token-session-third caption" }),
+        ],
       }),
     );
   });
@@ -708,6 +1028,63 @@ describe("Google Photos sync media execution", () => {
     expect(harness.spies.startSession).not.toHaveBeenCalled();
     expect(harness.spies.uploadChunk).toHaveBeenCalledWith(
       expect.objectContaining({ offset: 2, finalize: true }),
+    );
+  });
+
+  it("queries and resumes each matching active worker session", async () => {
+    const fixture = createOnlyFixture(2);
+    const activeUploads = fixture.items.map((item, index) => ({
+      slideId: item.slideId,
+      renderKey: item.renderKey,
+      sessionUrl: `private-session-${index + 1}`,
+      chunkGranularity: 1,
+      offset: 0,
+      payloadMimeType: "image/jpeg",
+      payloadSizeBytes: 3,
+      payloadFileName: "rendered-output.jpg",
+    }));
+    const runtime: GooglePhotosSyncMediaRuntime = {
+      operationId: OPERATION_ID,
+      sourceFingerprint: FINGERPRINT,
+      createIdentity: fixture.plan.createItems.map(({ slideId, renderKey }) => ({
+        slideId,
+        renderKey,
+      })),
+      completedUploads: [],
+      activeUploads,
+      currentUpload: activeUploads[0]!,
+    };
+    const harness = adapterHarness({
+      sourceResults: [fixture.source],
+      plans: [fixture.plan],
+      batchResult: {
+        ok: true,
+        mediaItemIds: ["created-first", "created-second"],
+      },
+    });
+    harness.adapters.resumable.querySession = vi.fn(async (input) => ({
+      ok: true as const,
+      status: "active" as const,
+      offset: input.sessionUrl.endsWith("1") ? 1 : 2,
+    }));
+    harness.adapters.resumable.uploadChunk = vi.fn(async (input) =>
+      input.finalize ? `token-${input.sessionUrl}` : null,
+    );
+
+    await expect(
+      createGooglePhotosSyncMediaItemsAfterAlbumBound(
+        { ...mediaInput(), runtime },
+        harness.adapters,
+      ),
+    ).resolves.toEqual({ status: "mediaPrepared" });
+
+    expect(harness.adapters.resumable.querySession).toHaveBeenCalledTimes(2);
+    expect(harness.spies.startSession).not.toHaveBeenCalled();
+    expect(harness.adapters.resumable.uploadChunk).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionUrl: "private-session-1", offset: 1 }),
+    );
+    expect(harness.adapters.resumable.uploadChunk).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionUrl: "private-session-2", offset: 2 }),
     );
   });
 

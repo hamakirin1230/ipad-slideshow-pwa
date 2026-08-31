@@ -75,8 +75,9 @@ type SyncMediaInput = {
   runtime?: GooglePhotosSyncMediaRuntime;
   onRuntime?: (runtime: GooglePhotosSyncMediaRuntime) => void;
   onProgress?: (progress: GooglePhotosSyncMediaProgress) => void;
-  renderedImageRef?: { current: GooglePhotosSyncRenderedImageHolder | null };
 };
+
+export const GOOGLE_PHOTOS_SYNC_MEDIA_CONCURRENCY = 2;
 
 export type GooglePhotosSyncMediaProgress = {
   phase: "renderingImage" | "uploading" | "creatingMedia" | "checkpointing";
@@ -114,6 +115,8 @@ export type GooglePhotosSyncMediaRuntime = {
   sourceFingerprint: string;
   createIdentity: Array<{ slideId: string; renderKey: string }>;
   completedUploads: GooglePhotosSyncMediaCompletedUpload[];
+  activeUploads?: GooglePhotosSyncMediaCurrentUpload[];
+  /** Compatibility alias for runtimes created before bounded concurrency. */
   currentUpload: GooglePhotosSyncMediaCurrentUpload | null;
   createdTargetItems?: GooglePhotosSyncManagedItem[];
 };
@@ -247,68 +250,32 @@ async function runMediaInsideLock(
     return checkpointReuseOnlyMedia(input, initial.value, targetItems, adapters);
   }
 
-  const renderedImageRef = input.renderedImageRef ?? { current: null };
-  let runtime = normalizeRuntime(input.runtime, input.operationId, preparedSource, plan);
+  let runtime = normalizeRuntime(
+    input.runtime,
+    input.operationId,
+    preparedSource,
+    plan,
+  );
   const publishRuntime = () => input.onRuntime?.(cloneRuntime(runtime));
   publishRuntime();
-
-  for (
-    let createIndex = runtime.completedUploads.length;
-    createIndex < mapped.items.length;
-    createIndex += 1
-  ) {
-    const preparedItem = mapped.items[createIndex];
-    if (!preparedItem) return { status: "invalidCreateMapping" };
-    try {
-      const completed = await renderAndUploadCreateItem({
-        input,
-        adapters,
-        preparedItem,
-        createIndex,
-        totalItems: mapped.items.length,
-        currentUpload: runtime.currentUpload,
-        renderedImageRef,
-        onCurrentUpload(next) {
-          runtime = { ...runtime, currentUpload: next };
-          publishRuntime();
-        },
-      });
-      runtime = {
-        ...runtime,
-        completedUploads: [...runtime.completedUploads, completed],
-        currentUpload: null,
-      };
-      renderedImageRef.current = null;
-      publishRuntime();
-    } catch (error) {
-      if (isAbortError(error, input.signal)) throw error;
-      if (runtime.currentUpload) {
-        const queried = await querySessionSafely(
-          adapters.resumable,
-          runtime.currentUpload.sessionUrl,
-          input.signal,
-        );
-        throwIfAborted(input.signal);
-        runtime = {
-          ...runtime,
-          currentUpload:
-            queried.ok &&
-            isGooglePhotosResumeOffsetValid(
-              queried.offset,
-              runtime.currentUpload.payloadSizeBytes,
-            )
-              ? { ...runtime.currentUpload, offset: queried.offset }
-              : null,
-        };
-      }
-      publishRuntime();
-      return {
-        status: error instanceof SyncMediaRenderError ? "renderFailed" : "uploadFailed",
-      };
-    }
+  const hasPendingUploads = mapped.items.some(
+    (item) => !runtimeHasCompletedUpload(runtime, item),
+  );
+  if (hasPendingUploads) {
+    const uploadFailure = await runBoundedCreateUploads({
+      input,
+      adapters,
+      items: mapped.items,
+      getRuntime: () => runtime,
+      setRuntime(next) {
+        runtime = next;
+        publishRuntime();
+      },
+    });
+    if (uploadFailure) return { status: uploadFailure };
   }
 
-  const fresh = await readAuthority(input, adapters);
+  const fresh = hasPendingUploads ? await readAuthority(input, adapters) : initial;
   if (!fresh.ok) return fresh.result;
   if (!authorityBindingSnapshotMatches(initial.value, fresh.value)) {
     return { status: "staleBinding" };
@@ -340,7 +307,12 @@ async function runMediaInsideLock(
     verifiedCreating.status !== "ready" ||
     verifiedCreating.fileId !== creatingWrite.value.fileId ||
     !bindingsEqual(verifiedCreating.binding, creatingWrite.value.binding) ||
-    !isExpectedPendingPhase(input, verifiedCreating.binding, preparedSource, "mediaCreating")
+    !isExpectedPendingPhase(
+      input,
+      verifiedCreating.binding,
+      preparedSource,
+      "mediaCreating",
+    )
   ) {
     return { status: "checkpointConflict" };
   }
@@ -578,28 +550,171 @@ function mapCreateItems(
   return { ok: true, items };
 }
 
+async function runBoundedCreateUploads(input: {
+  input: SyncMediaInput;
+  adapters: GooglePhotosSyncMediaAdapters;
+  items: GooglePhotosSyncPreparedItem[];
+  getRuntime: () => GooglePhotosSyncMediaRuntime;
+  setRuntime: (runtime: GooglePhotosSyncMediaRuntime) => void;
+}): Promise<"renderFailed" | "uploadFailed" | null> {
+  const pendingIndexes = input.items
+    .map((_, index) => index)
+    .filter(
+      (index) =>
+        !runtimeHasCompletedUpload(input.getRuntime(), input.items[index]),
+    );
+  if (pendingIndexes.length === 0) return null;
+
+  const workerController = new AbortController();
+  const abortWorkers = () => workerController.abort(input.input.signal.reason);
+  input.input.signal.addEventListener("abort", abortWorkers, { once: true });
+  let nextPendingIndex = 0;
+  let dispatchStopped = false;
+  let failure: "renderFailed" | "uploadFailed" | null = null;
+
+  const setActiveUpload = (
+    item: GooglePhotosSyncPreparedItem,
+    next: GooglePhotosSyncMediaCurrentUpload | null,
+  ) => {
+    const runtime = input.getRuntime();
+    const activeUploads = getActiveUploads(runtime).filter(
+      (upload) => !sameCreationIdentity(upload, item),
+    );
+    if (next) activeUploads.push(next);
+    activeUploads.sort(
+      (left, right) =>
+        creationIdentityIndex(runtime.createIdentity, left) -
+        creationIdentityIndex(runtime.createIdentity, right),
+    );
+    input.setRuntime(withActiveUploads(runtime, activeUploads));
+  };
+
+  const completeUpload = (completed: GooglePhotosSyncMediaCompletedUpload) => {
+    const runtime = input.getRuntime();
+    const completedUploads = runtime.completedUploads
+      .filter((upload) => !sameCreationIdentity(upload, completed))
+      .concat(completed)
+      .sort(
+        (left, right) =>
+          creationIdentityIndex(runtime.createIdentity, left) -
+          creationIdentityIndex(runtime.createIdentity, right),
+      );
+    const activeUploads = getActiveUploads(runtime).filter(
+      (upload) => !sameCreationIdentity(upload, completed),
+    );
+    input.setRuntime({
+      ...withActiveUploads(runtime, activeUploads),
+      completedUploads,
+    });
+  };
+
+  const worker = async () => {
+    while (!dispatchStopped && !workerController.signal.aborted) {
+      const createIndex = pendingIndexes[nextPendingIndex];
+      if (createIndex === undefined) return;
+      nextPendingIndex += 1;
+      const preparedItem = input.items[createIndex];
+      if (!preparedItem) {
+        dispatchStopped = true;
+        failure = "renderFailed";
+        workerController.abort();
+        return;
+      }
+      const renderedImageRef: {
+        current: GooglePhotosSyncRenderedImageHolder | null;
+      } = { current: null };
+      try {
+        const activeUpload = getActiveUploads(input.getRuntime()).find(
+          (upload) => sameCreationIdentity(upload, preparedItem),
+        );
+        const completed = await renderAndUploadCreateItem({
+          input: { ...input.input, signal: workerController.signal },
+          adapters: input.adapters,
+          preparedItem,
+          createIndex,
+          totalItems: input.items.length,
+          activeUpload: activeUpload ?? null,
+          renderedImageRef,
+          getCompletedItems: () => input.getRuntime().completedUploads.length,
+          onCurrentUpload: (next) => setActiveUpload(preparedItem, next),
+        });
+        completeUpload(completed);
+      } catch (error) {
+        renderedImageRef.current = null;
+        if (input.input.signal.aborted) return;
+        if (dispatchStopped || isAbortError(error, workerController.signal)) return;
+
+        dispatchStopped = true;
+        failure =
+          error instanceof SyncMediaRenderError ? "renderFailed" : "uploadFailed";
+        workerController.abort(
+          new DOMException("A media worker failed.", "AbortError"),
+        );
+
+        const current = getActiveUploads(input.getRuntime()).find((upload) =>
+          sameCreationIdentity(upload, preparedItem),
+        );
+        if (current) {
+          const queried = await querySessionSafely(
+            input.adapters.resumable,
+            current.sessionUrl,
+            input.input.signal,
+          );
+          throwIfAborted(input.input.signal);
+          setActiveUpload(
+            preparedItem,
+            queried.ok &&
+              isGooglePhotosResumeOffsetValid(
+                queried.offset,
+                current.payloadSizeBytes,
+              )
+              ? { ...current, offset: queried.offset }
+              : null,
+          );
+        }
+        return;
+      } finally {
+        renderedImageRef.current = null;
+      }
+    }
+  };
+
+  try {
+    const workerCount = Math.min(
+      GOOGLE_PHOTOS_SYNC_MEDIA_CONCURRENCY,
+      pendingIndexes.length,
+    );
+    await Promise.allSettled(Array.from({ length: workerCount }, () => worker()));
+    throwIfAborted(input.input.signal);
+    return failure;
+  } finally {
+    input.input.signal.removeEventListener("abort", abortWorkers);
+  }
+}
+
 async function renderAndUploadCreateItem(input: {
   input: SyncMediaInput;
   adapters: GooglePhotosSyncMediaAdapters;
   preparedItem: GooglePhotosSyncPreparedItem;
   createIndex: number;
   totalItems: number;
-  currentUpload: GooglePhotosSyncMediaCurrentUpload | null;
+  activeUpload: GooglePhotosSyncMediaCurrentUpload | null;
   renderedImageRef: { current: GooglePhotosSyncRenderedImageHolder | null };
+  getCompletedItems: () => number;
   onCurrentUpload: (current: GooglePhotosSyncMediaCurrentUpload) => void;
 }): Promise<GooglePhotosSyncMediaCompletedUpload> {
   const holder = await resolveRenderedHolder(input);
   let session: GooglePhotosResumableSession;
-  if (currentUploadMatches(input.currentUpload, input.preparedItem, holder)) {
+  if (currentUploadMatches(input.activeUpload, input.preparedItem, holder)) {
     const queried = await input.adapters.resumable.querySession({
-      sessionUrl: input.currentUpload.sessionUrl,
+      sessionUrl: input.activeUpload.sessionUrl,
       signal: input.input.signal,
     });
     session =
       queried.ok && isGooglePhotosResumeOffsetValid(queried.offset, holder.sizeBytes)
         ? {
-            sessionUrl: input.currentUpload.sessionUrl,
-            chunkGranularity: input.currentUpload.chunkGranularity,
+            sessionUrl: input.activeUpload.sessionUrl,
+            chunkGranularity: input.activeUpload.chunkGranularity,
             offset: queried.offset,
           }
         : await startSession(input, holder);
@@ -610,7 +725,7 @@ async function renderAndUploadCreateItem(input: {
   input.input.onProgress?.({
     phase: "uploading",
     currentItem: input.createIndex + 1,
-    completedItems: input.createIndex,
+    completedItems: input.getCompletedItems(),
     totalItems: input.totalItems,
     uploadedBytes: session.offset,
     fileBytes: holder.sizeBytes,
@@ -627,7 +742,7 @@ async function renderAndUploadCreateItem(input: {
       input.input.onProgress?.({
         phase: "uploading",
         currentItem: input.createIndex + 1,
-        completedItems: input.createIndex,
+        completedItems: input.getCompletedItems(),
         totalItems: input.totalItems,
         uploadedBytes: offset,
         fileBytes: holder.sizeBytes,
@@ -650,6 +765,7 @@ async function resolveRenderedHolder(input: {
   createIndex: number;
   totalItems: number;
   renderedImageRef: { current: GooglePhotosSyncRenderedImageHolder | null };
+  getCompletedItems: () => number;
 }): Promise<GooglePhotosSyncRenderedImageHolder> {
   const retained = input.renderedImageRef.current;
   if (
@@ -662,7 +778,7 @@ async function resolveRenderedHolder(input: {
   input.input.onProgress?.({
     phase: "renderingImage",
     currentItem: input.createIndex + 1,
-    completedItems: input.createIndex,
+    completedItems: input.getCompletedItems(),
     totalItems: input.totalItems,
     uploadedBytes: 0,
     fileBytes: input.preparedItem.sizeBytes,
@@ -798,25 +914,36 @@ function normalizeRuntime(
     slideId,
     renderKey,
   }));
+  const completedUploads = candidate
+    ? normalizeCompletedUploads(candidate.completedUploads, identity)
+    : null;
+  const candidateActiveUploads =
+    candidate?.activeUploads ??
+    (candidate?.currentUpload ? [candidate.currentUpload] : []);
+  const activeUploads = normalizeActiveUploads(
+    candidateActiveUploads,
+    identity,
+    completedUploads ?? [],
+  );
   if (
     candidate &&
     candidate.operationId === operationId &&
     candidate.sourceFingerprint === source.sourceFingerprint &&
     createIdentityEqual(candidate.createIdentity, identity) &&
-    completedUploadsAreValidPrefix(candidate.completedUploads, identity) &&
-    (!candidate.currentUpload ||
-      currentUploadBelongsAtIndex(
-        candidate.currentUpload,
-        identity[candidate.completedUploads.length],
-      ))
+    completedUploads !== null &&
+    activeUploads !== null
   ) {
-    return cloneRuntime(candidate);
+    return withActiveUploads(
+      { ...cloneRuntime(candidate), completedUploads },
+      activeUploads,
+    );
   }
   return {
     operationId,
     sourceFingerprint: source.sourceFingerprint,
     createIdentity: identity,
     completedUploads: [],
+    activeUploads: [],
     currentUpload: null,
   };
 }
@@ -827,6 +954,7 @@ function cloneRuntime(runtime: GooglePhotosSyncMediaRuntime): GooglePhotosSyncMe
     sourceFingerprint: runtime.sourceFingerprint,
     createIdentity: runtime.createIdentity.map((item) => ({ ...item })),
     completedUploads: runtime.completedUploads.map((item) => ({ ...item })),
+    activeUploads: getActiveUploads(runtime).map((item) => ({ ...item })),
     currentUpload: runtime.currentUpload ? { ...runtime.currentUpload } : null,
     ...(runtime.createdTargetItems
       ? { createdTargetItems: runtime.createdTargetItems.map(cloneManagedItem) }
@@ -857,19 +985,29 @@ function cloneManagedItem(
   };
 }
 
-function completedUploadsAreValidPrefix(
+function normalizeCompletedUploads(
   uploads: GooglePhotosSyncMediaCompletedUpload[],
   identity: Array<{ slideId: string; renderKey: string }>,
-) {
-  return (
-    uploads.length <= identity.length &&
-    uploads.every(
-      (upload, index) =>
-        upload.slideId === identity[index]?.slideId &&
-        upload.renderKey === identity[index]?.renderKey &&
-        isNonBlankTrimmedString(upload.uploadToken) &&
-        isNonBlankTrimmedString(upload.fileName),
-    )
+): GooglePhotosSyncMediaCompletedUpload[] | null {
+  if (uploads.length > identity.length) return null;
+  const seen = new Set<number>();
+  const normalized: GooglePhotosSyncMediaCompletedUpload[] = [];
+  for (const upload of uploads) {
+    const index = creationIdentityIndex(identity, upload);
+    if (
+      index < 0 ||
+      seen.has(index) ||
+      !isNonBlankTrimmedString(upload.uploadToken) ||
+      !isNonBlankTrimmedString(upload.fileName)
+    ) {
+      return null;
+    }
+    seen.add(index);
+    normalized.push({ ...upload });
+  }
+  return normalized.sort(
+    (left, right) =>
+      creationIdentityIndex(identity, left) - creationIdentityIndex(identity, right),
   );
 }
 
@@ -879,8 +1017,78 @@ function completedUploadsMatch(
 ) {
   return (
     uploads.length === plan.createItems.length &&
-    completedUploadsAreValidPrefix(uploads, plan.createItems)
+    normalizeCompletedUploads(uploads, plan.createItems)?.every(
+      (upload, index) => sameCreationIdentity(upload, plan.createItems[index]),
+    ) === true
   );
+}
+
+function normalizeActiveUploads(
+  uploads: GooglePhotosSyncMediaCurrentUpload[],
+  identity: Array<{ slideId: string; renderKey: string }>,
+  completedUploads: GooglePhotosSyncMediaCompletedUpload[],
+): GooglePhotosSyncMediaCurrentUpload[] | null {
+  const completed = new Set(completedUploads.map(identityKey));
+  const seen = new Set<number>();
+  const normalized: GooglePhotosSyncMediaCurrentUpload[] = [];
+  for (const upload of uploads) {
+    const index = creationIdentityIndex(identity, upload);
+    if (
+      index < 0 ||
+      seen.has(index) ||
+      completed.has(identityKey(upload)) ||
+      !currentUploadBelongsAtIndex(upload, identity[index])
+    ) {
+      return null;
+    }
+    seen.add(index);
+    normalized.push({ ...upload });
+  }
+  return normalized.sort(
+    (left, right) =>
+      creationIdentityIndex(identity, left) - creationIdentityIndex(identity, right),
+  );
+}
+
+function getActiveUploads(runtime: GooglePhotosSyncMediaRuntime) {
+  return (
+    runtime.activeUploads ?? (runtime.currentUpload ? [runtime.currentUpload] : [])
+  );
+}
+
+function withActiveUploads(
+  runtime: GooglePhotosSyncMediaRuntime,
+  activeUploads: GooglePhotosSyncMediaCurrentUpload[],
+): GooglePhotosSyncMediaRuntime {
+  return {
+    ...runtime,
+    activeUploads,
+    currentUpload: activeUploads[0] ?? null,
+  };
+}
+
+function runtimeHasCompletedUpload(
+  runtime: GooglePhotosSyncMediaRuntime,
+  item: GooglePhotosSyncPreparedItem | undefined,
+) {
+  return (
+    item !== undefined &&
+    runtime.completedUploads.some((upload) => sameCreationIdentity(upload, item))
+  );
+}
+
+function sameCreationIdentity(
+  left: { slideId: string; renderKey: string },
+  right: { slideId: string; renderKey: string } | undefined,
+) {
+  return left.slideId === right?.slideId && left.renderKey === right?.renderKey;
+}
+
+function creationIdentityIndex(
+  identity: Array<{ slideId: string; renderKey: string }>,
+  item: { slideId: string; renderKey: string },
+) {
+  return identity.findIndex((candidate) => sameCreationIdentity(candidate, item));
 }
 
 function currentUploadBelongsAtIndex(
