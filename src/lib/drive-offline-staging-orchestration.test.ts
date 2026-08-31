@@ -20,6 +20,19 @@ vi.mock("./drive-offline-staging-snapshot", async (importOriginal) => {
     fetchDriveOfflineStagingSnapshot: mocks.fetchSnapshot,
   };
 });
+vi.mock("./offline-confirmed-transfer-snapshot", () => ({
+  readOfflineConfirmedTransferSnapshot: vi.fn(async (projectId: string) => {
+    const syncState = await mocks.readState();
+    return {
+      projectId,
+      confirmedReady: syncState?.status === "ready",
+      project: null,
+      syncState: syncState ?? null,
+      assets: [],
+      assetBlobs: [],
+    };
+  }),
+}));
 vi.mock("./offline-staging-write", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("./offline-staging-write")>();
@@ -323,6 +336,8 @@ describe("Drive offline staging orchestration stale manifest", () => {
       reason: "drive-fetch-or-staging-write-failed",
     });
     expect(mocks.restoreState).not.toHaveBeenCalled();
+    expect(mocks.writeStaging).not.toHaveBeenCalled();
+    expect(mocks.promote).not.toHaveBeenCalled();
     expect(mocks.markFailed).toHaveBeenCalledTimes(1);
   });
 });

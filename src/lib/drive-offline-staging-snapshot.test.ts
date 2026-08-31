@@ -5,6 +5,7 @@ import {
   DRIVE_VIDEO_OFFLINE_MAX_BYTES,
 } from "./drive-video-policy";
 import type { OfflineSyncProgress } from "./offline-sync-progress";
+import type { OfflineConfirmedTransferSnapshot } from "./offline-confirmed-transfer-snapshot";
 import {
   getProjectManifestContentCanonicalHash,
 } from "./publish-history/project-publish-revision";
@@ -151,13 +152,17 @@ function installManifestPhases(input: {
   );
 }
 
-async function fetchSnapshot() {
+async function fetchSnapshot(
+  confirmedSnapshot?: OfflineConfirmedTransferSnapshot,
+  sourceProject = project,
+) {
   return fetchDriveOfflineStagingSnapshot({
     accessToken: "dummy-token",
     readyContext,
-    project,
+    project: sourceProject,
     syncedAt: "2026-07-31T01:02:03.000Z",
     signal: new AbortController().signal,
+    ...(confirmedSnapshot ? { confirmedSnapshot } : {}),
   });
 }
 
@@ -190,12 +195,18 @@ function slide(input: {
   };
 }
 
-function assetMetadata(value: DriveSlideSummary, sizeBytes?: number) {
+function assetMetadata(
+  value: DriveSlideSummary,
+  sizeBytes?: number,
+  override: { checksum?: string; revisionId?: string; modifiedTime?: string } = {},
+) {
   return {
     id: value.assetFileId,
     name: "stored-name",
     mimeType: value.mimeType,
-    modifiedTime: MODIFIED_TIME,
+    modifiedTime: override.modifiedTime ?? MODIFIED_TIME,
+    ...(override.checksum ? { md5Checksum: override.checksum } : {}),
+    ...(override.revisionId ? { headRevisionId: override.revisionId } : {}),
     ...(typeof sizeBytes === "number" ? { size: String(sizeBytes) } : {}),
     parents: [project.assetsFolderId],
     appProperties: {
@@ -209,11 +220,76 @@ function assetMetadata(value: DriveSlideSummary, sizeBytes?: number) {
   };
 }
 
+function confirmedTransferSnapshot(input: {
+  slide: DriveSlideSummary;
+  blob: Blob;
+  checksum?: string;
+  revisionId?: string;
+  sourceUpdatedAt?: string;
+}): OfflineConfirmedTransferSnapshot {
+  const syncedAt = "2026-07-30T01:02:03.000Z";
+  return {
+    projectId: PROJECT_ID,
+    confirmedReady: true,
+    project: {
+      schemaVersion: 1,
+      projectId: PROJECT_ID,
+      projectTitle: "Previous title",
+      slides: [],
+      sourceManifestFileId: project.manifestFileId,
+      syncedAt,
+    },
+    syncState: {
+      schemaVersion: 1,
+      projectId: PROJECT_ID,
+      status: "ready",
+      rootFolderId: readyContext.workspaceRootFolderId,
+      workspaceFileId: readyContext.workspaceJsonFileId,
+      indexFileId: readyContext.indexJsonFileId,
+      manifestFileId: project.manifestFileId,
+      slideCount: 1,
+      assetCount: 1,
+      syncedAt,
+    },
+    assets: [
+      {
+        schemaVersion: 1,
+        assetId: input.slide.assetId,
+        projectId: PROJECT_ID,
+        sourceDriveFileId: input.slide.assetFileId,
+        sourceMimeType: input.slide.mimeType,
+        sourceSizeBytes: input.blob.size,
+        sourceUpdatedAt: input.sourceUpdatedAt ?? MODIFIED_TIME,
+        ...(input.revisionId ? { sourceRevisionId: input.revisionId } : {}),
+        ...(input.checksum ? { checksum: input.checksum } : {}),
+        blobMimeType: input.slide.mimeType,
+        blobSizeBytes: input.blob.size,
+        blobVariant: "original",
+        blobStatus: "ready",
+        syncedAt,
+      },
+    ],
+    assetBlobs: [
+      {
+        schemaVersion: 1,
+        assetId: input.slide.assetId,
+        projectId: PROJECT_ID,
+        blob: input.blob,
+        blobMimeType: input.slide.mimeType,
+        blobSizeBytes: input.blob.size,
+        blobVariant: "original",
+        syncedAt,
+      },
+    ],
+  };
+}
+
 function installAssetManifestPhases(input: {
   slides: DriveSlideSummary[];
   assetMetadata: unknown[];
+  title?: string;
 }) {
-  const value = { ...manifest(), slides: input.slides };
+  const value = { ...manifest(input.title), slides: input.slides };
   mocks.readDriveTextFile
     .mockResolvedValueOnce(JSON.stringify(value))
     .mockResolvedValueOnce(JSON.stringify(value));
@@ -379,6 +455,256 @@ describe("Drive offline staging manifest guard", () => {
 });
 
 describe("Drive offline staging asset progress", () => {
+  it.each([
+    ["image", "image/jpeg", "image"],
+    ["video", "video/mp4", "video"],
+  ] as const)(
+    "reuses an unchanged confirmed %s Blob while rebuilding fresh staging metadata",
+    async (_label, mimeType, type) => {
+      const item = slide({
+        assetId: "33333333-3333-4333-8333-333333333333",
+        assetFileId: `${type}-file`,
+        mimeType,
+        type,
+      });
+      const blob = new Blob(["data!"], { type: mimeType });
+      installAssetManifestPhases({
+        slides: [item],
+        assetMetadata: [
+          assetMetadata(item, blob.size, {
+            checksum: "checksum-a",
+            revisionId: "revision-a",
+          }),
+        ],
+      });
+
+      const snapshot = await fetchSnapshot(
+        confirmedTransferSnapshot({
+          slide: item,
+          blob,
+          checksum: "checksum-a",
+          revisionId: "revision-a",
+        }),
+      );
+
+      expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
+      expect(snapshot.assetPairs[0]?.assetBlobRecord.blob).toBe(blob);
+      expect(snapshot.assetPairs[0]?.asset).toMatchObject({
+        sourceRevisionId: "revision-a",
+        checksum: "checksum-a",
+        syncedAt: "2026-07-31T01:02:03.000Z",
+      });
+      expect(snapshot.project.slides[0]).toMatchObject({
+        caption: "",
+        durationSeconds: 10,
+      });
+      expect(snapshot.diagnostics).toEqual(
+        expect.arrayContaining([expect.stringContaining("再利用")]),
+      );
+    },
+  );
+
+  it.each([
+    [
+      "caption",
+      (item: DriveSlideSummary) => {
+        item.caption = "fresh caption";
+      },
+    ],
+    [
+      "duration",
+      (item: DriveSlideSummary) => {
+        item.durationSeconds = 12;
+      },
+    ],
+    [
+      "imageEdit",
+      (item: DriveSlideSummary) => {
+        item.imageEdit = { rotation: 90 };
+      },
+    ],
+  ] as const)(
+    "reuses the Blob for a %s-only project metadata change",
+    async (_label, updateSlide) => {
+      const item = slide({
+        assetId: "33333333-3333-4333-8333-333333333333",
+        assetFileId: "image-file",
+        mimeType: "image/jpeg",
+        type: "image",
+      });
+      const blob = new Blob(["data!"], { type: "image/jpeg" });
+      const confirmed = confirmedTransferSnapshot({
+        slide: item,
+        blob,
+        checksum: "same-checksum",
+      });
+      confirmed.project!.slides = [
+        {
+          slideId: item.slideId,
+          assetId: item.assetId,
+          caption: item.caption,
+          durationSeconds: item.durationSeconds,
+          order: 0,
+        },
+      ];
+      updateSlide(item);
+      installAssetManifestPhases({
+        slides: [item],
+        assetMetadata: [
+          assetMetadata(item, blob.size, { checksum: "same-checksum" }),
+        ],
+      });
+
+      const snapshot = await fetchSnapshot(confirmed);
+
+      expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
+      expect(snapshot.assetPairs[0]?.assetBlobRecord.blob).toBe(blob);
+      expect(snapshot.project.slides[0]).toMatchObject({
+        caption: item.caption,
+        durationSeconds: item.durationSeconds,
+        ...(item.imageEdit ? { imageEdit: item.imageEdit } : {}),
+      });
+    },
+  );
+
+  it("downloads only the asset whose checksum changed", async () => {
+    const unchanged = slide({
+      assetId: "33333333-3333-4333-8333-333333333333",
+      assetFileId: "unchanged-file",
+      mimeType: "image/jpeg",
+      type: "image",
+    });
+    const changed = slide({
+      assetId: "44444444-4444-4444-8444-444444444444",
+      assetFileId: "changed-file",
+      mimeType: "image/jpeg",
+      type: "image",
+    });
+    const unchangedBlob = new Blob(["same"], { type: "image/jpeg" });
+    const changedBlob = new Blob(["next"], { type: "image/jpeg" });
+    const confirmed = confirmedTransferSnapshot({
+      slide: unchanged,
+      blob: unchangedBlob,
+      checksum: "same-checksum",
+    });
+    confirmed.assets.push({
+      ...confirmed.assets[0]!,
+      assetId: changed.assetId,
+      sourceDriveFileId: changed.assetFileId,
+      checksum: "old-checksum",
+    });
+    confirmed.assetBlobs.push({
+      ...confirmed.assetBlobs[0]!,
+      assetId: changed.assetId,
+    });
+    installAssetManifestPhases({
+      slides: [unchanged, changed],
+      assetMetadata: [
+        assetMetadata(unchanged, unchangedBlob.size, {
+          checksum: "same-checksum",
+        }),
+        assetMetadata(changed, changedBlob.size, {
+          checksum: "new-checksum",
+        }),
+      ],
+    });
+    mocks.fetchAssetBlob.mockResolvedValueOnce(changedBlob);
+
+    const snapshot = await fetchSnapshot(confirmed);
+
+    expect(mocks.fetchAssetBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchAssetBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ assetFileId: changed.assetFileId }),
+    );
+    expect(snapshot.assetPairs.map((pair) => pair.assetBlobRecord.blob)).toEqual([
+      unchangedBlob,
+      changedBlob,
+    ]);
+  });
+
+  it("reuses both Blobs when only slide order changes", async () => {
+    const first = slide({
+      assetId: "33333333-3333-4333-8333-333333333333",
+      assetFileId: "first-file",
+      mimeType: "image/jpeg",
+      type: "image",
+    });
+    const second = slide({
+      assetId: "44444444-4444-4444-8444-444444444444",
+      assetFileId: "second-file",
+      mimeType: "image/jpeg",
+      type: "image",
+    });
+    const firstBlob = new Blob(["one!"], { type: "image/jpeg" });
+    const secondBlob = new Blob(["two!"], { type: "image/jpeg" });
+    const confirmed = confirmedTransferSnapshot({
+      slide: first,
+      blob: firstBlob,
+      checksum: "first-checksum",
+    });
+    confirmed.assets.push({
+      ...confirmed.assets[0]!,
+      assetId: second.assetId,
+      sourceDriveFileId: second.assetFileId,
+      checksum: "second-checksum",
+    });
+    confirmed.assetBlobs.push({
+      ...confirmed.assetBlobs[0]!,
+      assetId: second.assetId,
+      blob: secondBlob,
+    });
+    installAssetManifestPhases({
+      slides: [second, first],
+      assetMetadata: [
+        assetMetadata(second, secondBlob.size, {
+          checksum: "second-checksum",
+        }),
+        assetMetadata(first, firstBlob.size, { checksum: "first-checksum" }),
+      ],
+    });
+
+    const snapshot = await fetchSnapshot(confirmed);
+
+    expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
+    expect(snapshot.project.slides.map((item) => item.assetId)).toEqual([
+      second.assetId,
+      first.assetId,
+    ]);
+    expect(snapshot.assetPairs.map((pair) => pair.assetBlobRecord.blob)).toEqual([
+      secondBlob,
+      firstBlob,
+    ]);
+  });
+
+  it("reuses the Blob when only the project title changes", async () => {
+    const image = slide({
+      assetId: "33333333-3333-4333-8333-333333333333",
+      assetFileId: "image-file",
+      mimeType: "image/jpeg",
+      type: "image",
+    });
+    const blob = new Blob(["image"], { type: "image/jpeg" });
+    const confirmed = confirmedTransferSnapshot({
+      slide: image,
+      blob,
+      checksum: "same-checksum",
+    });
+    const renamedProject = { ...project, title: "Renamed fixture" };
+    installAssetManifestPhases({
+      title: renamedProject.title,
+      slides: [image],
+      assetMetadata: [
+        assetMetadata(image, blob.size, { checksum: "same-checksum" }),
+      ],
+    });
+
+    const snapshot = await fetchSnapshot(confirmed, renamedProject);
+
+    expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
+    expect(snapshot.project.projectTitle).toBe("Renamed fixture");
+    expect(snapshot.assetPairs[0]?.assetBlobRecord.blob).toBe(blob);
+  });
+
   it("carries imageEdit into the offline project without changing the Blob", async () => {
     const image = slide({
       assetId: "33333333-3333-4333-8333-333333333333",
@@ -436,7 +762,7 @@ describe("Drive offline staging asset progress", () => {
     expect(mocks.fetchAssetBlob).not.toHaveBeenCalled();
   });
 
-  it("counts a successful Blob and a non-abort video skip as terminal", async () => {
+  it("stops before staging when a required video download fails", async () => {
     const image = slide({
       assetId: "33333333-3333-4333-8333-333333333333",
       assetFileId: "image-file",
@@ -458,13 +784,15 @@ describe("Drive offline staging asset progress", () => {
       .mockRejectedValueOnce(new Error("video fetch failed"));
     const progress: OfflineSyncProgress[] = [];
 
-    await fetchSnapshotWithProgress((value) => progress.push(value));
+    await expect(
+      fetchSnapshotWithProgress((value) => progress.push(value)),
+    ).rejects.toBeInstanceOf(Error);
 
     expect(
       progress
         .filter((value) => value.phase === "assetSaving")
         .map((value) => value.processedAssetCount),
-    ).toEqual([1, 2]);
+    ).toEqual([1]);
   });
 
   it("does not count an aborted unfinished entry", async () => {
@@ -604,7 +932,7 @@ describe("Drive offline staging MP4/MOV policy", () => {
     },
   );
 
-  it("skips a MOV Blob whose actual MIME does not match", async () => {
+  it("stops when a downloaded MOV Blob MIME does not match", async () => {
     const video = slide({
       assetId: "33333333-3333-4333-8333-333333333333",
       assetFileId: "video-file",
@@ -619,14 +947,11 @@ describe("Drive offline staging MP4/MOV policy", () => {
       new Blob(["video"], { type: "video/mp4" }),
     );
 
-    const snapshot = await fetchSnapshot();
-
-    expect(snapshot.assetPairs).toEqual([]);
-    expect(snapshot.diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("Blob MIME typeが一致しない"),
+    await expect(fetchSnapshot()).rejects.toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.stringContaining("Blob MIME typeが一致しません"),
       ]),
-    );
+    });
   });
 
   it.each(["video/mp4", "video/quicktime"] as const)(

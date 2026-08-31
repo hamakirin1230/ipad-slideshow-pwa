@@ -12,6 +12,7 @@ import type {
 import {
   type IsoDateTimeString,
 } from "@/lib/offline-schema";
+import { readOfflineConfirmedTransferSnapshot } from "@/lib/offline-confirmed-transfer-snapshot";
 import {
   createOfflineSyncProgress,
   type OfflineSyncProgressListener,
@@ -19,7 +20,6 @@ import {
 import {
   markOfflineSyncFailed,
   markOfflineSyncing,
-  readOfflineSyncState,
   restoreOfflineSyncStateAfterStaleManifest,
   type OfflineSyncStateContext,
   type OfflineSyncStateUpdateResult,
@@ -115,9 +115,10 @@ export async function runDriveOfflineStagingPromotionOrchestration(
     project: args.project,
   });
 
-  const previousSyncState = await readOfflineSyncState(
+  const confirmedSnapshot = await readOfflineConfirmedTransferSnapshot(
     args.project.projectId,
   );
+  const previousSyncState = confirmedSnapshot.syncState ?? undefined;
 
   await markOfflineSyncing({
     projectId: args.project.projectId,
@@ -133,6 +134,7 @@ export async function runDriveOfflineStagingPromotionOrchestration(
       project: args.project,
       syncedAt,
       signal: args.signal,
+      confirmedSnapshot,
       onProgress: args.onProgress,
     });
 
