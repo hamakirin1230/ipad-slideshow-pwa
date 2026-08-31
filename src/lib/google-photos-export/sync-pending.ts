@@ -119,18 +119,49 @@ export function bindGooglePhotosSyncCreatedAlbum(input: {
   });
 }
 
+export function transitionGooglePhotosSyncToMediaCreating(
+  input: { binding: GooglePhotosSyncBinding } & PendingGuard,
+): GooglePhotosSyncPendingTransitionResult {
+  return transitionPhase(input, "albumBound", "mediaCreating");
+}
+
+/**
+ * Records an already-complete reuse-only mapping when no batchCreate occurs.
+ * A batchCreate success must use recordGooglePhotosSyncCreatedMediaPrepared.
+ */
 export function recordGooglePhotosSyncMediaPrepared(input: {
   binding: GooglePhotosSyncBinding;
   expectedOperationId: string;
   expectedSourceFingerprint: string;
   targetItems: GooglePhotosSyncManagedItem[];
 }): GooglePhotosSyncPendingTransitionResult {
+  return recordMediaPrepared(input, "albumBound");
+}
+
+export function recordGooglePhotosSyncCreatedMediaPrepared(input: {
+  binding: GooglePhotosSyncBinding;
+  expectedOperationId: string;
+  expectedSourceFingerprint: string;
+  targetItems: GooglePhotosSyncManagedItem[];
+}): GooglePhotosSyncPendingTransitionResult {
+  return recordMediaPrepared(input, "mediaCreating");
+}
+
+function recordMediaPrepared(
+  input: {
+    binding: GooglePhotosSyncBinding;
+    expectedOperationId: string;
+    expectedSourceFingerprint: string;
+    targetItems: GooglePhotosSyncManagedItem[];
+  },
+  expectedPhase: "albumBound" | "mediaCreating",
+): GooglePhotosSyncPendingTransitionResult {
   const targetItems = cloneTargetItems(input.targetItems);
   if (!targetItems) return fail("invalidTargetItems");
   const checked = checkContinuation(input.binding, input);
   if (!checked.ok) return checked;
   const { binding, pending } = checked;
-  if (pending.phase !== "albumBound" || binding.album === null) {
+  if (pending.phase !== expectedPhase || binding.album === null) {
     return fail("invalidState");
   }
 
@@ -315,6 +346,7 @@ function hasValidPendingLogicalState(binding: GooglePhotosSyncBinding): boolean 
         pending.targetItems.length === 0
       );
     case "albumBound":
+    case "mediaCreating":
       return binding.album !== null && pending.targetItems.length === 0;
     case "mediaPrepared":
     case "membershipRemoving":

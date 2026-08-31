@@ -94,6 +94,40 @@ describe("Google Photos sync binding schema v1", () => {
     }
   });
 
+  it("places mediaCreating between albumBound and mediaPrepared in schema v1", () => {
+    expect(GOOGLE_PHOTOS_SYNC_PENDING_PHASES).toEqual([
+      "creatingAlbum",
+      "albumBound",
+      "mediaCreating",
+      "mediaPrepared",
+      "membershipRemoving",
+      "membershipAdding",
+      "titleUpdating",
+      "finalizing",
+    ]);
+    const binding = validBinding();
+    binding.pending = {
+      ...binding.pending!,
+      phase: "mediaCreating",
+      targetItems: [],
+    };
+    const text = stringifyGooglePhotosSyncBinding(binding);
+    expect(parseGooglePhotosSyncBindingJson(text, EXPECTED)).toEqual({
+      ok: true,
+      value: binding,
+    });
+    expect(binding.schemaVersion).toBe(1);
+    expect(Object.keys(binding.pending).sort()).toEqual([
+      "operationId",
+      "phase",
+      "previousManagedMediaItemIds",
+      "sourceFingerprint",
+      "startedAt",
+      "targetItems",
+      "targetTitle",
+    ]);
+  });
+
   it.each([
     ["schemaVersion", 2, "schemaVersionMismatch"],
     ["app", "other-app", "appMismatch"],

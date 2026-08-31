@@ -8,10 +8,12 @@ import {
   finalizeGooglePhotosSyncPending,
   getGooglePhotosSyncExpectedStableGeneration,
   inspectGooglePhotosSyncPendingContinuation,
+  recordGooglePhotosSyncCreatedMediaPrepared,
   recordGooglePhotosSyncMediaPrepared,
   skipGooglePhotosSyncMembership,
   transitionGooglePhotosSyncToMembershipAdding,
   transitionGooglePhotosSyncToMembershipRemoving,
+  transitionGooglePhotosSyncToMediaCreating,
   type GooglePhotosSyncPendingTransitionResult,
 } from "./sync-pending";
 import {
@@ -81,6 +83,15 @@ function prepared(binding = begin()): GooglePhotosSyncBinding {
       binding,
       ...guard(),
       targetItems: TARGET_ITEMS,
+    }),
+  );
+}
+
+function mediaCreating(binding = begin()): GooglePhotosSyncBinding {
+  return success(
+    transitionGooglePhotosSyncToMediaCreating({
+      binding,
+      ...guard(),
     }),
   );
 }
@@ -270,7 +281,7 @@ describe("Google Photos sync created album binding", () => {
 });
 
 describe("Google Photos sync media preparation", () => {
-  it("records the complete ordered mapping before membership changes", () => {
+  it("keeps the no-create albumBound path for a complete reuse-only mapping", () => {
     const input = begin();
     const result = prepared(input);
 
@@ -306,6 +317,167 @@ describe("Google Photos sync media preparation", () => {
         targetItems: TARGET_ITEMS,
       }),
     ).toEqual({ ok: false, reason: "invalidState" });
+  });
+});
+
+describe("Google Photos sync media creation ambiguity checkpoint", () => {
+  it("advances albumBound to mediaCreating without changing persisted context", () => {
+    const input = begin();
+    const before = structuredClone(input);
+    const result = mediaCreating(input);
+
+    expect(result.pending?.phase).toBe("mediaCreating");
+    expect(result.pending?.targetItems).toEqual([]);
+    expect(result.pending?.previousManagedMediaItemIds).toEqual(
+      input.pending?.previousManagedMediaItemIds,
+    );
+    expect(result.album).toEqual(input.album);
+    expect(result.stable).toEqual(input.stable);
+    expect(result.stable?.generation).toBe(2);
+    expect(input).toEqual(before);
+  });
+
+  it.each([
+    ["staleOperation", { expectedOperationId: "old-operation" }],
+    ["sourceChanged", { expectedSourceFingerprint: OTHER_FINGERPRINT }],
+  ])("fails closed with %s before mediaCreating", (reason, override) => {
+    expect(
+      transitionGooglePhotosSyncToMediaCreating({
+        binding: begin(),
+        ...guard(),
+        ...override,
+      }),
+    ).toEqual({ ok: false, reason });
+  });
+
+  it("allows only albumBound to enter mediaCreating and forbids backward replay", () => {
+    expect(
+      transitionGooglePhotosSyncToMediaCreating({ binding: prepared(), ...guard() }),
+    ).toEqual({ ok: false, reason: "invalidState" });
+    expect(
+      transitionGooglePhotosSyncToMediaCreating({ binding: mediaCreating(), ...guard() }),
+    ).toEqual({ ok: false, reason: "invalidState" });
+  });
+
+  it("records complete ordered created media IDs only from mediaCreating", () => {
+    const input = mediaCreating();
+    const result = success(
+      recordGooglePhotosSyncCreatedMediaPrepared({
+        binding: input,
+        ...guard(),
+        targetItems: TARGET_ITEMS,
+      }),
+    );
+    expect(result.pending?.phase).toBe("mediaPrepared");
+    expect(result.pending?.targetItems).toEqual(TARGET_ITEMS);
+    expect(result.pending?.previousManagedMediaItemIds).toEqual(
+      input.pending?.previousManagedMediaItemIds,
+    );
+    expect(result.album).toEqual(input.album);
+    expect(result.stable).toEqual(input.stable);
+    expect(result.stable?.generation).toBe(2);
+  });
+
+  it.each([
+    ["empty", []],
+    ["duplicate slide", [TARGET_ITEMS[0]!, { ...TARGET_ITEMS[1]!, slideId: "slide-2" }]],
+    ["duplicate media", [TARGET_ITEMS[0]!, { ...TARGET_ITEMS[1]!, mediaItemId: "media-2" }]],
+    ["invalid render key", [{ ...TARGET_ITEMS[0]!, renderKey: "render-key" }]],
+  ])("rejects %s created target items", (_label, targetItems) => {
+    expect(
+      recordGooglePhotosSyncCreatedMediaPrepared({
+        binding: mediaCreating(),
+        ...guard(),
+        targetItems,
+      }),
+    ).toEqual({ ok: false, reason: "invalidTargetItems" });
+  });
+
+  it("keeps no-create and created-media preparation paths distinct", () => {
+    expect(
+      recordGooglePhotosSyncMediaPrepared({
+        binding: mediaCreating(),
+        ...guard(),
+        targetItems: TARGET_ITEMS,
+      }),
+    ).toEqual({ ok: false, reason: "invalidState" });
+    expect(
+      recordGooglePhotosSyncCreatedMediaPrepared({
+        binding: begin(),
+        ...guard(),
+        targetItems: TARGET_ITEMS,
+      }),
+    ).toEqual({ ok: false, reason: "invalidState" });
+  });
+
+  it("cannot skip mediaPrepared or enter membership/title/finalizing phases", () => {
+    const input = mediaCreating();
+    expect(
+      transitionGooglePhotosSyncToMembershipRemoving({ binding: input, ...guard() }),
+    ).toEqual({ ok: false, reason: "invalidState" });
+    expect(
+      transitionGooglePhotosSyncToMembershipAdding({ binding: input, ...guard() }),
+    ).toEqual({ ok: false, reason: "invalidState" });
+    expect(
+      skipGooglePhotosSyncMembership({
+        binding: input,
+        ...guard(),
+        titleNeedsUpdate: true,
+      }),
+    ).toEqual({ ok: false, reason: "invalidState" });
+    expect(
+      skipGooglePhotosSyncMembership({
+        binding: input,
+        ...guard(),
+        titleNeedsUpdate: false,
+      }),
+    ).toEqual({ ok: false, reason: "invalidState" });
+    expect(
+      completeGooglePhotosSyncTitleUpdate({ binding: input, ...guard() }),
+    ).toEqual({ ok: false, reason: "invalidState" });
+  });
+
+  it.each(["album", "targetItems", "previousIds"] as const)(
+    "rejects malformed mediaCreating logical state: %s",
+    (change) => {
+      const malformed = mediaCreating();
+      if (change === "album") malformed.album = null;
+      if (change === "targetItems") {
+        malformed.pending!.targetItems = structuredClone(TARGET_ITEMS);
+      }
+      if (change === "previousIds") {
+        malformed.pending!.previousManagedMediaItemIds.reverse();
+      }
+      expect(
+        inspectGooglePhotosSyncPendingContinuation({ binding: malformed, ...guard() }),
+      ).toEqual({ ok: false, reason: "invalidState" });
+    },
+  );
+
+  it("classifies mediaCreating for manual continuation without repair", () => {
+    const input = mediaCreating();
+    expect(
+      inspectGooglePhotosSyncPendingContinuation({
+        binding: input,
+        ...guard(),
+        expectedTargetTitle: TITLE,
+      }),
+    ).toEqual({ ok: true, phase: "mediaCreating" });
+    expect(
+      inspectGooglePhotosSyncPendingContinuation({
+        binding: input,
+        expectedOperationId: "stale-operation",
+        expectedSourceFingerprint: FINGERPRINT,
+      }),
+    ).toEqual({ ok: false, reason: "staleOperation" });
+    expect(
+      inspectGooglePhotosSyncPendingContinuation({
+        binding: input,
+        expectedOperationId: OPERATION_ID,
+        expectedSourceFingerprint: OTHER_FINGERPRINT,
+      }),
+    ).toEqual({ ok: false, reason: "sourceChanged" });
+    expect(input.pending?.phase).toBe("mediaCreating");
   });
 });
 

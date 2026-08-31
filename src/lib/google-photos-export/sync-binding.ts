@@ -8,6 +8,7 @@ export const GOOGLE_PHOTOS_SYNC_BINDING_SCHEMA_VERSION_PROPERTY = "1";
 export const GOOGLE_PHOTOS_SYNC_PENDING_PHASES = [
   "creatingAlbum",
   "albumBound",
+  "mediaCreating",
   "mediaPrepared",
   "membershipRemoving",
   "membershipAdding",

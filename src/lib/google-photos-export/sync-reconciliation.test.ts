@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DriveProjectSummary } from "../google-drive";
 import {
   beginGooglePhotosSyncPending,
+  transitionGooglePhotosSyncToMediaCreating,
 } from "./sync-pending";
 import {
   GOOGLE_PHOTOS_SYNC_MEDIA_PAGE_LIMIT,
@@ -306,6 +307,62 @@ describe("Google Photos reconciliation pending continuation", () => {
     await expect(
       prepareGooglePhotosSyncReconciliation(input(), deps),
     ).resolves.toMatchObject({ status: "continuationSourceChanged" });
+  });
+
+  it("classifies mediaCreating as continuation-only without Photos reads", async () => {
+    const started = pendingBinding();
+    const transitioned = transitionGooglePhotosSyncToMediaCreating({
+      binding: started,
+      expectedOperationId: "pending-operation",
+      expectedSourceFingerprint: FINGERPRINT,
+    });
+    expect(transitioned.ok).toBe(true);
+    if (!transitioned.ok) return;
+    const deps = adapters({
+      bindingResult: {
+        status: "ready",
+        fileId: "binding-file",
+        binding: transitioned.binding,
+      },
+    });
+    await expect(
+      prepareGooglePhotosSyncReconciliation(input(), deps),
+    ).resolves.toMatchObject({
+      status: "continuationRequired",
+      binding: { pending: { phase: "mediaCreating" } },
+    });
+    expect(deps.getAlbum).not.toHaveBeenCalled();
+    expect(deps.searchAlbumMediaItemsPage).not.toHaveBeenCalled();
+    expect(deps.planSync).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [OTHER_FINGERPRINT, TITLE],
+    [FINGERPRINT, "変更前タイトル"],
+  ])("keeps mediaCreating pending when fresh source changed", async (fingerprint, title) => {
+    const started = pendingBinding(fingerprint, title);
+    const transitioned = transitionGooglePhotosSyncToMediaCreating({
+      binding: started,
+      expectedOperationId: "pending-operation",
+      expectedSourceFingerprint: fingerprint,
+    });
+    expect(transitioned.ok).toBe(true);
+    if (!transitioned.ok) return;
+    const deps = adapters({
+      bindingResult: {
+        status: "ready",
+        fileId: "binding-file",
+        binding: transitioned.binding,
+      },
+    });
+    await expect(
+      prepareGooglePhotosSyncReconciliation(input(), deps),
+    ).resolves.toMatchObject({
+      status: "continuationSourceChanged",
+      binding: { pending: { phase: "mediaCreating" } },
+    });
+    expect(deps.getAlbum).not.toHaveBeenCalled();
+    expect(deps.planSync).not.toHaveBeenCalled();
   });
 });
 
