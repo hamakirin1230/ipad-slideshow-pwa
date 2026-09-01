@@ -77,7 +77,8 @@ describe("photos picker 60-minute session wiring", () => {
     expect(startImport).toContain("PHOTOS_PICKER_PHOTO_ONLY_MESSAGE");
     expect(startImport).not.toContain("sizeLimitBytes: DRIVE_VIDEO_MAX_BYTES");
     expect(startImport).toContain("setAssetImportPickerHref(");
-    expect(startImport).toContain("createGooglePhotosPickerAutocloseHref(");
+    expect(startImport).toContain("createGooglePhotosPickerHref({");
+    expect(startImport).toContain("readGooglePhotosPickerClientPlatform()");
     expect(startImport.indexOf("requestPhotosAccessToken(requestId)")).toBeLessThan(
       startImport.indexOf("createPhotosPickerSession("),
     );

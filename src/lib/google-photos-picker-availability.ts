@@ -5,25 +5,46 @@ export type GooglePhotosPickerAvailabilityInput = {
   maxTouchPoints: number;
 };
 
+export type GooglePhotosPickerPlatform =
+  | "ios"
+  | "android"
+  | "macos"
+  | "windows"
+  | "unsupported";
+
 export function shouldOfferGooglePhotosPicker(
   input: GooglePhotosPickerAvailabilityInput,
 ): boolean {
+  return getGooglePhotosPickerPlatform(input) !== "unsupported";
+}
+
+export function getGooglePhotosPickerPlatform(
+  input: GooglePhotosPickerAvailabilityInput,
+): GooglePhotosPickerPlatform {
   const platform = detectPwaInstallGuidePlatform(input.userAgent);
 
-  if (platform === "android" || platform === "ios") {
-    return true;
+  if (platform === "android") {
+    return "android";
+  }
+
+  if (platform === "ios") {
+    return "ios";
   }
 
   // iPadOS 13+ can report a Macintosh desktop UA while remaining a touch tablet.
   if (input.userAgent.includes("Macintosh") && input.maxTouchPoints > 1) {
-    return true;
+    return "ios";
   }
 
   if (isWindowsDesktopUserAgent(input.userAgent)) {
-    return true;
+    return "windows";
   }
 
-  return isMacOsDesktopUserAgent(input.userAgent);
+  if (isMacOsDesktopUserAgent(input.userAgent)) {
+    return "macos";
+  }
+
+  return "unsupported";
 }
 
 export function subscribeGooglePhotosPickerAvailability(): () => void {
@@ -31,7 +52,11 @@ export function subscribeGooglePhotosPickerAvailability(): () => void {
 }
 
 export function readGooglePhotosPickerClientAvailability(): boolean {
-  return shouldOfferGooglePhotosPicker({
+  return readGooglePhotosPickerClientPlatform() !== "unsupported";
+}
+
+export function readGooglePhotosPickerClientPlatform(): GooglePhotosPickerPlatform {
+  return getGooglePhotosPickerPlatform({
     userAgent: navigator.userAgent,
     maxTouchPoints: navigator.maxTouchPoints ?? 0,
   });

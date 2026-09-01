@@ -23,7 +23,8 @@ import {
 } from "@/lib/google-auth";
 import { createGoogleSessionClientController } from "@/lib/google-session/browser-session";
 import { createGooglePhotosPickerSessionClientController } from "@/lib/google-photos-picker-session/browser-session";
-import { createGooglePhotosPickerAutocloseHref } from "@/lib/google-photos-picker-link";
+import { createGooglePhotosPickerHref } from "@/lib/google-photos-picker-link";
+import { readGooglePhotosPickerClientPlatform } from "@/lib/google-photos-picker-availability";
 import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
   GOOGLE_PHOTOS_SYNC_SCOPES,
@@ -3246,7 +3247,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       pickerSessionId = pickerSession.id;
       currentAssetImportSessionIdRef.current = pickerSession.id;
       setAssetImportPickerHref(
-        createGooglePhotosPickerAutocloseHref(pickerSession.pickerUri),
+        createGooglePhotosPickerHref({
+          pickerUri: pickerSession.pickerUri,
+          platform: readGooglePhotosPickerClientPlatform(),
+        }),
       );
 
       setAssetImportStatus("waitingForSelection");

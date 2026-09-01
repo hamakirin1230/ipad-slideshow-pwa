@@ -163,6 +163,12 @@ export function AssetImportPanel() {
         ) : null}
       </div>
 
+      {offerGooglePhotosPicker && assetImportPickerHref ? (
+        <p className="mt-2 text-xs text-slate-500">
+          Googleフォトで検索して写真を選べます
+        </p>
+      ) : null}
+
       {!canStartAssetImport && assetImportBlockedReason ? (
         <p className="mt-3 text-slate-500">{assetImportBlockedReason}</p>
       ) : null}

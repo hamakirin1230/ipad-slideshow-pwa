@@ -98,6 +98,7 @@ describe("AssetImportPanel device photo picker", () => {
     expect(source).toContain('target="_blank"');
     expect(source).toContain('rel="noopener noreferrer"');
     expect(source).toContain("Googleフォトを開く");
+    expect(source).toContain("Googleフォトで検索して写真を選べます");
     expect(source).not.toContain("window.open");
     expect(source).not.toContain("window.location");
   });
