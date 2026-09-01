@@ -22,6 +22,7 @@ export function AssetImportPanel() {
     assetImportStatusLabel,
     assetImportMessage,
     assetImportDiagnostics,
+    assetImportPickerHref,
     assetImportBatch,
     assetImportBatchSummary,
     remainingSlideSlots,
@@ -126,7 +127,7 @@ export function AssetImportPanel() {
           動画を選ぶ
         </Button>
 
-        {offerGooglePhotosPicker ? (
+        {offerGooglePhotosPicker && !assetImportPickerHref ? (
           <Button
             type="button"
             variant="outline"
@@ -135,6 +136,18 @@ export function AssetImportPanel() {
             disabled={!canStartAssetImport}
           >
             Googleフォトから写真を選ぶ
+          </Button>
+        ) : null}
+
+        {offerGooglePhotosPicker && assetImportPickerHref ? (
+          <Button asChild variant="outline" className="min-h-11">
+            <a
+              href={assetImportPickerHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Googleフォトを開く
+            </a>
           </Button>
         ) : null}
 

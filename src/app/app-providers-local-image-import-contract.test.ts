@@ -135,7 +135,8 @@ describe("local image file import contract", () => {
       "currentAssetImportAccessTokenRef.current = photosAccessToken",
     );
     expect(implementation).toContain("PHOTOS_PICKER_PHOTO_ONLY_MESSAGE");
-    expect(implementation).toContain("Photos Pickerで写真を最大");
+    expect(implementation).toContain("Googleフォトを開く");
+    expect(implementation).toContain("Googleフォトで選択を完了してください。");
     expect(videoRejectIndex).toBeGreaterThanOrEqual(0);
     expect(videoRejectIndex).toBeLessThan(downloadIndex);
     expect(videoRejectIndex).toBeLessThan(uploadIndex);

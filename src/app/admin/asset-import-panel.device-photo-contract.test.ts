@@ -59,10 +59,10 @@ describe("AssetImportPanel device photo picker", () => {
     expect(source).toContain('return "写真を選ぶ"');
     expect(source).toContain("動画を選ぶ");
     expect(source.indexOf("onClick={openLocalImageFilePicker}")).toBeLessThan(
-      source.indexOf("{offerGooglePhotosPicker ? ("),
+      source.indexOf("{offerGooglePhotosPicker && !assetImportPickerHref ? ("),
     );
     expect(source.indexOf("onClick={openLocalVideoFilePicker}")).toBeLessThan(
-      source.indexOf("{offerGooglePhotosPicker ? ("),
+      source.indexOf("{offerGooglePhotosPicker && !assetImportPickerHref ? ("),
     );
   });
 
@@ -73,7 +73,9 @@ describe("AssetImportPanel device photo picker", () => {
     expect(source).toContain("getGooglePhotosPickerServerAvailability");
     expect(source).not.toContain("navigator");
     expect(source).not.toContain("userAgent");
-    expect(source).toContain("{offerGooglePhotosPicker ? (");
+    expect(source).toContain(
+      "{offerGooglePhotosPicker && !assetImportPickerHref ? (",
+    );
     expect(source).toContain("onClick={startAssetImport}");
     expect(source).toContain("Googleフォトから写真を選ぶ");
     expect(source).not.toContain(">Googleフォトから選ぶ<");
@@ -88,8 +90,22 @@ describe("AssetImportPanel device photo picker", () => {
     expect(source).toContain("写真と動画はこの端末から選べます。");
   });
 
-  it("hides the Google Photos button unless the desktop snapshot is true", () => {
-    const photosButtonStart = source.indexOf("{offerGooglePhotosPicker ? (");
+  it("shows a real Google Photos link only after the session is ready", () => {
+    expect(source).toContain("assetImportPickerHref");
+    expect(source).toContain("offerGooglePhotosPicker && !assetImportPickerHref");
+    expect(source).toContain("offerGooglePhotosPicker && assetImportPickerHref");
+    expect(source).toContain("href={assetImportPickerHref}");
+    expect(source).toContain('target="_blank"');
+    expect(source).toContain('rel="noopener noreferrer"');
+    expect(source).toContain("Googleフォトを開く");
+    expect(source).not.toContain("window.open");
+    expect(source).not.toContain("window.location");
+  });
+
+  it("renders the Google Photos action from the supported client snapshot", () => {
+    const photosButtonStart = source.indexOf(
+      "{offerGooglePhotosPicker && !assetImportPickerHref ? (",
+    );
     const photosButton = source.slice(
       photosButtonStart,
       source.indexOf("</Button>", photosButtonStart),

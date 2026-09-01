@@ -17,6 +17,10 @@ const uniqueness = readFileSync(
   new URL("./project-title-uniqueness.ts", import.meta.url),
   "utf8",
 );
+const assetImportPanel = readFileSync(
+  new URL("../app/admin/asset-import-panel.tsx", import.meta.url),
+  "utf8",
+);
 
 function extractFunction(source: string, name: string) {
   const start = source.indexOf(`function ${name}(`);
@@ -72,6 +76,36 @@ describe("photos picker 60-minute session wiring", () => {
     );
     expect(startImport).toContain("PHOTOS_PICKER_PHOTO_ONLY_MESSAGE");
     expect(startImport).not.toContain("sizeLimitBytes: DRIVE_VIDEO_MAX_BYTES");
+    expect(startImport).toContain("setAssetImportPickerHref(");
+    expect(startImport).toContain("createGooglePhotosPickerAutocloseHref(");
+    expect(startImport.indexOf("requestPhotosAccessToken(requestId)")).toBeLessThan(
+      startImport.indexOf("createPhotosPickerSession("),
+    );
+    expect(startImport.indexOf("createPhotosPickerSession(")).toBeLessThan(
+      startImport.indexOf("setAssetImportPickerHref("),
+    );
+    expect(startImport.indexOf("setAssetImportPickerHref(")).toBeLessThan(
+      startImport.indexOf("waitForPhotosPickerSelection({"),
+    );
+    expect(startImport).not.toContain("window.open(");
+    expect(startImport).not.toContain("window.location.assign(");
+    expect(startImport).not.toContain("window.location.href");
+  });
+
+  it("presents the prepared Picker URI only as an explicit safe anchor", () => {
+    const linkStart = assetImportPanel.indexOf("href={assetImportPickerHref}");
+    const link = assetImportPanel.slice(
+      linkStart,
+      assetImportPanel.indexOf("</a>", linkStart),
+    );
+
+    expect(linkStart).toBeGreaterThan(-1);
+    expect(link).toContain('target="_blank"');
+    expect(link).toContain('rel="noopener noreferrer"');
+    expect(link).toContain("Googleフォトを開く");
+    expect(link).not.toContain("onClick=");
+    expect(link).not.toContain("startAssetImport");
+    expect(assetImportPanel).not.toContain("pickerUri");
   });
 
   it("persists Photos OAuth to the Photos session and invalidates on 401 without retry", () => {
@@ -115,8 +149,10 @@ describe("photos picker 60-minute session wiring", () => {
     expect(providers).not.toContain("localStorage");
     expect(providers).not.toContain("sessionStorage");
     expect(providers).not.toContain("document.cookie");
+    expect(providers).not.toContain("indexedDB");
     expect(providers).not.toContain("setAccessToken");
     expect(providers).toContain("photosPickerAccessTokenRef");
+    expect(providers).toContain("setAssetImportPickerHref(null)");
     expect(providers).toContain(
       'from "@/lib/google-photos-picker-session/browser-session"',
     );

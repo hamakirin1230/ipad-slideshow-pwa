@@ -11,12 +11,12 @@ export function shouldOfferGooglePhotosPicker(
   const platform = detectPwaInstallGuidePlatform(input.userAgent);
 
   if (platform === "android" || platform === "ios") {
-    return false;
+    return true;
   }
 
   // iPadOS 13+ can report a Macintosh desktop UA while remaining a touch tablet.
   if (input.userAgent.includes("Macintosh") && input.maxTouchPoints > 1) {
-    return false;
+    return true;
   }
 
   if (isWindowsDesktopUserAgent(input.userAgent)) {

@@ -61,31 +61,31 @@ describe("shouldOfferGooglePhotosPicker", () => {
     ).toBe(true);
   });
 
-  it("hides Google Photos on iPhone, iPad, iPadOS desktop UA, and Android", () => {
+  it("offers Google Photos on iPhone, iPad, iPadOS desktop UA, and Android", () => {
     expect(
       shouldOfferGooglePhotosPicker({
         userAgent: IPHONE_SAFARI,
         maxTouchPoints: 5,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldOfferGooglePhotosPicker({
         userAgent: IPAD_SAFARI,
         maxTouchPoints: 5,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldOfferGooglePhotosPicker({
         userAgent: IPADOS_DESKTOP_UA,
         maxTouchPoints: 5,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldOfferGooglePhotosPicker({
         userAgent: ANDROID_CHROME,
         maxTouchPoints: 5,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("does not treat Linux desktop as a Google Photos picker surface", () => {
@@ -97,13 +97,13 @@ describe("shouldOfferGooglePhotosPicker", () => {
     ).toBe(false);
   });
 
-  it("keeps Google Photos picker hidden on mobile surfaces", () => {
+  it("keeps Google Photos picker available on supported mobile surfaces", () => {
     for (const input of [
       { userAgent: IPHONE_SAFARI, maxTouchPoints: 5 },
       { userAgent: IPAD_SAFARI, maxTouchPoints: 5 },
       { userAgent: ANDROID_CHROME, maxTouchPoints: 5 },
     ]) {
-      expect(shouldOfferGooglePhotosPicker(input)).toBe(false);
+      expect(shouldOfferGooglePhotosPicker(input)).toBe(true);
     }
   });
 

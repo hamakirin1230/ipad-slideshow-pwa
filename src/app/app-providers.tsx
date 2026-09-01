@@ -23,6 +23,7 @@ import {
 } from "@/lib/google-auth";
 import { createGoogleSessionClientController } from "@/lib/google-session/browser-session";
 import { createGooglePhotosPickerSessionClientController } from "@/lib/google-photos-picker-session/browser-session";
+import { createGooglePhotosPickerAutocloseHref } from "@/lib/google-photos-picker-link";
 import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
   GOOGLE_PHOTOS_SYNC_SCOPES,
@@ -696,6 +697,7 @@ type AppContextValue = {
   assetImportStatusLabel: string;
   assetImportMessage: string;
   assetImportDiagnostics: string[];
+  assetImportPickerHref: string | null;
   assetImportSelection: AssetImportSelection | null;
   assetImportBatch: AssetImportBatchItem[];
   assetImportBatchSummary: AssetImportBatchSummary;
@@ -946,7 +948,7 @@ const assetImportStatusLabels: Record<AssetImportStatus, string> = {
   idle: "素材追加待機中",
   validatingLocalFiles: "端末のファイルを確認中",
   requestingPhotosPermission: "Photos権限確認中",
-  openingPicker: "Photos Picker起動中",
+  openingPicker: "Photos Picker準備中",
   waitingForSelection: "素材選択待ち",
   downloadingFromPhotos: "Photosから取得中",
   selected: "素材選択・検証済み",
@@ -1065,7 +1067,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const assetImportAbortRef = useRef<AbortController | null>(null);
   const assetImportRequestIdRef = useRef(0);
   const assetImportInFlightRef = useRef(false);
-  const assetImportPickerWindowRef = useRef<Window | null>(null);
 
   const offlineSyncRuntimeRef =
     useRef<DriveOfflineStagingSyncRuntime | null>(null);
@@ -1196,6 +1197,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [assetImportDiagnostics, setAssetImportDiagnostics] = useState<
     string[]
   >([]);
+  const [assetImportPickerHref, setAssetImportPickerHref] = useState<
+    string | null
+  >(null);
   const [assetImportSelection, setAssetImportSelection] =
     useState<AssetImportSelection | null>(null);
   const [assetImportBatch, setAssetImportBatch] = useState<
@@ -1525,21 +1529,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
-  function closeAssetImportPickerWindow() {
-    const pickerWindow = assetImportPickerWindowRef.current;
-    assetImportPickerWindowRef.current = null;
-
-    if (!pickerWindow || pickerWindow.closed) {
-      return;
-    }
-
-    try {
-      pickerWindow.close();
-    } catch {
-      // Window cleanup must not replace the main asset import result.
-    }
-  }
-
   function clearAssetImportRuntimeRefs(options: {
     abort: boolean;
     rejectPendingPhotosTokenRequest: boolean;
@@ -1555,13 +1544,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
     );
     currentAssetImportAccessTokenRef.current = null;
     currentAssetImportSessionIdRef.current = null;
+    setAssetImportPickerHref(null);
 
     if (options.abort && assetImportAbortRef.current) {
       assetImportAbortRef.current.abort();
     }
 
     assetImportAbortRef.current = null;
-    closeAssetImportPickerWindow();
   }
 
   function invalidatePhotosPickerSession() {
@@ -3212,28 +3201,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
 
-    const pickerWindow = window.open("about:blank", "_blank");
-
-    if (!pickerWindow) {
-      setAssetImportStatus("error");
-      setAssetImportMessage(
-        "Photos Picker用の別ウィンドウを開けませんでした。ポップアップ許可を確認してください。",
-      );
-      setSafeAssetImportDiagnostics([
-        "Photos Picker用の別ウィンドウを開けませんでした。",
-        "Drive保存: 未実行",
-        "プロジェクト反映: 未実行",
-      ]);
-      return;
-    }
-
-    try {
-      pickerWindow.opener = null;
-    } catch {
-      // opener cleanup is best-effort only.
-    }
-
-    assetImportPickerWindowRef.current = pickerWindow;
     assetImportAbortRef.current = new AbortController();
     setAssetImportInFlightState(true);
     setAssetImportStatus("requestingPhotosPermission");
@@ -3278,24 +3245,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       pickerSessionId = pickerSession.id;
       currentAssetImportSessionIdRef.current = pickerSession.id;
-
-      if (pickerWindow.closed) {
-        throw new PhotosPickerSelectionError({
-          status: "cancelled",
-          message: "Photos Picker window was closed before navigation.",
-          diagnostics: [
-            "Photos Picker用の別ウィンドウが選択画面を開く前に閉じられました。",
-            "Drive保存: 未実行",
-            "プロジェクト反映: 未実行",
-          ],
-        });
-      }
-
-      pickerWindow.location.href = `${pickerSession.pickerUri}/autoclose`;
+      setAssetImportPickerHref(
+        createGooglePhotosPickerAutocloseHref(pickerSession.pickerUri),
+      );
 
       setAssetImportStatus("waitingForSelection");
       setAssetImportMessage(
-        `Photos Pickerで写真を最大${assetImportMaxBatchCount}件選択してください。`,
+        `「Googleフォトを開く」から写真を最大${assetImportMaxBatchCount}件選び、Googleフォトで選択を完了してください。`,
       );
 
       const waitResult = await waitForPhotosPickerSelection({
@@ -3664,8 +3620,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
         currentAssetImportAccessTokenRef.current = null;
         currentAssetImportSessionIdRef.current = null;
         assetImportAbortRef.current = null;
+        setAssetImportPickerHref(null);
         setAssetImportInFlightState(false);
-        closeAssetImportPickerWindow();
       }
     }
   }
@@ -8702,6 +8658,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     assetImportStatusLabel: assetImportStatusLabels[assetImportStatus],
     assetImportMessage,
     assetImportDiagnostics,
+    assetImportPickerHref,
     assetImportSelection,
     assetImportBatch,
     assetImportBatchSummary,
