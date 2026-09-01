@@ -18,6 +18,12 @@ export function shouldOfferGooglePhotosPicker(
   return getGooglePhotosPickerPlatform(input) !== "unsupported";
 }
 
+export function shouldReuseGooglePhotosPickerOAuthToken(
+  platform: GooglePhotosPickerPlatform,
+): boolean {
+  return platform === "macos" || platform === "windows";
+}
+
 export function getGooglePhotosPickerPlatform(
   input: GooglePhotosPickerAvailabilityInput,
 ): GooglePhotosPickerPlatform {

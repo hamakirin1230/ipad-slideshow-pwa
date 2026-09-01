@@ -24,7 +24,10 @@ import {
 import { createGoogleSessionClientController } from "@/lib/google-session/browser-session";
 import { createGooglePhotosPickerSessionClientController } from "@/lib/google-photos-picker-session/browser-session";
 import { createGooglePhotosPickerHref } from "@/lib/google-photos-picker-link";
-import { readGooglePhotosPickerClientPlatform } from "@/lib/google-photos-picker-availability";
+import {
+  readGooglePhotosPickerClientPlatform,
+  shouldReuseGooglePhotosPickerOAuthToken,
+} from "@/lib/google-photos-picker-availability";
 import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
   GOOGLE_PHOTOS_SYNC_SCOPES,
@@ -1560,9 +1563,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     photosPickerSessionControllerRef.current?.deleteAfterLocalDisconnect();
   }
 
-  function requestPhotosAccessToken(requestId: number) {
+  function requestPhotosAccessToken(
+    requestId: number,
+    options: { reuseRestoredToken: boolean },
+  ) {
     const restoredPhotosAccessToken = photosPickerAccessTokenRef.current;
-    if (restoredPhotosAccessToken) {
+    if (options.reuseRestoredToken && restoredPhotosAccessToken) {
       return Promise.resolve(restoredPhotosAccessToken);
     }
 
@@ -3202,6 +3208,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
 
+    const pickerPlatform = readGooglePhotosPickerClientPlatform();
+
     assetImportAbortRef.current = new AbortController();
     setAssetImportInFlightState(true);
     setAssetImportStatus("requestingPhotosPermission");
@@ -3218,7 +3226,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     let finalWorkspaceReadyContext: DriveWorkspaceReadyContext | null = null;
 
     try {
-      photosAccessToken = await requestPhotosAccessToken(requestId);
+      photosAccessToken = await requestPhotosAccessToken(requestId, {
+        reuseRestoredToken:
+          shouldReuseGooglePhotosPickerOAuthToken(pickerPlatform),
+      });
 
       if (requestId !== assetImportRequestIdRef.current) {
         return;
@@ -3249,7 +3260,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setAssetImportPickerHref(
         createGooglePhotosPickerHref({
           pickerUri: pickerSession.pickerUri,
-          platform: readGooglePhotosPickerClientPlatform(),
+          platform: pickerPlatform,
         }),
       );
 

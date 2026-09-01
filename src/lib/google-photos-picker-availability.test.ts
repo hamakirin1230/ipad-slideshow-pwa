@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  getGooglePhotosPickerPlatform,
   getGooglePhotosPickerServerAvailability,
   shouldOfferGooglePhotosPicker,
+  shouldReuseGooglePhotosPickerOAuthToken,
 } from "./google-photos-picker-availability";
 
 const source = readFileSync(
@@ -116,4 +118,35 @@ describe("shouldOfferGooglePhotosPicker", () => {
     expect(source).toContain("export function getGooglePhotosPickerServerAvailability");
     expect(source).toContain("return false;");
   });
+});
+
+describe("shouldReuseGooglePhotosPickerOAuthToken", () => {
+  it.each([
+    [IPHONE_SAFARI, 5],
+    [IPAD_SAFARI, 5],
+    [IPADOS_DESKTOP_UA, 5],
+    [ANDROID_CHROME, 5],
+  ])("forces fresh Picker OAuth on mobile", (userAgent, maxTouchPoints) => {
+    const platform = getGooglePhotosPickerPlatform({
+      userAgent,
+      maxTouchPoints,
+    });
+
+    expect(shouldReuseGooglePhotosPickerOAuthToken(platform)).toBe(false);
+  });
+
+  it.each([
+    [MACOS_CHROME, 0],
+    [WINDOWS_CHROME, 0],
+  ])(
+    "keeps restored Picker OAuth reuse on desktop",
+    (userAgent, maxTouchPoints) => {
+      const platform = getGooglePhotosPickerPlatform({
+        userAgent,
+        maxTouchPoints,
+      });
+
+      expect(shouldReuseGooglePhotosPickerOAuthToken(platform)).toBe(true);
+    },
+  );
 });

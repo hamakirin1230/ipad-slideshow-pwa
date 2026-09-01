@@ -58,12 +58,20 @@ describe("photos picker 60-minute session wiring", () => {
     expect(photosOnRestored).not.toContain("queueDriveWorkspaceAutoCheck");
   });
 
-  it("reuses a valid Photos session and always creates a new Picker selection", () => {
+  it("reuses restored Photos OAuth only when the Picker platform allows it", () => {
     const requestPhotos = extractFunction(providers, "requestPhotosAccessToken");
     expect(requestPhotos).toContain("photosPickerAccessTokenRef.current");
+    expect(requestPhotos).toContain(
+      "options.reuseRestoredToken && restoredPhotosAccessToken",
+    );
     expect(
       requestPhotos.indexOf("photosPickerAccessTokenRef.current"),
     ).toBeLessThan(requestPhotos.indexOf("requestAccessToken({"));
+    expect(
+      requestPhotos.lastIndexOf("photosPickerAccessTokenRef.current"),
+    ).toBeLessThan(
+      requestPhotos.indexOf("const tokenClient = tokenClientRef.current"),
+    );
     expect(requestPhotos).toContain('prompt: "consent"');
     expect(requestPhotos).toContain("scope: DRIVE_AND_PHOTOS_PICKER_SCOPES");
     expect(requestPhotos).not.toContain("persistAfterManualConnect");
@@ -71,6 +79,12 @@ describe("photos picker 60-minute session wiring", () => {
 
     const startImport = extractFunction(providers, "startAssetImport");
     expect(startImport).toContain("createPhotosPickerSession(");
+    expect(startImport).toContain(
+      "const pickerPlatform = readGooglePhotosPickerClientPlatform()",
+    );
+    expect(startImport).toContain(
+      "shouldReuseGooglePhotosPickerOAuthToken(pickerPlatform)",
+    );
     expect(startImport.indexOf("requestPhotosAccessToken")).toBeLessThan(
       startImport.indexOf("createPhotosPickerSession("),
     );
@@ -78,9 +92,15 @@ describe("photos picker 60-minute session wiring", () => {
     expect(startImport).not.toContain("sizeLimitBytes: DRIVE_VIDEO_MAX_BYTES");
     expect(startImport).toContain("setAssetImportPickerHref(");
     expect(startImport).toContain("createGooglePhotosPickerHref({");
-    expect(startImport).toContain("readGooglePhotosPickerClientPlatform()");
-    expect(startImport.indexOf("requestPhotosAccessToken(requestId)")).toBeLessThan(
-      startImport.indexOf("createPhotosPickerSession("),
+    expect(startImport).toContain("platform: pickerPlatform");
+    expect(
+      startImport.indexOf("requestPhotosAccessToken(requestId, {"),
+    ).toBeLessThan(startImport.indexOf("createPhotosPickerSession("));
+    expect(startImport).toContain(
+      "photosAccessToken = await requestPhotosAccessToken(requestId, {",
+    );
+    expect(startImport).toContain(
+      "const pickerSession = await createPhotosPickerSession(\n        photosAccessToken,",
     );
     expect(startImport.indexOf("createPhotosPickerSession(")).toBeLessThan(
       startImport.indexOf("setAssetImportPickerHref("),
