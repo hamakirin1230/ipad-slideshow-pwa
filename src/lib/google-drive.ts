@@ -346,6 +346,9 @@ export type DriveProjectSlideImageEditUpdateFailureStatus =
   | "indexUpdateFailed"
   | "verificationFailed";
 
+export type DriveProjectSlideEditsUpdateFailureStatus =
+  DriveProjectSlideImageEditUpdateFailureStatus;
+
 export type DriveProjectSlideReorderFailureStatus =
   | "authRequired"
   | "invalidProject"
@@ -427,6 +430,30 @@ export type DriveProjectSlideImageEditUpdateResult = {
   manifestJsonText: string;
   indexJsonText: string;
   imageEdit: ProjectSlideImageEdit | undefined;
+  diagnostics: string[];
+};
+
+export type DriveProjectSlideEditsUpdateInput = {
+  accessToken: string;
+  workspaceId: string;
+  indexJsonFileId: string;
+  project: DriveProjectSummary;
+  slideId: string;
+  caption: string;
+  durationSeconds: number;
+  imageEdit: ProjectSlideImageEdit | undefined;
+  runStep: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+};
+
+export type DriveProjectSlideEditsUpdateResult = {
+  project: DriveProjectSummary;
+  details: DriveProjectReadyDetails;
+  manifestJsonText: string;
+  indexJsonText: string;
+  caption: string;
+  durationSeconds: number;
+  imageEdit: ProjectSlideImageEdit | undefined;
+  didWrite: boolean;
   diagnostics: string[];
 };
 
@@ -1145,6 +1172,27 @@ export class DriveProjectSlideImageEditUpdateError extends Error {
   }) {
     super("Drive project slide image edit update failed.");
     this.name = "DriveProjectSlideImageEditUpdateError";
+    this.status = input.status;
+    this.possibleChangedItems = [...input.possibleChangedItems];
+    this.diagnostics = [...input.diagnostics];
+    this.cause = input.cause;
+  }
+}
+
+export class DriveProjectSlideEditsUpdateError extends Error {
+  status: DriveProjectSlideEditsUpdateFailureStatus;
+  possibleChangedItems: DriveProjectChangedItem[];
+  diagnostics: string[];
+  cause?: unknown;
+
+  constructor(input: {
+    status: DriveProjectSlideEditsUpdateFailureStatus;
+    possibleChangedItems: DriveProjectChangedItem[];
+    diagnostics: string[];
+    cause?: unknown;
+  }) {
+    super("Drive project slide edits update failed.");
+    this.name = "DriveProjectSlideEditsUpdateError";
     this.status = input.status;
     this.possibleChangedItems = [...input.possibleChangedItems];
     this.diagnostics = [...input.diagnostics];
@@ -2921,6 +2969,304 @@ export async function updateDriveProjectTransition(
       status: toDriveProjectTransitionUpdateFailureStatus(error, changedItems),
       possibleChangedItems: changedItems,
       diagnostics: buildDriveProjectTransitionUpdateFailureDiagnostics({
+        error,
+        changedItems,
+      }),
+      cause: error,
+    });
+  }
+}
+
+export async function updateDriveProjectSlideEdits(
+  input: DriveProjectSlideEditsUpdateInput,
+): Promise<DriveProjectSlideEditsUpdateResult> {
+  const changedItems: DriveProjectChangedItem[] = [];
+  const caption = normalizeDriveProjectSlideCaption(input.caption);
+  const durationSeconds = normalizeDriveProjectSlideDurationSeconds(
+    input.durationSeconds,
+  );
+  const parsedEdit =
+    input.imageEdit === undefined
+      ? { ok: true as const, value: undefined }
+      : parseProjectSlideImageEdit(input.imageEdit);
+  const imageEdit = parsedEdit.ok
+    ? normalizeProjectSlideImageEditForWrite(parsedEdit.value)
+    : undefined;
+  const validationDiagnostics = [
+    ...validateDriveProjectSlideCaption(caption),
+    ...validateDriveProjectSlideDurationSeconds(durationSeconds),
+    ...(parsedEdit.ok ? [] : parsedEdit.errors),
+  ];
+
+  if (validationDiagnostics.length > 0) {
+    throw new DriveProjectSlideEditsUpdateError({
+      status: "invalidProject",
+      possibleChangedItems: changedItems,
+      diagnostics: validationDiagnostics,
+    });
+  }
+
+  try {
+    const [indexJsonText, manifestJsonText] = await input.runStep((signal) =>
+      Promise.all([
+        readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+      ]),
+    );
+    const registrationResult = validateCreatedProjectRegistration({
+      indexJsonText,
+      expectedProject: input.project,
+    });
+    if (registrationResult.status === "invalid") {
+      throw new DriveProjectSlideEditsUpdateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...registrationResult.diagnostics,
+          "スライド変更前の index.json 対象project検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+    const manifestResult = parseDriveProjectManifestJson({
+      manifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: registrationResult.project,
+    });
+    if (manifestResult.status === "invalid") {
+      throw new DriveProjectSlideEditsUpdateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...manifestResult.diagnostics,
+          "スライド変更前の manifest.json 検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+    const targetSlide = manifestResult.manifest.slides.find(
+      (slide) => slide.slideId === input.slideId,
+    );
+    if (!targetSlide) {
+      throw new DriveProjectSlideEditsUpdateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          "変更対象のスライドがmanifest.jsonに見つかりません。",
+          "更新は開始していません。",
+        ],
+      });
+    }
+    if (imageEdit !== undefined && !isProjectSlideImageForImageEdit(targetSlide)) {
+      throw new DriveProjectSlideEditsUpdateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          "動画スライドには画像編集を設定できません。",
+          "更新は開始していません。",
+        ],
+      });
+    }
+
+    if (
+      targetSlide.caption === caption &&
+      targetSlide.durationSeconds === durationSeconds &&
+      areProjectSlideImageEditsEqual(targetSlide.imageEdit, imageEdit)
+    ) {
+      return {
+        project: registrationResult.project,
+        details: manifestResult.details,
+        manifestJsonText,
+        indexJsonText,
+        caption,
+        durationSeconds,
+        imageEdit,
+        didWrite: false,
+        diagnostics: [
+          ...registrationResult.diagnostics,
+          ...manifestResult.diagnostics,
+          "スライドの変更内容はすでにDriveへ反映されています。",
+        ],
+      };
+    }
+
+    const now = new Date().toISOString();
+    const nextProject: DriveProjectSummary = {
+      ...registrationResult.project,
+      updatedAt: now,
+    };
+    const nextManifestJsonText = buildProjectManifestJsonWithUpdatedSlideEdits({
+      manifest: manifestResult.manifest,
+      slideId: input.slideId,
+      caption,
+      durationSeconds,
+      imageEdit,
+      updatedAt: now,
+    });
+
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.project.manifestFileId,
+        metadata: {
+          name: PROJECT_MANIFEST_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildProjectAppProperties({
+            role: "projectManifest",
+            workspaceId: input.workspaceId,
+            projectId: input.project.projectId,
+          }),
+        },
+        expectedAppProperties: buildProjectAppProperties({
+          role: "projectManifest",
+          workspaceId: input.workspaceId,
+          projectId: input.project.projectId,
+        }),
+        jsonText: nextManifestJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+    changedItems.push({
+      role: "projectManifest",
+      id: input.project.manifestFileId,
+      name: PROJECT_MANIFEST_NAME,
+    });
+
+    const preIndexUpdateJsonText = await input.runStep((signal) =>
+      readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+    );
+    const nextIndexResult = buildIndexJsonWithUpdatedProject({
+      indexJsonText: preIndexUpdateJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      currentProject: registrationResult.project,
+      nextProject,
+      indexUpdatedAt: now,
+    });
+    if (nextIndexResult.status === "invalid") {
+      throw new DriveProjectSlideEditsUpdateError({
+        status: "indexUpdateFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...nextIndexResult.diagnostics,
+          "manifest.json は更新済みの可能性があります。",
+          "index.json は未更新です。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.indexJsonFileId,
+        metadata: {
+          name: INDEX_JSON_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildWorkspaceAppProperties({
+            role: "index",
+            workspaceId: input.workspaceId,
+          }),
+        },
+        expectedAppProperties: buildWorkspaceAppProperties({
+          role: "index",
+          workspaceId: input.workspaceId,
+        }),
+        jsonText: nextIndexResult.indexJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+    changedItems.push({
+      role: "index",
+      id: input.indexJsonFileId,
+      name: INDEX_JSON_NAME,
+    });
+
+    const [verifiedManifestJsonText, verifiedIndexJsonText] = await input.runStep(
+      (signal) =>
+        Promise.all([
+          readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+          readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        ]),
+    );
+    const verifiedRegistrationResult = validateCreatedProjectRegistration({
+      indexJsonText: verifiedIndexJsonText,
+      expectedProject: nextProject,
+    });
+    if (verifiedRegistrationResult.status === "invalid") {
+      throw new DriveProjectSlideEditsUpdateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedRegistrationResult.diagnostics,
+          "index.json 更新後のスライド変更再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+    const verifiedManifestResult = parseDriveProjectManifestJson({
+      manifestJsonText: verifiedManifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: verifiedRegistrationResult.project,
+    });
+    if (verifiedManifestResult.status === "invalid") {
+      throw new DriveProjectSlideEditsUpdateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedManifestResult.diagnostics,
+          "manifest.json 更新後のスライド変更再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+    const verifiedSlide = verifiedManifestResult.details.slides.find(
+      (slide) => slide.slideId === input.slideId,
+    );
+    if (
+      !verifiedSlide ||
+      verifiedSlide.caption !== caption ||
+      verifiedSlide.durationSeconds !== durationSeconds ||
+      !areProjectSlideImageEditsEqual(verifiedSlide.imageEdit, imageEdit)
+    ) {
+      throw new DriveProjectSlideEditsUpdateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          "manifest.json 更新後にスライド変更の反映を確認できませんでした。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    return {
+      project: verifiedRegistrationResult.project,
+      details: verifiedManifestResult.details,
+      manifestJsonText: verifiedManifestJsonText,
+      indexJsonText: verifiedIndexJsonText,
+      caption,
+      durationSeconds,
+      imageEdit: verifiedSlide.imageEdit,
+      didWrite: true,
+      diagnostics: [
+        ...registrationResult.diagnostics,
+        ...manifestResult.diagnostics,
+        "manifest.json.slides の編集内容を1回の更新で保存しました。",
+        ...nextIndexResult.diagnostics,
+        ...verifiedRegistrationResult.diagnostics,
+        ...verifiedManifestResult.diagnostics,
+        "スライド変更後の manifest.json / index.json 再検証が完了しました。",
+      ],
+    };
+  } catch (error) {
+    if (error instanceof DriveProjectSlideEditsUpdateError) throw error;
+    throw new DriveProjectSlideEditsUpdateError({
+      status: toDriveProjectSlideEditsUpdateFailureStatus(error, changedItems),
+      possibleChangedItems: changedItems,
+      diagnostics: buildDriveProjectSlideEditsUpdateFailureDiagnostics({
         error,
         changedItems,
       }),
@@ -7632,6 +7978,44 @@ function buildProjectManifestJsonWithAppendedSlides(input: {
   return text;
 }
 
+function buildProjectManifestJsonWithUpdatedSlideEdits(input: {
+  manifest: DriveProjectManifestBody;
+  slideId: string;
+  caption: string;
+  durationSeconds: number;
+  imageEdit: ProjectSlideImageEdit | undefined;
+  updatedAt: string;
+}) {
+  const text = stringifyJsonFile({
+    app: DRIVE_WORKSPACE_APP_ID,
+    role: "projectManifest",
+    schemaVersion: DRIVE_WORKSPACE_SCHEMA_VERSION,
+    workspaceId: input.manifest.workspaceId,
+    projectId: input.manifest.projectId,
+    title: input.manifest.title,
+    slides: input.manifest.slides.map((slide) => {
+      if (slide.slideId !== input.slideId) return slide;
+      const nextSlide: DriveSlideSummary = {
+        ...slide,
+        caption: input.caption,
+        durationSeconds: input.durationSeconds,
+        updatedAt: input.updatedAt,
+      };
+      delete nextSlide.imageEdit;
+      return {
+        ...nextSlide,
+        ...pickProjectSlideImageEdit({ imageEdit: input.imageEdit }),
+      };
+    }),
+    createdAt: input.manifest.createdAt,
+    updatedAt: input.updatedAt,
+    ...withProjectManifestOptionalSettings(input.manifest),
+  });
+
+  assertJsonTextSizeWithinLimit(text, "manifest.json");
+  return text;
+}
+
 function buildProjectManifestJsonWithUpdatedSlideCaption(input: {
   manifest: DriveProjectManifestBody;
   slideId: string;
@@ -8250,6 +8634,13 @@ function toDriveProjectSlideImageEditUpdateFailureStatus(
   return "manifestUpdateFailed";
 }
 
+function toDriveProjectSlideEditsUpdateFailureStatus(
+  error: unknown,
+  changedItems: DriveProjectChangedItem[],
+): DriveProjectSlideEditsUpdateFailureStatus {
+  return toDriveProjectSlideImageEditUpdateFailureStatus(error, changedItems);
+}
+
 function toDriveProjectSlideReorderFailureStatus(
   error: unknown,
   changedItems: DriveProjectChangedItem[],
@@ -8454,6 +8845,32 @@ function buildDriveProjectSlideDurationUpdateFailureDiagnostics(input: {
   }
 
   diagnostics.push("自動削除・自動修復は行いません。");
+  return diagnostics;
+}
+
+function buildDriveProjectSlideEditsUpdateFailureDiagnostics(input: {
+  error: unknown;
+  changedItems: DriveProjectChangedItem[];
+}) {
+  const diagnostics = ["スライドの変更保存中にエラーが発生しました。"];
+
+  if (input.error instanceof DriveApiError) {
+    diagnostics.push(`Drive API status: ${input.error.status}`);
+  }
+  if (input.changedItems.some((item) => item.role === "index")) {
+    diagnostics.push(
+      "manifest.json / index.json は更新済みの可能性があります。",
+      "更新後再検証は完了していません。",
+    );
+  } else if (input.changedItems.some((item) => item.role === "projectManifest")) {
+    diagnostics.push(
+      "manifest.json は更新済みの可能性があります。",
+      "index.json は未更新、または更新完了を確認できていません。",
+    );
+  } else {
+    diagnostics.push("manifest.json / index.json の更新は開始されていません。");
+  }
+  diagnostics.push("自動再試行・自動修復は行いません。");
   return diagnostics;
 }
 

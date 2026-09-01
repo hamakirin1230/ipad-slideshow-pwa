@@ -122,6 +122,7 @@ import {
   DriveProjectSlideCaptionUpdateError,
   DriveProjectSlideDeleteError,
   DriveProjectSlideDurationUpdateError,
+  DriveProjectSlideEditsUpdateError,
   DriveProjectSlideImageEditUpdateError,
   DriveProjectSlideDuplicateError,
   DriveProjectSlideReorderError,
@@ -152,6 +153,7 @@ import {
   updateDriveProjectTransition,
   updateDriveProjectSlideCaption,
   updateDriveProjectSlideDuration,
+  updateDriveProjectSlideEdits,
   updateDriveProjectSlideImageEdit,
   validateIndexJsonProjects,
   validateDriveProjectDetails,
@@ -709,6 +711,7 @@ type AppContextValue = {
   durationUpdateMessage: string | null;
   durationUpdateDiagnostics: string[];
   imageEditUpdateSlideId: string | null;
+  slideEditsUpdateSlideId: string | null;
   slideReorderStatus: SlideReorderStatus;
   slideReorderMessage: string | null;
   slideReorderDiagnostics: string[];
@@ -850,6 +853,12 @@ type AppContextValue = {
     slideId: string,
     imageEdit: ProjectSlideImageEdit | undefined,
   ) => Promise<boolean>;
+  updateProjectSlideEdits: (input: {
+    slideId: string;
+    caption: string;
+    durationSeconds: number;
+    imageEdit: ProjectSlideImageEdit | undefined;
+  }) => Promise<boolean>;
   moveProjectSlide: (slideId: string, direction: "up" | "down") => Promise<boolean>;
   reorderProjectSlidesByDrag: (orderedSlideIds: string[]) => Promise<boolean>;
   deleteProjectSlides: (slideIds: string[]) => Promise<boolean>;
@@ -977,7 +986,7 @@ const initialSlideReorderMessage =
   "Driveプロジェクトを確認した後に、スライドの順番を変更できます。";
 
 const initialSlideEditMessage =
-  "Driveプロジェクトを確認した後に、スライドの順番変更・削除・複製ができます。";
+  "Driveプロジェクトを確認した後に、スライドの変更・順番変更・削除・複製ができます。";
 
 const initialAssetCleanupPreviewMessage =
   "Driveプロジェクトを確認した後に、未使用素材の削除候補を確認できます。";
@@ -1214,6 +1223,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [imageEditUpdateSlideId, setImageEditUpdateSlideId] = useState<
     string | null
   >(null);
+  const [slideEditsUpdateSlideId, setSlideEditsUpdateSlideId] = useState<
+    string | null
+  >(null);
   const [imageEditRequiresDriveRecheck, setImageEditRequiresDriveRecheck] =
     useState(false);
   const [slideReorderStatus, setSlideReorderStatus] =
@@ -1406,6 +1418,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   );
   const assetImportBatchSummary = summarizeAssetImportBatch(assetImportBatch);
   const isSlideEditInFlight =
+    slideEditsUpdateSlideId !== null ||
     imageEditUpdateSlideId !== null ||
     isSlideReorderInFlight ||
     isSlideDeleteInFlight ||
@@ -2628,6 +2641,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setSlideDeleteInFlightState(false);
     setSlideDuplicateInFlightState(false);
     setImageEditUpdateSlideId(null);
+    setSlideEditsUpdateSlideId(null);
     setImageEditRequiresDriveRecheck(false);
     setSlideEditStatus("idle");
     setSlideEditMessage(initialSlideEditMessage);
@@ -5476,6 +5490,111 @@ export function AppProviders({ children }: { children: ReactNode }) {
         clearDriveOperationTimeout();
         driveOperationAbortRef.current = null;
         setDriveOperationInFlight(false);
+      }
+    }
+  }
+
+  async function updateProjectSlideEdits(input: {
+    slideId: string;
+    caption: string;
+    durationSeconds: number;
+    imageEdit: ProjectSlideImageEdit | undefined;
+  }) {
+    const blockedReason = getSlideEditBlockedReason({ allowSingleSlide: true });
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+
+    if (blockedReason || !accessToken || !readyWorkspace || !readyProject) {
+      setSlideEditStatus("blocked");
+      setSlideEditMessage("変更を保存できませんでした。");
+      setSlideEditDiagnostics([
+        blockedReason ??
+          "Google Driveと選択中のアルバムを確認してから、もう一度お試しください。",
+      ]);
+      return false;
+    }
+
+    setDriveOperationInFlight(true);
+    setSlideEditsUpdateSlideId(input.slideId);
+    setSlideEditStatus("editing");
+    setSlideEditMessage("変更を保存しています。");
+    setSlideEditDiagnostics([]);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+
+    try {
+      const result = await updateDriveProjectSlideEdits({
+        accessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        indexJsonFileId: readyWorkspace.indexJsonFileId,
+        project: readyProject,
+        ...input,
+        runStep: (operation) => runDriveOperationStep(requestId, operation),
+      });
+      if (requestId !== driveOperationRequestIdRef.current) return false;
+
+      setWorkspaceReadyContext({
+        ...readyWorkspace,
+        indexJsonText: result.indexJsonText,
+      });
+      setProjectStatus("ready");
+      applyProjectReadyState(result.project, toProjectDetails(result.details));
+      setProjectMessage(
+        "選択中アルバムのスライド変更をDriveへ保存し、再確認しました。",
+      );
+      setSlideEditStatus("completed");
+      setImageEditRequiresDriveRecheck(false);
+      setSlideEditMessage(
+        "変更を保存しました。再生へ反映するには、このアルバムをローカルに保存してください。",
+      );
+      setSlideEditDiagnostics([]);
+      return true;
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) return false;
+
+      if (error instanceof DriveProjectSlideEditsUpdateError) {
+        const mayHaveChanged = error.possibleChangedItems.length > 0;
+        setImageEditRequiresDriveRecheck(mayHaveChanged);
+        if (error.status === "authRequired") {
+          resetGoogleAfterDriveAuthFailure();
+          setDriveStatus("authRequired");
+          setDriveMessage(
+            "Google再接続が必要です。再接続後にDrive状態を再確認してください。",
+          );
+        }
+        setSlideEditStatus(
+          error.status === "invalidProject" ? "invalid" : "error",
+        );
+        setSlideEditMessage(
+          error.status === "invalidProject"
+            ? "内容が更新されています。Drive状態を再確認してください。"
+            : "変更を保存できませんでした。",
+        );
+        setSlideEditDiagnostics([
+          mayHaveChanged
+            ? "保存が一部完了した可能性があります。自動再試行せず、Drive状態を再確認してください。"
+            : "変更は保存されていません。入力内容とDrive状態を確認してください。",
+        ]);
+        return false;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+      setSlideEditStatus("error");
+      setImageEditRequiresDriveRecheck(true);
+      setSlideEditMessage("変更を保存できませんでした。");
+      setSlideEditDiagnostics([
+        "保存結果をこの画面だけでは確認できません。Drive状態を再確認してください。",
+      ]);
+      return false;
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+        setSlideEditsUpdateSlideId(null);
       }
     }
   }
@@ -8598,6 +8717,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     durationUpdateMessage,
     durationUpdateDiagnostics,
     imageEditUpdateSlideId,
+    slideEditsUpdateSlideId,
     slideReorderStatus,
     slideReorderMessage,
     slideReorderDiagnostics,
@@ -8688,6 +8808,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     projectTransition: projectDetails?.transition,
     projectTransitionStrength: projectDetails?.transitionStrength,
     updateSelectedProjectTransitionSettings,
+    updateProjectSlideEdits,
     updateProjectSlideCaption,
     updateProjectSlideDuration,
     updateProjectSlideImageEdit,

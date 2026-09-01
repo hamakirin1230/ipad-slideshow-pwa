@@ -5,6 +5,7 @@ import {
   duplicateDriveProjectSlide,
   stringifyProjectManifestJson,
   updateDriveProjectSlideCaption,
+  updateDriveProjectSlideEdits,
   updateDriveProjectSlideImageEdit,
   updateDriveProjectTransition,
   type DriveProjectSummary,
@@ -320,6 +321,119 @@ describe("parseProjectManifest imageEdit", () => {
 });
 
 describe("manifest rewrite preserves transition", () => {
+  it.each([
+    ["caption", { caption: "Changed", durationSeconds: 10, imageEdit: undefined }],
+    ["duration", { caption: "Opening", durationSeconds: 12, imageEdit: undefined }],
+    ["imageEdit", { caption: "Opening", durationSeconds: 10, imageEdit: { rotation: 90 as const } }],
+    ["caption + duration", { caption: "Changed", durationSeconds: 12, imageEdit: undefined }],
+    ["caption + imageEdit", { caption: "Changed", durationSeconds: 10, imageEdit: { rotation: 90 as const } }],
+    ["all fields", { caption: "Changed", durationSeconds: 12, imageEdit: { rotation: 90 as const } }],
+  ])("updates %s with one manifest write", async (_label, edits) => {
+    vi.spyOn(Date.prototype, "toISOString").mockReturnValue(NOW);
+    const harness = stubManifestAndIndex({ manifest: manifest() });
+
+    const result = await updateDriveProjectSlideEdits({
+      accessToken: "access-token",
+      workspaceId: WORKSPACE_ID,
+      indexJsonFileId: INDEX_FILE_ID,
+      project: PROJECT,
+      slideId: SLIDE_ID,
+      ...edits,
+      runStep: (operation) => operation(new AbortController().signal),
+    });
+
+    const manifestPatchCount = harness.fetchMock.mock.calls.filter(
+      ([request, init]) =>
+        String(request).includes(MANIFEST_FILE_ID) && init?.method === "PATCH",
+    ).length;
+    expect(manifestPatchCount).toBe(1);
+    expect(result.didWrite).toBe(true);
+    expect(harness.readManifest().slides[0]).toMatchObject({
+      caption: edits.caption,
+      durationSeconds: edits.durationSeconds,
+    });
+  });
+
+  it.each([
+    ["caption", { caption: "あ".repeat(81), durationSeconds: 10, imageEdit: undefined }],
+    ["duration", { caption: "Opening", durationSeconds: 0, imageEdit: undefined }],
+    ["imageEdit", { caption: "Opening", durationSeconds: 10, imageEdit: { rotation: 45 } as never }],
+  ])("rejects invalid %s before Drive I/O", async (_label, edits) => {
+    const harness = stubManifestAndIndex({ manifest: manifest() });
+    await expect(
+      updateDriveProjectSlideEdits({
+        accessToken: "access-token",
+        workspaceId: WORKSPACE_ID,
+        indexJsonFileId: INDEX_FILE_ID,
+        project: PROJECT,
+        slideId: SLIDE_ID,
+        ...edits,
+        runStep: (operation) => operation(new AbortController().signal),
+      }),
+    ).rejects.toMatchObject({ status: "invalidProject" });
+    expect(harness.fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("skips writes for an unchanged fresh manifest", async () => {
+    const harness = stubManifestAndIndex({ manifest: manifest() });
+    const result = await updateDriveProjectSlideEdits({
+      accessToken: "access-token",
+      workspaceId: WORKSPACE_ID,
+      indexJsonFileId: INDEX_FILE_ID,
+      project: PROJECT,
+      slideId: SLIDE_ID,
+      caption: " Opening ",
+      durationSeconds: 10,
+      imageEdit: undefined,
+      runStep: (operation) => operation(new AbortController().signal),
+    });
+    expect(result.didWrite).toBe(false);
+    expect(
+      harness.fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+    ).toHaveLength(0);
+  });
+
+  it("removes imageEdit through the unified write", async () => {
+    vi.spyOn(Date.prototype, "toISOString").mockReturnValue(NOW);
+    const current = manifest();
+    current.slides[0]!.imageEdit = { rotation: 90 };
+    const harness = stubManifestAndIndex({ manifest: current });
+    const result = await updateDriveProjectSlideEdits({
+      accessToken: "access-token",
+      workspaceId: WORKSPACE_ID,
+      indexJsonFileId: INDEX_FILE_ID,
+      project: PROJECT,
+      slideId: SLIDE_ID,
+      caption: "Opening",
+      durationSeconds: 10,
+      imageEdit: undefined,
+      runStep: (operation) => operation(new AbortController().signal),
+    });
+    expect(result.imageEdit).toBeUndefined();
+    expect(harness.readManifest().slides[0]).not.toHaveProperty("imageEdit");
+  });
+
+  it("fails closed before writes when the project registration is stale", async () => {
+    const stale = manifest({ updatedAt: NOW });
+    const harness = stubManifestAndIndex({ manifest: stale });
+    await expect(
+      updateDriveProjectSlideEdits({
+        accessToken: "access-token",
+        workspaceId: WORKSPACE_ID,
+        indexJsonFileId: INDEX_FILE_ID,
+        project: PROJECT,
+        slideId: SLIDE_ID,
+        caption: "Changed",
+        durationSeconds: 10,
+        imageEdit: undefined,
+        runStep: (operation) => operation(new AbortController().signal),
+      }),
+    ).rejects.toMatchObject({ status: "invalidProject" });
+    expect(
+      harness.fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+    ).toHaveLength(0);
+  });
+
   it("keeps transition and publication across an unrelated caption mutation", async () => {
     vi.spyOn(Date.prototype, "toISOString").mockReturnValue(NOW);
     const current = manifest({

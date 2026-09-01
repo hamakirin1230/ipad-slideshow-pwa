@@ -48,8 +48,7 @@ describe("mobile and tablet slide editor", () => {
     expect(source).toContain(
       '<div className="hidden space-y-2 xl:block">',
     );
-    expect(source).toContain("<SlideDurationEditor");
-    expect(source).toContain("<SlideCaptionEditor");
+    expect(source).toContain("<SlideEditForm");
     expect(source).toContain("<SlideSingleActions");
     expect(source).toContain(
       'className="min-h-11 min-w-11 px-3 text-slate-700"',
@@ -101,39 +100,39 @@ describe("mobile and tablet slide editor", () => {
 
   it("provides touch-first duration and caption editing in the detail dialog", () => {
     const detail = functionBody("MobileSlideDetailEditor");
+    const editor = functionBody("SlideEditForm");
 
     expect(detail).toContain('data-mobile-slide-detail');
-    expect(detail).toContain('aria-label="表示時間を1秒減らす"');
-    expect(detail).toContain('aria-label="表示時間を1秒増やす"');
-    expect(detail).toContain("DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS");
-    expect(detail).toContain("DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS");
-    expect(detail).toContain('rows={5}');
-    expect(detail).toContain("SLIDE_CAPTION_MAX_LENGTH");
-    expect(detail).toContain("表示時間を保存");
-    expect(detail).toContain("テロップを保存");
-    expect(detail).toContain("変更は一つずつ保存してください");
+    expect(detail).toContain('<SlideEditForm');
+    expect(editor).toContain('aria-label="表示時間を1秒減らす"');
+    expect(editor).toContain('aria-label="表示時間を1秒増やす"');
+    expect(editor).toContain("DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS");
+    expect(editor).toContain("DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS");
+    expect(editor).toContain('rows={variant === "detail" ? 5 : 1}');
+    expect(editor).toContain("SLIDE_CAPTION_MAX_LENGTH");
+    expect(editor).toContain("変更を保存");
+    expect(editor).not.toContain("表示時間を保存");
+    expect(editor).not.toContain("テロップを保存");
   });
 
   it("offers image editing for images only", () => {
-    const detail = functionBody("MobileSlideDetailEditor");
+    const editor = functionBody("SlideEditForm");
 
-    expect(detail).toContain(
+    expect(editor).toContain(
       'getAssetTypeLabel(slide.type) === "image" ? (',
     );
-    expect(detail).toContain("<ProjectSlideImageEditorButton");
-    expect(detail).toContain("onSave={onSaveImageEdit}");
+    expect(editor).toContain("<ProjectSlideImageEditorButton");
+    expect(editor).toContain("onChange={setDraftImageEdit}");
   });
 
-  it("keeps the existing detail editor contract unchanged", () => {
+  it("keeps detail structure and unrelated actions unchanged", () => {
     const detail = functionBody("MobileSlideDetailEditor");
 
     expect(detail).toContain("min-h-svh");
     expect(detail).toContain(
       "md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]",
     );
-    expect(detail).toContain("表示時間を保存");
-    expect(detail).toContain("テロップを保存");
-    expect(detail).toContain("<ProjectSlideImageEditorButton");
+    expect(detail).toContain("<SlideEditForm");
     expect(detail).toContain("void onDuplicate(slide.slideId)");
     expect(detail).toContain("onDelete(slide.slideId, event.currentTarget)");
   });

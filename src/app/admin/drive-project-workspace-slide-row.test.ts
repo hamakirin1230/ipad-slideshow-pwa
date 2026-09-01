@@ -11,39 +11,31 @@ const imageEditorSource = readFileSync(
 );
 
 describe("compact slide editing rows", () => {
-  it("keeps duration editing on one row without helper copy", () => {
-    const duration = functionBody("SlideDurationEditor");
+  it("owns caption, duration, and imageEdit in one validated draft", () => {
+    const editor = functionBody("SlideEditForm");
 
-    expect(duration).not.toContain(
-      '<p className="font-medium text-slate-900">表示時間</p>',
-    );
-    expect(duration).toContain('aria-label="スライドの表示時間"');
-    expect(duration).toContain("<span className=\"text-sm text-slate-700\">秒</span>");
-    expect(duration).not.toContain("画像スライドの自動送り秒数として保存します。");
-    expect(duration).not.toContain("この端末への保存後に再生へ反映");
-    expect(duration).not.toContain("動画は現在、再生終了で次へ進みます");
-    expect(duration).toContain("未保存");
-    expect(duration).toContain("表示時間を入力してください。");
-    expect(duration).toContain("DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS");
-    expect(duration).toContain("DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS");
-    expect(duration).toContain('className="min-h-11"');
-    expect(duration).toContain("onSave(slideId, parsedDurationSeconds)");
-  });
-
-  it("keeps caption editing compact and accessible", () => {
-    const caption = functionBody("SlideCaptionEditor");
-
-    expect(caption).not.toContain(
-      '<p className="font-medium text-slate-900">テロップ</p>',
-    );
-    expect(caption).toContain('aria-label="テロップ"');
-    expect(caption).toContain('placeholder="テロップを入力"');
-    expect(caption).toContain("rows={1}");
-    expect(caption).toContain("resize-none");
-    expect(caption).toContain("min-h-11");
-    expect(caption).toContain("SLIDE_CAPTION_MAX_LENGTH");
-    expect(caption).toContain("未保存");
-    expect(caption).toContain("onSave(slideId, normalizedDraftCaption)");
+    expect(editor).toContain("draftCaption");
+    expect(editor).toContain("draftDurationSeconds");
+    expect(editor).toContain("draftImageEdit");
+    expect(editor).toContain("parseSlideDurationSeconds");
+    expect(editor).toContain("parsedDurationSeconds !== slide.durationSeconds");
+    expect(editor).toContain("parseProjectSlideImageEdit");
+    expect(editor).toContain("SLIDE_CAPTION_MAX_LENGTH");
+    expect(editor).toContain('aria-label="スライドの表示時間"');
+    expect(editor).toContain('aria-label="テロップ"');
+    expect(editor).toContain("未保存");
+    expect(editor).toContain("submitGuardRef.current");
+    expect(editor).toContain("await onSave({");
+    expect(editor).toContain('className="min-h-11"');
+    expect(editor).toContain('"変更を保存"');
+    expect(editor).not.toContain("表示時間を保存");
+    expect(editor).not.toContain("テロップを保存");
+    expect(source.match(/変更を保存/g)).toHaveLength(1);
+    expect(source).not.toContain("表示時間を保存");
+    expect(source).not.toContain("テロップを保存");
+    expect(source).toContain("key={slideEditFormKey(slide)}");
+    expect(source).toContain("slide.durationSeconds");
+    expect(source).toContain("slide.imageEdit ?? null");
   });
 
   it("does not shrink existing slide row touch targets or operations", () => {
@@ -56,8 +48,7 @@ describe("compact slide editing rows", () => {
     expect(source).toContain("onClick={handleDeleteSelectedSlides}");
     expect(source).toContain("void onDuplicate(slideId)");
     expect(source).toContain("onDelete(slideId, event.currentTarget)");
-    expect(source).toContain("updateProjectSlideDuration");
-    expect(source).toContain("updateProjectSlideCaption");
+    expect(source).toContain("updateProjectSlideEdits");
     expect(openingButton(source, 'onClick={() => onMove(slideId, "up")}')).toContain(
       "min-h-11",
     );
@@ -80,13 +71,14 @@ describe("compact slide editing rows", () => {
       'getAssetTypeLabel(slide.type) === "image" ? (',
     );
     expect(source).toContain("<ProjectSlideImageEditorButton");
-    expect(source).toContain("onSave={updateProjectSlideImageEdit}");
+    expect(source).toContain("onSave={updateProjectSlideEdits}");
     expect(imageEditorSource).toContain("画像を編集");
     expect(imageEditorSource).toContain("左に回転");
     expect(imageEditorSource).toContain("右に回転");
     expect(imageEditorSource).toContain("リセット");
     expect(imageEditorSource).toContain("キャンセル");
-    expect(imageEditorSource).toContain("画像編集を保存");
+    expect(imageEditorSource).toContain("編集内容を反映");
+    expect(imageEditorSource).not.toContain("画像編集を保存");
     expect(imageEditorSource).toContain("size-11");
     expect(imageEditorSource).toContain("!changed ||");
     expect(imageEditorSource).toContain("isBlocked ||");

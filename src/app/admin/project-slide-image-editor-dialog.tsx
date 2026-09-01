@@ -45,32 +45,25 @@ type ActiveCropPointer = {
 };
 
 export function ProjectSlideImageEditorButton({
-  slideId,
   assetFileId,
   mimeType,
   assetName,
   imageEdit,
   disabled,
-  isSaving,
   fetchProjectSlidePreviewBlob,
-  onSave,
+  onChange,
 }: {
-  slideId: string;
   assetFileId: string;
   mimeType: string;
   assetName: string;
   imageEdit?: ProjectSlideImageEdit;
   disabled: boolean;
-  isSaving: boolean;
   fetchProjectSlidePreviewBlob: (
     assetFileId: string,
     expectedMimeType: string,
     signal: AbortSignal,
   ) => Promise<Blob>;
-  onSave: (
-    slideId: string,
-    imageEdit: ProjectSlideImageEdit | undefined,
-  ) => Promise<boolean>;
+  onChange: (imageEdit: ProjectSlideImageEdit | undefined) => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -103,20 +96,13 @@ export function ProjectSlideImageEditorButton({
           assetName={assetName}
           savedImageEdit={imageEdit}
           draft={draft}
-          isSaving={isSaving}
           isBlocked={disabled}
           fetchProjectSlidePreviewBlob={fetchProjectSlidePreviewBlob}
           onDraftChange={setDraft}
           onCancel={() => setIsOpen(false)}
-          onSave={async () => {
-            const didSave = await onSave(
-              slideId,
-              normalizeProjectSlideImageEditForWrite(draft),
-            );
-            if (didSave) {
-              setIsOpen(false);
-            }
-            return didSave;
+          onApply={() => {
+            onChange(normalizeProjectSlideImageEditForWrite(draft));
+            setIsOpen(false);
           }}
         />
       ) : null}
@@ -131,12 +117,11 @@ function ProjectSlideImageEditorDialog({
   assetName,
   savedImageEdit,
   draft,
-  isSaving,
   isBlocked,
   fetchProjectSlidePreviewBlob,
   onDraftChange,
   onCancel,
-  onSave,
+  onApply,
 }: {
   triggerRef: RefObject<HTMLButtonElement | null>;
   assetFileId: string;
@@ -144,7 +129,6 @@ function ProjectSlideImageEditorDialog({
   assetName: string;
   savedImageEdit?: ProjectSlideImageEdit;
   draft: ProjectSlideImageEdit;
-  isSaving: boolean;
   isBlocked: boolean;
   fetchProjectSlidePreviewBlob: (
     assetFileId: string,
@@ -153,7 +137,7 @@ function ProjectSlideImageEditorDialog({
   ) => Promise<Blob>;
   onDraftChange: (edit: ProjectSlideImageEdit) => void;
   onCancel: () => void;
-  onSave: () => Promise<boolean>;
+  onApply: () => void;
 }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -163,9 +147,8 @@ function ProjectSlideImageEditorDialog({
   const [sourceState, setSourceState] = useState<ImageSourceState>({
     status: "loading",
   });
-  const [saveFailed, setSaveFailed] = useState(false);
   const cancelDialog = useEffectEvent(() => {
-    if (!isSaving) onCancel();
+    onCancel();
   });
 
   useEffect(() => {
@@ -247,7 +230,7 @@ function ProjectSlideImageEditorDialog({
     event: ReactPointerEvent<HTMLElement>,
     mode: CropPointerMode,
   ) {
-    if (isSaving || sourceState.status !== "ready") return;
+    if (isBlocked || sourceState.status !== "ready") return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     activePointerRef.current = {
@@ -277,16 +260,6 @@ function ProjectSlideImageEditorDialog({
   function endCropPointer(event: ReactPointerEvent<HTMLElement>) {
     if (activePointerRef.current?.pointerId === event.pointerId) {
       activePointerRef.current = null;
-    }
-  }
-
-  async function save() {
-    setSaveFailed(false);
-    try {
-      const didSave = await onSave();
-      setSaveFailed(!didSave);
-    } catch {
-      setSaveFailed(true);
     }
   }
 
@@ -385,7 +358,7 @@ function ProjectSlideImageEditorDialog({
               type="button"
               variant="secondary"
               className="min-h-11"
-              disabled={isSaving || sourceState.status !== "ready"}
+              disabled={isBlocked || sourceState.status !== "ready"}
               onClick={() =>
                 onDraftChange(rotateProjectSlideImageEditCounterClockwise(draft))
               }
@@ -396,7 +369,7 @@ function ProjectSlideImageEditorDialog({
               type="button"
               variant="secondary"
               className="min-h-11"
-              disabled={isSaving || sourceState.status !== "ready"}
+              disabled={isBlocked || sourceState.status !== "ready"}
               onClick={() =>
                 onDraftChange(rotateProjectSlideImageEditClockwise(draft))
               }
@@ -407,25 +380,18 @@ function ProjectSlideImageEditorDialog({
               type="button"
               variant="outline"
               className="min-h-11"
-              disabled={isSaving || sourceState.status !== "ready"}
+              disabled={isBlocked || sourceState.status !== "ready"}
               onClick={() => onDraftChange(editableImageEdit(undefined))}
             >
               リセット
             </Button>
           </div>
 
-          {saveFailed ? (
-            <p className="mt-3 text-sm text-red-700" role="alert">
-              画像編集を保存できませんでした。Drive状態を確認して、もう一度お試しください。
-            </p>
-          ) : null}
-
           <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="outline"
               className="min-h-11"
-              disabled={isSaving}
               onClick={onCancel}
             >
               キャンセル
@@ -435,13 +401,12 @@ function ProjectSlideImageEditorDialog({
               className="min-h-11"
               disabled={
                 !changed ||
-                isSaving ||
                 isBlocked ||
                 sourceState.status !== "ready"
               }
-              onClick={() => void save()}
+              onClick={onApply}
             >
-              {isSaving ? "保存中" : "画像編集を保存"}
+              編集内容を反映
             </Button>
           </div>
         </div>

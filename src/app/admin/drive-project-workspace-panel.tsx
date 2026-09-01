@@ -49,7 +49,12 @@ import {
   DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS,
 } from "@/lib/google-drive";
 import { formatUiDateTime } from "@/lib/ui-format";
-import type { ProjectSlideImageEdit } from "@/lib/project-slide-image-edit";
+import {
+  areProjectSlideImageEditsEqual,
+  normalizeProjectSlideImageEditForWrite,
+  parseProjectSlideImageEdit,
+  type ProjectSlideImageEdit,
+} from "@/lib/project-slide-image-edit";
 import { AssetCleanupPreviewPanel } from "./asset-cleanup-preview-panel";
 import { AssetImportPanel } from "./asset-import-panel";
 import { ProjectSlideImageEditorButton } from "./project-slide-image-editor-dialog";
@@ -73,20 +78,12 @@ export function DriveProjectWorkspacePanel() {
     projectSummary,
     projectDetails,
     fetchProjectSlidePreviewBlob,
-    updateProjectSlideCaption,
-    updateProjectSlideDuration,
-    updateProjectSlideImageEdit,
+    updateProjectSlideEdits,
     moveProjectSlide,
     reorderProjectSlidesByDrag,
     deleteProjectSlides,
     duplicateProjectSlide,
-    captionUpdateSlideId,
-    captionUpdateMessage,
-    captionUpdateDiagnostics,
-    durationUpdateSlideId,
-    durationUpdateMessage,
-    durationUpdateDiagnostics,
-    imageEditUpdateSlideId,
+    slideEditsUpdateSlideId,
     slideEditMessage,
     slideEditDiagnostics,
     isSlideEditInFlight,
@@ -676,43 +673,15 @@ export function DriveProjectWorkspacePanel() {
                                   />
                                 </div>
                                 <div className="hidden space-y-2 xl:block">
-                                  <SlideDurationEditor
-                                    key={`${slide.slideId}:${slide.durationSeconds}:${slide.durationMs ?? "none"}`}
-                                    slideId={slide.slideId}
-                                    durationSeconds={slide.durationSeconds}
-                                    isSaving={
-                                      durationUpdateSlideId === slide.slideId
-                                    }
+                                  <SlideEditForm
+                                    key={slideEditFormKey(slide)}
+                                    slide={slide}
+                                    variant="compact"
+                                    isSaving={slideEditsUpdateSlideId === slide.slideId}
                                     isDisabled={areSlideActionsDisabled}
-                                    onSave={updateProjectSlideDuration}
+                                    fetchProjectSlidePreviewBlob={fetchProjectSlidePreviewBlob}
+                                    onSave={updateProjectSlideEdits}
                                   />
-                                  <SlideCaptionEditor
-                                    key={`${slide.slideId}:${slide.caption}`}
-                                    slideId={slide.slideId}
-                                    caption={slide.caption}
-                                    isSaving={
-                                      captionUpdateSlideId === slide.slideId
-                                    }
-                                    isDisabled={areSlideActionsDisabled}
-                                    onSave={updateProjectSlideCaption}
-                                  />
-                                  {getAssetTypeLabel(slide.type) === "image" ? (
-                                    <ProjectSlideImageEditorButton
-                                      slideId={slide.slideId}
-                                      assetFileId={slide.assetFileId}
-                                      mimeType={slide.mimeType}
-                                      assetName={slide.assetName}
-                                      imageEdit={slide.imageEdit}
-                                      disabled={areSlideActionsDisabled}
-                                      isSaving={
-                                        imageEditUpdateSlideId === slide.slideId
-                                      }
-                                      fetchProjectSlidePreviewBlob={
-                                        fetchProjectSlidePreviewBlob
-                                      }
-                                      onSave={updateProjectSlideImageEdit}
-                                    />
-                                  ) : null}
                                 </div>
                               </>
                             )}
@@ -761,58 +730,28 @@ export function DriveProjectWorkspacePanel() {
                 ) : null}
               </div>
             ) : null}
-            {captionUpdateMessage ? (
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">{captionUpdateMessage}</p>
-                {captionUpdateDiagnostics.length > 0 ? (
-                  <div className="mt-2 space-y-1 text-xs">
-                    {captionUpdateDiagnostics.map((diagnostic, index) => (
-                      <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {durationUpdateMessage ? (
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">{durationUpdateMessage}</p>
-                {durationUpdateDiagnostics.length > 0 ? (
-                  <div className="mt-2 space-y-1 text-xs">
-                    {durationUpdateDiagnostics.map((diagnostic, index) => (
-                      <p key={`${index}-${diagnostic}`}>・{diagnostic}</p>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
           </CardContent>
         </Card>
       </section>
 
       {editingSlide && editingSlideIndex >= 0 ? (
         <MobileSlideDetailEditor
-          key={editingSlide.slideId}
+          key={slideEditFormKey(editingSlide)}
           triggerRef={mobileEditorTriggerRef}
           slide={editingSlide}
           slideNumber={editingSlideIndex + 1}
           isBusy={isSlideEditInFlight}
           isDisabled={areSlideActionsDisabled}
-          isDurationSaving={durationUpdateSlideId === editingSlide.slideId}
-          isCaptionSaving={captionUpdateSlideId === editingSlide.slideId}
-          isImageEditSaving={imageEditUpdateSlideId === editingSlide.slideId}
+          isSaving={slideEditsUpdateSlideId === editingSlide.slideId}
           isDuplicating={isSlideDuplicateInFlight}
           isDeleting={isSlideDeleteInFlight}
           isDuplicateLimitReached={
             slideCount !== null && slideCount >= PROJECT_SLIDE_MAX_COUNT
           }
-          durationMessage={durationUpdateMessage}
-          durationDiagnostics={durationUpdateDiagnostics}
-          captionMessage={captionUpdateMessage}
-          captionDiagnostics={captionUpdateDiagnostics}
+          editMessage={slideEditMessage}
+          editDiagnostics={slideEditDiagnostics}
           fetchProjectSlidePreviewBlob={fetchProjectSlidePreviewBlob}
-          onSaveDuration={updateProjectSlideDuration}
-          onSaveCaption={updateProjectSlideCaption}
-          onSaveImageEdit={updateProjectSlideImageEdit}
+          onSave={updateProjectSlideEdits}
           onDuplicate={duplicateProjectSlide}
           onDelete={handleDeleteSingleSlide}
           onClose={closeMobileSlideEditor}
@@ -847,20 +786,14 @@ function MobileSlideDetailEditor({
   slideNumber,
   isBusy,
   isDisabled,
-  isDurationSaving,
-  isCaptionSaving,
-  isImageEditSaving,
+  isSaving,
   isDuplicating,
   isDeleting,
   isDuplicateLimitReached,
-  durationMessage,
-  durationDiagnostics,
-  captionMessage,
-  captionDiagnostics,
+  editMessage,
+  editDiagnostics,
   fetchProjectSlidePreviewBlob,
-  onSaveDuration,
-  onSaveCaption,
-  onSaveImageEdit,
+  onSave,
   onDuplicate,
   onDelete,
   onClose,
@@ -870,27 +803,18 @@ function MobileSlideDetailEditor({
   slideNumber: number;
   isBusy: boolean;
   isDisabled: boolean;
-  isDurationSaving: boolean;
-  isCaptionSaving: boolean;
-  isImageEditSaving: boolean;
+  isSaving: boolean;
   isDuplicating: boolean;
   isDeleting: boolean;
   isDuplicateLimitReached: boolean;
-  durationMessage: string | null;
-  durationDiagnostics: string[];
-  captionMessage: string | null;
-  captionDiagnostics: string[];
+  editMessage: string | null;
+  editDiagnostics: string[];
   fetchProjectSlidePreviewBlob: (
     assetFileId: string,
     expectedMimeType: string,
     signal: AbortSignal,
   ) => Promise<Blob>;
-  onSaveDuration: (slideId: string, durationSeconds: number) => void;
-  onSaveCaption: (slideId: string, caption: string) => void;
-  onSaveImageEdit: (
-    slideId: string,
-    imageEdit: ProjectSlideImageEdit | undefined,
-  ) => Promise<boolean>;
+  onSave: SlideEditSaveHandler;
   onDuplicate: (slideId: string) => Promise<boolean>;
   onDelete: (slideId: string, trigger: HTMLElement) => void;
   onClose: () => void;
@@ -901,18 +825,6 @@ function MobileSlideDetailEditor({
   const cancelDialog = useEffectEvent(() => {
     if (!isBusy) onClose();
   });
-  const [draftDurationSeconds, setDraftDurationSeconds] = useState(
-    slide.durationSeconds,
-  );
-  const [draftCaption, setDraftCaption] = useState(slide.caption);
-  const [showDurationResult, setShowDurationResult] = useState(false);
-  const [showCaptionResult, setShowCaptionResult] = useState(false);
-
-  const normalizedDraftCaption = draftCaption.trim();
-  const captionLength = [...normalizedDraftCaption].length;
-  const isCaptionTooLong = captionLength > SLIDE_CAPTION_MAX_LENGTH;
-  const hasDurationChange = draftDurationSeconds !== slide.durationSeconds;
-  const hasCaptionChange = normalizedDraftCaption !== slide.caption.trim();
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -955,15 +867,6 @@ function MobileSlideDetailEditor({
       triggerElement?.focus();
     };
   }, [triggerRef]);
-
-  function changeDuration(delta: -1 | 1) {
-    setDraftDurationSeconds((current) =>
-      Math.min(
-        DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS,
-        Math.max(DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS, current + delta),
-      ),
-    );
-  }
 
   return (
     <div className="fixed inset-0 z-[90] overflow-y-auto bg-slate-950/85 backdrop-blur-sm sm:p-4">
@@ -1028,100 +931,19 @@ function MobileSlideDetailEditor({
           </div>
 
           <div className="min-w-0 space-y-6">
-            <section aria-labelledby={`${titleId}-duration`}>
-              <h3 id={`${titleId}-duration`} className="font-semibold">
-                表示時間
-              </h3>
-              <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="size-11 shrink-0 p-0 text-xl"
-                  disabled={
-                    isDisabled ||
-                    draftDurationSeconds <=
-                      DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS
-                  }
-                  aria-label="表示時間を1秒減らす"
-                  onClick={() => changeDuration(-1)}
-                >
-                  −
-                </Button>
-                <output
-                  aria-live="polite"
-                  className="min-w-0 text-center text-xl font-semibold tabular-nums"
-                >
-                  {draftDurationSeconds}秒
-                </output>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="size-11 shrink-0 p-0 text-xl"
-                  disabled={
-                    isDisabled ||
-                    draftDurationSeconds >=
-                      DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS
-                  }
-                  aria-label="表示時間を1秒増やす"
-                  onClick={() => changeDuration(1)}
-                >
-                  ＋
-                </Button>
-              </div>
-            </section>
+            <SlideEditForm
+              slide={slide}
+              variant="detail"
+              isSaving={isSaving}
+              isDisabled={isDisabled}
+              fetchProjectSlidePreviewBlob={fetchProjectSlidePreviewBlob}
+              onSave={onSave}
+            />
 
-            <section aria-labelledby={`${titleId}-caption`}>
-              <div className="flex items-end justify-between gap-3">
-                <h3 id={`${titleId}-caption`} className="font-semibold">
-                  テロップ
-                </h3>
-                <p
-                  className={
-                    isCaptionTooLong
-                      ? "text-xs text-red-700"
-                      : "text-xs text-slate-500"
-                  }
-                >
-                  {captionLength} / {SLIDE_CAPTION_MAX_LENGTH} 文字
-                </p>
-              </div>
-              <textarea
-                value={draftCaption}
-                onChange={(event) => setDraftCaption(event.target.value)}
-                maxLength={SLIDE_CAPTION_MAX_LENGTH + 20}
-                rows={5}
-                aria-label="テロップ"
-                className="mt-3 min-h-32 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-                placeholder="テロップを入力"
-              />
-            </section>
-
-            {getAssetTypeLabel(slide.type) === "image" ? (
-              <section aria-label="画像編集">
-                <ProjectSlideImageEditorButton
-                  slideId={slide.slideId}
-                  assetFileId={slide.assetFileId}
-                  mimeType={slide.mimeType}
-                  assetName={slide.assetName}
-                  imageEdit={slide.imageEdit}
-                  disabled={isDisabled}
-                  isSaving={isImageEditSaving}
-                  fetchProjectSlidePreviewBlob={fetchProjectSlidePreviewBlob}
-                  onSave={onSaveImageEdit}
-                />
-              </section>
-            ) : null}
-
-            {showDurationResult && durationMessage ? (
+            {editMessage ? (
               <SlideEditResult
-                message={durationMessage}
-                diagnostics={durationDiagnostics}
-              />
-            ) : null}
-            {showCaptionResult && captionMessage ? (
-              <SlideEditResult
-                message={captionMessage}
-                diagnostics={captionDiagnostics}
+                message={editMessage}
+                diagnostics={editDiagnostics}
               />
             ) : null}
 
@@ -1185,38 +1007,7 @@ function MobileSlideDetailEditor({
             >
               閉じる
             </Button>
-            {hasDurationChange ? (
-              <Button
-                type="button"
-                className="min-h-11 sm:min-w-40"
-                disabled={isDisabled || isDurationSaving}
-                onClick={() => {
-                  setShowDurationResult(true);
-                  onSaveDuration(slide.slideId, draftDurationSeconds);
-                }}
-              >
-                {isDurationSaving ? "保存中" : "表示時間を保存"}
-              </Button>
-            ) : null}
-            {hasCaptionChange ? (
-              <Button
-                type="button"
-                className="min-h-11 sm:min-w-40"
-                disabled={isDisabled || isCaptionSaving || isCaptionTooLong}
-                onClick={() => {
-                  setShowCaptionResult(true);
-                  onSaveCaption(slide.slideId, normalizedDraftCaption);
-                }}
-              >
-                {isCaptionSaving ? "保存中" : "テロップを保存"}
-              </Button>
-            ) : null}
           </div>
-          {hasDurationChange && hasCaptionChange ? (
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              Driveへの保存処理を確実に完了するため、変更は一つずつ保存してください。
-            </p>
-          ) : null}
         </footer>
       </div>
     </div>
@@ -1300,31 +1091,137 @@ function SortableSlideRow({
   );
 }
 
-function SlideDurationEditor({
-  slideId,
-  durationSeconds,
+type SlideEditSaveHandler = (input: {
+  slideId: string;
+  caption: string;
+  durationSeconds: number;
+  imageEdit: ProjectSlideImageEdit | undefined;
+}) => Promise<boolean>;
+
+function SlideEditForm({
+  slide,
+  variant,
   isSaving,
   isDisabled,
+  fetchProjectSlidePreviewBlob,
   onSave,
 }: {
-  slideId: string;
-  durationSeconds: number;
+  slide: ProjectSlideSummary;
+  variant: "compact" | "detail";
   isSaving: boolean;
   isDisabled: boolean;
-  onSave: (slideId: string, durationSeconds: number) => void;
+  fetchProjectSlidePreviewBlob: (
+    assetFileId: string,
+    expectedMimeType: string,
+    signal: AbortSignal,
+  ) => Promise<Blob>;
+  onSave: SlideEditSaveHandler;
 }) {
+  const [draftCaption, setDraftCaption] = useState(slide.caption);
   const [draftDurationSeconds, setDraftDurationSeconds] = useState(
-    `${durationSeconds}`,
+    `${slide.durationSeconds}`,
   );
+  const [draftImageEdit, setDraftImageEdit] = useState<
+    ProjectSlideImageEdit | undefined
+  >(() => normalizeProjectSlideImageEditForWrite(slide.imageEdit));
+  const submitGuardRef = useRef(false);
+  const normalizedCaption = draftCaption.trim();
+  const captionLength = [...normalizedCaption].length;
+  const isCaptionInvalid = captionLength > SLIDE_CAPTION_MAX_LENGTH;
   const parsedDurationSeconds = parseSlideDurationSeconds(draftDurationSeconds);
-  const hasValidDuration = parsedDurationSeconds !== null;
-  const hasUnsavedChange =
-    hasValidDuration && parsedDurationSeconds !== durationSeconds;
-  const isEmpty = draftDurationSeconds.trim() === "";
-  const isInvalid = !isEmpty && !hasValidDuration;
+  const isDurationEmpty = draftDurationSeconds.trim() === "";
+  const isDurationInvalid = !isDurationEmpty && parsedDurationSeconds === null;
+  const parsedImageEdit =
+    draftImageEdit === undefined
+      ? { ok: true as const, value: undefined }
+      : parseProjectSlideImageEdit(draftImageEdit);
+  const normalizedImageEdit = parsedImageEdit.ok
+    ? normalizeProjectSlideImageEditForWrite(parsedImageEdit.value)
+    : undefined;
+  const hasDurationChange =
+    parsedDurationSeconds === null
+      ? draftDurationSeconds !== `${slide.durationSeconds}`
+      : parsedDurationSeconds !== slide.durationSeconds;
+  const isDirty =
+    normalizedCaption !== slide.caption.trim() ||
+    hasDurationChange ||
+    !areProjectSlideImageEditsEqual(slide.imageEdit, normalizedImageEdit);
+  const isValid =
+    !isCaptionInvalid && parsedDurationSeconds !== null && parsedImageEdit.ok;
 
-  return (
-    <div>
+  function changeDuration(delta: -1 | 1) {
+    const current = parsedDurationSeconds ?? slide.durationSeconds;
+    setDraftDurationSeconds(
+      `${Math.min(
+        DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS,
+        Math.max(DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS, current + delta),
+      )}`,
+    );
+  }
+
+  async function saveChanges() {
+    if (
+      submitGuardRef.current ||
+      !isDirty ||
+      !isValid ||
+      parsedDurationSeconds === null ||
+      isSaving ||
+      isDisabled
+    ) {
+      return;
+    }
+    submitGuardRef.current = true;
+    try {
+      await onSave({
+        slideId: slide.slideId,
+        caption: normalizedCaption,
+        durationSeconds: parsedDurationSeconds,
+        imageEdit: normalizedImageEdit,
+      });
+    } finally {
+      submitGuardRef.current = false;
+    }
+  }
+
+  const durationEditor =
+    variant === "detail" ? (
+      <section aria-label="表示時間">
+        <h3 className="font-semibold">表示時間</h3>
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <Button
+            type="button"
+            variant="outline"
+            className="size-11 shrink-0 p-0 text-xl"
+            disabled={
+              isDisabled ||
+              parsedDurationSeconds === null ||
+              parsedDurationSeconds <= DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS
+            }
+            aria-label="表示時間を1秒減らす"
+            onClick={() => changeDuration(-1)}
+          >
+            −
+          </Button>
+          <output className="min-w-0 text-center text-xl font-semibold tabular-nums">
+            {draftDurationSeconds}秒
+          </output>
+          <Button
+            type="button"
+            variant="outline"
+            className="size-11 shrink-0 p-0 text-xl"
+            disabled={
+              isDisabled ||
+              parsedDurationSeconds === null ||
+              parsedDurationSeconds >= DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS
+            }
+            aria-label="表示時間を1秒増やす"
+            onClick={() => changeDuration(1)}
+          >
+            ＋
+          </Button>
+        </div>
+      </section>
+    ) : (
       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
         <input
           type="number"
@@ -1337,86 +1234,73 @@ function SlideDurationEditor({
           aria-label="スライドの表示時間"
         />
         <span className="text-sm text-slate-700">秒</span>
-        {hasUnsavedChange ? <Badge variant="outline">未保存</Badge> : null}
-        <Button
-          type="button"
-          size="sm"
-          className="min-h-11"
-          variant={hasUnsavedChange ? "default" : "secondary"}
-          disabled={
-            !hasUnsavedChange ||
-            !hasValidDuration ||
-            isSaving ||
-            isDisabled
-          }
-          onClick={() => {
-            if (parsedDurationSeconds !== null) {
-              onSave(slideId, parsedDurationSeconds);
-            }
-          }}
-        >
-          {isSaving ? "保存中" : "保存"}
-        </Button>
       </div>
-      {isEmpty ? (
-        <p className="mt-1 text-xs text-red-700">表示時間を入力してください。</p>
+    );
+
+  return (
+    <div className={variant === "detail" ? "space-y-6" : "space-y-2"}>
+      {durationEditor}
+      <section aria-label="テロップ">
+        {variant === "detail" ? <h3 className="font-semibold">テロップ</h3> : null}
+        <div className={variant === "detail" ? "mt-3" : "flex flex-wrap items-center gap-1.5 sm:gap-2"}>
+          <textarea
+            value={draftCaption}
+            onChange={(event) => setDraftCaption(event.target.value)}
+            maxLength={SLIDE_CAPTION_MAX_LENGTH + 20}
+            rows={variant === "detail" ? 5 : 1}
+            aria-label="テロップ"
+            className={
+              variant === "detail"
+                ? "min-h-32 w-full resize-y rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                : "min-h-11 min-w-0 flex-1 resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+            }
+            placeholder="テロップを入力"
+          />
+          <p className={isCaptionInvalid ? "text-xs text-red-700" : "text-xs text-slate-500"}>
+            {captionLength} / {SLIDE_CAPTION_MAX_LENGTH} 文字
+          </p>
+        </div>
+      </section>
+      {getAssetTypeLabel(slide.type) === "image" ? (
+        <section aria-label="画像編集">
+          <ProjectSlideImageEditorButton
+            assetFileId={slide.assetFileId}
+            mimeType={slide.mimeType}
+            assetName={slide.assetName}
+            imageEdit={normalizedImageEdit}
+            disabled={isDisabled || isSaving}
+            fetchProjectSlidePreviewBlob={fetchProjectSlidePreviewBlob}
+            onChange={setDraftImageEdit}
+          />
+        </section>
       ) : null}
-      {isInvalid ? (
-        <p className="mt-1 text-xs text-red-700">
+      {isDirty ? <Badge variant={isValid ? "outline" : "destructive"}>未保存</Badge> : null}
+      {isDurationEmpty ? (
+        <p className="text-xs text-red-700">表示時間を入力してください。</p>
+      ) : null}
+      {isDurationInvalid ? (
+        <p className="text-xs text-red-700">
           表示時間は {DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS}〜
           {DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS} 秒の整数で入力してください。
         </p>
       ) : null}
-    </div>
-  );
-}
-
-function SlideCaptionEditor({
-  slideId,
-  caption,
-  isSaving,
-  isDisabled,
-  onSave,
-}: {
-  slideId: string;
-  caption: string;
-  isSaving: boolean;
-  isDisabled: boolean;
-  onSave: (slideId: string, caption: string) => void;
-}) {
-  const [draftCaption, setDraftCaption] = useState(caption);
-
-  const normalizedDraftCaption = draftCaption.trim();
-  const hasUnsavedChange = normalizedDraftCaption !== caption.trim();
-  const captionLength = [...normalizedDraftCaption].length;
-  const isTooLong = captionLength > SLIDE_CAPTION_MAX_LENGTH;
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-      <textarea
-        value={draftCaption}
-        onChange={(event) => setDraftCaption(event.target.value)}
-        maxLength={SLIDE_CAPTION_MAX_LENGTH + 20}
-        rows={1}
-        aria-label="テロップ"
-        className="min-h-11 min-w-0 flex-1 resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-        placeholder="テロップを入力"
-      />
-      <p className={isTooLong ? "text-xs text-red-700" : "text-xs text-slate-500"}>
-        {captionLength} / {SLIDE_CAPTION_MAX_LENGTH} 文字
-      </p>
-      {hasUnsavedChange ? (
-        <Badge variant={isTooLong ? "destructive" : "outline"}>未保存</Badge>
+      {isCaptionInvalid ? (
+        <p className="text-xs text-red-700">
+          テロップは {SLIDE_CAPTION_MAX_LENGTH} 文字以内で入力してください。
+        </p>
+      ) : null}
+      {!parsedImageEdit.ok ? (
+        <p className="text-xs text-red-700">画像調整の内容を確認してください。</p>
       ) : null}
       <Button
         type="button"
-        size="sm"
+        size={variant === "compact" ? "sm" : "default"}
         className="min-h-11"
-        variant={hasUnsavedChange ? "default" : "secondary"}
-        disabled={!hasUnsavedChange || isSaving || isDisabled || isTooLong}
-        onClick={() => onSave(slideId, normalizedDraftCaption)}
+        variant={isDirty ? "default" : "secondary"}
+        disabled={!isDirty || !isValid || isSaving || isDisabled}
+        onClick={() => void saveChanges()}
       >
-        {isSaving ? "保存中" : "保存"}
+        {isSaving ? "保存中" : "変更を保存"}
       </Button>
     </div>
   );
@@ -1669,6 +1553,15 @@ function getUnsupportedReasonDisplayLabel(reason: string) {
   return reason === "unsupportedVideoMimeType"
     ? "未対応の動画形式"
     : "未対応の素材形式";
+}
+
+function slideEditFormKey(slide: ProjectSlideSummary) {
+  return JSON.stringify([
+    slide.slideId,
+    slide.caption,
+    slide.durationSeconds,
+    slide.imageEdit ?? null,
+  ]);
 }
 
 function parseSlideDurationSeconds(value: string) {
