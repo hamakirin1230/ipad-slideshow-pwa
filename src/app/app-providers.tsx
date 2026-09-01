@@ -57,6 +57,10 @@ import {
   type GooglePhotosSyncUiReviewResult,
 } from "@/lib/google-photos-export/sync-ui-review";
 import {
+  prepareOfflineSaveUiReview,
+  type OfflineSaveUiReviewResult,
+} from "@/lib/offline-save-ui-review";
+import {
   listProjectPublishRevisions,
   loadProjectPublishRevision,
   type ListProjectPublishRevisionsResult,
@@ -861,6 +865,9 @@ type AppContextValue = {
   startLocalVideoFileImport: (files: FileList | File[]) => void;
   cancelAssetImport: () => void;
   startOfflineSync: () => void;
+  prepareOfflineSaveReview: (
+    signal: AbortSignal,
+  ) => Promise<OfflineSaveUiReviewResult>;
   cancelOfflineSync: () => void;
   registerDriveVideoPlaybackSession: (
     input: DriveVideoPlaybackSessionRegistrationInput,
@@ -4555,6 +4562,33 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setOfflineSyncInFlightState(false);
       }
     }
+  }
+
+  async function prepareOfflineSaveReview(
+    signal: AbortSignal,
+  ): Promise<OfflineSaveUiReviewResult> {
+    const blockedReason = getOfflineSyncBlockedReason();
+    const accessToken = accessTokenRef.current;
+    const readyContext = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+    if (blockedReason || !accessToken || !readyContext || !readyProject) {
+      return { ok: false, reason: "sourceUnavailable" };
+    }
+    const result = await prepareOfflineSaveUiReview({
+      accessToken,
+      readyContext,
+      project: readyProject,
+      signal,
+    });
+    const currentAuthority = googlePhotosSyncDriveAuthorityRef.current;
+    if (
+      accessTokenRef.current !== accessToken ||
+      currentAuthority.project?.projectId !== readyProject.projectId ||
+      currentAuthority.selectedProjectId !== readyProject.projectId
+    ) {
+      return { ok: false, reason: "sourceChanged" };
+    }
+    return result;
   }
 
   function cancelOfflineSync() {
@@ -8672,6 +8706,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     startLocalVideoFileImport,
     cancelAssetImport,
     startOfflineSync,
+    prepareOfflineSaveReview,
     cancelOfflineSync,
     registerDriveVideoPlaybackSession,
     unregisterDriveVideoPlaybackSession,

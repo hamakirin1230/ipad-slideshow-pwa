@@ -31,6 +31,25 @@ describe("offline sync panel progress accessibility", () => {
     expect(source).toContain("このアルバムを再生");
     expect(source).not.toContain('<Link href="/player">');
   });
+
+  it("uses review before the exact local save action", () => {
+    const reviewCall = source.indexOf("await prepareReview(controller.signal)");
+    const actualSave = source.indexOf("startSync();", reviewCall);
+    expect(reviewCall).toBeGreaterThan(-1);
+    expect(actualSave).toBeGreaterThan(reviewCall);
+    expect(source).toContain("変更内容");
+    expect(source).toContain("ローカル保存内容に変更はありません。");
+    expect(source).toContain("再ダウンロードなし");
+    expect(source).toContain("オフライン対象外");
+    expect(source).toContain("前回の詳細は表示できません。");
+  });
+
+  it("keeps concise local-save guidance in a disclosure", () => {
+    expect(source).toContain("ローカル保存について");
+    expect(source).toContain("保存完了までは現在のローカルコピーを維持します。");
+    expect(source).toContain("変更のない素材は再利用します。");
+    expect(source).toContain("公開やGoogleフォト同期とは別の操作です。");
+  });
 });
 
 describe("offline sync stale view", () => {

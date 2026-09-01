@@ -141,7 +141,7 @@ describe("admin and settings touch target contracts", () => {
     [source.import, "onClick={startAssetImport}", "disabled={!canStartAssetImport}"],
     [source.edit, "onClick={handleDeleteSelectedSlides}", "disabled={!canDeleteSelectedSlides}"],
     [source.cleanup, "onClick={previewUnusedProjectAssets}", "isAssetCleanupPreviewInFlight"],
-    [source.offlineSync, "onClick={startOfflineSync}", "disabled={!canStartOfflineSync || isOfflineSyncInFlight}"],
+    [source.offlineSync, "onClick={handlePrepare}", "disabled={!canStart || isPreparing || isSyncing}"],
     [source.confirmedStore, "onClick={handleCheckConfirmedStore}", "disabled={isChecking || isClearingProject}"],
     [source.driveSettings, "onClick={connectGoogle}", "disabled={!canConnect}"],
     [source.driveSettings, "onClick={checkDriveWorkspace}", "disabled={!canCheckDrive}"],

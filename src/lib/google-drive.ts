@@ -101,6 +101,7 @@ export type DriveFileCandidate = {
   appProperties: Record<string, string>;
   sizeBytes?: number;
   checksum?: string;
+  revisionId?: string;
   parents?: string[];
   trashed?: boolean;
 };
@@ -4581,7 +4582,7 @@ async function fetchDriveFileMetadata(
 ): Promise<DriveFileCandidate> {
   const params = new URLSearchParams({
     fields:
-      "id,name,mimeType,createdTime,modifiedTime,appProperties,size,md5Checksum,parents,trashed",
+      "id,name,mimeType,createdTime,modifiedTime,appProperties,size,md5Checksum,headRevisionId,parents,trashed",
   });
 
   const response = await fetch(
@@ -9923,6 +9924,10 @@ function normalizeDriveFile(value: unknown): DriveWorkspaceCandidate | null {
     sizeBytes: parseDriveSize(value.size),
     checksum:
       typeof value.md5Checksum === "string" ? value.md5Checksum : undefined,
+    revisionId:
+      typeof value.headRevisionId === "string"
+        ? value.headRevisionId
+        : undefined,
     parents: Array.isArray(value.parents)
       ? value.parents.filter((parent): parent is string => typeof parent === "string")
       : undefined,

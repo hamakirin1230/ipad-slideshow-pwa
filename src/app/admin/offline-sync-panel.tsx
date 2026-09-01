@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProductDisclosure } from "@/components/product-disclosure";
@@ -16,6 +17,12 @@ import type { DriveOfflineStagingSyncRuntimeResult } from "@/lib/drive-offline-s
 import { buildOfflineSyncProgressView } from "@/lib/offline-sync-progress";
 import { createPlayerProjectLinkHref } from "@/lib/player-route";
 import { buildOfflineSyncStaleView } from "@/app/admin/offline-sync-stale-view";
+import type {
+  OfflineSaveUiDiffChange,
+  OfflineSaveUiDiffItem,
+  OfflineSaveUiReview,
+  OfflineSaveUiTransferImpact,
+} from "@/lib/offline-save-ui-review";
 
 export function OfflineSyncPanel() {
   const {
@@ -27,6 +34,7 @@ export function OfflineSyncPanel() {
     isOfflineSyncInFlight,
     canStartOfflineSync,
     offlineSyncBlockedReason,
+    prepareOfflineSaveReview,
     startOfflineSync,
     cancelOfflineSync,
     selectedProjectId,
@@ -62,28 +70,16 @@ export function OfflineSyncPanel() {
       </CardHeader>
 
       <CardContent className="space-y-4 text-sm text-slate-300">
-        <div className="flex flex-wrap gap-3">
-          <Button
-            type="button"
-            variant={canStartOfflineSync ? "default" : "secondary"}
-            className="min-h-11"
-            onClick={startOfflineSync}
-            disabled={!canStartOfflineSync || isOfflineSyncInFlight}
-          >
-            {startButtonLabel}
-          </Button>
-
-          {canCancelOfflineSync ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-11"
-              onClick={cancelOfflineSync}
-            >
-              保存を中止
-            </Button>
-          ) : null}
-        </div>
+        <OfflineSaveReviewFlow
+          key={selectedProjectId ?? "no-project"}
+          canStart={canStartOfflineSync}
+          isSyncing={isOfflineSyncInFlight}
+          canCancelSync={canCancelOfflineSync}
+          startButtonLabel={startButtonLabel}
+          prepareReview={prepareOfflineSaveReview}
+          startSync={startOfflineSync}
+          cancelSync={cancelOfflineSync}
+        />
 
         {showBlockedReason ? (
           <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-amber-100">
@@ -300,6 +296,408 @@ export function OfflineSyncPanel() {
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function OfflineSaveReviewFlow({
+  canStart,
+  isSyncing,
+  canCancelSync,
+  startButtonLabel,
+  prepareReview,
+  startSync,
+  cancelSync,
+}: {
+  canStart: boolean;
+  isSyncing: boolean;
+  canCancelSync: boolean;
+  startButtonLabel: string;
+  prepareReview: ReturnType<typeof useAppState>["prepareOfflineSaveReview"];
+  startSync: () => void;
+  cancelSync: () => void;
+}) {
+  const [review, setReview] = useState<OfflineSaveUiReview | null>(null);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      controllerRef.current?.abort();
+    };
+  }, []);
+
+  async function handlePrepare() {
+    if (!canStart || isPreparing || isSyncing) return;
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    setIsPreparing(true);
+    setMessage(null);
+    setReview(null);
+    setConfirmed(false);
+    try {
+      const result = await prepareReview(controller.signal);
+      if (controller.signal.aborted) return;
+      if (!result.ok) {
+        setMessage(
+          result.reason === "sourceChanged"
+            ? "確認中に選択内容が変わりました。もう一度確認してください。"
+            : "変更内容を確認できませんでした。Google Driveの状態を確認してください。",
+        );
+        return;
+      }
+      setReview(result.review);
+    } catch (error) {
+      if (!isAbortError(error)) {
+        setMessage("変更内容を確認できませんでした。もう一度お試しください。");
+      }
+    } finally {
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
+        setIsPreparing(false);
+      }
+    }
+  }
+
+  function cancelReview() {
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    setIsPreparing(false);
+    setReview(null);
+    setConfirmed(false);
+    setMessage(null);
+  }
+
+  function confirmAndSave() {
+    if (!review || !confirmed || isSyncing) return;
+    setReview(null);
+    setConfirmed(false);
+    setMessage(null);
+    startSync();
+  }
+
+  if (review) {
+    return (
+      <OfflineSaveReviewCard
+        review={review}
+        confirmed={confirmed}
+        disabled={isSyncing}
+        onConfirmedChange={setConfirmed}
+        onSave={confirmAndSave}
+        onCancel={cancelReview}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3">
+        <Button
+          type="button"
+          variant={canStart ? "default" : "secondary"}
+          className="min-h-11"
+          onClick={handlePrepare}
+          disabled={!canStart || isPreparing || isSyncing}
+        >
+          {isPreparing ? "変更内容を確認中" : startButtonLabel}
+        </Button>
+        {canCancelSync ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            onClick={cancelSync}
+          >
+            保存を中止
+          </Button>
+        ) : null}
+        {isPreparing ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11"
+            onClick={cancelReview}
+          >
+            確認を中止
+          </Button>
+        ) : null}
+      </div>
+      {message ? (
+        <p
+          role="alert"
+          className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-3 text-rose-100"
+        >
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function OfflineSaveReviewCard({
+  review,
+  confirmed,
+  disabled,
+  onConfirmedChange,
+  onSave,
+  onCancel,
+}: {
+  review: OfflineSaveUiReview;
+  confirmed: boolean;
+  disabled: boolean;
+  onConfirmedChange: (value: boolean) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+      <p className="font-semibold text-slate-50">変更内容</p>
+
+      {review.baselineStatus === "unavailable" ? (
+        <div className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-amber-50">
+          <p className="font-medium">前回の詳細は表示できません。</p>
+          <p className="mt-1 text-xs text-amber-100/80">
+            今回の保存内容のみ確認できます。前回の内容は推測しません。
+          </p>
+        </div>
+      ) : null}
+
+      {review.projectTitleChange ? (
+        <ReviewChangeBlock
+          label="アルバム名"
+          before={review.projectTitleChange.before}
+          after={review.projectTitleChange.after}
+        />
+      ) : null}
+
+      {review.settingsChanges.map((change) => (
+        <ReviewChangeBlock
+          key={change.field}
+          label={change.label}
+          before={change.before}
+          after={change.after}
+        />
+      ))}
+
+      {review.summary ? (
+        <div className="flex flex-wrap gap-2" aria-label="変更件数">
+          <ReviewChip label="追加" value={review.summary.added} />
+          <ReviewChip label="削除" value={review.summary.removed} />
+          <ReviewChip label="変更" value={review.summary.changed} />
+          <ReviewChip label="並び替え" value={review.summary.moved} />
+        </div>
+      ) : null}
+
+      <div>
+        <p className="text-xs font-medium text-slate-300">保存方法</p>
+        <div className="mt-2 flex flex-wrap gap-2" aria-label="素材の保存方法">
+          <ReviewChip label="再利用" value={review.transferSummary.reuse} />
+          <ReviewChip label="ダウンロード" value={review.transferSummary.download} />
+          <ReviewChip
+            label="オフライン対象外"
+            value={review.transferSummary.offlineExcluded}
+          />
+          {review.transferSummary.deletePlanned > 0 ? (
+            <ReviewChip
+              label="削除予定"
+              value={review.transferSummary.deletePlanned}
+            />
+          ) : null}
+        </div>
+      </div>
+
+      {review.baselineStatus === "unavailable" ? (
+        <ul className="space-y-2">
+          {review.currentDisplayNames.map((displayName, index) => (
+            <li
+              key={`${displayName}-${index}`}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+            >
+              {displayName}
+            </li>
+          ))}
+        </ul>
+      ) : review.noChanges ? (
+        <p className="rounded-xl border border-white/10 bg-white/5 p-3 text-slate-200">
+          ローカル保存内容に変更はありません。
+        </p>
+      ) : review.items.length > 0 ? (
+        <ul className="space-y-2">
+          {review.items.map((item, index) => (
+            <OfflineDiffItem
+              key={`${item.kind}-${item.displayName}-${index}`}
+              item={item}
+            />
+          ))}
+        </ul>
+      ) : (
+        <p className="rounded-xl border border-sky-300/20 bg-sky-300/10 p-3 text-sky-50">
+          素材本体を安全に保存し直します。スライド情報の変更はありません。
+        </p>
+      )}
+
+      <details className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-slate-300">
+        <summary className="cursor-pointer font-medium text-slate-100">
+          ローカル保存について
+        </summary>
+        <ul className="mt-3 list-disc space-y-2 pl-5 text-xs">
+          <li>保存完了までは現在のローカルコピーを維持します。</li>
+          <li>変更のない素材は再利用します。</li>
+          <li>大きい動画はオフライン対象外になる場合があります。</li>
+          <li>公開やGoogleフォト同期とは別の操作です。</li>
+        </ul>
+      </details>
+
+      <label className="flex min-h-11 items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+        <input
+          type="checkbox"
+          checked={confirmed}
+          disabled={disabled}
+          onChange={(event) => onConfirmedChange(event.target.checked)}
+          className="mt-1 size-4"
+        />
+        <span>この変更内容でローカルに保存することを確認しました</span>
+      </label>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          className="min-h-11"
+          disabled={!confirmed || disabled}
+          onClick={onSave}
+        >
+          ローカルに保存
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-11"
+          disabled={disabled}
+          onClick={onCancel}
+        >
+          やめる
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ReviewChip({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs">
+      {label} {value}
+    </span>
+  );
+}
+
+function ReviewChangeBlock({
+  label,
+  before,
+  after,
+}: {
+  label: string;
+  before: string;
+  after: string;
+}) {
+  return (
+    <div className="rounded-xl border border-sky-300/20 bg-sky-300/10 p-3">
+      <p className="text-xs font-medium text-sky-100">{label}</p>
+      <OfflineBeforeAfter before={before} after={after} />
+    </div>
+  );
+}
+
+function OfflineDiffItem({ item }: { item: OfflineSaveUiDiffItem }) {
+  return (
+    <li className="rounded-xl border border-white/10 bg-white/5 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-medium text-slate-50">{item.displayName}</p>
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-200">
+            {item.kind === "added"
+              ? "追加"
+              : item.kind === "removed"
+                ? "削除"
+                : "変更"}
+          </span>
+          <span className="rounded-full bg-sky-300/10 px-2 py-0.5 text-xs text-sky-100">
+            {transferImpactLabel(item.transferImpact)}
+          </span>
+        </div>
+      </div>
+      {item.kind === "changed" ? (
+        <dl className="mt-3 space-y-3">
+          {item.changes.map((change) => (
+            <OfflineDiffChange key={change.field} change={change} />
+          ))}
+        </dl>
+      ) : null}
+    </li>
+  );
+}
+
+function OfflineDiffChange({ change }: { change: OfflineSaveUiDiffChange }) {
+  return (
+    <div>
+      <dt className="text-xs text-slate-400">{offlineDiffFieldLabel(change.field)}</dt>
+      <dd>
+        <OfflineBeforeAfter before={change.before} after={change.after} />
+      </dd>
+    </div>
+  );
+}
+
+function OfflineBeforeAfter({ before, after }: { before: string; after: string }) {
+  return (
+    <span className="mt-1 grid gap-1 text-sm sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+      <span className="rounded-lg bg-black/20 px-2 py-1">
+        <span className="block text-[0.65rem] text-slate-400">変更前</span>
+        {before}
+      </span>
+      <span className="text-center text-slate-500" aria-hidden="true">→</span>
+      <span className="rounded-lg bg-sky-300/10 px-2 py-1 text-sky-50">
+        <span className="block text-[0.65rem] text-sky-200">変更後</span>
+        {after}
+      </span>
+    </span>
+  );
+}
+
+function offlineDiffFieldLabel(field: OfflineSaveUiDiffChange["field"]) {
+  switch (field) {
+    case "asset":
+      return "素材差替え";
+    case "caption":
+      return "テロップ";
+    case "duration":
+      return "表示時間";
+    case "imageEdit":
+      return "画像調整";
+    case "position":
+      return "順番";
+  }
+}
+
+function transferImpactLabel(impact: OfflineSaveUiTransferImpact) {
+  switch (impact) {
+    case "reuse":
+      return "再ダウンロードなし";
+    case "download":
+      return "ダウンロード";
+    case "offlineExcluded":
+      return "オフライン対象外";
+    case "deletePlanned":
+      return "保存完了後に削除";
+  }
+}
+
+function isAbortError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
   );
 }
 
