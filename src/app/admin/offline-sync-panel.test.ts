@@ -50,6 +50,20 @@ describe("offline sync panel progress accessibility", () => {
     expect(source).toContain("変更のない素材は再利用します。");
     expect(source).toContain("公開やGoogleフォト同期とは別の操作です。");
   });
+
+  it("shows safe platform-specific storage guidance near the local save action", () => {
+    expect(source).toContain("OfflineStorageLocation");
+    expect(source).toContain("useSyncExternalStore(");
+    expect(source).toContain("readOfflineStorageLocationClient");
+    expect(source).toContain('aria-label="ローカル保存先"');
+    expect(source).toContain("保存先について");
+    expect(source).toContain("PWAやアプリを削除すると、保存データが消える場合があります。");
+    expect(source).toContain("サイトデータを削除すると、保存データが消える場合があります。");
+    expect(source).toContain("Google Drive上の元データとは別のローカルコピーです。");
+    expect(source).toContain("公開とは別の操作です。");
+    expect(source).toContain("Googleフォト同期とは別の操作です。");
+    expect(source).not.toMatch(/~\/Library|AppData|IndexedDB path|Chrome profile|Safari internal/);
+  });
 });
 
 describe("offline sync stale view", () => {

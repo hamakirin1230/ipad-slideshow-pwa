@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProductDisclosure } from "@/components/product-disclosure";
@@ -17,6 +17,13 @@ import type { DriveOfflineStagingSyncRuntimeResult } from "@/lib/drive-offline-s
 import { buildOfflineSyncProgressView } from "@/lib/offline-sync-progress";
 import { createPlayerProjectLinkHref } from "@/lib/player-route";
 import { buildOfflineSyncStaleView } from "@/app/admin/offline-sync-stale-view";
+import {
+  getOfflineStorageLocationServer,
+  getOfflineStorageLocationViewForPlatform,
+  readOfflineStorageLocationClient,
+  subscribeOfflineStorageLocation,
+  type OfflineStorageLocationView,
+} from "@/lib/offline-storage-location";
 import type {
   OfflineSaveUiDiffChange,
   OfflineSaveUiDiffItem,
@@ -59,6 +66,14 @@ export function OfflineSyncPanel() {
     selectedProjectId && offlineSyncStatus === "ready"
       ? createPlayerProjectLinkHref(selectedProjectId)
       : null;
+  const storageLocationPlatform = useSyncExternalStore(
+    subscribeOfflineStorageLocation,
+    readOfflineStorageLocationClient,
+    getOfflineStorageLocationServer,
+  );
+  const storageLocation = getOfflineStorageLocationViewForPlatform(
+    storageLocationPlatform,
+  );
 
   return (
     <Card className="border-white/10 bg-white/[0.035] text-slate-50">
@@ -70,6 +85,8 @@ export function OfflineSyncPanel() {
       </CardHeader>
 
       <CardContent className="space-y-4 text-sm text-slate-300">
+        <OfflineStorageLocation location={storageLocation} />
+
         <OfflineSaveReviewFlow
           key={selectedProjectId ?? "no-project"}
           canStart={canStartOfflineSync}
@@ -296,6 +313,38 @@ export function OfflineSyncPanel() {
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function OfflineStorageLocation({
+  location,
+}: {
+  location: OfflineStorageLocationView;
+}) {
+  return (
+    <section
+      className="rounded-2xl border border-white/10 bg-black/20 p-4"
+      aria-label="ローカル保存先"
+    >
+      <p className="font-semibold text-slate-50">保存先</p>
+      <p className="mt-2 text-slate-200">{location.label}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-400">
+        {location.description}
+      </p>
+
+      <details className="mt-3 text-xs text-slate-300">
+        <summary className="cursor-pointer font-medium text-slate-100">
+          保存先について
+        </summary>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>PWAやアプリを削除すると、保存データが消える場合があります。</li>
+          <li>サイトデータを削除すると、保存データが消える場合があります。</li>
+          <li>Google Drive上の元データとは別のローカルコピーです。</li>
+          <li>公開とは別の操作です。</li>
+          <li>Googleフォト同期とは別の操作です。</li>
+        </ul>
+      </details>
+    </section>
   );
 }
 
