@@ -165,7 +165,7 @@ export function AssetImportPanel() {
 
       {offerGooglePhotosPicker && assetImportPickerHref ? (
         <p className="mt-2 text-xs text-slate-500">
-          Googleフォトで検索して写真を選べます
+          Googleフォトの写真選択画面が開きます
         </p>
       ) : null}
 
@@ -310,15 +310,15 @@ function getBatchItemBadgeVariant(status: AssetImportBatchItemStatus) {
 function getStartAssetImportButtonLabel(assetImportStatus: AssetImportStatus) {
   switch (assetImportStatus) {
     case "selected":
-      return "別の素材を選ぶ";
+      return "この端末から別の写真を選ぶ";
     case "savedToDrive":
       return "プロジェクト反映待ち";
     case "cancelled":
-      return "もう一度選択";
+      return "この端末からもう一度写真を選ぶ";
     case "invalid":
-      return "別の素材を選ぶ";
+      return "この端末から別の写真を選ぶ";
     case "error":
-      return "もう一度試す";
+      return "この端末からもう一度写真を選ぶ";
     case "requestingPhotosPermission":
     case "validatingLocalFiles":
     case "openingPicker":
@@ -331,7 +331,7 @@ function getStartAssetImportButtonLabel(assetImportStatus: AssetImportStatus) {
     case "completed":
     case "idle":
     default:
-      return "写真を選ぶ";
+      return "この端末から写真を選ぶ";
   }
 }
 

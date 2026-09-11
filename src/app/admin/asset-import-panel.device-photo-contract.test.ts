@@ -38,7 +38,7 @@ describe("AssetImportPanel device photo picker", () => {
     expect(photoHandler).toContain('event.currentTarget.value = ""');
   });
 
-  it("opens the local photo picker from 写真を選ぶ and does not start Photos OAuth there", () => {
+  it("opens the local photo picker from この端末から写真を選ぶ and does not start Photos OAuth there", () => {
     const photoButtonStart = source.indexOf("onClick={openLocalImageFilePicker}");
     const photoButton = source.slice(
       photoButtonStart - 280,
@@ -48,7 +48,9 @@ describe("AssetImportPanel device photo picker", () => {
     expect(source).toContain("openLocalImageFilePicker");
     expect(source).toContain("onClick={openLocalImageFilePicker}");
     expect(source).toContain("getStartAssetImportButtonLabel(assetImportStatus)");
-    expect(source).toContain('return "写真を選ぶ"');
+    expect(source).toContain('return "この端末から写真を選ぶ"');
+    expect(source).toContain('return "この端末から別の写真を選ぶ"');
+    expect(source).toContain('return "この端末からもう一度写真を選ぶ"');
     expect(photoButton).toContain("onClick={openLocalImageFilePicker}");
     expect(photoButton).not.toContain("startAssetImport");
   });
@@ -56,7 +58,7 @@ describe("AssetImportPanel device photo picker", () => {
   it("keeps local photo and video buttons on every device", () => {
     expect(source).toContain("onClick={openLocalImageFilePicker}");
     expect(source).toContain("onClick={openLocalVideoFilePicker}");
-    expect(source).toContain('return "写真を選ぶ"');
+    expect(source).toContain('return "この端末から写真を選ぶ"');
     expect(source).toContain("動画を選ぶ");
     expect(source.indexOf("onClick={openLocalImageFilePicker}")).toBeLessThan(
       source.indexOf("{offerGooglePhotosPicker && !assetImportPickerHref ? ("),
@@ -98,7 +100,8 @@ describe("AssetImportPanel device photo picker", () => {
     expect(source).toContain('target="_blank"');
     expect(source).toContain('rel="noopener noreferrer"');
     expect(source).toContain("Googleフォトを開く");
-    expect(source).toContain("Googleフォトで検索して写真を選べます");
+    expect(source).toContain("Googleフォトの写真選択画面が開きます");
+    expect(source).not.toContain("Googleフォトで検索して写真を選べます");
     expect(source).not.toContain("window.open");
     expect(source).not.toContain("window.location");
   });
