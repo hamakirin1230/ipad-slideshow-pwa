@@ -95,6 +95,16 @@ import {
   pendingProjectRollbackOwnerMatches,
   type CommitPreparedProjectRollbackResult,
 } from "@/lib/publish-history/project-rollback-ui";
+import {
+  PublicationAcceptanceFaultSession,
+  executePreparedProjectRollbackWithPublicationAcceptanceFaults,
+  isPublicationAcceptanceFaultRuntimeEnabled,
+  recoverPublicationAcceptanceIndexInDrive,
+  runPublicationAcceptanceRecoveryWithProjectLock,
+  type PublicationAcceptanceFaultKind,
+  type PublicationAcceptanceFaultMode,
+  type PublicationAcceptanceRecoveryStatus,
+} from "@/lib/publish-history/publication-acceptance-faults";
 import { executePreparedProjectRollback } from "@/lib/publish-history/project-rollback-workflow";
 import type {
   ProjectRollbackPreviewGuard,
@@ -811,6 +821,14 @@ type AppContextValue = {
     revisionId: string;
   }) => Promise<CommitPreparedProjectRollbackResult>;
   cancelPreparedProjectRollback: () => void;
+  publicationAcceptanceFaultMode: PublicationAcceptanceFaultMode;
+  publicationAcceptanceRecoveryStatus: PublicationAcceptanceRecoveryStatus;
+  publicationAcceptanceRecoveryMessage: string;
+  armPublicationAcceptanceFault: (
+    fault: PublicationAcceptanceFaultKind,
+  ) => void;
+  disarmPublicationAcceptanceFault: () => void;
+  recoverPublicationAcceptanceIndex: () => Promise<void>;
   prepareProjectPublishReview: (
     projectId: string,
   ) => Promise<PrepareProjectPublishReviewResult>;
@@ -1033,6 +1051,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const projectRollbackAbortRef = useRef<AbortController | null>(null);
   const projectRollbackRequestSequenceRef = useRef(0);
   const projectRollbackInFlightRef = useRef(false);
+  const publicationAcceptanceFaultSessionRef =
+    useRef<PublicationAcceptanceFaultSession | null>(null);
+  const publicationAcceptanceRecoveryInFlightRef = useRef(false);
+
+  if (publicationAcceptanceFaultSessionRef.current === null) {
+    publicationAcceptanceFaultSessionRef.current =
+      new PublicationAcceptanceFaultSession();
+  }
+  const publicationAcceptanceFaultSession =
+    publicationAcceptanceFaultSessionRef.current;
 
   const pendingPhotosTokenRequestRef =
     useRef<PendingPhotosTokenRequest | null>(null);
@@ -1169,6 +1197,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     useState(false);
   const [isProjectRollbackInFlight, setIsProjectRollbackInFlight] =
     useState(false);
+  const [publicationAcceptanceFaultMode, setPublicationAcceptanceFaultMode] =
+    useState<PublicationAcceptanceFaultMode>("off");
+  const [publicationAcceptanceRecoveryStatus, setPublicationAcceptanceRecoveryStatus] =
+    useState<PublicationAcceptanceRecoveryStatus>("unavailable");
+  const [publicationAcceptanceRecoveryMessage, setPublicationAcceptanceRecoveryMessage] =
+    useState("C warning後の明示recoveryは利用できません。");
   const [isGooglePhotosExportInFlight, setIsGooglePhotosExportInFlight] =
     useState(false);
   const [googlePhotosExportProgress, setGooglePhotosExportProgress] =
@@ -2757,9 +2791,58 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  function syncPublicationAcceptanceFaultMode() {
+    setPublicationAcceptanceFaultMode(
+      publicationAcceptanceFaultSession.getSnapshot().mode,
+    );
+  }
+
+  function resetPublicationAcceptanceSession() {
+    publicationAcceptanceFaultSession.clearForProjectChange();
+    publicationAcceptanceRecoveryInFlightRef.current = false;
+    syncPublicationAcceptanceFaultMode();
+    setPublicationAcceptanceRecoveryStatus("unavailable");
+    setPublicationAcceptanceRecoveryMessage(
+      "C warning後の明示recoveryは利用できません。",
+    );
+  }
+
+  function armPublicationAcceptanceFault(
+    fault: PublicationAcceptanceFaultKind,
+  ) {
+    const project = driveProjectReadyContext;
+    if (
+      !isPublicationAcceptanceFaultRuntimeEnabled() ||
+      !project ||
+      projectPublicationWriteInFlightRef.current ||
+      publicationAcceptanceRecoveryInFlightRef.current
+    ) {
+      return;
+    }
+    if (publicationAcceptanceFaultSession.arm(fault, project.title)) {
+      syncPublicationAcceptanceFaultMode();
+      setPublicationAcceptanceRecoveryStatus("unavailable");
+      setPublicationAcceptanceRecoveryMessage(
+        "faultはarmedです。対象rollbackを1回だけ実行できます。",
+      );
+    }
+  }
+
+  function disarmPublicationAcceptanceFault() {
+    if (
+      projectPublicationWriteInFlightRef.current ||
+      publicationAcceptanceRecoveryInFlightRef.current
+    ) {
+      return;
+    }
+    publicationAcceptanceFaultSession.disarm();
+    syncPublicationAcceptanceFaultMode();
+  }
+
   function clearProjectReadyDetails() {
     discardPendingProjectPublish();
     discardPendingProjectRollback();
+    resetPublicationAcceptanceSession();
     setDriveProjectReadyContext(null);
     setProjectDetails(null);
     setProjectSummary(null);
@@ -2783,6 +2866,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       preserveProjectRollback?: boolean;
     },
   ) {
+    if (
+      driveProjectReadyContext &&
+      (driveProjectReadyContext.projectId !== project.projectId ||
+        driveProjectReadyContext.title !== project.title)
+    ) {
+      resetPublicationAcceptanceSession();
+    }
     const syncOwner =
       googlePhotosSyncExecutionOwnerRef.current ??
       googlePhotosSyncMediaRuntimeOwnerRef.current;
@@ -8553,6 +8643,21 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const locked = await runWithProjectPublicationWriteLock(
       { projectId: input.projectId },
       async (): Promise<CommitPreparedProjectRollbackResult> => {
+        const acceptanceFault = isPublicationAcceptanceFaultRuntimeEnabled()
+          ? publicationAcceptanceFaultSession.getArmedFault(project.title)
+          : null;
+        if (
+          isPublicationAcceptanceFaultRuntimeEnabled() &&
+          publicationAcceptanceFaultSession.isArmed() &&
+          !acceptanceFault
+        ) {
+          return buildProjectRollbackCommitFailure({
+            code: "rollbackNotReady",
+            message:
+              "選択中プロジェクトが変わりました。影響確認からやり直してください。",
+            recoverability: "conflict",
+          });
+        }
         const requestSequence = pending.owner.requestSequence;
         const controller = new AbortController();
         projectRollbackAbortRef.current = controller;
@@ -8560,13 +8665,56 @@ export function AppProviders({ children }: { children: ReactNode }) {
         projectPublicationWriteInFlightRef.current = true;
         setIsProjectRollbackInFlight(true);
         try {
-          const workflow = await executePreparedProjectRollback({
-            accessToken,
-            projectsRootFolderId: workspace.projectsRootFolderId,
-            project,
-            plan: pending.plan,
-            signal: controller.signal,
-          });
+          const workflow = acceptanceFault
+            ? await executePreparedProjectRollbackWithPublicationAcceptanceFaults({
+                accessToken,
+                projectsRootFolderId: workspace.projectsRootFolderId,
+                project,
+                plan: pending.plan,
+                session: publicationAcceptanceFaultSession,
+                onConsumed: syncPublicationAcceptanceFaultMode,
+                signal: controller.signal,
+              })
+            : await executePreparedProjectRollback({
+                accessToken,
+                projectsRootFolderId: workspace.projectsRootFolderId,
+                project,
+                plan: pending.plan,
+                signal: controller.signal,
+              });
+          if (acceptanceFault === "C") {
+            if (
+              workflow.ok &&
+              workflow.indexStatus === "warning" &&
+              publicationAcceptanceFaultSession.retainCRecoveryPlanAfterWarning(
+                project.title,
+                pending.plan,
+              )
+            ) {
+              setPublicationAcceptanceRecoveryStatus("ready");
+              setPublicationAcceptanceRecoveryMessage(
+                "C warningを確認しました。明示的なindex recoveryを1回実行できます。",
+              );
+            } else {
+              publicationAcceptanceFaultSession.clearRecoveryPlan();
+              publicationAcceptanceFaultSession.disarm();
+              setPublicationAcceptanceRecoveryStatus("stopped");
+              setPublicationAcceptanceRecoveryMessage(
+                "C faultが期待したwarningへ到達しなかったため、recoveryを停止しました。",
+              );
+            }
+            syncPublicationAcceptanceFaultMode();
+          } else if (
+            acceptanceFault === "A" &&
+            publicationAcceptanceFaultSession.getSnapshot().mode === "aArmed"
+          ) {
+            publicationAcceptanceFaultSession.disarm();
+            syncPublicationAcceptanceFaultMode();
+            setPublicationAcceptanceRecoveryStatus("stopped");
+            setPublicationAcceptanceRecoveryMessage(
+              "A faultが期待したpost-write pointへ到達しなかったため停止しました。",
+            );
+          }
           if (
             requestSequence !== projectRollbackRequestSequenceRef.current ||
             accessTokenRef.current !== accessToken
@@ -8641,6 +8789,101 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     return locked.value;
+  }
+
+  async function recoverPublicationAcceptanceIndex() {
+    const accessToken = accessTokenRef.current;
+    const project = driveProjectReadyContext;
+    if (
+      !isPublicationAcceptanceFaultRuntimeEnabled() ||
+      !accessToken ||
+      !project ||
+      publicationAcceptanceRecoveryStatus !== "ready" ||
+      driveOperationInFlightRef.current ||
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      publicationAcceptanceRecoveryInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current
+    ) {
+      return;
+    }
+
+    const requestSequence = projectRollbackRequestSequenceRef.current;
+    publicationAcceptanceRecoveryInFlightRef.current = true;
+    try {
+      const locked = await runPublicationAcceptanceRecoveryWithProjectLock({
+        projectId: project.projectId,
+        recover: async () => {
+          const plan = publicationAcceptanceFaultSession.takeCRecoveryPlan(
+            project.title,
+          );
+          if (!plan) {
+            setPublicationAcceptanceRecoveryStatus("unavailable");
+            setPublicationAcceptanceRecoveryMessage(
+              "同一sessionのrecovery planを利用できません。自動修復は行いません。",
+            );
+            return;
+          }
+
+          syncPublicationAcceptanceFaultMode();
+          setPublicationAcceptanceRecoveryStatus("running");
+          setPublicationAcceptanceRecoveryMessage(
+            "fresh index guardを確認して明示recoveryを実行しています。",
+          );
+          const controller = new AbortController();
+          projectRollbackAbortRef.current = controller;
+          projectRollbackInFlightRef.current = true;
+          projectPublicationWriteInFlightRef.current = true;
+          setIsProjectRollbackInFlight(true);
+          try {
+            const result = await recoverPublicationAcceptanceIndexInDrive({
+              accessToken,
+              plan,
+              signal: controller.signal,
+            });
+            if (
+              requestSequence !== projectRollbackRequestSequenceRef.current ||
+              accessTokenRef.current !== accessToken
+            ) {
+              return;
+            }
+            setPublicationAcceptanceRecoveryStatus(
+              result.ok ? "success" : "stopped",
+            );
+            setPublicationAcceptanceRecoveryMessage(result.message);
+          } catch {
+            if (
+              requestSequence === projectRollbackRequestSequenceRef.current &&
+              accessTokenRef.current === accessToken
+            ) {
+              setPublicationAcceptanceRecoveryStatus("stopped");
+              setPublicationAcceptanceRecoveryMessage(
+                "index mirror recoveryの状態を確定できません。自動retryは行いません。",
+              );
+            }
+          } finally {
+            if (requestSequence === projectRollbackRequestSequenceRef.current) {
+              projectRollbackAbortRef.current = null;
+              projectRollbackInFlightRef.current = false;
+              projectPublicationWriteInFlightRef.current = false;
+              setIsProjectRollbackInFlight(false);
+            }
+          }
+        },
+      });
+
+      if (
+        !locked.acquired &&
+        requestSequence === projectRollbackRequestSequenceRef.current
+      ) {
+        setPublicationAcceptanceRecoveryStatus("ready");
+        setPublicationAcceptanceRecoveryMessage(
+          "別のタブで公開操作を実行中です。完了後にもう一度操作してください。",
+        );
+      }
+    } finally {
+      publicationAcceptanceRecoveryInFlightRef.current = false;
+    }
   }
 
   function cancelPreparedProjectRollback() {
@@ -8756,6 +8999,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     prepareProjectRollbackExecutionReview,
     commitPreparedProjectRollback,
     cancelPreparedProjectRollback,
+    publicationAcceptanceFaultMode,
+    publicationAcceptanceRecoveryStatus,
+    publicationAcceptanceRecoveryMessage,
+    armPublicationAcceptanceFault,
+    disarmPublicationAcceptanceFault,
+    recoverPublicationAcceptanceIndex,
     prepareProjectPublishReview,
     commitPreparedProjectPublish,
     cancelPreparedProjectPublish,

@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { PublicationAcceptanceFaultPanel } from "@/app/admin/history/publication-acceptance-fault-panel";
 import { useAppState } from "@/app/app-providers";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,6 +46,7 @@ import {
   type ProjectPublishRevisionDetailViewModel,
   type ProjectPublishRevisionPublicationMarker,
 } from "@/lib/publish-history/project-publish-history-view";
+import { isPublicationAcceptanceFaultRuntimeEnabled } from "@/lib/publish-history/publication-acceptance-faults";
 
 type HistoryViewState =
   | "idle"
@@ -81,6 +89,11 @@ const invalidLocationCodes = new Set([
   "invalidManifest",
 ]);
 
+const subscribePublicationAcceptanceRuntime = () => () => {};
+const getPublicationAcceptanceRuntimeSnapshot = () =>
+  isPublicationAcceptanceFaultRuntimeEnabled();
+const getPublicationAcceptanceRuntimeServerSnapshot = () => false;
+
 export function PublishHistoryClient() {
   const {
     googleStatus,
@@ -99,8 +112,19 @@ export function PublishHistoryClient() {
     prepareProjectRollbackExecutionReview,
     commitPreparedProjectRollback,
     cancelPreparedProjectRollback,
+    publicationAcceptanceFaultMode,
+    publicationAcceptanceRecoveryStatus,
+    publicationAcceptanceRecoveryMessage,
+    armPublicationAcceptanceFault,
+    disarmPublicationAcceptanceFault,
+    recoverPublicationAcceptanceIndex,
     isProjectRollbackInFlight,
   } = useAppState();
+  const publicationAcceptanceFaultsEnabled = useSyncExternalStore(
+    subscribePublicationAcceptanceRuntime,
+    getPublicationAcceptanceRuntimeSnapshot,
+    getPublicationAcceptanceRuntimeServerSnapshot,
+  );
   const [historyState, setHistoryState] = useState<HistoryViewState>("idle");
   const [items, setItems] = useState<ProjectPublishRevisionListItem[]>([]);
   const [historyMessage, setHistoryMessage] = useState(
@@ -635,6 +659,18 @@ export function PublishHistoryClient() {
         state={historyState}
         publication={overview?.publication ?? null}
         message={historyMessage}
+      />
+
+      <PublicationAcceptanceFaultPanel
+        enabled={publicationAcceptanceFaultsEnabled}
+        mode={publicationAcceptanceFaultMode}
+        recoveryStatus={publicationAcceptanceRecoveryStatus}
+        recoveryMessage={publicationAcceptanceRecoveryMessage}
+        selectedProjectTitle={selectedProject?.title ?? null}
+        busy={rollbackBusy || isDriveOperationInFlight}
+        onArm={armPublicationAcceptanceFault}
+        onDisarm={disarmPublicationAcceptanceFault}
+        onRecover={() => void recoverPublicationAcceptanceIndex()}
       />
 
       <div
