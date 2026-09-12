@@ -53,7 +53,7 @@ describe("admin album and local labels", () => {
     expect(projects).not.toContain("ProjectSlideTransitionSettings");
     expect(slides.match(/<ProjectSlideTransitionSettings \/>/g)).toHaveLength(1);
     expect(slides.indexOf("<AssetImportPanel />")).toBeLessThan(slides.indexOf("<ProjectSlideTransitionSettings />"));
-    expect(slides.indexOf("<ProjectSlideTransitionSettings />")).toBeLessThan(slides.indexOf('aria-labelledby="slide-editor-heading"'));
+    expect(slides.indexOf("<ProjectSlideTransitionSettings />")).toBeLessThan(slides.indexOf('headingId="slide-editor-heading"'));
     expect(settings).toContain("スライド全体の設定");
     expect(settings).not.toContain('from "./project-status-panel"');
     expect(workspace).toContain('window.history.replaceState(null, "", `#${tab}`)');

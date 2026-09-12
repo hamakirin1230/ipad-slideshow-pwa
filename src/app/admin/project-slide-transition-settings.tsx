@@ -15,6 +15,7 @@ import {
   type ProjectSlideTransitionStrength,
 } from "@/lib/project-slide-transition";
 import { ProjectSlideTransitionPicker } from "./project-slide-transition-picker";
+import { WorkspaceSectionDisclosure } from "./workspace-section-disclosure";
 
 export function ProjectSlideTransitionSettings() {
   const {
@@ -33,10 +34,10 @@ export function ProjectSlideTransitionSettings() {
     !isDriveOperationInFlight;
 
   return (
-    <section aria-labelledby="slide-settings-heading">
-      <h3 id="slide-settings-heading" className="text-lg font-semibold text-slate-100">
-        スライド全体の設定
-      </h3>
+    <WorkspaceSectionDisclosure
+      label="スライド全体の設定"
+      headingId="slide-settings-heading"
+    >
       <SelectedProjectSlideTransitionForm
         key={`${projectSummary?.projectId ?? "none"}:${projectTransition ?? "standard"}:${projectTransitionStrength ?? "absent"}`}
         projectTransition={projectTransition}
@@ -46,7 +47,7 @@ export function ProjectSlideTransitionSettings() {
         isDriveOperationInFlight={isDriveOperationInFlight}
         updateSelectedProjectTransitionSettings={updateSelectedProjectTransitionSettings}
       />
-    </section>
+    </WorkspaceSectionDisclosure>
   );
 }
 

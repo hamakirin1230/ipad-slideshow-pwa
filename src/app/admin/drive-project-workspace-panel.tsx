@@ -59,6 +59,7 @@ import { AssetCleanupPreviewPanel } from "./asset-cleanup-preview-panel";
 import { AssetImportPanel } from "./asset-import-panel";
 import { ProjectSlideTransitionSettings } from "./project-slide-transition-settings";
 import { ProjectSlideImageEditorButton } from "./project-slide-image-editor-dialog";
+import { WorkspaceSectionDisclosure } from "./workspace-section-disclosure";
 
 const SLIDE_CAPTION_MAX_LENGTH = 80;
 const PROJECT_SLIDE_MAX_COUNT = 50;
@@ -392,10 +393,14 @@ export function DriveProjectWorkspacePanel() {
         </ProductDisclosure>
       </section>
 
-      <section aria-labelledby="slide-editor-heading" className="border-t border-white/8 pt-8">
+      <WorkspaceSectionDisclosure
+        label={`スライド一覧（${slideCount ?? 0}件）`}
+        headingId="slide-editor-heading"
+        defaultOpen
+        className="border-t border-white/8 pt-8"
+      >
         <Card className="bg-white text-slate-950">
           <CardHeader>
-            <CardTitle><h3 id="slide-editor-heading">スライド</h3></CardTitle>
             <CardDescription>
               ドラッグして並び替え
             </CardDescription>
@@ -735,7 +740,7 @@ export function DriveProjectWorkspacePanel() {
             ) : null}
           </CardContent>
         </Card>
-      </section>
+      </WorkspaceSectionDisclosure>
 
       {editingSlide && editingSlideIndex >= 0 ? (
         <MobileSlideDetailEditor
