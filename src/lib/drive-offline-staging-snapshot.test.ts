@@ -1,3 +1,7 @@
+import { promoteValidatedOfflineStagingToConfirmedStoresInTransaction } from "./offline-staging-promotion";
+import { buildOfflinePlaybackSnapshot } from "./offline-playback-snapshot";
+import { getEffectiveProjectSlideCaptionStyle, DEFAULT_PROJECT_SLIDE_CAPTION_STYLE } from "./project-slide-caption-style";
+import { OFFLINE_PROJECTS_STORE, OFFLINE_ASSETS_STORE, OFFLINE_ASSET_BLOBS_STORE, type OfflineProject } from "./offline-schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DriveSlideSummary } from "./google-drive";
 import {
@@ -1026,5 +1030,38 @@ describe("Drive offline staging MP4/MOV policy", () => {
     expect(snapshot.assetsWithoutBlobs[0]?.unsupportedReason).toBe(
       "videoOfflineTooLarge",
     );
+  });
+});
+
+describe("captionStyle through offline staging, promotion and playback", () => {
+  it.each([undefined, { position: "top", shape: "band", size: "large", colorPreset: "yellowOnBlack" } as const])("keeps style across the full offline data path %#", async (captionStyle) => {
+    installManifestPhases({ initial: { ...manifest(), ...(captionStyle ? { captionStyle } : {}) } });
+    const snapshot = await fetchSnapshot();
+    expect(snapshot.project.captionStyle).toEqual(captionStyle);
+    const staging = { ...snapshot.project, stagingId: "fixture-staging", syncRunId: "fixture-run" };
+    const request = (result: unknown) => {
+      const req = { result, error: null } as unknown as IDBRequest;
+      queueMicrotask(() => req.onsuccess?.(new Event("success")));
+      return req;
+    };
+    let confirmed: OfflineProject | undefined;
+    const projectStore = { put: vi.fn((value: OfflineProject) => { confirmed = structuredClone(value); return request(value); }) };
+    const emptyStore = { openCursor: () => request(null) };
+    await promoteValidatedOfflineStagingToConfirmedStoresInTransaction({
+      [OFFLINE_PROJECTS_STORE]: projectStore as unknown as IDBObjectStore,
+      [OFFLINE_ASSETS_STORE]: emptyStore as unknown as IDBObjectStore,
+      [OFFLINE_ASSET_BLOBS_STORE]: emptyStore as unknown as IDBObjectStore,
+    }, { ok: true, project: staging, records: { projects: [staging], assets: [], assetBlobRecords: [] }, validation: { ok: true } });
+    expect(confirmed?.captionStyle).toEqual(captionStyle);
+    if (!confirmed) throw new Error("missing confirmed project");
+    const playback = buildOfflinePlaybackSnapshot({
+      checkedAt: snapshot.project.syncedAt, selectedProjectId: project.projectId, projects: [confirmed], assets: [], assetBlobs: [],
+      syncStates: [{ schemaVersion: 1, projectId: project.projectId, status: "ready", rootFolderId: readyContext.workspaceRootFolderId, workspaceFileId: readyContext.workspaceJsonFileId, indexFileId: readyContext.indexJsonFileId, manifestFileId: project.manifestFileId, slideCount: 0, assetCount: 0, syncedAt: snapshot.project.syncedAt, publicationProvenance: confirmed.publicationProvenance }],
+    });
+    expect(playback.status).toBe("ready");
+    if (playback.status !== "ready") throw new Error("playback not ready");
+    expect(playback.captionStyle).toEqual(captionStyle);
+    expect(getEffectiveProjectSlideCaptionStyle(playback.captionStyle)).toEqual(captionStyle ?? DEFAULT_PROJECT_SLIDE_CAPTION_STYLE);
+    expect(confirmed).not.toHaveProperty("stagingId");
   });
 });

@@ -45,6 +45,7 @@ import {
 import { useAppState } from "@/app/app-providers";
 import { createPlayerProjectLinkHref } from "@/lib/player-route";
 import { useOfflinePlaybackSnapshot } from "./use-offline-playback-snapshot";
+import { PlayerCaption } from "./player-caption";
 import { getPlayerSlideTransitionPlan } from "./player-slide-transition";
 import { getPlayerEmptySnapshotView } from "./empty-snapshot-view";
 import {
@@ -2239,35 +2240,11 @@ function PlayerPageContent() {
           />
         ) : null}
 
-        {currentSlideCaption ? (
-          <div
-            className={
-              isProductionMode
-                ? "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 pt-20 sm:px-6"
-                : "pointer-events-none absolute inset-x-0 bottom-20 z-10 px-4 sm:bottom-24 sm:px-6"
-            }
-            style={
-              isProductionMode
-                ? { paddingBottom: "max(env(safe-area-inset-bottom), 1.25rem)" }
-                : undefined
-            }
-          >
-            <p
-              className="mx-auto max-w-4xl rounded-xl px-4 py-2 text-center text-base leading-7 text-white shadow-2xl sm:text-xl sm:leading-8"
-              style={{
-                backgroundColor: "rgba(0, 0, 0, 0.62)",
-                WebkitBackdropFilter: "blur(4px)",
-                backdropFilter: "blur(4px)",
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}
-            >
-              {currentSlideCaption}
-            </p>
-          </div>
-        ) : null}
+        <PlayerCaption
+          caption={currentSlideCaption}
+          captionStyle={readySnapshot?.captionStyle}
+          isProductionMode={isProductionMode}
+        />
 
         {!isProductionMode ? (
           <div

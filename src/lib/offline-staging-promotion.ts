@@ -1,3 +1,4 @@
+import { pickProjectSlideCaptionStyle } from "./project-slide-caption-style";
 // src/lib/offline-staging-promotion.ts
 
 import {
@@ -49,6 +50,7 @@ function toOfflineProject(
     sourceManifestFileId: stagingProject.sourceManifestFileId,
     sourceUpdatedAt: stagingProject.sourceUpdatedAt,
     syncedAt: stagingProject.syncedAt,
+    ...pickProjectSlideCaptionStyle(stagingProject),
     ...(stagingProject.transition !== undefined
       ? { transition: stagingProject.transition }
       : {}),

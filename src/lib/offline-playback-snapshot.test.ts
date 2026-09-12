@@ -68,6 +68,10 @@ function build(input?: {
 }
 
 describe("offline playback publication provenance", () => {
+  it("rejects an invalid saved captionStyle instead of silently displaying defaults", () => {
+    const snapshot = build({ project: { ...project(), captionStyle: {} as never } });
+    expect(snapshot.status).toBe("invalid");
+  });
   it("includes a sanitized view in ready snapshot and project option", () => {
     const snapshot = build();
     expect(snapshot.status).toBe("ready");

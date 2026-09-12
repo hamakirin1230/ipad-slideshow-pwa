@@ -1,3 +1,4 @@
+import type { ProjectSlideCaptionStyle } from "./project-slide-caption-style";
 import type {
   ProjectSlideTransition,
   ProjectSlideTransitionStrength,
@@ -80,6 +81,7 @@ export type OfflineProject = {
   sourceManifestFileId: string;
   sourceUpdatedAt?: IsoDateTimeString;
   syncedAt: IsoDateTimeString;
+  captionStyle?: ProjectSlideCaptionStyle;
   transition?: ProjectSlideTransition;
   transitionStrength?: ProjectSlideTransitionStrength;
   publicationProvenance?: OfflinePublicationProvenance;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useAppState } from "@/app/app-providers";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,9 +15,8 @@ import {
   type ProjectSlideTransitionStrength,
 } from "@/lib/project-slide-transition";
 import { ProjectSlideTransitionPicker } from "./project-slide-transition-picker";
-import { WorkspaceSectionDisclosure } from "./workspace-section-disclosure";
 
-export function ProjectSlideTransitionSettings() {
+export function ProjectSlideTransitionSettings({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }) {
   const {
     driveStatus,
     projectStatus,
@@ -34,12 +33,10 @@ export function ProjectSlideTransitionSettings() {
     !isDriveOperationInFlight;
 
   return (
-    <WorkspaceSectionDisclosure
-      label="スライド全体の設定"
-      headingId="slide-settings-heading"
-    >
+    <section aria-label="スライド切り替え">
       <SelectedProjectSlideTransitionForm
         key={`${projectSummary?.projectId ?? "none"}:${projectTransition ?? "standard"}:${projectTransitionStrength ?? "absent"}`}
+        onDirtyChange={onDirtyChange}
         projectTransition={projectTransition}
         projectTransitionStrength={projectTransitionStrength}
         hasProject={projectSummary !== null}
@@ -47,11 +44,12 @@ export function ProjectSlideTransitionSettings() {
         isDriveOperationInFlight={isDriveOperationInFlight}
         updateSelectedProjectTransitionSettings={updateSelectedProjectTransitionSettings}
       />
-    </WorkspaceSectionDisclosure>
+    </section>
   );
 }
 
 export function SelectedProjectSlideTransitionForm(input: {
+  onDirtyChange?: (dirty: boolean) => void;
   projectTransition: ProjectSlideTransition | undefined;
   projectTransitionStrength?: ProjectSlideTransitionStrength;
   hasProject: boolean;
@@ -74,8 +72,7 @@ export function SelectedProjectSlideTransitionForm(input: {
     useState<ProjectSlideTransitionStrength>(savedStrength);
   const draftTransition = projectSlideTransitionFromSelection(selection);
   const usesStrength = projectSlideTransitionUsesStrength(draftTransition);
-  const canSubmit =
-    input.canUpdateSelectedProjectTransition &&
+  const isDirty =
     !areProjectSlideTransitionSettingsEqual(
       {
         transition: input.projectTransition,
@@ -86,6 +83,10 @@ export function SelectedProjectSlideTransitionForm(input: {
         transitionStrength: usesStrength ? strength : undefined,
       },
     );
+
+  const canSubmit = input.canUpdateSelectedProjectTransition && isDirty;
+  const { onDirtyChange } = input;
+  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
 
   function handleEffectChange(nextSelection: ProjectSlideTransitionSelection) {
     const previousUsesStrength = projectSlideTransitionUsesStrength(
@@ -129,7 +130,7 @@ export function SelectedProjectSlideTransitionForm(input: {
         onEffectChange={handleEffectChange}
         onStrengthChange={setStrength}
       />
-      {canSubmit ? (
+      {isDirty ? (
         <p role="status" className="mt-4 text-sm text-amber-200">
           未保存の変更があります
         </p>

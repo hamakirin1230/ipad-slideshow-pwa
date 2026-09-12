@@ -1,4 +1,11 @@
 import {
+  areProjectSlideCaptionStylesEqual,
+  normalizeProjectSlideCaptionStyleForWrite,
+  parseProjectSlideCaptionStyle,
+  pickProjectSlideCaptionStyle,
+  type ProjectSlideCaptionStyle,
+} from "./project-slide-caption-style";
+import {
   areProjectSlideImageEditsEqual,
   isProjectSlideImageForImageEdit,
   normalizeProjectSlideImageEditForWrite,
@@ -196,6 +203,7 @@ export type DriveProjectReadyDetails = {
   videoTooLargeSkippedCount?: number;
   unsupportedAssetCount?: number;
   offlineStagingSlideCount?: number;
+  captionStyle?: ProjectSlideCaptionStyle;
 };
 
 export type DriveProjectChangedItemRole =
@@ -550,6 +558,15 @@ export type DriveProjectTransitionUpdateResult = {
   diagnostics: string[];
 };
 
+export type DriveProjectCaptionStyleUpdateInput = Omit<DriveProjectTransitionUpdateInput, "transition" | "transitionStrength"> & {
+  captionStyle: ProjectSlideCaptionStyle | undefined;
+};
+
+export type DriveProjectCaptionStyleUpdateResult = Omit<DriveProjectTransitionUpdateResult, "transition" | "transitionStrength"> & {
+  captionStyle?: ProjectSlideCaptionStyle;
+  didWrite: boolean;
+};
+
 export type DriveProjectUnusedAssetSummary = {
   assetFileId: string;
   assetFileIdPart: string;
@@ -688,6 +705,7 @@ export type ProjectManifest = {
   transition?: ProjectSlideTransition;
   transitionStrength?: ProjectSlideTransitionStrength;
   publication?: ProjectManifestPublication;
+  captionStyle?: ProjectSlideCaptionStyle;
 };
 
 export type ProjectManifestParseResult =
@@ -1109,6 +1127,27 @@ export class DriveProjectTransitionUpdateError extends Error {
   }) {
     super("Drive project transition update failed.");
     this.name = "DriveProjectTransitionUpdateError";
+    this.status = input.status;
+    this.possibleChangedItems = [...input.possibleChangedItems];
+    this.diagnostics = [...input.diagnostics];
+    this.cause = input.cause;
+  }
+}
+
+export class DriveProjectCaptionStyleUpdateError extends Error {
+  status: DriveProjectTransitionUpdateFailureStatus;
+  possibleChangedItems: DriveProjectChangedItem[];
+  diagnostics: string[];
+  cause?: unknown;
+
+  constructor(input: {
+    status: DriveProjectTransitionUpdateFailureStatus;
+    possibleChangedItems: DriveProjectChangedItem[];
+    diagnostics: string[];
+    cause?: unknown;
+  }) {
+    super("Drive project caption style update failed.");
+    this.name = "DriveProjectCaptionStyleUpdateError";
     this.status = input.status;
     this.possibleChangedItems = [...input.possibleChangedItems];
     this.diagnostics = [...input.diagnostics];
@@ -2969,6 +3008,275 @@ export async function updateDriveProjectTransition(
       status: toDriveProjectTransitionUpdateFailureStatus(error, changedItems),
       possibleChangedItems: changedItems,
       diagnostics: buildDriveProjectTransitionUpdateFailureDiagnostics({
+        error,
+        changedItems,
+      }),
+      cause: error,
+    });
+  }
+}
+
+export async function updateDriveProjectCaptionStyle(
+  input: DriveProjectCaptionStyleUpdateInput,
+): Promise<DriveProjectCaptionStyleUpdateResult> {
+  const changedItems: DriveProjectChangedItem[] = [];
+  const now = new Date().toISOString();
+  if (input.captionStyle !== undefined) {
+    const parsed = parseProjectSlideCaptionStyle(input.captionStyle);
+    if (!parsed.ok) {
+      throw new DriveProjectCaptionStyleUpdateError({
+        status: "invalidProject", possibleChangedItems: [], diagnostics: parsed.errors,
+      });
+    }
+  }
+  const nextStyle = normalizeProjectSlideCaptionStyleForWrite(input.captionStyle);
+
+  try {
+    const [indexJsonText, manifestJsonText] = await input.runStep((signal) =>
+      Promise.all([
+        readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+      ]),
+    );
+
+    const registrationResult = validateCreatedProjectRegistration({
+      indexJsonText,
+      expectedProject: input.project,
+    });
+
+    if (registrationResult.status === "invalid") {
+      throw new DriveProjectCaptionStyleUpdateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...registrationResult.diagnostics,
+          "captionStyle変更前の index.json 対象project検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const manifestResult = parseDriveProjectManifestJson({
+      manifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: registrationResult.project,
+    });
+
+    if (manifestResult.status === "invalid") {
+      throw new DriveProjectCaptionStyleUpdateError({
+        status: "invalidProject",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...manifestResult.diagnostics,
+          "captionStyle変更前の manifest.json 検証に失敗したため、更新は開始していません。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    if (areProjectSlideCaptionStylesEqual(manifestResult.manifest.captionStyle, nextStyle)) {
+      return {
+        project: registrationResult.project,
+        details: manifestResult.details,
+        manifestJsonText,
+        indexJsonText,
+        ...pickProjectSlideCaptionStyle(manifestResult.manifest),
+        didWrite: false,
+        diagnostics: ["テロップの見た目は変更されていません。"],
+      };
+    }
+
+    const nextProject: DriveProjectSummary = {
+      ...registrationResult.project,
+      updatedAt: now,
+    };
+    const nextManifestJsonText = buildProjectManifestJsonWithUpdatedCaptionStyle({
+      manifest: manifestResult.manifest,
+      captionStyle: nextStyle,
+      updatedAt: now,
+    });
+
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.project.manifestFileId,
+        metadata: {
+          name: PROJECT_MANIFEST_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildProjectAppProperties({
+            role: "projectManifest",
+            workspaceId: input.workspaceId,
+            projectId: input.project.projectId,
+          }),
+        },
+        expectedAppProperties: buildProjectAppProperties({
+          role: "projectManifest",
+          workspaceId: input.workspaceId,
+          projectId: input.project.projectId,
+        }),
+        jsonText: nextManifestJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+
+    changedItems.push({
+      role: "projectManifest",
+      id: input.project.manifestFileId,
+      name: PROJECT_MANIFEST_NAME,
+    });
+
+    const preIndexUpdateJsonText = await input.runStep((signal) =>
+      readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+    );
+
+    const nextIndexResult = buildIndexJsonWithUpdatedProject({
+      indexJsonText: preIndexUpdateJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      currentProject: registrationResult.project,
+      nextProject,
+      indexUpdatedAt: now,
+    });
+
+    if (nextIndexResult.status === "invalid") {
+      throw new DriveProjectCaptionStyleUpdateError({
+        status: "indexUpdateFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...nextIndexResult.diagnostics,
+          "manifest.json は更新済みの可能性があります。",
+          "index.json は未更新です。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    await input.runStep((signal) =>
+      updateDriveMultipartJsonFileContent({
+        accessToken: input.accessToken,
+        fileId: input.indexJsonFileId,
+        metadata: {
+          name: INDEX_JSON_NAME,
+          mimeType: JSON_MIME_TYPE,
+          appProperties: buildWorkspaceAppProperties({
+            role: "index",
+            workspaceId: input.workspaceId,
+          }),
+        },
+        expectedAppProperties: buildWorkspaceAppProperties({
+          role: "index",
+          workspaceId: input.workspaceId,
+        }),
+        jsonText: nextIndexResult.indexJsonText,
+        fields: CREATE_JSON_FIELDS,
+        signal,
+      }),
+    );
+
+    changedItems.push({
+      role: "index",
+      id: input.indexJsonFileId,
+      name: INDEX_JSON_NAME,
+    });
+
+    const [verifiedManifestJsonText, verifiedIndexJsonText] = await input.runStep(
+      (signal) =>
+        Promise.all([
+          readDriveTextFile(input.accessToken, input.project.manifestFileId, signal),
+          readDriveTextFile(input.accessToken, input.indexJsonFileId, signal),
+        ]),
+    );
+
+    const verifiedRegistrationResult = validateCreatedProjectRegistration({
+      indexJsonText: verifiedIndexJsonText,
+      expectedProject: nextProject,
+    });
+
+    if (verifiedRegistrationResult.status === "invalid") {
+      throw new DriveProjectCaptionStyleUpdateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedRegistrationResult.diagnostics,
+          "index.json 更新後の captionStyle 再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    const verifiedManifestResult = parseDriveProjectManifestJson({
+      manifestJsonText: verifiedManifestJsonText,
+      expectedWorkspaceId: input.workspaceId,
+      project: verifiedRegistrationResult.project,
+    });
+
+    if (verifiedManifestResult.status === "invalid") {
+      throw new DriveProjectCaptionStyleUpdateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          ...verifiedManifestResult.diagnostics,
+          "manifest.json 更新後の captionStyle 再検証に失敗しました。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    if (
+      !areProjectSlideCaptionStylesEqual(verifiedManifestResult.manifest.captionStyle, nextStyle) ||
+      (nextStyle === undefined && verifiedManifestResult.manifest.captionStyle !== undefined)
+    ) {
+      throw new DriveProjectCaptionStyleUpdateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          "manifest.json 更新後にテロップの見た目の反映を確認できませんでした。",
+          "manifest.json / index.json は更新済みの可能性があります。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    if (indexJsonTextContainsCaptionStyleField(verifiedIndexJsonText)) {
+      throw new DriveProjectCaptionStyleUpdateError({
+        status: "verificationFailed",
+        possibleChangedItems: changedItems,
+        diagnostics: [
+          "index.json に captionStyle を書き込まない方針に反する更新を確認しました。",
+          "自動削除・自動修復は行いません。",
+        ],
+      });
+    }
+
+    return {
+      project: verifiedRegistrationResult.project,
+      details: verifiedManifestResult.details,
+      manifestJsonText: verifiedManifestJsonText,
+      indexJsonText: verifiedIndexJsonText,
+      ...pickProjectSlideCaptionStyle(verifiedManifestResult.manifest),
+      didWrite: true,
+      diagnostics: [
+        ...registrationResult.diagnostics,
+        ...manifestResult.diagnostics,
+        "manifest.json のテロップの見た目を更新しました。",
+        ...nextIndexResult.diagnostics,
+        "index.json.projects の対象project.updatedAtを更新しました。",
+        ...verifiedRegistrationResult.diagnostics,
+        ...verifiedManifestResult.diagnostics,
+        "captionStyle変更後の manifest.json / index.json 再検証が完了しました。",
+      ],
+    };
+  } catch (error) {
+    if (error instanceof DriveProjectCaptionStyleUpdateError) {
+      throw error;
+    }
+
+    throw new DriveProjectCaptionStyleUpdateError({
+      status: toDriveProjectTransitionUpdateFailureStatus(error, changedItems),
+      possibleChangedItems: changedItems,
+      diagnostics: buildDriveProjectCaptionStyleUpdateFailureDiagnostics({
         error,
         changedItems,
       }),
@@ -7584,6 +7892,12 @@ function parseDriveProjectManifestJson(input: {
     key: "updatedAt",
     diagnostics,
   });
+  let captionStyle: ProjectSlideCaptionStyle | undefined;
+  if (hasOwnKey(parsed.value, "captionStyle")) {
+    const styleResult = parseProjectSlideCaptionStyle(parsed.value.captionStyle);
+    if (styleResult.ok) captionStyle = styleResult.value;
+    else diagnostics.push(...styleResult.errors);
+  }
   let publication: ProjectManifestPublication | undefined;
   if (hasOwnKey(parsed.value, "publication")) {
     const publicationResult = parseProjectManifestPublication(
@@ -7689,6 +8003,7 @@ function parseDriveProjectManifestJson(input: {
     createdAt,
     updatedAt,
     ...withProjectManifestOptionalSettings({
+      ...pickProjectSlideCaptionStyle({ captionStyle }),
       ...pickProjectSlideTransitionSettings({
         transition,
         transitionStrength,
@@ -7705,6 +8020,7 @@ function parseDriveProjectManifestJson(input: {
       slides,
       slideCount: slides.length,
       assetCount: slides.length,
+      ...pickProjectSlideCaptionStyle({ captionStyle }),
       ...pickProjectSlideTransitionSettings({
         transition,
         transitionStrength,
@@ -8257,12 +8573,33 @@ function withProjectManifestTransitionSettings(
 }
 
 function withProjectManifestOptionalSettings(
-  manifest: Pick<ProjectManifest, "publication" | "transition" | "transitionStrength">,
+  manifest: Pick<ProjectManifest, "publication" | "transition" | "transitionStrength" | "captionStyle">,
 ) {
   return {
+    ...pickProjectSlideCaptionStyle(manifest),
     ...withProjectManifestTransitionSettings(manifest),
     ...withProjectManifestPublication(manifest),
   };
+}
+
+function buildProjectManifestJsonWithUpdatedCaptionStyle(input: {
+  manifest: ProjectManifest;
+  captionStyle: ProjectSlideCaptionStyle | undefined;
+  updatedAt: string;
+}) {
+  const { captionStyle: previousStyle, ...manifest } = input.manifest;
+  void previousStyle;
+  return stringifyProjectManifestJson({
+    ...manifest,
+    updatedAt: input.updatedAt,
+    ...pickProjectSlideCaptionStyle(input),
+  });
+}
+
+function indexJsonTextContainsCaptionStyleField(text: string) {
+  const parsed = JSON.parse(text) as Record<string, unknown>;
+  return hasOwnKey(parsed, "captionStyle") || (Array.isArray(parsed.projects) &&
+    parsed.projects.some((project) => isRecord(project) && hasOwnKey(project, "captionStyle")));
 }
 
 function buildProjectManifestJsonWithUpdatedTransition(input: {
@@ -8281,8 +8618,8 @@ function buildProjectManifestJsonWithUpdatedTransition(input: {
     slides: input.manifest.slides,
     createdAt: input.manifest.createdAt,
     updatedAt: input.updatedAt,
-    ...withProjectManifestPublication(input.manifest),
-    ...withProjectManifestTransitionSettings({
+    ...withProjectManifestOptionalSettings({
+      ...input.manifest,
       transition: input.transition,
       transitionStrength: input.transitionStrength,
     }),
@@ -8757,6 +9094,37 @@ function buildDriveProjectTransitionUpdateFailureDiagnostics(input: {
   diagnostics.push("自動削除・自動修復は行いません。");
   return diagnostics;
 }
+
+function buildDriveProjectCaptionStyleUpdateFailureDiagnostics(input: {
+  error: unknown;
+  changedItems: DriveProjectChangedItem[];
+}) {
+  const diagnostics = ["テロップの見た目の変更中にエラーが発生しました。"];
+
+  if (input.error instanceof DriveApiError) {
+    diagnostics.push(`Drive API status: ${input.error.status}`);
+  }
+
+  if (input.changedItems.some((item) => item.role === "index")) {
+    diagnostics.push(
+      "manifest.json / index.json は更新済みの可能性があります。",
+      "更新後再検証は完了していません。",
+    );
+  } else if (input.changedItems.some((item) => item.role === "projectManifest")) {
+    diagnostics.push(
+      "manifest.json は更新済みの可能性があります。",
+      "index.json は未更新、または更新完了を確認できていません。",
+    );
+  } else {
+    diagnostics.push(
+      "manifest.json / index.json の更新完了は確認できていません。",
+    );
+  }
+
+  diagnostics.push("自動削除・自動修復は行いません。");
+  return diagnostics;
+}
+
 
 function buildDriveProjectSlideCaptionUpdateFailureDiagnostics(input: {
   error: unknown;

@@ -1,6 +1,8 @@
 "use client";
 
 import Script from "next/script";
+import { areProjectSlideCaptionStylesEqual, parseProjectSlideCaptionStyle, pickProjectSlideCaptionStyle, type ProjectSlideCaptionStyle } from "@/lib/project-slide-caption-style";
+import { updateDriveProjectCaptionStyle, DriveProjectCaptionStyleUpdateError } from "@/lib/google-drive";
 import {
   createContext,
   useContext,
@@ -477,6 +479,7 @@ export type ProjectDetails = {
   slides: ProjectSlideSummary[];
   transition?: ProjectSlideTransition;
   transitionStrength?: ProjectSlideTransitionStrength;
+  captionStyle?: ProjectSlideCaptionStyle;
 };
 
 type AssetImportSelectionBase = {
@@ -844,6 +847,8 @@ type AppContextValue = {
   isProjectRollbackInFlight: boolean;
   createProject: (title: string) => void;
   updateSelectedProjectTitle: (title: string) => void;
+  projectCaptionStyle: ProjectSlideCaptionStyle | undefined;
+  updateSelectedProjectCaptionStyle: (captionStyle: ProjectSlideCaptionStyle | undefined) => Promise<void>;
   projectTransition: ProjectSlideTransition | undefined;
   projectTransitionStrength: ProjectSlideTransitionStrength | undefined;
   updateSelectedProjectTransitionSettings: (input: {
@@ -5465,6 +5470,127 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
   }
 
+  async function updateSelectedProjectCaptionStyle(captionStyle: ProjectSlideCaptionStyle | undefined) {
+    if (driveOperationInFlightRef.current) {
+      return;
+    }
+
+    const accessToken = accessTokenRef.current;
+    const readyWorkspace = workspaceReadyContext;
+    const readyProject = driveProjectReadyContext;
+    if (captionStyle !== undefined) {
+      const parsed = parseProjectSlideCaptionStyle(captionStyle);
+      if (!parsed.ok) {
+        setProjectDiagnostics(parsed.errors);
+        return;
+      }
+    }
+
+    if (!accessToken) {
+      setProjectStatus("error");
+      setProjectMessage(
+        "Google接続が必要です。もう一度Google接続を行ってからテロップの見た目を変更してください。",
+      );
+      setProjectDiagnostics([]);
+      return;
+    }
+
+    if (
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      !readyWorkspace ||
+      !readyProject
+    ) {
+      setProjectDiagnostics([
+        "選択中プロジェクトの確認が完了していないため、テロップの見た目の変更を開始しませんでした。",
+        "先にDriveプロジェクト状態を確認し、対象プロジェクトを選択してください。",
+      ]);
+      return;
+    }
+
+    if (
+      areProjectSlideCaptionStylesEqual(projectDetails?.captionStyle, captionStyle)
+    ) {
+      setProjectDiagnostics(["テロップの見た目は変更されていません。"]);
+      return;
+    }
+
+    setDriveOperationInFlight(true);
+    const requestId = driveOperationRequestIdRef.current + 1;
+    driveOperationRequestIdRef.current = requestId;
+
+    setProjectStatus("checking");
+    setProjectMessage("選択中プロジェクトのテロップの見た目を更新しています。");
+    setProjectDiagnostics([]);
+
+    try {
+      const result = await updateDriveProjectCaptionStyle({
+        accessToken,
+        workspaceId: readyWorkspace.workspaceId,
+        indexJsonFileId: readyWorkspace.indexJsonFileId,
+        project: readyProject,
+        captionStyle,
+        runStep: (operation) => runDriveOperationStep(requestId, operation),
+      });
+
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      setWorkspaceReadyContext({
+        ...readyWorkspace,
+        indexJsonText: result.indexJsonText,
+      });
+      setProjectStatus("ready");
+      setProjectMessage(
+        "選択中アルバムのテロップの見た目をDriveへ保存し、再確認しました。ローカル再生へ反映するには、このアルバムをローカルへ保存してください。",
+      );
+      applyProjectReadyState(result.project, toProjectDetails(result.details));
+      setProjectDiagnostics(result.diagnostics);
+    } catch (error) {
+      if (requestId !== driveOperationRequestIdRef.current) {
+        return;
+      }
+
+      if (error instanceof DriveProjectCaptionStyleUpdateError) {
+        if (error.status === "authRequired") {
+          resetGoogleAfterDriveAuthFailure();
+          setDriveStatus("authRequired");
+          setDriveMessage(
+            "Google再接続が必要です。再接続後にDrive状態を再確認してください。",
+          );
+        }
+
+        setProjectStatus(error.status === "invalidProject" ? "invalid" : "error");
+        setProjectMessage(
+          error.status === "invalidProject"
+            ? "テロップの見た目変更前のDriveプロジェクト情報に問題があります。自動修復は行いません。"
+            : "テロップの見た目の変更に失敗しました。",
+        );
+        setProjectDiagnostics(error.diagnostics);
+        return;
+      }
+
+      if (error instanceof DriveApiError && [401, 403].includes(error.status)) {
+        resetGoogleAfterDriveAuthFailure();
+      }
+
+      setProjectStatus("error");
+      setProjectMessage("テロップの見た目の変更に失敗しました。");
+      setProjectDiagnostics([
+        "テロップの見た目の変更中に予期しないエラーが発生しました。",
+        "プロジェクト設定と一覧のどこまで更新されたかは、この画面だけでは判断できません。",
+        "Drive状態を再確認してください。",
+      ]);
+    } finally {
+      if (requestId === driveOperationRequestIdRef.current) {
+        clearDriveOperationTimeout();
+        driveOperationAbortRef.current = null;
+        setDriveOperationInFlight(false);
+      }
+    }
+  }
+
   async function updateProjectSlideEdits(input: {
     slideId: string;
     caption: string;
@@ -8777,6 +8903,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     isProjectRollbackInFlight,
     createProject,
     updateSelectedProjectTitle,
+    projectCaptionStyle: projectDetails?.captionStyle,
+    updateSelectedProjectCaptionStyle,
     projectTransition: projectDetails?.transition,
     projectTransitionStrength: projectDetails?.transitionStrength,
     updateSelectedProjectTransitionSettings,
@@ -9187,6 +9315,7 @@ function toProjectDetails(details: DriveProjectReadyDetails): ProjectDetails {
     slideCount: details.slideCount,
     assetCount: details.assetCount,
     ...pickProjectSlideTransitionSettings(details),
+    ...pickProjectSlideCaptionStyle(details),
     slides: details.slides.map((slide) => ({
       slideId: slide.slideId,
       slideIdPart: formatIdPart(slide.slideId),

@@ -143,8 +143,10 @@ describe("selected project slide transition form", () => {
 });
 
 describe("transition settings draft feedback", () => {
-  it("uses the existing submit eligibility for unsaved feedback without adding save timers", () => {
-    expect(source).toContain('{canSubmit ? (');
+  it("reports draft differences independently of submit eligibility without adding save timers", () => {
+    expect(source).toContain('{isDirty ? (');
+    expect(source).toContain('input.canUpdateSelectedProjectTransition && isDirty');
+    expect(source).toContain('onDirtyChange?.(isDirty)');
     expect(source).toContain('未保存の変更があります');
     expect(source).toContain('role="status"');
     expect(source).not.toMatch(/setTimeout|setInterval/);

@@ -57,7 +57,7 @@ import {
 } from "@/lib/project-slide-image-edit";
 import { AssetCleanupPreviewPanel } from "./asset-cleanup-preview-panel";
 import { AssetImportPanel } from "./asset-import-panel";
-import { ProjectSlideTransitionSettings } from "./project-slide-transition-settings";
+import { ProjectSlideGlobalSettings } from "./project-slide-global-settings";
 import { ProjectSlideImageEditorButton } from "./project-slide-image-editor-dialog";
 import { WorkspaceSectionDisclosure } from "./workspace-section-disclosure";
 
@@ -385,7 +385,7 @@ export function DriveProjectWorkspacePanel() {
         </Card>
       </section>
 
-      <ProjectSlideTransitionSettings />
+      <ProjectSlideGlobalSettings />
 
       <section aria-label="素材の整理" className="border-t border-white/8 pt-8">
         <ProductDisclosure label="使っていない素材を整理">

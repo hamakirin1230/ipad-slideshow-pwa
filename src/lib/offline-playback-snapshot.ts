@@ -1,3 +1,4 @@
+import { isProjectSlideCaptionStyle, pickProjectSlideCaptionStyle, type ProjectSlideCaptionStyle } from "./project-slide-caption-style";
 import {
   requestToPromise,
   runOfflineTransaction,
@@ -121,6 +122,7 @@ export type OfflinePlaybackSnapshot =
       assetCount: number;
       slides: OfflinePlaybackSlide[];
       availableProjects: OfflinePlaybackProjectOption[];
+      captionStyle?: ProjectSlideCaptionStyle;
       transition?: ProjectSlideTransition;
       transitionStrength?: ProjectSlideTransitionStrength;
       publicationProvenance: OfflinePublicationProvenanceView;
@@ -315,6 +317,7 @@ export function buildOfflinePlaybackSnapshot(input: {
     assetCount: projectAssets.length,
     slides,
     availableProjects,
+    ...pickProjectSlideCaptionStyle(project),
     ...(project.transition !== undefined ? { transition: project.transition } : {}),
     ...(project.transitionStrength !== undefined
       ? { transitionStrength: project.transitionStrength }
@@ -390,6 +393,10 @@ function validatePlaybackRecords(input: {
   syncState: OfflineSyncState;
 }): string[] {
   const diagnostics: string[] = [];
+
+  if (input.project.captionStyle !== undefined && !isProjectSlideCaptionStyle(input.project.captionStyle)) {
+    diagnostics.push("保存済みテロップ設定が不正です。");
+  }
 
   if (input.project.projectId !== input.syncState.projectId) {
     diagnostics.push("projectId と sync state projectId が一致しません。");

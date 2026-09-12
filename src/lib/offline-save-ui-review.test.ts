@@ -432,3 +432,12 @@ describe("offline save UI review", () => {
     expect(readSource).toHaveBeenCalledOnce();
   });
 });
+
+it("shows captionStyle-only changes and treats absent/default equally", () => {
+  const captionStyle = { position: "top", shape: "band", size: "large", colorPreset: "yellowOnBlack" } as const;
+  const changed = review(source(undefined, { captionStyle }));
+  expect(changed.noChanges).toBe(false);
+  expect(changed.settingsChanges).toContainEqual({ field: "captionStyle", label: "テロップの見た目", before: "下 / 角丸 / 標準 / 白文字＋黒背景", after: "上 / 帯 / 大 / 黄文字＋黒背景" });
+  const defaults = { position: "bottom", shape: "rounded", size: "standard", colorPreset: "whiteOnBlack" } as const;
+  expect(review(source(undefined, { captionStyle: defaults })).settingsChanges).toEqual([]);
+});

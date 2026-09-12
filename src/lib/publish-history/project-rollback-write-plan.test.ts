@@ -241,6 +241,46 @@ describe("rollback write plan", () => {
     });
   });
 
+  it("preserves target captionStyle in rollback content and its canonical hash", () => {
+    const { current, assetMetadata, guard } = fixture();
+    const target = revision();
+    const captionStyle = { position: "center", shape: "band", size: "large", colorPreset: "blackOnWhite" } as const;
+    target.manifest.captionStyle = captionStyle;
+    target.sourceManifestCanonicalHash = getProjectManifestContentCanonicalHash(target.manifest);
+    const plan = buildProjectRollbackWritePlan({
+      operationId: "rbop_20260728T020000000Z_abcdef12",
+      workspaceId: WORKSPACE_ID,
+      checkedAt: PUBLISHED_AT,
+      guard,
+      currentManifest: current,
+      currentRevisionId: CURRENT_ID,
+      targetRevision: target,
+      freshAssets: [
+        { assetId: ASSET_ID, driveFileId: "asset-file", metadata: assetMetadata },
+      ],
+      historyFolder: metadata(
+        "history-folder",
+        "history",
+        "projectHistory",
+        "project-folder",
+      ),
+      revisionsFolder: metadata(
+        "revisions-folder",
+        "revisions",
+        "projectRevisions",
+        "history-folder",
+      ),
+      revisionId: NEXT_ID,
+      publishedAt: PUBLISHED_AT,
+    });
+
+    expect(isValidProjectRollbackWritePlan(plan)).toBe(true);
+    const restored = plan.currentManifestUpdate.body;
+    expect(restored.captionStyle).toEqual(captionStyle);
+    expect(plan.currentManifestUpdate.canonicalContentHash).toBe(getProjectManifestContentCanonicalHash(restored));
+    expect(restored.schemaVersion).toBe(1);
+  });
+
   it("restores transition from a newer revision without converting undefined to none", () => {
     const { current, assetMetadata, guard } = fixture();
     current.transition = "zoom";

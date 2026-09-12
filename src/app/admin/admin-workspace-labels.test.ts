@@ -48,12 +48,12 @@ describe("admin album and local labels", () => {
 
   it("places transition settings once between import and slide editing, outside the album panel", () => {
     const slides = read("./drive-project-workspace-panel.tsx");
-    const settings = read("./project-slide-transition-settings.tsx");
+    const settings = read("./project-slide-global-settings.tsx");
     expect(projects).not.toContain("SelectedProjectSlideTransitionForm");
-    expect(projects).not.toContain("ProjectSlideTransitionSettings");
-    expect(slides.match(/<ProjectSlideTransitionSettings \/>/g)).toHaveLength(1);
-    expect(slides.indexOf("<AssetImportPanel />")).toBeLessThan(slides.indexOf("<ProjectSlideTransitionSettings />"));
-    expect(slides.indexOf("<ProjectSlideTransitionSettings />")).toBeLessThan(slides.indexOf('headingId="slide-editor-heading"'));
+    expect(projects).not.toContain("ProjectSlideGlobalSettings");
+    expect(slides.match(/<ProjectSlideGlobalSettings \/>/g)).toHaveLength(1);
+    expect(slides.indexOf("<AssetImportPanel />")).toBeLessThan(slides.indexOf("<ProjectSlideGlobalSettings />"));
+    expect(slides.indexOf("<ProjectSlideGlobalSettings />")).toBeLessThan(slides.indexOf('headingId="slide-editor-heading"'));
     expect(settings).toContain("スライド全体の設定");
     expect(settings).not.toContain('from "./project-status-panel"');
     expect(workspace).toContain('window.history.replaceState(null, "", `#${tab}`)');

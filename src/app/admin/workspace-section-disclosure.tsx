@@ -8,12 +8,14 @@ export function WorkspaceSectionDisclosure({
   headingId,
   defaultOpen = false,
   className,
+  dirty = false,
   children,
 }: {
   label: string;
   headingId: string;
   defaultOpen?: boolean;
   className?: string;
+  dirty?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -23,6 +25,7 @@ export function WorkspaceSectionDisclosure({
           <h3 id={headingId} className="min-w-0 flex-1 text-lg font-semibold">
             {label}
           </h3>
+          {dirty ? <span className="shrink-0 rounded-full bg-amber-400/15 px-2 py-1 text-xs font-semibold text-amber-200">未保存</span> : null}
           <ChevronDown
             className="size-5 shrink-0 group-open/section:rotate-180"
             aria-hidden="true"

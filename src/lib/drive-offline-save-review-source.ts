@@ -1,3 +1,4 @@
+import { pickProjectSlideCaptionStyle, type ProjectSlideCaptionStyle } from "./project-slide-caption-style";
 import {
   parseProjectManifest,
   readDriveFileMetadata,
@@ -35,6 +36,7 @@ export type OfflineSaveReviewSourceSlide = {
 export type OfflineSaveReviewSource = {
   projectId: string;
   projectTitle: string;
+  captionStyle?: ProjectSlideCaptionStyle;
   transition?: ProjectSlideTransition;
   transitionStrength?: ProjectSlideTransitionStrength;
   slides: OfflineSaveReviewSourceSlide[];
@@ -92,6 +94,7 @@ export async function readDriveOfflineSaveReviewSource(
   return {
     projectId: input.project.projectId,
     projectTitle: initial.manifest.title,
+    ...pickProjectSlideCaptionStyle(initial.manifest),
     ...(initial.manifest.transition !== undefined
       ? { transition: initial.manifest.transition }
       : {}),

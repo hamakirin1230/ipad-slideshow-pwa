@@ -1,3 +1,4 @@
+import { areProjectSlideCaptionStylesEqual, getEffectiveProjectSlideCaptionStyle, PROJECT_SLIDE_CAPTION_STYLE_OPTIONS, type ProjectSlideCaptionStyle } from "./project-slide-caption-style";
 import {
   planProjectDiff,
   projectDiffHasChanges,
@@ -65,7 +66,7 @@ export type OfflineSaveUiReview = {
   baselineStatus: "available" | "empty" | "unavailable";
   projectTitleChange: null | { before: string; after: string };
   settingsChanges: Array<{
-    field: "transition" | "transitionStrength";
+    field: "transition" | "transitionStrength" | "captionStyle";
     label: string;
     before: string;
     after: string;
@@ -413,6 +414,9 @@ function buildSettingsChanges(
 ): OfflineSaveUiReview["settingsChanges"] {
   if (!current) return [];
   const changes: OfflineSaveUiReview["settingsChanges"] = [];
+  if (!areProjectSlideCaptionStylesEqual(current.captionStyle, next.captionStyle)) {
+    changes.push({ field: "captionStyle", label: "テロップの見た目", before: captionStyleLabel(current.captionStyle), after: captionStyleLabel(next.captionStyle) });
+  }
   if (current.transition !== next.transition) {
     changes.push({
       field: "transition",
@@ -484,4 +488,11 @@ function isAbortError(error: unknown) {
     "name" in error &&
     error.name === "AbortError"
   );
+}
+
+function captionStyleLabel(value: ProjectSlideCaptionStyle | undefined) {
+  const style = getEffectiveProjectSlideCaptionStyle(value);
+  return (Object.keys(style) as Array<keyof ProjectSlideCaptionStyle>).map(
+    (key) => PROJECT_SLIDE_CAPTION_STYLE_OPTIONS[key].find((option) => option.value === style[key])!.label,
+  ).join(" / ");
 }

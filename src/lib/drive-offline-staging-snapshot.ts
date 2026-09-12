@@ -1,3 +1,4 @@
+import { pickProjectSlideCaptionStyle } from "./project-slide-caption-style";
 // src/lib/drive-offline-staging-snapshot.ts
 
 import {
@@ -81,6 +82,7 @@ type DriveOfflineProjectManifest = {
   slides: DriveSlideSummary[];
   createdAt: string;
   updatedAt: string;
+  captionStyle?: ProjectManifest["captionStyle"];
   transition?: ProjectManifest["transition"];
   transitionStrength?: ProjectManifest["transitionStrength"];
   publication?: ProjectManifest["publication"];
@@ -1128,6 +1130,7 @@ function parseDriveOfflineProjectManifest(input: {
     slides,
     createdAt,
     updatedAt,
+    ...(formalManifest.ok ? pickProjectSlideCaptionStyle(formalManifest.value) : {}),
     ...(formalManifest.ok && formalManifest.value.transition !== undefined
       ? { transition: formalManifest.value.transition }
       : {}),
@@ -1425,6 +1428,7 @@ function buildOfflineProject(input: {
     sourceManifestFileId: input.project.manifestFileId,
     sourceUpdatedAt: input.manifest.updatedAt,
     syncedAt: input.syncedAt,
+    ...pickProjectSlideCaptionStyle(input.manifest),
     ...(input.manifest.transition !== undefined
       ? { transition: input.manifest.transition }
       : {}),

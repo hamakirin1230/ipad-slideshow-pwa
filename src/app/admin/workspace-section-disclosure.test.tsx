@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { ProjectSlideTransitionSettings } from "./project-slide-transition-settings";
+import { ProjectSlideGlobalSettings } from "./project-slide-global-settings";
 import { WorkspaceSectionDisclosure } from "./workspace-section-disclosure";
 
 const { save } = vi.hoisted(() => ({ save: vi.fn() }));
@@ -66,7 +66,7 @@ describe("workspace section disclosure", () => {
   });
 
   it("initially hides the real transition settings while keeping every effect mounted and never saving", () => {
-    const html = renderToStaticMarkup(<ProjectSlideTransitionSettings />);
+    const html = renderToStaticMarkup(<ProjectSlideGlobalSettings />);
 
     expect(html).toContain("スライド全体の設定");
     expect(html.match(/<details[^>]*>/)?.[0]).not.toContain("open=");
@@ -77,7 +77,7 @@ describe("workspace section disclosure", () => {
 
   it("keeps import always visible and the live-count slide list initially open", () => {
     const source = readFileSync(new URL("./drive-project-workspace-panel.tsx", import.meta.url), "utf8");
-    const importSection = source.slice(source.indexOf('<section aria-labelledby="asset-import-heading"'), source.indexOf("<ProjectSlideTransitionSettings />"));
+    const importSection = source.slice(source.indexOf('<section aria-labelledby="asset-import-heading"'), source.indexOf("<ProjectSlideGlobalSettings />"));
 
     expect(importSection).toContain("<AssetImportPanel />");
     expect(importSection).not.toContain("Disclosure");

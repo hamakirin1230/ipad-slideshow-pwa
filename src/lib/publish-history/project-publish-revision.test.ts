@@ -618,3 +618,17 @@ describe("canonical JSON and FNV-1a 64-bit hash", () => {
     );
   });
 });
+
+it("retains captionStyle in publishable content, revision parse and canonical hash", () => {
+  const captionStyle = { position: "top", shape: "band", size: "large", colorPreset: "yellowOnBlack" } as const;
+  const revision = buildRevision();
+  const before = getProjectManifestContentCanonicalHash(revision.manifest);
+  revision.manifest.captionStyle = captionStyle;
+  revision.sourceManifestCanonicalHash = getProjectManifestContentCanonicalHash(revision.manifest);
+  expect(revision.sourceManifestCanonicalHash).not.toBe(before);
+  expect(getProjectManifestPublishableContent(revision.manifest).captionStyle).toEqual(captionStyle);
+  const parsed = parseProjectPublishRevision(revision);
+  expect(parsed.ok).toBe(true);
+  if (parsed.ok) expect(parsed.value.manifest.captionStyle).toEqual(captionStyle);
+  expect(revision.schemaVersion).toBe(1);
+});
