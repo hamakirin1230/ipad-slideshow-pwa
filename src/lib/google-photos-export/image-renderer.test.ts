@@ -1,3 +1,4 @@
+import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults, type ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
@@ -94,6 +95,12 @@ describe("google photos image render policy", () => {
         events.push({ name: "measureText", transformed });
         return { width: text.length * 10 };
       },
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      quadraticCurveTo() {},
+      closePath() {},
+      fill() { events.push({ name: "fill", transformed }); },
       fillRect() {
         events.push({ name: "fillRect", transformed });
       },
@@ -142,12 +149,12 @@ describe("google photos image render policy", () => {
     expect(eventNames.indexOf("save")).toBeLessThan(eventNames.indexOf("drawImage"));
     expect(eventNames.indexOf("drawImage")).toBeLessThan(eventNames.indexOf("restore"));
     expect(eventNames.indexOf("restore")).toBeLessThan(eventNames.indexOf("measureText"));
-    expect(eventNames.indexOf("measureText")).toBeLessThan(eventNames.indexOf("fillRect"));
+    expect(eventNames.indexOf("measureText")).toBeLessThan(eventNames.indexOf("fill"));
     expect(events.find((event) => event.name === "drawImage")?.transformed).toBe(true);
     expect(
       events
         .filter((event) =>
-          ["restore", "measureText", "fillRect", "fillText"].includes(event.name),
+          ["restore", "measureText", "fill", "fillText"].includes(event.name),
         )
         .every((event) => event.transformed === false),
     ).toBe(true);
@@ -295,5 +302,73 @@ describe("google photos image render policy", () => {
         GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES + 1,
       ),
     ).toBe(false);
+  });
+});
+
+function canvasHarness() {
+  const draws: Array<{ kind: string; color: string; args: number[]; font: string; align: string }> = [];
+  const context = {
+    fillStyle: "", font: "", textAlign: "start", textBaseline: "alphabetic",
+    save: vi.fn(), restore: vi.fn(), translate: vi.fn(), rotate: vi.fn(), drawImage: vi.fn(),
+    beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), quadraticCurveTo: vi.fn(), closePath: vi.fn(),
+    measureText(text: string) { return { width: text.length * Number.parseFloat(this.font.split(" ")[1]!) * 0.8 }; },
+    fillRect(...args: number[]) { draws.push({ kind: "rect", color: this.fillStyle, args, font: this.font, align: this.textAlign }); },
+    fill() { draws.push({ kind: "path", color: this.fillStyle, args: [], font: this.font, align: this.textAlign }); },
+    fillText(_text: string, ...args: number[]) { draws.push({ kind: "text", color: this.fillStyle, args, font: this.font, align: this.textAlign }); },
+  };
+  const close = vi.fn();
+  vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: 1024, height: 576, close })));
+  const canvas = { width: 0, height: 0, getContext: () => context,
+    toBlob(callback: (blob: Blob | null) => void, type: string) { callback(new Blob(["image"], { type })); } };
+  vi.stubGlobal("document", { createElement: () => canvas });
+  const render = (captionStyle?: ProjectSlideCaptionStyle, caption = "記録", signal = new AbortController().signal) => renderGooglePhotosExportImage({
+    source: new Blob(["image"], { type: "image/png" }), sourceMimeType: "image/png", caption,
+    captionStyle, fileName: "photo.png", slideIndex: 0, signal,
+  });
+  return { context, draws, close, render };
+}
+
+describe("Canvas album caption styles", () => {
+  it.each([
+    { captionStyle: undefined, fontSize: 23, x: 452.6, y: 526.1, width: 118.8, height: 49.9, radius: 11.5, background: "rgba(0, 0, 0, 0.62)", color: "#ffffff" },
+    { captionStyle: { ...defaults, position: "top", shape: "band", size: "large", colorPreset: "yellowOnBlack" }, fontSize: 30, x: 0, y: 0, width: 1024, height: 67, radius: 0, background: "rgba(0, 0, 0, 0.82)", color: "#fde047" },
+    { captionStyle: { ...defaults, position: "center", size: "small", colorPreset: "blackOnWhite" }, fontSize: 17, x: 457.4, y: 268.95, width: 109.2, height: 38.1, radius: 8.5, background: "rgba(255, 255, 255, 0.94)", color: "#0f172a" },
+  ] as const)("draws representative style %# with exact Canvas colors and geometry", async (example) => {
+    const h = canvasHarness();
+    await h.render(example.captionStyle);
+    const [background, text] = h.draws;
+    expect(background?.color).toBe(example.background);
+    expect(text).toMatchObject({ kind: "text", color: example.color, font: expect.stringContaining(`${example.fontSize}px`), align: "center" });
+    expect(text?.args[0]).toBe(512);
+    expect(h.draws.filter((draw) => draw.kind === "text")).toHaveLength(1);
+    if (example.radius === 0) {
+      expect(background?.kind).toBe("rect");
+      expect(background?.args).toEqual([0, 0, 1024, 67]);
+      expect(h.context.beginPath).not.toHaveBeenCalled();
+    } else {
+      expect(background?.kind).toBe("path");
+      const x = (1024 - example.width) / 2;
+      expect(h.context.moveTo).toHaveBeenCalledWith(x + example.radius, expect.closeTo(example.y));
+      expect(h.context.quadraticCurveTo).toHaveBeenCalledWith(expect.closeTo(x + example.width), expect.closeTo(example.y), expect.closeTo(x + example.width), expect.closeTo(example.y + example.radius));
+      expect(h.context.quadraticCurveTo).toHaveBeenCalledTimes(4);
+      expect(h.context.closePath).toHaveBeenCalledOnce();
+    }
+    expect(h.close).toHaveBeenCalledOnce();
+  });
+  it("does not draw caption background or text for whitespace", async () => {
+    const h = canvasHarness(); await h.render(undefined, "  ");
+    expect(h.draws).toEqual([]);
+    expect(h.context.beginPath).not.toHaveBeenCalled();
+  });
+  it("keeps complete long captions within two draw calls", async () => {
+    const h = canvasHarness(); await h.render(undefined, "あ".repeat(80));
+    expect(h.draws.filter((draw) => draw.kind === "text")).toHaveLength(2);
+  });
+  it("retains AbortError and sanitized render failure with cleanup", async () => {
+    const h = canvasHarness(); const controller = new AbortController(); controller.abort();
+    await expect(h.render(undefined, "記録", controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(h.context.drawImage).not.toHaveBeenCalled();
+    await expect(h.render({} as never)).rejects.toMatchObject({ code: "imageRenderFailed" });
+    expect(h.close).toHaveBeenCalledOnce();
   });
 });

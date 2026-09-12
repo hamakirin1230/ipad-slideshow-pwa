@@ -1,3 +1,4 @@
+import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults } from "../project-slide-caption-style";
 import { describe, expect, it } from "vitest";
 import {
   GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE,
@@ -292,3 +293,45 @@ describe("google photos caption layout", () => {
     expect(Math.max(...layout.textY) + layout.lineHeight).toBeLessThanOrEqual(500);
   });
 });
+
+ describe("album caption geometry", () => {
+  it.each([[390, 219], [1024, 576], [600, 1000]])("keeps all styles within %ix%i and orders their positions and sizes", (imageWidth, imageHeight) => {
+    for (const shape of ["band", "rounded"] as const) {
+      const ys: number[] = [];
+      for (const position of ["top", "center", "bottom"] as const) {
+        const sizes: number[] = [];
+        for (const size of ["small", "standard", "large"] as const) {
+          const layout = measureCaptionLayout({ text: "記録", imageWidth, imageHeight,
+            captionStyle: { ...defaults, shape, position, size }, measureText: measureByGrapheme });
+          expect(layout.kind).toBe("overlay");
+          if (layout.kind !== "overlay") throw new Error("expected overlay");
+          sizes.push(layout.fontSize);
+          if (size === "standard") ys.push(layout.bandY);
+          expect(layout.lines).toEqual(["記録"]);
+          expect(layout.backgroundX).toBe((imageWidth - layout.backgroundWidth) / 2);
+          expect(layout.backgroundX).toBeGreaterThanOrEqual(0);
+          expect(layout.backgroundWidth).toBeLessThanOrEqual(imageWidth);
+          expect(layout.bandY).toBeGreaterThanOrEqual(0);
+          expect(layout.bandY + layout.bandHeight).toBeLessThanOrEqual(imageHeight);
+          expect(layout.fontSize).toBeGreaterThanOrEqual(8);
+          if (shape === "band") {
+            expect(layout.backgroundWidth).toBe(imageWidth);
+            expect(layout.radius).toBe(0);
+          } else {
+            expect(layout.backgroundWidth).toBeLessThan(imageWidth);
+            expect(layout.backgroundWidth).toBe(measureByGrapheme("記録", layout.fontSize) + 2 * layout.paddingX);
+            expect(layout.radius).toBeGreaterThan(0);
+          }
+        }
+        expect(sizes[0]).toBeLessThan(sizes[1]!);
+        expect(sizes[1]).toBeLessThan(sizes[2]!);
+      }
+      expect(ys[0]).toBe(0);
+      expect(ys[0]).toBeLessThan(ys[1]!);
+      expect(ys[1]).toBeLessThan(ys[2]!);
+    }
+  });
+  it.each([NaN, Infinity, -1, 10000])("rejects unsafe measured widths %s", (width) => {
+    expect(measureCaptionLayout({ text: "記", imageWidth: 390, imageHeight: 219, measureText: () => width })).toEqual({ kind: "doesNotFit" });
+  });
+ });

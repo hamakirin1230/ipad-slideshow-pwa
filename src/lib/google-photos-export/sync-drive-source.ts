@@ -1,3 +1,4 @@
+import { pickProjectSlideCaptionStyle, type ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import {
   readDriveFileMetadata,
   readDriveTextFile,
@@ -41,6 +42,7 @@ export type GooglePhotosSyncPreparedItem = GooglePhotosExportPlanItem & {
 };
 
 export type GooglePhotosSyncPreparedSource = {
+  captionStyle?: ProjectSlideCaptionStyle;
   projectId: string;
   projectTitle: string;
   targetAlbumTitle: string;
@@ -159,6 +161,7 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
         sourceMimeType: source.mimeType,
         imageEdit: item.imageEdit,
         caption: item.description,
+        ...pickProjectSlideCaptionStyle(prepared.plan),
         outputMimeType,
       });
     } catch {
@@ -205,6 +208,7 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
   return {
     ok: true,
     source: {
+      ...pickProjectSlideCaptionStyle(prepared.plan),
       projectId: prepared.plan.projectId,
       projectTitle: prepared.plan.projectTitle,
       targetAlbumTitle,

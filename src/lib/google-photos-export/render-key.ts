@@ -1,3 +1,4 @@
+import { getEffectiveProjectSlideCaptionStyle, parseProjectSlideCaptionStyle, type ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import {
   normalizeProjectSlideImageEditForWrite,
   parseProjectSlideImageEdit,
@@ -9,7 +10,7 @@ import {
   type GooglePhotosExportMimeType,
 } from "./contract";
 
-export const GOOGLE_PHOTOS_SYNC_RENDERER_VERSION = 1;
+export const GOOGLE_PHOTOS_SYNC_RENDERER_VERSION = 2;
 export const GOOGLE_PHOTOS_SYNC_FINGERPRINT_VERSION = 1;
 
 const RENDER_KEY_PREFIX = "sha256:";
@@ -27,6 +28,7 @@ export type GooglePhotosSyncRenderInput = {
   sourceMimeType: string;
   imageEdit?: ProjectSlideImageEdit;
   caption: string;
+  captionStyle?: ProjectSlideCaptionStyle;
   outputMimeType: GooglePhotosExportMimeType;
 };
 
@@ -143,6 +145,7 @@ function canonicalizeRenderInput(
     };
     imageEdit: ProjectSlideImageEdit | null;
     caption: string;
+    captionStyle: ProjectSlideCaptionStyle;
     outputMimeType: GooglePhotosExportMimeType;
   };
   reuseEligible: boolean;
@@ -168,6 +171,10 @@ function canonicalizeRenderInput(
   if (modifiedTime !== null && !isNonBlankTrimmedString(modifiedTime)) {
     return null;
   }
+  if (input.captionStyle !== undefined && !parseProjectSlideCaptionStyle(input.captionStyle).ok) {
+    return null;
+  }
+  const captionStyle = getEffectiveProjectSlideCaptionStyle(input.captionStyle);
   let imageEdit: ProjectSlideImageEdit | undefined;
   if (input.imageEdit !== undefined) {
     const parsed = parseProjectSlideImageEdit(input.imageEdit);
@@ -187,6 +194,7 @@ function canonicalizeRenderInput(
       },
       imageEdit: imageEdit ?? null,
       caption: input.caption.trim(),
+      captionStyle,
       outputMimeType: input.outputMimeType,
     },
     reuseEligible: input.sourceChecksum !== null,

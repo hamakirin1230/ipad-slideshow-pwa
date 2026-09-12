@@ -1,3 +1,8 @@
+import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults } from "../project-slide-caption-style";
+import { createGooglePhotosSyncRenderIdentity } from "./render-key";
+import { planGooglePhotosIncrementalSync } from "./sync-plan";
+import { buildEmptyGooglePhotosSyncBinding } from "./sync-binding";
+import { prepareGooglePhotosSyncUiReviewInDrive } from "./sync-ui-review";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -221,7 +226,7 @@ describe("Google Photos sync Drive source", () => {
       sourceSlideCount: 3,
       skippedVideoCount: 1,
       totalBytes: 2200,
-      rendererVersion: 1,
+      rendererVersion: 2,
     });
     expect(result.source.targetAlbumTitle).not.toMatch(/\d{4}-\d{2}-\d{2}/);
     expect(result.source.targetAlbumTitle).not.toContain(PROJECT_ID);
@@ -591,5 +596,66 @@ describe("Google Photos sync source security contract", () => {
     ]) {
       expect(source).not.toContain(forbidden);
     }
+  });
+});
+
+describe("album caption style source identity and incremental review", () => {
+  it("uses effective defaults and replaces all images when only album style changes", async () => {
+    const prepare = async (manifest = buildManifest()) => {
+      const result = await prepareGooglePhotosSyncSourceWithAdapter(input(), createAdapter({ manifest }));
+      if (!result.ok) throw new Error("expected prepared source");
+      return result.source;
+    };
+    const original = await prepare();
+    const explicit = await prepare({ ...buildManifest(), captionStyle: defaults });
+    expect(explicit.desiredSlides).toEqual(original.desiredSlides);
+    expect(explicit.sourceFingerprint).toBe(original.sourceFingerprint);
+    const captionStyle = { ...defaults, position: "top" as const, colorPreset: "yellowOnBlack" as const };
+    const changed = await prepare({ ...buildManifest(), captionStyle });
+    expect(changed.captionStyle).toEqual(captionStyle);
+    expect(changed.items).toHaveLength(2);
+    expect(changed.skippedVideoCount).toBe(1);
+    for (const [index, item] of changed.items.entries()) {
+      expect(item.renderKey).not.toBe(original.items[index]!.renderKey);
+      expect(item).not.toHaveProperty("captionStyle");
+      const identity = await createGooglePhotosSyncRenderIdentity({
+        slideId: item.slideId, assetFileId: item.assetFileId, sourceChecksum: item.sourceChecksum,
+        sourceModifiedTime: item.sourceModifiedTime, sourceSizeBytes: item.sizeBytes,
+        sourceMimeType: item.mimeType, imageEdit: item.imageEdit, caption: item.description,
+        outputMimeType: item.outputMimeType, captionStyle: changed.captionStyle,
+      });
+      expect(identity).toMatchObject({ ok: true, renderKey: item.renderKey });
+    }
+    expect(changed.sourceFingerprint).not.toBe(original.sourceFingerprint);
+    const stableManagedItems = original.items.map((item, index) => ({
+      slideId: item.slideId, renderKey: item.renderKey, mediaItemId: `fixture-media-${index}`, snapshot: item.snapshot,
+    }));
+    const planInput = { targetAlbumTitle: original.targetAlbumTitle, currentGoogleAlbumTitle: original.targetAlbumTitle,
+      stableManagedItems, currentAlbumMediaItemIds: stableManagedItems.map((item) => item.mediaItemId) };
+    const unchangedPlan = await planGooglePhotosIncrementalSync({ ...planInput, desiredSlides: explicit.desiredSlides });
+    expect(unchangedPlan.ok).toBe(true);
+    if (!unchangedPlan.ok) throw new Error("expected plan");
+    expect(unchangedPlan.plan.createItems).toHaveLength(0);
+    expect(unchangedPlan.plan.targetItems.every((item) => item.kind === "reuse")).toBe(true);
+    const changedPlan = await planGooglePhotosIncrementalSync({ ...planInput, desiredSlides: changed.desiredSlides });
+    expect(changedPlan.ok).toBe(true);
+    if (!changedPlan.ok) throw new Error("expected plan");
+    expect(changedPlan.plan.createItems).toHaveLength(2);
+    expect(changedPlan.plan.targetItems.every((item) => item.kind === "create")).toBe(true);
+    expect(changedPlan.plan.sourceFingerprint).toBe(changed.sourceFingerprint);
+    const binding = {
+      ...buildEmptyGooglePhotosSyncBinding({ workspaceId: WORKSPACE_ID, projectId: PROJECT_ID }),
+      album: { albumId: "fixture-album", createdAt: project.createdAt, lastKnownTitle: original.targetAlbumTitle },
+      stable: { generation: 1, completedAt: project.updatedAt, rendererVersion: 2, items: stableManagedItems },
+    };
+    const review = await prepareGooglePhotosSyncUiReviewInDrive(input(), {
+      prepareSource: async () => ({ ok: true, source: changed }),
+      readBinding: async () => ({ status: "ready", fileId: "fixture-binding", binding }),
+    });
+    expect(review.ok).toBe(true);
+    if (!review.ok) throw new Error("expected review");
+    expect(review.review.diff.summary).toMatchObject({ changed: 2, unchanged: 0 });
+    expect(review.review.diff.hasGooglePhotosChanges).toBe(true);
+    expect(review.review.diff.metadataOnlyChangeCount).toBe(0);
   });
 });

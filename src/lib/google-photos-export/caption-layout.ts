@@ -1,9 +1,9 @@
+import { getEffectiveProjectSlideCaptionStyle, type ProjectSlideCaptionStyle } from "../project-slide-caption-style";
+
 export const GOOGLE_PHOTOS_CAPTION_MAX_LINES = 2;
 export const GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE = 8;
 export const GOOGLE_PHOTOS_CAPTION_MIN_FONT_SIZE_HEIGHT_RATIO = 0.018;
 export const GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO = 0.04;
-export const GOOGLE_PHOTOS_CAPTION_BACKGROUND = "rgba(0, 0, 0, 0.62)";
-export const GOOGLE_PHOTOS_CAPTION_TEXT_COLOR = "#ffffff";
 export const GOOGLE_PHOTOS_CAPTION_LINE_HEIGHT = 1.3;
 export const GOOGLE_PHOTOS_CAPTION_FONT_FAMILY =
   'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
@@ -18,6 +18,9 @@ export type CaptionOverlayLayout = {
   paddingY: number;
   bandHeight: number;
   bandY: number;
+  backgroundX: number;
+  backgroundWidth: number;
+  radius: number;
   textX: number;
   textY: number[];
 };
@@ -29,6 +32,7 @@ export type CaptionLayout =
 
 export function measureCaptionLayout(input: {
   text: string;
+  captionStyle?: ProjectSlideCaptionStyle;
   imageWidth: number;
   imageHeight: number;
   measureText: CaptionTextMeasurer;
@@ -46,6 +50,8 @@ export function measureCaptionLayout(input: {
     return { kind: "doesNotFit" };
   }
 
+  const captionStyle = getEffectiveProjectSlideCaptionStyle(input.captionStyle);
+  const sizeScale = { small: 0.75, standard: 1, large: 1.3 }[captionStyle.size];
   const paddingX = Math.max(8, Math.round(input.imageWidth * 0.04));
   const maxTextWidth = Math.max(1, input.imageWidth - paddingX * 2);
   const preferredMinFontSize = Math.max(
@@ -55,10 +61,10 @@ export function measureCaptionLayout(input: {
     ),
   );
   const maxFontSize = Math.max(
-    preferredMinFontSize,
-    Math.round(
-      input.imageHeight * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO,
-    ),
+    GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE,
+    Math.round(Math.max(preferredMinFontSize,
+      Math.round(input.imageHeight * GOOGLE_PHOTOS_CAPTION_MAX_FONT_SIZE_HEIGHT_RATIO),
+    ) * sizeScale),
   );
   const units = segmentCaptionText(text);
 
@@ -70,6 +76,7 @@ export function measureCaptionLayout(input: {
     const layout = layoutCaptionAtFontSize({
       text,
       units,
+      captionStyle,
       fontSize,
       imageWidth: input.imageWidth,
       imageHeight: input.imageHeight,
@@ -105,6 +112,7 @@ export function googlePhotosCaptionFont(fontSize: number) {
 function layoutCaptionAtFontSize(input: {
   text: string;
   units: string[];
+  captionStyle: ProjectSlideCaptionStyle;
   fontSize: number;
   imageWidth: number;
   imageHeight: number;
@@ -112,7 +120,10 @@ function layoutCaptionAtFontSize(input: {
   maxTextWidth: number;
   measureText: CaptionTextMeasurer;
 }): CaptionLayout | null {
-  const widthOf = (value: string) => input.measureText(value, input.fontSize);
+  const widthOf = (value: string) => {
+    const width = input.measureText(value, input.fontSize);
+    return Number.isFinite(width) && width >= 0 ? width : Infinity;
+  };
   const wrapped = wrapCaptionLines(input.units, input.maxTextWidth, widthOf);
   if (!wrapped.fits || wrapped.lines.join("") !== input.text) {
     return null;
@@ -125,7 +136,11 @@ function layoutCaptionAtFontSize(input: {
     return null;
   }
 
-  const bandY = input.imageHeight - bandHeight;
+  const bandY = {
+    top: 0,
+    center: (input.imageHeight - bandHeight) / 2,
+    bottom: input.imageHeight - bandHeight,
+  }[input.captionStyle.position];
   const textY = wrapped.lines.map(
     (_, index) => bandY + paddingY + index * lineHeight,
   );
@@ -133,12 +148,19 @@ function layoutCaptionAtFontSize(input: {
     (max, line) => Math.max(max, widthOf(line)),
     0,
   );
-  if (widest > input.imageWidth) {
+  if (!Number.isFinite(widest) || widest < 0 || widest > input.maxTextWidth ||
+      widest + input.paddingX * 2 > input.imageWidth) {
     return null;
   }
 
+  const backgroundWidth = input.captionStyle.shape === "band"
+    ? input.imageWidth : widest + input.paddingX * 2;
   return {
     kind: "overlay",
+    backgroundWidth,
+    backgroundX: (input.imageWidth - backgroundWidth) / 2,
+    radius: input.captionStyle.shape === "band"
+      ? 0 : Math.min(input.fontSize * 0.5, backgroundWidth / 2, bandHeight / 2),
     fontSize: input.fontSize,
     lines: wrapped.lines,
     lineHeight,

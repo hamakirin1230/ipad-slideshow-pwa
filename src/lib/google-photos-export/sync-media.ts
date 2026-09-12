@@ -1,3 +1,4 @@
+import type { ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import type { DriveProjectSummary } from "../google-drive";
 import {
   readDrivePhotosSyncBinding,
@@ -266,6 +267,7 @@ async function runMediaInsideLock(
       input,
       adapters,
       items: mapped.items,
+      captionStyle: preparedSource.captionStyle,
       getRuntime: () => runtime,
       setRuntime(next) {
         runtime = next;
@@ -554,6 +556,7 @@ async function runBoundedCreateUploads(input: {
   input: SyncMediaInput;
   adapters: GooglePhotosSyncMediaAdapters;
   items: GooglePhotosSyncPreparedItem[];
+  captionStyle?: ProjectSlideCaptionStyle;
   getRuntime: () => GooglePhotosSyncMediaRuntime;
   setRuntime: (runtime: GooglePhotosSyncMediaRuntime) => void;
 }): Promise<"renderFailed" | "uploadFailed" | null> {
@@ -631,6 +634,7 @@ async function runBoundedCreateUploads(input: {
           input: { ...input.input, signal: workerController.signal },
           adapters: input.adapters,
           preparedItem,
+          captionStyle: input.captionStyle,
           createIndex,
           totalItems: input.items.length,
           activeUpload: activeUpload ?? null,
@@ -696,6 +700,7 @@ async function renderAndUploadCreateItem(input: {
   input: SyncMediaInput;
   adapters: GooglePhotosSyncMediaAdapters;
   preparedItem: GooglePhotosSyncPreparedItem;
+  captionStyle?: ProjectSlideCaptionStyle;
   createIndex: number;
   totalItems: number;
   activeUpload: GooglePhotosSyncMediaCurrentUpload | null;
@@ -762,6 +767,7 @@ async function resolveRenderedHolder(input: {
   input: SyncMediaInput;
   adapters: GooglePhotosSyncMediaAdapters;
   preparedItem: GooglePhotosSyncPreparedItem;
+  captionStyle?: ProjectSlideCaptionStyle;
   createIndex: number;
   totalItems: number;
   renderedImageRef: { current: GooglePhotosSyncRenderedImageHolder | null };
@@ -801,6 +807,7 @@ async function resolveRenderedHolder(input: {
       source,
       sourceMimeType: input.preparedItem.mimeType,
       caption: input.preparedItem.description,
+      captionStyle: input.captionStyle,
       imageEdit: input.preparedItem.imageEdit,
       fileName: input.preparedItem.fileName,
       slideIndex: input.preparedItem.slideIndex,

@@ -1,3 +1,5 @@
+import { commitGooglePhotosExportAfterFreshValidation, type GooglePhotosExportWriteAdapter } from "./workflow";
+import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults } from "../project-slide-caption-style";
 import { describe, expect, it, vi } from "vitest";
 import { DRIVE_VIDEO_MAX_BYTES } from "../drive-video-policy";
 import type {
@@ -737,3 +739,27 @@ function assetProperties(assetId: string) {
     assetId,
   };
 }
+
+it.each([defaults, { ...defaults, position: "top" as const, colorPreset: "yellowOnBlack" as const }])("propagates formally parsed album caption style to the export plan", async (captionStyle) => {
+ const manifest = { ...buildManifest(), captionStyle };
+ const result = await prepareGooglePhotosExportSourceWithAdapter(input(), createAdapter({ manifest }));
+ expect(result.ok).toBe(true);
+ if (!result.ok) throw new Error("expected plan");
+ expect(result.plan.captionStyle).toEqual(captionStyle);
+ expect(result.plan.items.every((item) => !("captionStyle" in item))).toBe(true);
+});
+
+it("blocks export and retained payload reuse when the fresh album style changes", async () => {
+ const prepared = await prepareGooglePhotosExportSourceWithAdapter(input(), createAdapter());
+ if (!prepared.ok) throw new Error("expected plan");
+ const renderImage = vi.fn();
+ const renderedImageRef = { current: null };
+ const result = await commitGooglePhotosExportAfterFreshValidation({
+  ...input(), driveAccessToken: input().accessToken, photosAccessToken: "fixture-token",
+  runtime: { plan: prepared.plan, uploadTokens: [], uploadedFileNames: [], currentUpload: null }, onRuntime: vi.fn(), onProgress: vi.fn(), renderedImageRef,
+ }, { source: createAdapter({ manifest: { ...buildManifest(), captionStyle: { ...defaults, position: "top" } } }),
+      write: { renderImage } as unknown as GooglePhotosExportWriteAdapter });
+ expect(result).toMatchObject({ ok: false, error: { kind: "sourceChanged" }, canResume: false });
+ expect(renderImage).not.toHaveBeenCalled();
+ expect(renderedImageRef.current).toBeNull();
+});

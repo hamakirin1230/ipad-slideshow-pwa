@@ -1,3 +1,4 @@
+import { pickProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import {
   parseProjectManifest,
   type DriveFileCandidate,
@@ -383,6 +384,7 @@ async function buildPlanFromManifest(input: {
   return {
     ok: true,
     plan: {
+      ...pickProjectSlideCaptionStyle(input.manifest),
       projectId: input.project.projectId,
       projectTitle,
       albumTitle: buildGooglePhotosAlbumTitle({

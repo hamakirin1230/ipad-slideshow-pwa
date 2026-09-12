@@ -1,3 +1,4 @@
+import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults } from "../project-slide-caption-style";
 import { describe, expect, it } from "vitest";
 import {
   assertGooglePhotosExportPlanIsImageOnly,
@@ -281,3 +282,13 @@ function buildPlan(): GooglePhotosExportPlan {
     ],
   };
 }
+
+it("compares album caption style effectively during fresh validation", () => {
+ const prepared = buildPlan();
+ const fresh = { ...buildPlan(), captionStyle: defaults };
+ expect(googlePhotosExportSourceMatchesPreparedPlan(prepared, fresh)).toBe(true);
+ expect(googlePhotosExportSourceMatchesPreparedPlan(fresh, prepared)).toBe(true);
+ for (const captionStyle of [{ ...defaults, position: "top" as const }, { ...defaults, shape: "band" as const }, { ...defaults, size: "large" as const }, { ...defaults, colorPreset: "yellowOnBlack" as const }]) {
+  expect(googlePhotosExportSourceMatchesPreparedPlan(prepared, { ...fresh, captionStyle })).toBe(false);
+ }
+});

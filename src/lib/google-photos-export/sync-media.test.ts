@@ -1,3 +1,4 @@
+import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults } from "../project-slide-caption-style";
 import { describe, expect, it, vi } from "vitest";
 import type { DriveProjectSummary } from "../google-drive";
 import type {
@@ -1269,4 +1270,13 @@ describe("Google Photos sync media execution", () => {
     expect(harness.adapters.batchCreate).toHaveBeenCalledTimes(1);
     expect(harness.remote().pending?.phase).toBe("mediaCreating");
   });
+});
+
+it("passes prepared album style into the incremental media renderer", async () => {
+ const captionStyle = { ...defaults, position: "center" as const, size: "small" as const, colorPreset: "blackOnWhite" as const };
+ const source = { ...preparedSource(), captionStyle };
+ const h = adapterHarness({ sourceResults: [source] });
+ const result = await createGooglePhotosSyncMediaItemsAfterAlbumBound(mediaInput(), h.adapters);
+ expect(result).toEqual({ status: "mediaPrepared" });
+ expect(h.spies.renderImage).toHaveBeenCalledWith(expect.objectContaining({ captionStyle }));
 });

@@ -1,3 +1,4 @@
+import type { ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import type { DriveProjectSummary } from "../google-drive";
 import {
   planProjectDiff,
@@ -295,6 +296,7 @@ async function buildGooglePhotosSyncUiDiff(
             targetItem.source,
             { ...stableItem, snapshot: stableSnapshot },
             binding.stable.rendererVersion,
+            source.captionStyle,
           ))))
     ) {
       assetIdentity = stableItem.renderKey;
@@ -356,6 +358,7 @@ async function freshAssetMatchesStableRender(
   source: GooglePhotosSyncPreparedItem,
   stable: GooglePhotosSyncManagedItem & { snapshot: SafeSlideSnapshot },
   rendererVersion: number,
+  captionStyle: ProjectSlideCaptionStyle | undefined,
 ) {
   const result = await createGooglePhotosSyncRenderIdentity(
     {
@@ -366,6 +369,7 @@ async function freshAssetMatchesStableRender(
       sourceSizeBytes: source.sizeBytes,
       sourceMimeType: source.mimeType,
       caption: stable.snapshot.caption,
+      captionStyle,
       outputMimeType: source.outputMimeType,
       ...(stable.snapshot.imageEdit
         ? { imageEdit: stable.snapshot.imageEdit }

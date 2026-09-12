@@ -1,3 +1,4 @@
+import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults } from "../project-slide-caption-style";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
@@ -22,7 +23,7 @@ function renderInput(): GooglePhotosSyncRenderInput {
   };
 }
 
-async function key(input: GooglePhotosSyncRenderInput, rendererVersion = 1) {
+async function key(input: GooglePhotosSyncRenderInput, rendererVersion = GOOGLE_PHOTOS_SYNC_RENDERER_VERSION) {
   const result = await createGooglePhotosSyncRenderIdentity(input, {
     rendererVersion,
   });
@@ -41,7 +42,7 @@ describe("Google Photos sync renderKey", () => {
     if (!first.ok) return;
     expect(first.renderKey).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(first.renderKey).toBe(
-      "sha256:4a428d36c4fe2b4a72f96f9ef934fa2cebfe402d9d1d549990867a6b66e887c4",
+      "sha256:38a0c938c1907a1c74cc5b1080eeeb4e1d04f71c738b46019e262e19f577feec",
     );
   });
 
@@ -71,7 +72,7 @@ describe("Google Photos sync renderKey", () => {
 
   it("changes when the renderer contract version changes", async () => {
     expect(await key(renderInput(), 2)).not.toBe(await key(renderInput(), 1));
-    expect(GOOGLE_PHOTOS_SYNC_RENDERER_VERSION).toBe(1);
+    expect(GOOGLE_PHOTOS_SYNC_RENDERER_VERSION).toBe(2);
   });
 
   it("uses trimmed caption authority", async () => {
@@ -222,3 +223,21 @@ describe("Google Photos sync render identity security", () => {
     }
   });
 });
+
+ it("does not reuse the actual legacy renderer v1 digest", async () => {
+  expect(await key(renderInput())).not.toBe("sha256:4a428d36c4fe2b4a72f96f9ef934fa2cebfe402d9d1d549990867a6b66e887c4");
+ });
+ it.each([
+  { ...defaults, position: "top" as const },
+  { ...defaults, shape: "band" as const },
+  { ...defaults, size: "large" as const },
+  { ...defaults, colorPreset: "yellowOnBlack" as const },
+ ])("changes render identity for each album style dimension %#", async (captionStyle) => {
+  expect(await key({ ...renderInput(), captionStyle })).not.toBe(await key(renderInput()));
+ });
+ it("treats absent and explicit default style as the same identity", async () => {
+  expect(await key({ ...renderInput(), captionStyle: defaults })).toBe(await key(renderInput()));
+ });
+ it.each([null, {}, { ...defaults, position: "invalid" }, { ...defaults, extra: true }])("rejects invalid caption style %#", async (captionStyle) => {
+  expect(await createGooglePhotosSyncRenderIdentity({ ...renderInput(), captionStyle: captionStyle as never })).toEqual({ ok: false, reason: "invalidInput" });
+ });

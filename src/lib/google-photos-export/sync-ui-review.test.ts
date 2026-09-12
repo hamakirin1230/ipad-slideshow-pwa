@@ -1,3 +1,4 @@
+import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults, type ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { DriveProjectSummary } from "../google-drive";
@@ -8,7 +9,7 @@ import {
   type GooglePhotosSyncPendingPhase,
 } from "./sync-binding";
 import type { GooglePhotosSyncPreparedSource } from "./sync-drive-source";
-import { createGooglePhotosSyncRenderIdentity } from "./render-key";
+import { createGooglePhotosSyncRenderIdentity, createGooglePhotosSyncSourceFingerprint } from "./render-key";
 import {
   prepareGooglePhotosSyncUiReviewInDrive,
   type GooglePhotosSyncUiReviewAdapters,
@@ -157,8 +158,8 @@ describe("Google Photos sync Drive-only UI review", () => {
     });
   });
 
-  it("distinguishes a caption render change from an asset replacement", async () => {
-    const source = preparedSource();
+  it.each([undefined, { ...defaults, position: "top" as const }])("distinguishes a caption render change from an asset replacement with style %#", async (captionStyle) => {
+    const source = { ...preparedSource(), captionStyle };
     const item = source.items[0]!;
     item.snapshot = { ...item.snapshot, caption: "変更後" };
     const oldIdentity = await createGooglePhotosSyncRenderIdentity({
@@ -169,6 +170,7 @@ describe("Google Photos sync Drive-only UI review", () => {
       sourceSizeBytes: item.sizeBytes,
       sourceMimeType: item.mimeType,
       caption: "変更前",
+      captionStyle,
       outputMimeType: item.outputMimeType,
     });
     expect(oldIdentity.ok).toBe(true);
@@ -565,7 +567,7 @@ function preparedSource(): GooglePhotosSyncPreparedSource {
     sourceSlideCount: 3,
     skippedVideoCount: 1,
     totalBytes: 3072,
-    rendererVersion: 1,
+    rendererVersion: 2,
     items: [
       {
         slideIndex: 0,
@@ -654,7 +656,7 @@ function exactBinding(
     stable: {
       generation: 1,
       completedAt: "2026-08-30T01:00:00.000Z",
-      rendererVersion: 1,
+      rendererVersion: 2,
       items: source.items.map((item, index) => ({
         slideId: item.slideId,
         renderKey: item.renderKey,
@@ -794,3 +796,32 @@ function safeReview(mode: "initial" | "update" | "continue") {
     diff: mode === "update" ? unavailableDiff : initialDiff,
   };
 }
+
+async function withCaptionIdentity(source: GooglePhotosSyncPreparedSource, captionStyle?: ProjectSlideCaptionStyle) {
+ source.captionStyle = captionStyle;
+ for (const item of source.items) {
+  const identity = await createGooglePhotosSyncRenderIdentity({
+   slideId: item.slideId, assetFileId: item.assetFileId, sourceChecksum: item.sourceChecksum,
+   sourceModifiedTime: item.sourceModifiedTime, sourceSizeBytes: item.sizeBytes,
+   sourceMimeType: item.mimeType, imageEdit: item.imageEdit, caption: item.description,
+   outputMimeType: item.outputMimeType, captionStyle,
+  });
+  if (!identity.ok) throw new Error("expected identity");
+  item.renderKey = identity.renderKey;
+ }
+ source.desiredSlides = source.items.map(({ slideId, renderKey, reuseEligible }) => ({ slideId, renderKey, reuseEligible }));
+ const fingerprint = await createGooglePhotosSyncSourceFingerprint({ targetAlbumTitle: source.targetAlbumTitle, slides: source.desiredSlides });
+ if (!fingerprint.ok) throw new Error("expected fingerprint");
+ source.sourceFingerprint = fingerprint.sourceFingerprint;
+ return source;
+}
+
+it.each(["albumBound", "mediaPrepared"] as const)("rejects caption-style-only changes during pending %s", async (phase) => {
+ const original = await withCaptionIdentity(preparedSource());
+ const changed = await withCaptionIdentity(preparedSource(), { ...defaults, shape: "band" });
+ expect(changed.sourceFingerprint).not.toBe(original.sourceFingerprint);
+ const binding = pendingBinding(phase);
+ binding.pending!.sourceFingerprint = original.sourceFingerprint;
+ const { adapters } = harness(ready(binding), changed);
+ expect(await prepareGooglePhotosSyncUiReviewInDrive(input(), adapters)).toEqual({ ok: false, reason: "sourceChanged" });
+});

@@ -1,3 +1,4 @@
+import type { ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import { readDriveFileMetadata, readDriveTextFile } from "../google-drive";
 import {
   assertGooglePhotosExportPlanIsImageOnly,
@@ -292,6 +293,7 @@ export async function executeGooglePhotosExportWithAdapter(
         driveAccessToken: input.driveAccessToken,
         photosAccessToken: input.photosAccessToken,
         item,
+        captionStyle: plan.captionStyle,
         exportIndex,
         currentUpload,
         renderedImageRef,
@@ -464,6 +466,7 @@ async function exportRenderedImageSlide(input: {
   driveAccessToken: string;
   photosAccessToken: string;
   item: GooglePhotosExportPlanItem;
+  captionStyle?: ProjectSlideCaptionStyle;
   exportIndex: number;
   currentUpload: GooglePhotosExportRuntime["currentUpload"];
   renderedImageRef: { current: GooglePhotosRenderedImageHolder | null };
@@ -561,6 +564,7 @@ async function exportRenderedImageSlide(input: {
 async function resolveRenderedImagePayload(input: {
   driveAccessToken: string;
   item: GooglePhotosExportPlanItem;
+  captionStyle?: ProjectSlideCaptionStyle;
   exportIndex: number;
   currentUpload: GooglePhotosExportRuntime["currentUpload"];
   renderedImageRef: { current: GooglePhotosRenderedImageHolder | null };
@@ -610,6 +614,7 @@ async function resolveRenderedImagePayload(input: {
     source: sourceBlob,
     sourceMimeType: input.item.mimeType,
     caption: input.item.description,
+    captionStyle: input.captionStyle,
     imageEdit: input.item.imageEdit,
     fileName: input.item.fileName,
     slideIndex: input.item.slideIndex,

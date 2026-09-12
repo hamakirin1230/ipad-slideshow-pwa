@@ -1,3 +1,4 @@
+import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults } from "../project-slide-caption-style";
 import { describe, expect, it, vi } from "vitest";
 import {
   GOOGLE_PHOTOS_EXPORT_ERROR_MESSAGES,
@@ -891,3 +892,12 @@ function createAdapter(): GooglePhotosExportWriteAdapter {
     },
   };
 }
+
+it("passes the prepared album caption style to every export render", async () => {
+ const captionStyle = { ...defaults, position: "top" as const, shape: "band" as const };
+ const adapter = createAdapter();
+ const result = await executeGooglePhotosExportWithAdapter(executeInput({ plan: { ...plan, captionStyle } }), adapter);
+ expect(result.ok).toBe(true);
+ expect(adapter.renderImage).toHaveBeenCalledTimes(2);
+ for (const [render] of vi.mocked(adapter.renderImage).mock.calls) expect(render.captionStyle).toEqual(captionStyle);
+});

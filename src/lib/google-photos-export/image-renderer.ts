@@ -1,3 +1,4 @@
+import { getEffectiveProjectSlideCaptionStyle, PROJECT_SLIDE_CAPTION_COLORS, type ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import {
   buildGooglePhotosExportFileName,
   GOOGLE_PHOTOS_EXPORT_IMAGE_MAX_BYTES,
@@ -5,9 +6,8 @@ import {
 } from "./contract";
 import {
   googlePhotosCaptionFont,
-  GOOGLE_PHOTOS_CAPTION_BACKGROUND,
-  GOOGLE_PHOTOS_CAPTION_TEXT_COLOR,
   measureCaptionLayout,
+  type CaptionOverlayLayout,
 } from "./caption-layout";
 import {
   applyCanvasImageEditTransform,
@@ -35,6 +35,7 @@ export type GooglePhotosImageRenderInput = {
   source: Blob;
   sourceMimeType: GooglePhotosExportMimeType;
   caption: string;
+  captionStyle?: ProjectSlideCaptionStyle;
   imageEdit?: ProjectSlideImageEdit;
   fileName: string;
   slideIndex: number;
@@ -182,6 +183,7 @@ export async function renderGooglePhotosExportImage(
     }
     const layout = measureCaptionLayout({
       text: input.caption,
+      captionStyle: input.captionStyle,
       imageWidth: canvas.width,
       imageHeight: canvas.height,
       measureText: (text, fontSize) => {
@@ -193,9 +195,10 @@ export async function renderGooglePhotosExportImage(
       throw new GooglePhotosImageRenderError();
     }
     if (layout.kind === "overlay") {
-      context.fillStyle = GOOGLE_PHOTOS_CAPTION_BACKGROUND;
-      context.fillRect(0, layout.bandY, canvas.width, layout.bandHeight);
-      context.fillStyle = GOOGLE_PHOTOS_CAPTION_TEXT_COLOR;
+      const colors = PROJECT_SLIDE_CAPTION_COLORS[getEffectiveProjectSlideCaptionStyle(input.captionStyle).colorPreset];
+      context.fillStyle = colors.backgroundColor;
+      drawCaptionBackground(context, layout);
+      context.fillStyle = colors.color;
       context.font = googlePhotosCaptionFont(layout.fontSize);
       context.textAlign = "center";
       context.textBaseline = "top";
@@ -228,6 +231,26 @@ export async function renderGooglePhotosExportImage(
     releaseDecodedImage(decoded);
     releaseCanvas(canvas);
   }
+}
+
+function drawCaptionBackground(context: CanvasRenderingContext2D, layout: CaptionOverlayLayout) {
+  const { backgroundX: x, bandY: y, backgroundWidth: width, bandHeight: height, radius: r } = layout;
+  if (r === 0) {
+    context.fillRect(x, y, width, height);
+    return;
+  }
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.lineTo(x + width - r, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + r);
+  context.lineTo(x + width, y + height - r);
+  context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  context.lineTo(x + r, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - r);
+  context.lineTo(x, y + r);
+  context.quadraticCurveTo(x, y, x + r, y);
+  context.closePath();
+  context.fill();
 }
 
 type DecodedExportImage = {

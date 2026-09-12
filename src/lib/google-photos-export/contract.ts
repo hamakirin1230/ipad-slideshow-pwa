@@ -1,3 +1,4 @@
+import { areProjectSlideCaptionStylesEqual, type ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import {
   areProjectSlideImageEditsEqual,
   type ProjectSlideImageEdit,
@@ -77,6 +78,7 @@ export type GooglePhotosExportPlanItem = GooglePhotosExportItem & {
 };
 
 export type GooglePhotosExportPlan = {
+  captionStyle?: ProjectSlideCaptionStyle;
   projectId: string;
   projectTitle: string;
   albumTitle: string;
@@ -219,6 +221,9 @@ export function googlePhotosExportSourceMatchesPreparedPlan(
   prepared: GooglePhotosExportPlan,
   fresh: GooglePhotosExportPlan,
 ) {
+  if (!areProjectSlideCaptionStylesEqual(prepared.captionStyle, fresh.captionStyle)) {
+    return false;
+  }
   if (prepared.projectId !== fresh.projectId) {
     return false;
   }
