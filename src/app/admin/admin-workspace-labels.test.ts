@@ -11,7 +11,7 @@ const device = read("./offline-sync-panel.tsx");
 const uniqueness = read("../../lib/project-title-uniqueness.ts");
 
 describe("admin album and local labels", () => {
-  it("shows main tabs as アルバム / スライド / ローカル / 公開 without changing tab ids", () => {
+  it("shows main tabs as アルバム / スライド / ローカル / 公開・同期 without changing tab ids", () => {
     const tabBlock = workspace.slice(
       workspace.indexOf("const workspaceTabs = ["),
       workspace.indexOf("] as const;"),
@@ -21,7 +21,7 @@ describe("admin album and local labels", () => {
     );
     const ids = [...tabBlock.matchAll(/id: "([^"]+)"/g)].map((match) => match[1]);
 
-    expect(labels).toEqual(["アルバム", "スライド", "ローカル", "公開"]);
+    expect(labels).toEqual(["アルバム", "スライド", "ローカル", "公開・同期"]);
     expect(ids).toEqual(["project", "edit", "device", "publish"]);
     expect(tabBlock).not.toContain('label: "作品"');
     expect(tabBlock).not.toContain('label: "この端末"');
@@ -44,6 +44,19 @@ describe("admin album and local labels", () => {
     expect(workspace.indexOf('id="device"')).toBeLessThan(
       workspace.indexOf('id="publish"'),
     );
+  });
+
+  it("places transition settings once between import and slide editing, outside the album panel", () => {
+    const slides = read("./drive-project-workspace-panel.tsx");
+    const settings = read("./project-slide-transition-settings.tsx");
+    expect(projects).not.toContain("SelectedProjectSlideTransitionForm");
+    expect(projects).not.toContain("ProjectSlideTransitionSettings");
+    expect(slides.match(/<ProjectSlideTransitionSettings \/>/g)).toHaveLength(1);
+    expect(slides.indexOf("<AssetImportPanel />")).toBeLessThan(slides.indexOf("<ProjectSlideTransitionSettings />"));
+    expect(slides.indexOf("<ProjectSlideTransitionSettings />")).toBeLessThan(slides.indexOf('aria-labelledby="slide-editor-heading"'));
+    expect(settings).toContain("スライド全体の設定");
+    expect(settings).not.toContain('from "./project-status-panel"');
+    expect(workspace).toContain('window.history.replaceState(null, "", `#${tab}`)');
   });
 
   it("updates create / rename visible labels and the duplicate title message", () => {

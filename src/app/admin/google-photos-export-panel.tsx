@@ -297,7 +297,7 @@ function GooglePhotosSyncPanelSession() {
       <Card className="border-white/10 bg-white/[0.035] text-slate-50">
         <CardHeader>
           <CardTitle>
-            <h2 id="google-photos-sync-heading">Googleフォトと同期</h2>
+            <h2 id="google-photos-sync-heading">Googleフォトへ同期</h2>
           </CardTitle>
           <CardDescription className="text-slate-300">
             選択中のアルバムからGoogleフォトへ反映される変更を確認します。動画は対象外です。
@@ -307,7 +307,7 @@ function GooglePhotosSyncPanelSession() {
         <CardContent className="space-y-4 text-sm text-slate-200">
           {!isReady ? (
             <StatusBox>
-              Google接続とアルバムの選択・確認が完了すると、Googleフォトとの同期内容を確認できます。
+              Google接続とアルバムの選択・確認が完了すると、Googleフォトへ同期する内容を確認できます。
             </StatusBox>
           ) : null}
 

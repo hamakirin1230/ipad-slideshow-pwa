@@ -33,7 +33,7 @@ const workspaceTabs = [
   { id: "project", label: "アルバム" },
   { id: "edit", label: "スライド" },
   { id: "device", label: "ローカル" },
-  { id: "publish", label: "公開" },
+  { id: "publish", label: "公開・同期" },
 ] as const;
 
 type WorkspaceTab = (typeof workspaceTabs)[number]["id"];

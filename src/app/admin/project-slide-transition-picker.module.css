@@ -24,7 +24,7 @@
 .previous span { background: #a5f3fc; color: #164e63; transform: rotate(-12deg); }
 .next { background: #4c1d95; }
 .next span { background: #ddd6fe; color: #4c1d95; transform: rotate(12deg); }
-.hint { grid-column: 1 / -1; color: #cbd5e1; font-size: 0.6875rem; overflow-wrap: anywhere; }
+.hint { grid-column: 1 / -1; color: #cbd5e1; font-size: 0.75rem; overflow-wrap: anywhere; }
 .strengths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
 .strength { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.375rem; padding: 0.5rem; font-size: 0.875rem; }
 .help { color: #94a3b8; font-size: 0.75rem; line-height: 1.6; }

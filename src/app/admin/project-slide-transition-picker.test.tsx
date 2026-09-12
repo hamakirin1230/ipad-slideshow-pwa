@@ -45,6 +45,22 @@ describe("visual transition picker", () => {
     expect(strengthFieldset.includes("disabled")).toBe(value === "standard" || value === "none");
   });
 
+  it("connects each radio name and hint description without hiding or duplicating the hint", () => {
+    const html = renderToStaticMarkup(<ProjectSlideTransitionPicker selection="standard" strength="standard" disabled={false} onEffectChange={vi.fn()} onStrengthChange={vi.fn()} />);
+    const inputs = html.match(/<input[^>]*type="radio"[^>]*>/g)!.slice(0, 9);
+    for (const [index, input] of inputs.entries()) {
+      const nameId = input.match(/aria-labelledby="([^"]+)"/)![1];
+      const hintId = input.match(/aria-describedby="([^"]+)"/)![1];
+      const name = html.match(new RegExp(`<span id="${nameId}"[^>]*>([^<]+)</span>`))!;
+      const hint = html.match(new RegExp(`<span id="${hintId}"[^>]*>([^<]+)</span>`))!;
+      expect(name[1]).toBe(PROJECT_SLIDE_TRANSITION_UI_OPTIONS[index].label);
+      expect(hint[1].length).toBeGreaterThan(0);
+      expect(hint[0]).not.toContain("aria-hidden");
+      expect(nameId).not.toBe(hintId);
+    }
+    expect(css).toMatch(/\.hint \{[^}]*font-size: 0\.75rem;/);
+  });
+
   it("locks both fieldsets during Drive operations or with no project", () => {
     const html = renderToStaticMarkup(<ProjectSlideTransitionPicker selection="fade" strength="standard" disabled onEffectChange={vi.fn()} onStrengthChange={vi.fn()} />);
     expect(html.match(/<fieldset[^>]*disabled=""/g)).toHaveLength(2);

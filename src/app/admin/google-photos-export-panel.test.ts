@@ -13,7 +13,9 @@ describe("Google Photos same-album sync UI", () => {
     expect(source.workspace.indexOf("<GooglePhotosExportPanel />")).toBeLessThan(
       source.workspace.indexOf("<ProjectPublishPanel />"),
     );
-    expect(source.panel).toContain("Googleフォトと同期");
+    expect(source.panel).toContain("Googleフォトへ同期");
+    expect(source.panel).toContain("Googleフォトへ同期する内容");
+    expect(source.panel).not.toContain("Googleフォトと同期");
     expect(source.panel).toContain(
       "選択中のアルバムからGoogleフォトへ反映される変更を確認します。",
     );

@@ -44,6 +44,23 @@ describe("offline sync panel progress accessibility", () => {
     expect(source).toContain("前回の詳細は表示できません。");
   });
 
+  it("labels preparation separately from the confirmed save while preserving its guards", () => {
+    const labelFunction = source.slice(source.indexOf("function getOfflineSyncStartButtonLabel("), source.indexOf("function getOfflineSyncVideoSkipVisibility("));
+    expect(labelFunction).toContain('return "保存内容を確認"');
+    expect(labelFunction).toContain('return "最新の保存内容を確認"');
+    expect(labelFunction).toContain('return "保存内容をもう一度確認"');
+    expect(labelFunction).toContain('return "ローカルに保存中"');
+    expect(source).toContain("この内容で保存を開始");
+    const prepare = source.slice(source.indexOf("async function handlePrepare("), source.indexOf("function cancelReview("));
+    expect(prepare).toContain("await prepareReview(controller.signal)");
+    expect(prepare).not.toContain("startSync()");
+    const confirm = source.slice(source.indexOf("function confirmAndSave("), source.indexOf("  if (review)"));
+    expect(confirm).toContain("if (!review || !confirmed || isSyncing) return");
+    expect(confirm.match(/startSync\(\)/g)).toHaveLength(1);
+    expect(source).toContain('disabled={!confirmed || disabled}');
+    expect(source).toContain('onClick={onSave}');
+  });
+
   it("keeps concise local-save guidance in a disclosure", () => {
     expect(source).toContain("ローカル保存について");
     expect(source).toContain("保存完了までは現在のローカルコピーを維持します。");

@@ -616,7 +616,7 @@ function OfflineSaveReviewCard({
           disabled={!confirmed || disabled}
           onClick={onSave}
         >
-          ローカルに保存
+          この内容で保存を開始
         </Button>
         <Button
           type="button"
@@ -789,14 +789,14 @@ function getOfflineSyncStartButtonLabel({
   }
 
   if (offlineSyncStatus === "stale") {
-    return "最新の内容を保存";
+    return "最新の保存内容を確認";
   }
 
   if (offlineSyncStatus === "failed" || offlineSyncStatus === "cancelled") {
-    return "ローカルにもう一度保存";
+    return "保存内容をもう一度確認";
   }
 
-  return "ローカルに保存";
+  return "保存内容を確認";
 }
 
 function getOfflineSyncVideoSkipVisibility(

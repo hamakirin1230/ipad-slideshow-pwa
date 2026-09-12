@@ -18,18 +18,6 @@ import {
 import { DUPLICATE_PROJECT_TITLE_MESSAGE } from "@/lib/project-title-uniqueness";
 import { sanitizeUserFacingDiagnostic } from "@/lib/user-facing-diagnostics";
 import {
-  PROJECT_SLIDE_TRANSITION_HELPER_COPY,
-  areProjectSlideTransitionSettingsEqual,
-  getEffectiveProjectSlideTransitionStrength,
-  projectSlideTransitionFromSelection,
-  projectSlideTransitionToSelection,
-  projectSlideTransitionUsesStrength,
-  type ProjectSlideTransition,
-  type ProjectSlideTransitionSelection,
-  type ProjectSlideTransitionStrength,
-} from "@/lib/project-slide-transition";
-import { ProjectSlideTransitionPicker } from "./project-slide-transition-picker";
-import {
   buildProjectDeleteConfirmationDescription,
   canStartProjectDeletion,
   getProjectDeleteButtonLabel,
@@ -55,9 +43,6 @@ export function ProjectStatusPanel() {
     selectProject,
     createProject,
     updateSelectedProjectTitle,
-    projectTransition,
-    projectTransitionStrength,
-    updateSelectedProjectTransitionSettings,
     projectDeleteStatus,
     projectDeleteMessage,
     projectDeleteDiagnostics,
@@ -82,11 +67,6 @@ export function ProjectStatusPanel() {
     (projectStatus === "notCreated" || projectStatus === "ready") &&
     !isDriveOperationInFlight;
   const canUpdateSelectedProjectTitle =
-    driveStatus === "ready" &&
-    projectStatus === "ready" &&
-    projectSummary !== null &&
-    !isDriveOperationInFlight;
-  const canUpdateSelectedProjectTransition =
     driveStatus === "ready" &&
     projectStatus === "ready" &&
     projectSummary !== null &&
@@ -224,18 +204,6 @@ export function ProjectStatusPanel() {
             updateSelectedProjectTitle={updateSelectedProjectTitle}
           />
         </div>
-
-        <SelectedProjectSlideTransitionForm
-          key={`${projectSummary?.projectId ?? "none"}:${projectTransition ?? "standard"}:${projectTransitionStrength ?? "absent"}`}
-          projectTransition={projectTransition}
-          projectTransitionStrength={projectTransitionStrength}
-          hasProject={projectSummary !== null}
-          canUpdateSelectedProjectTransition={canUpdateSelectedProjectTransition}
-          isDriveOperationInFlight={isDriveOperationInFlight}
-          updateSelectedProjectTransitionSettings={
-            updateSelectedProjectTransitionSettings
-          }
-        />
 
         <SelectedProjectDeleteCard
           hasSelectedProject={
@@ -465,96 +433,6 @@ function SelectedProjectTitleForm(input: {
         disabled={!canSubmit}
       >
         名前を変更
-      </Button>
-    </form>
-  );
-}
-
-export function SelectedProjectSlideTransitionForm(input: {
-  projectTransition: ProjectSlideTransition | undefined;
-  projectTransitionStrength?: ProjectSlideTransitionStrength;
-  hasProject: boolean;
-  canUpdateSelectedProjectTransition: boolean;
-  isDriveOperationInFlight: boolean;
-  updateSelectedProjectTransitionSettings: (input: {
-    transition: ProjectSlideTransition | undefined;
-    transitionStrength?: ProjectSlideTransitionStrength;
-  }) => void;
-}) {
-  const savedSelection = projectSlideTransitionToSelection(input.projectTransition);
-  const savedStrength =
-    getEffectiveProjectSlideTransitionStrength({
-      transition: input.projectTransition,
-      transitionStrength: input.projectTransitionStrength,
-    }) ?? "standard";
-  const [selection, setSelection] =
-    useState<ProjectSlideTransitionSelection>(savedSelection);
-  const [strength, setStrength] =
-    useState<ProjectSlideTransitionStrength>(savedStrength);
-  const draftTransition = projectSlideTransitionFromSelection(selection);
-  const usesStrength = projectSlideTransitionUsesStrength(draftTransition);
-  const canSubmit =
-    input.canUpdateSelectedProjectTransition &&
-    !areProjectSlideTransitionSettingsEqual(
-      {
-        transition: input.projectTransition,
-        transitionStrength: input.projectTransitionStrength,
-      },
-      {
-        transition: draftTransition,
-        transitionStrength: usesStrength ? strength : undefined,
-      },
-    );
-
-  function handleEffectChange(nextSelection: ProjectSlideTransitionSelection) {
-    const previousUsesStrength = projectSlideTransitionUsesStrength(
-      projectSlideTransitionFromSelection(selection),
-    );
-    const nextUsesStrength = projectSlideTransitionUsesStrength(
-      projectSlideTransitionFromSelection(nextSelection),
-    );
-    setSelection(nextSelection);
-    if (!nextUsesStrength || !previousUsesStrength) {
-      setStrength("standard");
-    }
-  }
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!canSubmit) {
-      return;
-    }
-
-    input.updateSelectedProjectTransitionSettings({
-      transition: draftTransition,
-      transitionStrength: usesStrength ? strength : undefined,
-    });
-  }
-
-  return (
-    <form
-      className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-4"
-      onSubmit={handleSubmit}
-    >
-      <p className="font-semibold text-slate-50">スライド切り替え</p>
-      <p className="mt-2 text-sm leading-6 text-slate-400">
-        {PROJECT_SLIDE_TRANSITION_HELPER_COPY}
-      </p>
-      <ProjectSlideTransitionPicker
-        selection={selection}
-        strength={strength}
-        disabled={!input.hasProject || input.isDriveOperationInFlight}
-        onEffectChange={handleEffectChange}
-        onStrengthChange={setStrength}
-      />
-      <Button
-        type="submit"
-        className="mt-4 min-h-11 w-full"
-        variant="secondary"
-        disabled={!canSubmit}
-      >
-        スライド切り替えを保存
       </Button>
     </form>
   );

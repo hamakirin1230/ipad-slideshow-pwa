@@ -31,7 +31,7 @@ describe("admin creative workspace", () => {
       ["project", "アルバム"],
       ["edit", "スライド"],
       ["device", "ローカル"],
-      ["publish", "公開"],
+      ["publish", "公開・同期"],
     ]) {
       expect(source.workspace).toContain(`{ id: "${id}", label: "${label}" }`);
     }

@@ -96,6 +96,8 @@ export function ProjectSlideTransitionPicker({
               <input
                 type="radio"
                 name={`${id}-effect`}
+                aria-labelledby={`${id}-${option.value}-name`}
+                aria-describedby={`${id}-${option.value}-hint`}
                 value={option.value}
                 checked={selection === option.value}
                 onChange={() => onEffectChange(option.value)}
@@ -106,7 +108,7 @@ export function ProjectSlideTransitionPicker({
                 }}
                 className={styles.radio}
               />
-              <span className={styles.cardTitle}>{option.label}</span>
+              <span id={`${id}-${option.value}-name`} className={styles.cardTitle}>{option.label}</span>
               <span
                 key={preview?.effect === option.value ? preview.run : 0}
                 className={styles.preview}
@@ -118,7 +120,7 @@ export function ProjectSlideTransitionPicker({
                 <span className={`${styles.panel} ${styles.previous}`}><span>A</span></span>
                 <span className={`${styles.panel} ${styles.next}`}><span>B</span></span>
               </span>
-              <span className={styles.hint} aria-hidden="true">{PREVIEW_HINTS[option.value]}</span>
+              <span id={`${id}-${option.value}-hint`} className={styles.hint}>{PREVIEW_HINTS[option.value]}</span>
             </label>
           ))}
         </div>
