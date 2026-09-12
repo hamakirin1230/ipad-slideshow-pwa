@@ -435,14 +435,13 @@ describe("selected project slide transition form", () => {
     expect(html).toContain("強め");
     expect(html).toContain("切り替え効果");
     expect(html).toContain("エフェクトの強さ");
-    expect(html).toContain("grid-cols-2");
-    expect(html).not.toContain("sm:grid-cols");
+    expect(html).not.toContain("<select");
+    expect(html.match(/type="radio"/g)).toHaveLength(12);
     expect(html).toContain('value="standard"');
-    expect(html).toContain("selected");
+    expect(html).toContain('checked=""');
     expect(html).toContain(PROJECT_SLIDE_TRANSITION_HELPER_COPY);
     expect(html).not.toContain(PROJECT_SLIDE_TRANSITION_STRENGTH_HELPER_COPY);
     expect(html).toContain("min-h-11");
-    expect(html).toContain("focus-visible:ring-2");
     expect(html).toContain("スライド切り替えを保存");
   });
 
@@ -509,7 +508,7 @@ describe("selected project slide transition form", () => {
     );
 
     const strengthSelect = (html: string) =>
-      html.match(/<select id="album-slide-transition-strength"[^>]*>/)?.[0] ?? "";
+      html.match(/<fieldset[^>]*data-strength-control="true"[^>]*>/)?.[0] ?? "";
 
     expect(strengthSelect(standardHtml)).toContain("disabled=");
     expect(strengthSelect(noneHtml)).toContain("disabled=");
@@ -539,7 +538,7 @@ describe("selected project slide transition form", () => {
     expect(formSource).not.toContain("commitPreparedProjectPublish");
     expect(formSource).toContain("onSubmit={handleSubmit}");
     expect(formSource).toContain('type="submit"');
-    expect(formSource).toContain("grid grid-cols-2");
+    expect(formSource).toContain("<ProjectSlideTransitionPicker");
     expect(formSource).not.toContain("PROJECT_SLIDE_TRANSITION_STRENGTH_HELPER_COPY");
     expect(formSource).toContain("updateSelectedProjectTransitionSettings({");
     expect(formSource).toContain("transitionStrength: usesStrength ? strength");
