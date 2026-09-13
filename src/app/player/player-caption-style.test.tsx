@@ -20,10 +20,10 @@ describe("Player album caption rendering", () => {
     if (position === "top") expect(result.overlayStyle.paddingTop).toContain("safe-area-inset-top");
     if (position === "bottom") expect(result.overlayStyle.paddingBottom).toContain("safe-area-inset-bottom");
   });
-  it("keeps top captions below normal controls and renders band across the width", () => {
+  it("keeps top captions below normal controls and insets the rectangular band", () => {
     const result = getPlayerCaptionStyle({ isProductionMode: false, captionStyle: { ...defaults, position: "top", shape: "band" } });
     expect(result.overlayClassName).toContain("top-40 sm:top-32");
-    expect(result.overlayClassName).not.toContain("px-4");
+    expect(result.overlayClassName).toContain("px-4 sm:px-8");
     expect(result.className).toContain("w-full rounded-none");
     expect(result.className).not.toContain("max-w-4xl");
   });
@@ -37,4 +37,14 @@ describe("Player album caption rendering", () => {
   it.each(["", "   ", "\n"])("does not render an empty caption %#", (caption) => {
     expect(renderToStaticMarkup(<PlayerCaption caption={caption} isProductionMode={false} />)).toBe("");
   });
+});
+
+it("shares inset band and translucent white with the Admin preview", () => {
+ const input = { isProductionMode: false, captionStyle: { ...defaults, shape: "band" as const, colorPreset: "blackOnWhite" as const } };
+ for (const preview of [false, true]) {
+  const result = getPlayerCaptionStyle({ ...input, preview });
+  expect(result.overlayClassName).toContain("px-4 sm:px-8");
+  expect(result.className).toContain("w-full rounded-none");
+  expect(result.style).toMatchObject({ color: "#0f172a", backgroundColor: "rgba(255, 255, 255, 0.82)" });
+ }
 });

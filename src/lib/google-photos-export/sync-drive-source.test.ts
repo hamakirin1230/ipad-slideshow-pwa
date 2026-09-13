@@ -226,7 +226,7 @@ describe("Google Photos sync Drive source", () => {
       sourceSlideCount: 3,
       skippedVideoCount: 1,
       totalBytes: 2200,
-      rendererVersion: 2,
+      rendererVersion: 3,
     });
     expect(result.source.targetAlbumTitle).not.toMatch(/\d{4}-\d{2}-\d{2}/);
     expect(result.source.targetAlbumTitle).not.toContain(PROJECT_ID);
@@ -646,7 +646,7 @@ describe("album caption style source identity and incremental review", () => {
     const binding = {
       ...buildEmptyGooglePhotosSyncBinding({ workspaceId: WORKSPACE_ID, projectId: PROJECT_ID }),
       album: { albumId: "fixture-album", createdAt: project.createdAt, lastKnownTitle: original.targetAlbumTitle },
-      stable: { generation: 1, completedAt: project.updatedAt, rendererVersion: 2, items: stableManagedItems },
+      stable: { generation: 1, completedAt: project.updatedAt, rendererVersion: original.rendererVersion, items: stableManagedItems },
     };
     const review = await prepareGooglePhotosSyncUiReviewInDrive(input(), {
       prepareSource: async () => ({ ok: true, source: changed }),

@@ -292,6 +292,7 @@ async function buildGooglePhotosSyncUiDiff(
       stableSnapshot &&
       (stableItem.renderKey === targetItem.renderKey ||
         (targetItem.source !== null &&
+          binding.stable.rendererVersion === source.rendererVersion &&
           (await freshAssetMatchesStableRender(
             targetItem.source,
             { ...stableItem, snapshot: stableSnapshot },

@@ -331,8 +331,9 @@ function canvasHarness() {
 describe("Canvas album caption styles", () => {
   it.each([
     { captionStyle: undefined, fontSize: 23, x: 452.6, y: 526.1, width: 118.8, height: 49.9, radius: 11.5, background: "rgba(0, 0, 0, 0.62)", color: "#ffffff" },
-    { captionStyle: { ...defaults, position: "top", shape: "band", size: "large", colorPreset: "yellowOnBlack" }, fontSize: 30, x: 0, y: 0, width: 1024, height: 67, radius: 0, background: "rgba(0, 0, 0, 0.82)", color: "#fde047" },
-    { captionStyle: { ...defaults, position: "center", size: "small", colorPreset: "blackOnWhite" }, fontSize: 17, x: 457.4, y: 268.95, width: 109.2, height: 38.1, radius: 8.5, background: "rgba(255, 255, 255, 0.94)", color: "#0f172a" },
+    { captionStyle: { ...defaults, position: "top", shape: "band", size: "large", colorPreset: "yellowOnBlack" }, fontSize: 30, x: 41, y: 0, width: 942, height: 67, radius: 0, background: "rgba(0, 0, 0, 0.82)", color: "#fde047" },
+    { captionStyle: { ...defaults, position: "bottom", shape: "band", colorPreset: "blackOnWhite" }, fontSize: 23, x: 41, y: 526.1, width: 942, height: 49.9, radius: 0, background: "rgba(255, 255, 255, 0.82)", color: "#0f172a" },
+    { captionStyle: { ...defaults, position: "center", size: "small", colorPreset: "blackOnWhite" }, fontSize: 17, x: 457.4, y: 268.95, width: 109.2, height: 38.1, radius: 8.5, background: "rgba(255, 255, 255, 0.82)", color: "#0f172a" },
   ] as const)("draws representative style %# with exact Canvas colors and geometry", async (example) => {
     const h = canvasHarness();
     await h.render(example.captionStyle);
@@ -343,7 +344,9 @@ describe("Canvas album caption styles", () => {
     expect(h.draws.filter((draw) => draw.kind === "text")).toHaveLength(1);
     if (example.radius === 0) {
       expect(background?.kind).toBe("rect");
-      expect(background?.args).toEqual([0, 0, 1024, 67]);
+      expect(background?.args).toEqual([example.x, expect.closeTo(example.y), example.width, expect.closeTo(example.height)]);
+      expect(example.x).toBeGreaterThan(0);
+      expect(example.x * 2 + example.width).toBe(1024);
       expect(h.context.beginPath).not.toHaveBeenCalled();
     } else {
       expect(background?.kind).toBe("path");

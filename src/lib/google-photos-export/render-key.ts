@@ -10,7 +10,7 @@ import {
   type GooglePhotosExportMimeType,
 } from "./contract";
 
-export const GOOGLE_PHOTOS_SYNC_RENDERER_VERSION = 2;
+export const GOOGLE_PHOTOS_SYNC_RENDERER_VERSION = 3;
 export const GOOGLE_PHOTOS_SYNC_FINGERPRINT_VERSION = 1;
 
 const RENDER_KEY_PREFIX = "sha256:";

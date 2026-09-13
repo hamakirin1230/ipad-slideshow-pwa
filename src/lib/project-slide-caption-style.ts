@@ -34,7 +34,7 @@ export const DEFAULT_PROJECT_SLIDE_CAPTION_STYLE: Readonly<ProjectSlideCaptionSt
 
 export const PROJECT_SLIDE_CAPTION_COLORS = {
   whiteOnBlack: { color: "#ffffff", backgroundColor: "rgba(0, 0, 0, 0.62)" },
-  blackOnWhite: { color: "#0f172a", backgroundColor: "rgba(255, 255, 255, 0.94)" },
+  blackOnWhite: { color: "#0f172a", backgroundColor: "rgba(255, 255, 255, 0.82)" },
   yellowOnBlack: { color: "#fde047", backgroundColor: "rgba(0, 0, 0, 0.82)" },
 } as const;
 

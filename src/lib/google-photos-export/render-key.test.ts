@@ -1,3 +1,4 @@
+import { planGooglePhotosIncrementalSync } from "./sync-plan";
 import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults } from "../project-slide-caption-style";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -42,7 +43,7 @@ describe("Google Photos sync renderKey", () => {
     if (!first.ok) return;
     expect(first.renderKey).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(first.renderKey).toBe(
-      "sha256:38a0c938c1907a1c74cc5b1080eeeb4e1d04f71c738b46019e262e19f577feec",
+      "sha256:3af565871309bcbef0108a4755b911aa92f99174ad0fe1402b54a333e68e5931",
     );
   });
 
@@ -71,8 +72,8 @@ describe("Google Photos sync renderKey", () => {
   });
 
   it("changes when the renderer contract version changes", async () => {
-    expect(await key(renderInput(), 2)).not.toBe(await key(renderInput(), 1));
-    expect(GOOGLE_PHOTOS_SYNC_RENDERER_VERSION).toBe(2);
+    expect(await key(renderInput(), 3)).not.toBe(await key(renderInput(), 2));
+    expect(GOOGLE_PHOTOS_SYNC_RENDERER_VERSION).toBe(3);
   });
 
   it("uses trimmed caption authority", async () => {
@@ -241,3 +242,26 @@ describe("Google Photos sync render identity security", () => {
  it.each([null, {}, { ...defaults, position: "invalid" }, { ...defaults, extra: true }])("rejects invalid caption style %#", async (captionStyle) => {
   expect(await createGooglePhotosSyncRenderIdentity({ ...renderInput(), captionStyle: captionStyle as never })).toEqual({ ok: false, reason: "invalidInput" });
  });
+
+it("recreates unchanged styles rendered by v2 and retains current-version reuse", async () => {
+ const original = renderInput();
+ const legacyKey = await key(original, 2);
+ expect(legacyKey).toBe("sha256:38a0c938c1907a1c74cc5b1080eeeb4e1d04f71c738b46019e262e19f577feec");
+ const currentKey = await key(original);
+ expect(currentKey).not.toBe(legacyKey);
+ const plan = async (storedKey: string) => {
+  const result = await planGooglePhotosIncrementalSync({ targetAlbumTitle: "作品", currentGoogleAlbumTitle: "作品",
+   desiredSlides: [{ slideId: original.slideId, renderKey: currentKey, reuseEligible: true }],
+   stableManagedItems: [{ slideId: original.slideId, renderKey: storedKey, mediaItemId: "fixture-media", snapshot: null }],
+   currentAlbumMediaItemIds: ["fixture-media"],
+  });
+  if (!result.ok) throw new Error("expected plan");
+  return result.plan;
+ };
+ const changed = await plan(legacyKey);
+ expect(changed.createItems).toHaveLength(1);
+ expect(changed.targetItems[0]?.kind).toBe("create");
+ const unchanged = await plan(currentKey);
+ expect(unchanged.createItems).toHaveLength(0);
+ expect(unchanged.targetItems[0]?.kind).toBe("reuse");
+});

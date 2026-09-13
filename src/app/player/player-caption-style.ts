@@ -32,7 +32,7 @@ export function getPlayerCaptionStyle(input: {
     large: "text-xl leading-8 sm:text-3xl sm:leading-10",
   }[style.size];
   return {
-    overlayClassName: `pointer-events-none absolute inset-x-0 z-10 ${positionClass} ${rounded ? "px-4 sm:px-6" : ""}`,
+    overlayClassName: `pointer-events-none absolute inset-x-0 z-10 ${positionClass} ${rounded ? "px-4 sm:px-6" : "px-4 sm:px-8"}`,
     overlayStyle,
     className: `mx-auto px-4 py-2 text-center shadow-2xl ${rounded ? "max-w-4xl rounded-xl" : "w-full rounded-none"} ${sizeClass}`,
     style: {

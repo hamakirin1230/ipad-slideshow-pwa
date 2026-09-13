@@ -567,7 +567,7 @@ function preparedSource(): GooglePhotosSyncPreparedSource {
     sourceSlideCount: 3,
     skippedVideoCount: 1,
     totalBytes: 3072,
-    rendererVersion: 2,
+    rendererVersion: 3,
     items: [
       {
         slideIndex: 0,
@@ -656,7 +656,7 @@ function exactBinding(
     stable: {
       generation: 1,
       completedAt: "2026-08-30T01:00:00.000Z",
-      rendererVersion: 2,
+      rendererVersion: 3,
       items: source.items.map((item, index) => ({
         slideId: item.slideId,
         renderKey: item.renderKey,
@@ -797,15 +797,16 @@ function safeReview(mode: "initial" | "update" | "continue") {
   };
 }
 
-async function withCaptionIdentity(source: GooglePhotosSyncPreparedSource, captionStyle?: ProjectSlideCaptionStyle) {
+async function withCaptionIdentity(source: GooglePhotosSyncPreparedSource, captionStyle?: ProjectSlideCaptionStyle, rendererVersion = 3) {
  source.captionStyle = captionStyle;
+ source.rendererVersion = rendererVersion;
  for (const item of source.items) {
   const identity = await createGooglePhotosSyncRenderIdentity({
    slideId: item.slideId, assetFileId: item.assetFileId, sourceChecksum: item.sourceChecksum,
    sourceModifiedTime: item.sourceModifiedTime, sourceSizeBytes: item.sizeBytes,
    sourceMimeType: item.mimeType, imageEdit: item.imageEdit, caption: item.description,
    outputMimeType: item.outputMimeType, captionStyle,
-  });
+  }, { rendererVersion });
   if (!identity.ok) throw new Error("expected identity");
   item.renderKey = identity.renderKey;
  }
@@ -824,4 +825,17 @@ it.each(["albumBound", "mediaPrepared"] as const)("rejects caption-style-only ch
  binding.pending!.sourceFingerprint = original.sourceFingerprint;
  const { adapters } = harness(ready(binding), changed);
  expect(await prepareGooglePhotosSyncUiReviewInDrive(input(), adapters)).toEqual({ ok: false, reason: "sourceChanged" });
+});
+
+it("shows renderer v2 to v3 regeneration even when the caption style is unchanged", async () => {
+ const previous = await withCaptionIdentity(preparedSource(), undefined, 2);
+ const current = await withCaptionIdentity(preparedSource(), undefined, 3);
+ const binding = exactBinding(previous);
+ binding.stable!.rendererVersion = 2;
+ const { adapters } = harness(ready(binding), current);
+ const result = await prepareGooglePhotosSyncUiReviewInDrive(input(), adapters);
+ expect(result.ok).toBe(true);
+ if (!result.ok) throw new Error("expected review");
+ expect(result.review.diff.summary).toMatchObject({ changed: current.items.length, unchanged: 0 });
+ expect(result.review.diff.hasGooglePhotosChanges).toBe(true);
 });

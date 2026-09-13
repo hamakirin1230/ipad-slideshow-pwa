@@ -315,7 +315,9 @@ describe("google photos caption layout", () => {
           expect(layout.bandY + layout.bandHeight).toBeLessThanOrEqual(imageHeight);
           expect(layout.fontSize).toBeGreaterThanOrEqual(8);
           if (shape === "band") {
-            expect(layout.backgroundWidth).toBe(imageWidth);
+            expect(layout.backgroundX).toBeGreaterThan(0);
+            expect(layout.backgroundWidth).toBe(imageWidth - 2 * layout.paddingX);
+            expect(layout.backgroundWidth).toBeLessThan(imageWidth);
             expect(layout.radius).toBe(0);
           } else {
             expect(layout.backgroundWidth).toBeLessThan(imageWidth);
@@ -335,3 +337,13 @@ describe("google photos caption layout", () => {
     expect(measureCaptionLayout({ text: "記", imageWidth: 390, imageHeight: 219, measureText: () => width })).toEqual({ kind: "doesNotFit" });
   });
  });
+
+it.each(["band", "rounded"] as const)("fits the full caption inside the %s background with padding", (shape) => {
+ const layout = measureCaptionLayout({ text: "あ".repeat(80), imageWidth: 390, imageHeight: 219,
+   captionStyle: { ...defaults, shape }, measureText: measureByGrapheme });
+ expect(layout.kind).toBe("overlay");
+ if (layout.kind !== "overlay") throw new Error("expected overlay");
+ expect(layout.lines.join("")).toBe("あ".repeat(80));
+ expect(layout.lines.length).toBeLessThanOrEqual(2);
+ for (const line of layout.lines) expect(measureByGrapheme(line, layout.fontSize) + 2 * layout.paddingX).toBeLessThanOrEqual(layout.backgroundWidth);
+});

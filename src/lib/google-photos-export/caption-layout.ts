@@ -53,7 +53,8 @@ export function measureCaptionLayout(input: {
   const captionStyle = getEffectiveProjectSlideCaptionStyle(input.captionStyle);
   const sizeScale = { small: 0.75, standard: 1, large: 1.3 }[captionStyle.size];
   const paddingX = Math.max(8, Math.round(input.imageWidth * 0.04));
-  const maxTextWidth = Math.max(1, input.imageWidth - paddingX * 2);
+  const bandInset = captionStyle.shape === "band" ? paddingX : 0;
+  const maxTextWidth = Math.max(1, input.imageWidth - bandInset * 2 - paddingX * 2);
   const preferredMinFontSize = Math.max(
     GOOGLE_PHOTOS_CAPTION_ABSOLUTE_MIN_FONT_SIZE,
     Math.round(
@@ -149,12 +150,13 @@ function layoutCaptionAtFontSize(input: {
     0,
   );
   if (!Number.isFinite(widest) || widest < 0 || widest > input.maxTextWidth ||
-      widest + input.paddingX * 2 > input.imageWidth) {
+      widest + input.paddingX * 2 > input.imageWidth -
+        (input.captionStyle.shape === "band" ? input.paddingX * 2 : 0)) {
     return null;
   }
 
   const backgroundWidth = input.captionStyle.shape === "band"
-    ? input.imageWidth : widest + input.paddingX * 2;
+    ? input.imageWidth - input.paddingX * 2 : widest + input.paddingX * 2;
   return {
     kind: "overlay",
     backgroundWidth,

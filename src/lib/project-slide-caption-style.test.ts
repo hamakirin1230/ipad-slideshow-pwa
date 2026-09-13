@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults,
+  PROJECT_SLIDE_CAPTION_COLORS,
   PROJECT_SLIDE_CAPTION_STYLE_OPTIONS as options,
   areProjectSlideCaptionStylesEqual,
   getEffectiveProjectSlideCaptionStyle,
@@ -43,4 +44,12 @@ describe("album caption style domain", () => {
     const reordered = { colorPreset: defaults.colorPreset, size: defaults.size, shape: defaults.shape, position: defaults.position };
     expect(JSON.stringify(getEffectiveProjectSlideCaptionStyle(reordered))).toBe(JSON.stringify(getEffectiveProjectSlideCaptionStyle(defaults)));
   });
+});
+
+it("uses translucent white while preserving the two dark background presets", () => {
+ expect(PROJECT_SLIDE_CAPTION_COLORS).toEqual({
+  whiteOnBlack: { color: "#ffffff", backgroundColor: "rgba(0, 0, 0, 0.62)" },
+  blackOnWhite: { color: "#0f172a", backgroundColor: "rgba(255, 255, 255, 0.82)" },
+  yellowOnBlack: { color: "#fde047", backgroundColor: "rgba(0, 0, 0, 0.82)" },
+ });
 });
