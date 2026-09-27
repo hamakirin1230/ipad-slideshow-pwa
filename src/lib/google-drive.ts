@@ -5709,6 +5709,159 @@ export function validateIndexJsonProjects(
   };
 }
 
+export type ProjectConsistency = "synced" | "summaryStale";
+
+export type DriveProjectReadModelResult =
+  | { status: "invalid"; diagnostics: string[] }
+  | {
+      status: "ready";
+      catalogEntry: DriveProjectSummary;
+      resolvedProject: DriveProjectSummary;
+      projectConsistency: ProjectConsistency;
+      details: DriveProjectReadyDetails;
+      diagnostics: string[];
+    };
+
+// Read-only entry point. Writers retain validateDriveProjectDetails and its
+// strict summary equality contract; this resolver never repairs the catalog.
+export function validateDriveProjectReadCatalog(
+  indexJsonText: string,
+  expectedWorkspaceId: string,
+): DriveProjectIndexValidationResult {
+  const index = validateIndexJsonBody(indexJsonText);
+  if (index.status !== "valid" || index.workspaceId !== expectedWorkspaceId) {
+    return { status: "invalid", diagnostics: ["アルバムの登録情報を確認できませんでした。"] };
+  }
+  return validateIndexJsonProjects(indexJsonText);
+}
+
+export async function resolveDriveProjectReadModel(input: {
+  indexJsonText: string;
+  accessToken: string;
+  expectedWorkspaceId: string;
+  expectedProjectsRootFolderId: string;
+  project: DriveProjectSummary;
+  signal: AbortSignal;
+}): Promise<DriveProjectReadModelResult> {
+  const membership = validateDriveProjectReadCatalog(input.indexJsonText, input.expectedWorkspaceId);
+  if (membership.status !== "ready") {
+    return { status: "invalid", diagnostics: ["アルバムの登録情報を確認できませんでした。"] };
+  }
+  const catalogEntry = membership.projects.find((entry) => entry.projectId === input.project.projectId);
+  if (!catalogEntry || !driveProjectSummariesEqual(catalogEntry, input.project)) {
+    return { status: "invalid", diagnostics: ["アルバムの登録内容が一致していません。"] };
+  }
+  const [projectRoot, manifest, assetsRoot, manifestJsonText] =
+    await Promise.all([
+      fetchDriveFileMetadata(
+        input.accessToken,
+        input.project.projectFolderId,
+        input.signal,
+      ),
+      fetchDriveFileMetadata(
+        input.accessToken,
+        input.project.manifestFileId,
+        input.signal,
+      ),
+      fetchDriveFileMetadata(
+        input.accessToken,
+        input.project.assetsFolderId,
+        input.signal,
+      ),
+      readDriveTextFile(
+        input.accessToken,
+        input.project.manifestFileId,
+        input.signal,
+      ),
+    ]);
+
+  const diagnostics: string[] = [];
+
+  validateProjectDriveFileMetadata({
+    item: projectRoot,
+    label: "project folder",
+    expectedId: input.project.projectFolderId,
+    expectedName: input.project.projectId,
+    expectedMimeType: DRIVE_FOLDER_MIME_TYPE,
+    expectedRole: "projectRoot",
+    expectedWorkspaceId: input.expectedWorkspaceId,
+    expectedProjectId: input.project.projectId,
+    expectedParentId: input.expectedProjectsRootFolderId,
+    diagnostics,
+  });
+
+  validateProjectDriveFileMetadata({
+    item: manifest,
+    label: "manifest.json",
+    expectedId: input.project.manifestFileId,
+    expectedName: PROJECT_MANIFEST_NAME,
+    expectedMimeType: JSON_MIME_TYPE,
+    expectedRole: "projectManifest",
+    expectedWorkspaceId: input.expectedWorkspaceId,
+    expectedProjectId: input.project.projectId,
+    expectedParentId: input.project.projectFolderId,
+    diagnostics,
+  });
+
+  validateProjectDriveFileMetadata({
+    item: assetsRoot,
+    label: "assets/ folder",
+    expectedId: input.project.assetsFolderId,
+    expectedName: PROJECT_ASSETS_ROOT_NAME,
+    expectedMimeType: DRIVE_FOLDER_MIME_TYPE,
+    expectedRole: "assetsRoot",
+    expectedWorkspaceId: input.expectedWorkspaceId,
+    expectedProjectId: input.project.projectId,
+    expectedParentId: input.project.projectFolderId,
+    diagnostics,
+  });
+
+  if ([projectRoot, manifest, assetsRoot].some((item) => item.trashed === true)) {
+    diagnostics.push("アルバムの構成ファイルがゴミ箱にあります。");
+  }
+  const body = parseJsonObject(manifestJsonText, "manifest.json");
+  if (body.status !== "valid") return body;
+  const parsed = parseProjectManifest(body.value);
+  if (!parsed.ok) return { status: "invalid", diagnostics: parsed.errors };
+
+  // Only the two summary fields adopt manifest authority. All identity and
+  // relationship checks still use the actual catalog entry and strict parser.
+  const resolvedProject: DriveProjectSummary = {
+    ...catalogEntry,
+    title: parsed.value.title,
+    updatedAt: parsed.value.updatedAt,
+  };
+  const manifestResult = parseDriveProjectManifestJson({
+    manifestJsonText,
+    expectedWorkspaceId: input.expectedWorkspaceId,
+    project: resolvedProject,
+  });
+
+  if (manifestResult.status === "invalid") {
+    return {
+      status: "invalid",
+      diagnostics: [...diagnostics, ...manifestResult.diagnostics],
+    };
+  }
+
+  if (diagnostics.length > 0) {
+    return {
+      status: "invalid",
+      diagnostics,
+    };
+  }
+
+  return {
+    status: "ready",
+    catalogEntry,
+    resolvedProject,
+    projectConsistency: catalogEntry.title === resolvedProject.title &&
+      catalogEntry.updatedAt === resolvedProject.updatedAt ? "synced" : "summaryStale",
+    details: manifestResult.details,
+    diagnostics: [],
+  };
+}
+
 export async function validateDriveProjectDetails(input: {
   accessToken: string;
   expectedWorkspaceId: string;

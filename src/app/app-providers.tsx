@@ -1,5 +1,6 @@
 "use client";
 
+import { getProjectConsistencyBlockedReason, PROJECT_SUMMARY_STALE_REASON } from "@/lib/project-consistency";
 import Script from "next/script";
 import { areProjectSlideCaptionStylesEqual, parseProjectSlideCaptionStyle, pickProjectSlideCaptionStyle, type ProjectSlideCaptionStyle } from "@/lib/project-slide-caption-style";
 import { updateDriveProjectCaptionStyle, DriveProjectCaptionStyleUpdateError } from "@/lib/google-drive";
@@ -164,6 +165,10 @@ import {
   updateDriveProjectSlideImageEdit,
   validateIndexJsonProjects,
   validateDriveProjectDetails,
+  resolveDriveProjectReadModel,
+  validateDriveProjectReadCatalog,
+  type ProjectConsistency,
+  type DriveProjectReadModelResult,
   validateWorkspaceJsonBodies,
   validateWorkspaceMetadata,
   type DriveCreatedWorkspaceItemRole,
@@ -689,6 +694,7 @@ type AppContextValue = {
   isDriveOperationInFlight: boolean;
 
   projectStatus: ProjectStatus;
+  projectConsistency: ProjectConsistency | null;
   projectStatusLabel: string;
   projectMessage: string;
   driveProjects: ProjectSummary[];
@@ -1155,6 +1161,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [workspaceReadyContext, setWorkspaceReadyContext] =
     useState<DriveWorkspaceReadyContext | null>(null);
 
+  const [projectConsistency, setProjectConsistency] = useState<ProjectConsistency | null>(null);
+  const projectConsistencyRef = useRef<ProjectConsistency | null>(null);
   const [projectStatus, setProjectStatus] = useState<ProjectStatus>("idle");
   const [projectMessage, setProjectMessage] = useState(initialProjectMessage);
   const [driveProjects, setDriveProjects] = useState<ProjectSummary[]>([]);
@@ -1420,7 +1428,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }, []);
 
   const canImportAssets =
-    projectStatus === "ready" && driveProjectReadyContext !== null;
+    projectStatus === "ready" && projectConsistency !== "summaryStale" && driveProjectReadyContext !== null;
   const remainingSlideSlots = Math.max(
     0,
     ASSET_IMPORT_MAX_SLIDE_COUNT - (projectDetails?.slideCount ?? 0),
@@ -2163,6 +2171,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       current.googleStatus === "connected" &&
       current.driveFileGranted === true &&
       current.driveStatus === "ready" &&
+      projectConsistencyRef.current === "synced" &&
       current.projectStatus === "ready" &&
       accessTokenRef.current === snapshot.driveAccessToken &&
       current.workspace?.workspaceId === snapshot.workspaceId &&
@@ -2224,6 +2233,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function getAssetImportBlockedReason() {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) return consistencyReason;
     if (assetImportInFlightRef.current || isAssetImportInFlight) {
       return "素材追加処理中です。";
     }
@@ -2283,6 +2294,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function getOfflineSyncBlockedReason() {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) return consistencyReason;
     if (offlineSyncInFlightRef.current || isOfflineSyncInFlight) {
       return "ローカルへの保存を実行中です。";
     }
@@ -2335,6 +2348,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function getSlideEditBlockedReason(options?: { allowSingleSlide?: boolean }) {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) return consistencyReason;
     if (isSlideEditInFlight) {
       return "スライド編集中です。";
     }
@@ -2441,6 +2456,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function getAssetCleanupDeletePreflightBlockedReason() {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) return consistencyReason;
     if (
       assetCleanupDeletePreflightInFlightRef.current ||
       isAssetCleanupDeletePreflightInFlight
@@ -2456,6 +2473,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function getAssetCleanupDeleteBlockedReason() {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) return consistencyReason;
     if (
       assetCleanupDeleteInFlightRef.current ||
       isAssetCleanupDeleteInFlight
@@ -2504,6 +2523,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function getProjectDeleteBlockedReason() {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) return consistencyReason;
     if (projectDeleteInFlightRef.current || isProjectDeleteInFlight) {
       return "アルバムを削除中です。";
     }
@@ -2763,6 +2784,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function clearProjectReadyDetails() {
+    projectConsistencyRef.current = null;
+    setProjectConsistency(null);
     discardPendingProjectPublish();
     discardPendingProjectRollback();
     setDriveProjectReadyContext(null);
@@ -2784,6 +2807,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     project: DriveProjectSummary,
     details: ProjectDetails = buildEmptyProjectDetails(),
     options?: {
+      readModel?: Extract<DriveProjectReadModelResult, { status: "ready" }>;
       preserveProjectPublish?: boolean;
       preserveProjectRollback?: boolean;
     },
@@ -2805,9 +2829,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
       discardPendingProjectRollback();
     }
     setSelectedProjectId(project.projectId);
-    setDriveProjectReadyContext(project);
+    // The writer context always retains the actual catalog entry.
+    const readModel = options?.readModel;
+    setDriveProjectReadyContext(readModel?.catalogEntry ?? project);
+    const consistency = readModel?.projectConsistency ?? "synced";
+    projectConsistencyRef.current = consistency;
+    setProjectConsistency(consistency);
     setProjectDetails(details);
-    const summary = toProjectSummary(project, details);
+    const summary = toProjectSummary(readModel?.resolvedProject ?? project, details);
     setProjectSummary(summary);
     setDriveProjects((currentProjects) => {
       if (
@@ -4867,7 +4896,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
           return {
             indexJsonText: nextIndexJsonText,
-            result: validateIndexJsonProjects(nextIndexJsonText),
+            result: validateDriveProjectReadCatalog(nextIndexJsonText, readyContext.workspaceId),
           };
         },
       );
@@ -4882,8 +4911,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
 
       if (result.status === "notCreated") {
-        setProjectStatus("notCreated");
-        setProjectMessage("プロジェクトはまだ作成されていません。");
+        setProjectStatus(selectedProjectId ? "invalid" : "notCreated");
+        setProjectMessage(selectedProjectId ? "選択したプロジェクトをDriveの一覧で確認できませんでした。" : "プロジェクトはまだ作成されていません。");
         setDriveProjects([]);
         setSelectedProjectId(null);
         clearProjectReadyDetails();
@@ -4906,12 +4935,20 @@ export function AppProviders({ children }: { children: ReactNode }) {
       applyDriveProjects(result.projects);
       const preferredProjectId =
         selectedProjectId ?? driveProjectReadyContext?.projectId ?? null;
-      const selectedProject =
-        result.projects.find((project) => project.projectId === preferredProjectId) ??
-        result.projects[0];
+      const selectedProject = preferredProjectId
+        ? result.projects.find((project) => project.projectId === preferredProjectId)
+        : result.projects[0];
+      if (!selectedProject) {
+        setProjectStatus("invalid");
+        setProjectMessage("選択したプロジェクトをDriveの一覧で確認できませんでした。");
+        clearProjectReadyDetails();
+        setProjectDiagnostics([]);
+        return;
+      }
 
       const detailResult = await runDriveOperationStep(requestId, (signal) =>
-        validateDriveProjectDetails({
+        resolveDriveProjectReadModel({
+          indexJsonText,
           accessToken,
           expectedWorkspaceId: readyContext.workspaceId,
           expectedProjectsRootFolderId: readyContext.projectsRootFolderId,
@@ -4944,7 +4981,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setProjectMessage(
         `Drive上のプロジェクト${result.projects.length}件を確認し、選択中プロジェクトの詳細を読み込みました。`,
       );
-      applyProjectReadyState(selectedProject, nextProjectDetails);
+      applyProjectReadyState(selectedProject, nextProjectDetails, { readModel: detailResult });
       setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
 
       const remainingProjects = result.projects.filter(
@@ -5081,7 +5118,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
           return {
             indexJsonText: nextIndexJsonText,
-            result: validateIndexJsonProjects(nextIndexJsonText),
+            result: validateDriveProjectReadCatalog(nextIndexJsonText, readyContext.workspaceId),
           };
         },
       );
@@ -5096,8 +5133,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       });
 
       if (result.status === "notCreated") {
-        setProjectStatus("notCreated");
-        setProjectMessage("プロジェクトはまだ作成されていません。");
+        setProjectStatus("invalid");
+        setProjectMessage("選択したプロジェクトをDriveの一覧で確認できませんでした。");
         setDriveProjects([]);
         setSelectedProjectId(null);
         clearProjectReadyDetails();
@@ -5134,7 +5171,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       const detailResult = await runDriveOperationStep(requestId, (signal) =>
-        validateDriveProjectDetails({
+        resolveDriveProjectReadModel({
+          indexJsonText,
           accessToken,
           expectedWorkspaceId: readyContext.workspaceId,
           expectedProjectsRootFolderId: readyContext.projectsRootFolderId,
@@ -5163,7 +5201,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       setProjectStatus("ready");
       setProjectMessage("選択したプロジェクトの設定と素材を読み込みました。");
-      applyProjectReadyState(selectedProject, toProjectDetails(detailResult.details));
+      applyProjectReadyState(selectedProject, toProjectDetails(detailResult.details), { readModel: detailResult });
       setProjectDiagnostics([...result.diagnostics, ...detailResult.diagnostics]);
     } catch (error) {
       if (requestId !== driveOperationRequestIdRef.current) {
@@ -5197,6 +5235,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   async function updateSelectedProjectTitle(titleInput: string) {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      setProjectMessage(consistencyReason);
+      return;
+    }
     if (driveOperationInFlightRef.current) {
       return;
     }
@@ -5327,6 +5370,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
     transition: ProjectSlideTransition | undefined;
     transitionStrength?: ProjectSlideTransitionStrength;
   }) {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      setProjectMessage(consistencyReason);
+      return;
+    }
     if (driveOperationInFlightRef.current) {
       return;
     }
@@ -5471,6 +5519,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   async function updateSelectedProjectCaptionStyle(captionStyle: ProjectSlideCaptionStyle | undefined) {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      setProjectMessage(consistencyReason);
+      return;
+    }
     if (driveOperationInFlightRef.current) {
       return;
     }
@@ -5697,6 +5750,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   async function updateProjectSlideCaption(slideId: string, captionInput: string) {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      setProjectMessage(consistencyReason);
+      return;
+    }
     if (driveOperationInFlightRef.current) {
       return;
     }
@@ -5812,6 +5870,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
     slideId: string,
     durationSeconds: number,
   ) {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      setProjectMessage(consistencyReason);
+      return;
+    }
     if (driveOperationInFlightRef.current) {
       return;
     }
@@ -7368,6 +7431,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   async function createProject(titleInput: string) {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      setProjectMessage(consistencyReason);
+      return;
+    }
     if (driveOperationInFlightRef.current) {
       return;
     }
@@ -7712,6 +7780,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     projectId: string;
     revisionId: string;
   }): Promise<CommitPreparedProjectPublishResult> {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      return { ok: false, error: { code: "publishNotReady", message: consistencyReason, recoverability: "conflict", canRetry: false } };
+    }
     if (
       driveOperationInFlightRef.current ||
       projectPublishInFlightRef.current ||
@@ -7773,6 +7845,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const locked = await runWithProjectPublicationWriteLock(
       { projectId: input.projectId },
       async (): Promise<CommitPreparedProjectPublishResult> => {
+        if (projectConsistencyRef.current !== "synced") {
+          return { ok: false, error: { code: "publishNotReady", message: PROJECT_SUMMARY_STALE_REASON, recoverability: "conflict", canRetry: false } };
+        }
         const requestSequence = pending.owner.requestSequence;
         const controller = new AbortController();
         projectPublishAbortRef.current = controller;
@@ -7948,6 +8023,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   async function syncSelectedProjectToGooglePhotos(
     projectId: string,
   ): Promise<GooglePhotosSyncActionResult> {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      setProjectMessage(consistencyReason);
+      return { status: "notReady" };
+    }
     if (googlePhotosSyncInFlightRef.current) {
       return { status: "alreadyRunning" };
     }
@@ -8228,6 +8308,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   async function commitPreparedGooglePhotosExport(): Promise<CommitGooglePhotosExportResult> {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      return { ok: false, error: { kind: "drivePreflightFailed", message: consistencyReason }, canResume: false };
+    }
     const driveAccessToken = accessTokenRef.current;
     const plan = pendingGooglePhotosExportRef.current;
     const runtime = googlePhotosExportRuntimeRef.current;
@@ -8310,6 +8394,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }
 
       if (
+        projectConsistencyRef.current !== "synced" ||
         requestSequence !== googlePhotosExportRequestSequenceRef.current ||
         accessTokenRef.current !== driveAccessToken
       ) {
@@ -8632,6 +8717,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
     targetRevisionId: string;
     revisionId: string;
   }): Promise<CommitPreparedProjectRollbackResult> {
+    const consistencyReason = getProjectConsistencyBlockedReason(projectConsistencyRef.current);
+    if (consistencyReason) {
+      return buildProjectRollbackCommitFailure({ code: "rollbackNotReady", message: consistencyReason, recoverability: "conflict" });
+    }
     if (
       driveOperationInFlightRef.current ||
       projectPublishInFlightRef.current ||
@@ -8679,6 +8768,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const locked = await runWithProjectPublicationWriteLock(
       { projectId: input.projectId },
       async (): Promise<CommitPreparedProjectRollbackResult> => {
+        if (projectConsistencyRef.current !== "synced") {
+          return buildProjectRollbackCommitFailure({ code: "rollbackNotReady", message: PROJECT_SUMMARY_STALE_REASON, recoverability: "conflict" });
+        }
         const requestSequence = pending.owner.requestSequence;
         const controller = new AbortController();
         projectRollbackAbortRef.current = controller;
@@ -8786,6 +8878,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     isDriveOperationInFlight,
     projectStatus,
     projectStatusLabel: projectStatusLabels[projectStatus],
+    projectConsistency,
     projectMessage,
     driveProjects,
     selectedProjectId,

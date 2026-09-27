@@ -47,6 +47,7 @@ function GooglePhotosSyncPanelSession() {
     googleStatus,
     driveStatus,
     projectStatus,
+    projectConsistency,
     selectedProjectId,
     projectSummary,
     prepareGooglePhotosSyncReview,
@@ -64,7 +65,7 @@ function GooglePhotosSyncPanelSession() {
   const isReady =
     googleStatus === "connected" &&
     driveStatus === "ready" &&
-    projectStatus === "ready" &&
+    projectStatus === "ready" && projectConsistency !== "summaryStale" &&
     selectedProjectId !== null &&
     projectSummary !== null;
 
@@ -152,6 +153,7 @@ function GooglePhotosSyncPanelSession() {
 
   async function syncToGooglePhotos(review: GooglePhotosSyncUiReview) {
     if (
+      !isReady ||
       !selectedProjectId ||
       !confirmed ||
       actionInFlightRef.current ||
@@ -326,7 +328,7 @@ function GooglePhotosSyncPanelSession() {
               review={uiState.review}
               message={uiState.message}
               confirmed={confirmed}
-              disabled={isGooglePhotosSyncInFlight}
+              disabled={!isReady || isGooglePhotosSyncInFlight}
               onConfirmedChange={setConfirmed}
               onSync={() => void syncToGooglePhotos(uiState.review)}
               onCancel={cancelReview}

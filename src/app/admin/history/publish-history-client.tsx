@@ -88,6 +88,7 @@ export function PublishHistoryClient() {
     driveFileGranted,
     driveStatus,
     projectStatus,
+    projectConsistency,
     driveProjects,
     selectedProjectId,
     isDriveOperationInFlight,
@@ -695,7 +696,7 @@ export function PublishHistoryClient() {
           executionReview={executionReview}
           executionMessage={executionMessage}
           confirmations={confirmations}
-          rollbackBusy={rollbackBusy}
+          rollbackBusy={rollbackBusy || projectConsistency === "summaryStale"}
           onClose={clearDetail}
           onRetry={handleRetryDetail}
           onStartPreview={() => void startRollbackPreview()}

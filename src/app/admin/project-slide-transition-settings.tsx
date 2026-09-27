@@ -20,6 +20,7 @@ export function ProjectSlideTransitionSettings({ onDirtyChange }: { onDirtyChang
   const {
     driveStatus,
     projectStatus,
+    projectConsistency,
     projectSummary,
     projectTransition,
     projectTransitionStrength,
@@ -28,7 +29,7 @@ export function ProjectSlideTransitionSettings({ onDirtyChange }: { onDirtyChang
   } = useAppState();
   const canUpdateSelectedProjectTransition =
     driveStatus === "ready" &&
-    projectStatus === "ready" &&
+    projectStatus === "ready" && projectConsistency !== "summaryStale" &&
     projectSummary !== null &&
     !isDriveOperationInFlight;
 
@@ -41,7 +42,7 @@ export function ProjectSlideTransitionSettings({ onDirtyChange }: { onDirtyChang
         projectTransitionStrength={projectTransitionStrength}
         hasProject={projectSummary !== null}
         canUpdateSelectedProjectTransition={canUpdateSelectedProjectTransition}
-        isDriveOperationInFlight={isDriveOperationInFlight}
+        isDriveOperationInFlight={isDriveOperationInFlight || projectConsistency === "summaryStale"}
         updateSelectedProjectTransitionSettings={updateSelectedProjectTransitionSettings}
       />
     </section>

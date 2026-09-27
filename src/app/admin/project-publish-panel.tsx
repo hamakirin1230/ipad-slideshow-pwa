@@ -72,6 +72,7 @@ function ProjectPublishPanelSession() {
     googleStatus,
     driveStatus,
     projectStatus,
+    projectConsistency,
     selectedProjectId,
     projectSummary,
     isProjectPublishInFlight,
@@ -88,7 +89,7 @@ function ProjectPublishPanelSession() {
   const isReady =
     googleStatus === "connected" &&
     driveStatus === "ready" &&
-    projectStatus === "ready" &&
+    projectStatus === "ready" && projectConsistency !== "summaryStale" &&
     selectedProjectId !== null &&
     projectSummary !== null;
   const playerHref = selectedProjectId
@@ -142,6 +143,7 @@ function ProjectPublishPanelSession() {
 
   async function publish(review: ProjectPublishReview) {
     if (
+      !isReady ||
       actionInFlightRef.current ||
       !confirmed ||
       review.projectId !== selectedProjectId
@@ -225,7 +227,7 @@ function ProjectPublishPanelSession() {
               review={uiState.review}
               confirmed={confirmed}
               publishing={uiState.status === "publishing"}
-              disabled={isProjectPublishInFlight}
+              disabled={!isReady || isProjectPublishInFlight}
               onConfirmedChange={setConfirmed}
               onPublish={() => void publish(uiState.review)}
               onCancel={cancelReview}

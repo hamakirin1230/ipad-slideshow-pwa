@@ -40,6 +40,7 @@ export function SystemStatusOverview() {
     driveMessage,
     driveDiagnostics,
     projectStatus,
+    projectConsistency,
     projectStatusLabel,
     projectMessage,
     projectSummary,
@@ -56,6 +57,7 @@ export function SystemStatusOverview() {
   });
 
   const health = getSystemHealth({
+    projectConsistency,
     googleStatus,
     driveStatus,
     projectStatus,
@@ -180,6 +182,14 @@ export function SystemStatusOverview() {
           description={sanitizeUserFacingDiagnostic(projectMessage)}
           tone={getProjectTone(projectStatus)}
         />
+        {projectConsistency ? (
+          <StatusRow
+            label="一覧情報"
+            status={projectConsistency === "summaryStale" ? "同期が必要" : "同期済み"}
+            description={projectConsistency === "summaryStale" ? "内容は確認できます。安全のため更新操作を停止しています。" : "アルバムの内容と一覧情報は一致しています。"}
+            tone={projectConsistency === "summaryStale" ? "attention" : "neutral"}
+          />
+        ) : null}
         {projectDiagnostics.length > 0 ? (
           <DiagnosticList items={projectDiagnostics} />
         ) : null}
@@ -352,6 +362,7 @@ function SectionAction({ label, onClick, disabled }: { label: string; onClick: (
 }
 
 function getSystemHealth(input: {
+  projectConsistency: "synced" | "summaryStale" | null;
   googleStatus: string;
   driveStatus: string;
   projectStatus: string;
@@ -370,6 +381,14 @@ function getSystemHealth(input: {
       tone: "danger" as const,
       label: "確認が必要",
       message: "対応が必要な項目があります。下の状態を確認してください。",
+    };
+  }
+
+  if (input.projectConsistency === "summaryStale") {
+    return {
+      tone: "attention" as const,
+      label: "一覧情報の確認が必要",
+      message: "アルバムの内容は確認できます。更新操作は停止しています。",
     };
   }
 

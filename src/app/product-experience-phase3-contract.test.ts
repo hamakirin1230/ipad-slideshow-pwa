@@ -48,7 +48,7 @@ describe("beginner-first product experience", () => {
   it("never represents unknown project counts as zero and makes the whole card selectable", () => {
     expect(source.providers).toContain("slideCount: details?.slideCount ?? null");
     expect(source.providers).toContain("assetCount: details?.assetCount ?? null");
-    expect(source.providers).toContain("const summary = toProjectSummary(project, details)");
+    expect(source.providers).toContain("const summary = toProjectSummary(readModel?.resolvedProject ?? project, details)");
     expect(source.providers).toContain("const nextProjectSummary = toProjectSummary(");
     expect(source.providers).toContain("photoCount: counts.photoCount");
     expect(source.providers).toContain("videoCount: counts.videoCount");

@@ -13,13 +13,13 @@ import {
 } from "@/lib/project-slide-caption-style";
 
 export function ProjectSlideCaptionStyleSettings({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }) {
-  const { projectSummary, projectCaptionStyle, driveStatus, projectStatus, isDriveOperationInFlight, updateSelectedProjectCaptionStyle } = useAppState();
+  const { projectSummary, projectCaptionStyle, driveStatus, projectStatus, projectConsistency, isDriveOperationInFlight, updateSelectedProjectCaptionStyle } = useAppState();
   return (
     <SelectedProjectSlideCaptionStyleForm
       key={`${projectSummary?.projectId ?? "none"}:${JSON.stringify(getEffectiveProjectSlideCaptionStyle(projectCaptionStyle))}`}
       savedStyle={projectCaptionStyle}
-      disabled={!projectSummary || isDriveOperationInFlight}
-      canSave={driveStatus === "ready" && projectStatus === "ready" && projectSummary !== null && !isDriveOperationInFlight}
+      disabled={!projectSummary || isDriveOperationInFlight || projectConsistency === "summaryStale"}
+      canSave={driveStatus === "ready" && projectStatus === "ready" && projectConsistency !== "summaryStale" && projectSummary !== null && !isDriveOperationInFlight}
       onSave={updateSelectedProjectCaptionStyle}
       onDirtyChange={onDirtyChange}
     />

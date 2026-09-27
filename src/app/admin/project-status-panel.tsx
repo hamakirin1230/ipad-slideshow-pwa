@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ProjectConsistencyWarning } from "@/components/project-consistency-warning";
 import { Check } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ export function ProjectStatusPanel() {
     googleStatus,
     driveStatus,
     projectStatus,
+    projectConsistency,
     driveProjects,
     selectedProjectId,
     projectSummary,
@@ -64,11 +66,12 @@ export function ProjectStatusPanel() {
 
   const canCreateProject =
     driveStatus === "ready" &&
+    projectConsistency !== "summaryStale" &&
     (projectStatus === "notCreated" || projectStatus === "ready") &&
     !isDriveOperationInFlight;
   const canUpdateSelectedProjectTitle =
     driveStatus === "ready" &&
-    projectStatus === "ready" &&
+    projectStatus === "ready" && projectConsistency !== "summaryStale" &&
     projectSummary !== null &&
     !isDriveOperationInFlight;
 
@@ -99,6 +102,7 @@ export function ProjectStatusPanel() {
 
   return (
     <div className="space-y-8 text-sm text-slate-300">
+      <ProjectConsistencyWarning consistency={projectConsistency} />
       <div>
         <h2 className="mt-2 text-2xl font-semibold text-slate-50">
           どのアルバムを編集しますか？
@@ -191,6 +195,7 @@ export function ProjectStatusPanel() {
             projectMessage={projectMessage}
             canCreateProject={canCreateProject}
             isDriveOperationInFlight={isDriveOperationInFlight}
+            updatesBlocked={projectConsistency === "summaryStale"}
             createProject={createProject}
           />
 
@@ -201,6 +206,7 @@ export function ProjectStatusPanel() {
             hasProject={projectSummary !== null}
             canUpdateSelectedProjectTitle={canUpdateSelectedProjectTitle}
             isDriveOperationInFlight={isDriveOperationInFlight}
+            updatesBlocked={projectConsistency === "summaryStale"}
             updateSelectedProjectTitle={updateSelectedProjectTitle}
           />
         </div>
@@ -307,6 +313,7 @@ function CreateProjectTitleForm(input: {
   projectMessage: string;
   canCreateProject: boolean;
   isDriveOperationInFlight: boolean;
+  updatesBlocked?: boolean;
   createProject: (title: string) => void;
 }) {
   const [projectTitle, setProjectTitle] = useState(input.suggestedProjectTitle);
@@ -344,7 +351,7 @@ function CreateProjectTitleForm(input: {
           maxLength={DRIVE_PROJECT_TITLE_MAX_LENGTH}
           className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-sky-300"
           placeholder={input.suggestedProjectTitle}
-          disabled={input.isDriveOperationInFlight}
+          disabled={input.isDriveOperationInFlight || input.updatesBlocked}
         />
       </label>
       <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
@@ -373,6 +380,7 @@ function SelectedProjectTitleForm(input: {
   hasProject: boolean;
   canUpdateSelectedProjectTitle: boolean;
   isDriveOperationInFlight: boolean;
+  updatesBlocked?: boolean;
   updateSelectedProjectTitle: (title: string) => void;
 }) {
   const [projectTitle, setProjectTitle] = useState(input.projectTitle);
@@ -415,7 +423,7 @@ function SelectedProjectTitleForm(input: {
           maxLength={DRIVE_PROJECT_TITLE_MAX_LENGTH}
           className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-slate-50 outline-none ring-0 transition focus:border-sky-300 disabled:opacity-60"
           placeholder="Project A"
-          disabled={!input.hasProject || input.isDriveOperationInFlight}
+          disabled={!input.hasProject || input.isDriveOperationInFlight || input.updatesBlocked}
         />
       </label>
       <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
