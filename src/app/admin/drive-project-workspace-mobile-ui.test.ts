@@ -87,6 +87,23 @@ describe("mobile and tablet slide editor", () => {
     expect(source).toContain("orderedSlideIds: current.sourceSlideIds");
   });
 
+  it("uses touch-only mobile card activation without changing desktop mouse activation", () => {
+    const sortableRow = functionBody("SortableSlideRow");
+
+    expect(source).toContain("useSensor(MouseSensor");
+    expect(source).toContain("useSensor(TouchSensor");
+    expect(source).not.toContain("useSensor(PointerSensor");
+    expect(source).toContain("delay: 250");
+    expect(source).toContain("tolerance: 5");
+    expect(source).toContain("useSensor(KeyboardSensor");
+    expect(sortableRow).toContain("onTouchStart={handleMobileCardTouchStart}");
+    expect(sortableRow).toContain("listeners?.onTouchStart?.(event)");
+    expect(sortableRow).not.toContain("onMouseDown={");
+    expect(sortableRow).toContain("touch-manipulation select-none");
+    expect(sortableRow).toContain("xl:select-text");
+    expect(sortableRow).not.toContain("touch-action: none");
+  });
+
   it("gives card content the remaining width without mobile fixed table columns", () => {
     const sortableRow = functionBody("SortableSlideRow");
 

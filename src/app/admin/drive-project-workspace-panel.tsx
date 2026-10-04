@@ -10,12 +10,14 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
+  type TouchEvent as ReactTouchEvent,
 } from "react";
 import {
   closestCenter,
   DndContext,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragOverEvent,
@@ -60,6 +62,7 @@ import { AssetImportPanel } from "./asset-import-panel";
 import { ProjectSlideGlobalSettings } from "./project-slide-global-settings";
 import { ProjectSlideImageEditorButton } from "./project-slide-image-editor-dialog";
 import { WorkspaceSectionDisclosure } from "./workspace-section-disclosure";
+import { isInteractiveSlideCardDragTarget } from "./slide-card-drag-target";
 
 const SLIDE_CAPTION_MAX_LENGTH = 80;
 const PROJECT_SLIDE_MAX_COUNT = 50;
@@ -147,9 +150,15 @@ export function DriveProjectWorkspacePanel() {
     ? orderedSlideIds.indexOf(editingSlide.slideId)
     : -1;
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
         distance: 8,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -1084,14 +1093,23 @@ function SortableSlideRow({
     </button>
   );
 
+  function handleMobileCardTouchStart(event: ReactTouchEvent<HTMLDivElement>) {
+    if (isInteractiveSlideCardDragTarget(event.target)) {
+      return;
+    }
+
+    listeners?.onTouchStart?.(event);
+  }
+
   return (
     <div
       ref={setNodeRef}
       style={style}
+      onTouchStart={handleMobileCardTouchStart}
       className={
         isDragging
-          ? "relative grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 sm:p-4 md:p-3 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)] xl:rounded-none xl:border-0 xl:px-3 xl:py-2"
-          : "relative grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm sm:p-4 md:p-3 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)] xl:rounded-none xl:border-0 xl:px-3 xl:py-2 xl:shadow-none"
+          ? "relative grid min-w-0 grid-cols-[auto_minmax(0,1fr)] touch-manipulation select-none items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm opacity-90 shadow-lg ring-2 ring-slate-300 sm:p-4 md:p-3 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)] xl:rounded-none xl:border-0 xl:px-3 xl:py-2 xl:select-text"
+          : "relative grid min-w-0 grid-cols-[auto_minmax(0,1fr)] touch-manipulation select-none items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm sm:p-4 md:p-3 xl:grid-cols-[3rem_4rem_8rem_minmax(0,1fr)_9rem_8rem_minmax(14rem,1.4fr)] xl:rounded-none xl:border-0 xl:px-3 xl:py-2 xl:select-text xl:shadow-none"
       }
     >
       {children({ dragHandle })}
