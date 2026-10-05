@@ -46,6 +46,7 @@ import {
   useAppState,
   type ProjectSlideSummary,
 } from "@/app/app-providers";
+import { PlayerCaption } from "@/app/player/player-caption";
 import {
   DRIVE_PROJECT_SLIDE_DURATION_MAX_SECONDS,
   DRIVE_PROJECT_SLIDE_DURATION_MIN_SECONDS,
@@ -57,6 +58,7 @@ import {
   parseProjectSlideImageEdit,
   type ProjectSlideImageEdit,
 } from "@/lib/project-slide-image-edit";
+import type { ProjectSlideCaptionStyle } from "@/lib/project-slide-caption-style";
 import { AssetCleanupPreviewPanel } from "./asset-cleanup-preview-panel";
 import { AssetImportPanel } from "./asset-import-panel";
 import { ProjectSlideGlobalSettings } from "./project-slide-global-settings";
@@ -82,6 +84,7 @@ export function DriveProjectWorkspacePanel() {
     projectStatus,
     projectSummary,
     projectDetails,
+    projectCaptionStyle,
     fetchProjectSlidePreviewBlob,
     updateProjectSlideEdits,
     moveProjectSlide,
@@ -757,6 +760,7 @@ export function DriveProjectWorkspacePanel() {
           triggerRef={mobileEditorTriggerRef}
           slide={editingSlide}
           slideNumber={editingSlideIndex + 1}
+          captionStyle={projectCaptionStyle}
           isBusy={isSlideEditInFlight}
           isDisabled={areSlideActionsDisabled}
           isSaving={slideEditsUpdateSlideId === editingSlide.slideId}
@@ -801,6 +805,7 @@ function MobileSlideDetailEditor({
   triggerRef,
   slide,
   slideNumber,
+  captionStyle,
   isBusy,
   isDisabled,
   isSaving,
@@ -818,6 +823,7 @@ function MobileSlideDetailEditor({
   triggerRef: RefObject<HTMLElement | null>;
   slide: ProjectSlideSummary;
   slideNumber: number;
+  captionStyle: ProjectSlideCaptionStyle | undefined;
   isBusy: boolean;
   isDisabled: boolean;
   isSaving: boolean;
@@ -839,6 +845,7 @@ function MobileSlideDetailEditor({
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const [previewCaption, setPreviewCaption] = useState(slide.caption);
   const cancelDialog = useEffectEvent(() => {
     if (!isBusy) onClose();
   });
@@ -919,7 +926,7 @@ function MobileSlideDetailEditor({
 
         <div className="grid flex-1 gap-6 p-4 sm:p-6 md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
           <div className="min-w-0">
-            <div className="overflow-hidden rounded-2xl bg-slate-950">
+            <div className="relative min-w-0 overflow-hidden rounded-2xl bg-slate-950">
               <DriveSlidePreview
                 assetFileId={slide.assetFileId}
                 assetType={getAssetTypeLabel(slide.type)}
@@ -928,6 +935,12 @@ function MobileSlideDetailEditor({
                 imageEdit={slide.imageEdit}
                 fetchProjectSlidePreviewBlob={fetchProjectSlidePreviewBlob}
                 size="detail"
+              />
+              <PlayerCaption
+                caption={previewCaption}
+                captionStyle={captionStyle}
+                isProductionMode={false}
+                preview
               />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -950,6 +963,7 @@ function MobileSlideDetailEditor({
           <div className="min-w-0 space-y-6">
             <SlideEditForm
               slide={slide}
+              onDraftCaptionChange={setPreviewCaption}
               variant="detail"
               isSaving={isSaving}
               isDisabled={isDisabled}
@@ -1131,6 +1145,7 @@ function SlideEditForm({
   isDisabled,
   fetchProjectSlidePreviewBlob,
   onSave,
+  onDraftCaptionChange,
 }: {
   slide: ProjectSlideSummary;
   variant: "compact" | "detail";
@@ -1142,6 +1157,7 @@ function SlideEditForm({
     signal: AbortSignal,
   ) => Promise<Blob>;
   onSave: SlideEditSaveHandler;
+  onDraftCaptionChange?: (caption: string) => void;
 }) {
   const [draftCaption, setDraftCaption] = useState(slide.caption);
   const [draftDurationSeconds, setDraftDurationSeconds] = useState(
@@ -1271,7 +1287,11 @@ function SlideEditForm({
         <div className={variant === "detail" ? "mt-3" : "flex flex-wrap items-center gap-1.5 sm:gap-2"}>
           <textarea
             value={draftCaption}
-            onChange={(event) => setDraftCaption(event.target.value)}
+            onChange={(event) => {
+              const caption = event.target.value;
+              setDraftCaption(caption);
+              onDraftCaptionChange?.(caption);
+            }}
             maxLength={SLIDE_CAPTION_MAX_LENGTH + 20}
             rows={variant === "detail" ? 5 : 1}
             aria-label="テロップ"

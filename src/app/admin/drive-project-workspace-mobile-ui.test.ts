@@ -132,6 +132,36 @@ describe("mobile and tablet slide editor", () => {
     expect(editor).not.toContain("テロップを保存");
   });
 
+  it("previews the current detail caption with the shared PlayerCaption style", () => {
+    const detail = functionBody("MobileSlideDetailEditor");
+    const editor = functionBody("SlideEditForm");
+    const saveChanges = editor.slice(
+      editor.indexOf("async function saveChanges()"),
+      editor.indexOf("const durationEditor"),
+    );
+
+    expect(source).toContain('import { PlayerCaption } from "@/app/player/player-caption"');
+    expect(source).toContain("projectCaptionStyle,");
+    expect(source).toContain("captionStyle={projectCaptionStyle}");
+    expect(detail).toContain("captionStyle: ProjectSlideCaptionStyle | undefined");
+    expect(detail).toContain("const [previewCaption, setPreviewCaption] = useState(slide.caption)");
+    expect(detail).toContain('className="relative min-w-0 overflow-hidden rounded-2xl');
+    expect(detail).toContain("<DriveSlidePreview");
+    expect(detail).toContain("<PlayerCaption");
+    expect(detail).toContain("caption={previewCaption}");
+    expect(detail).toContain("captionStyle={captionStyle}");
+    expect(detail).toContain("isProductionMode={false}");
+    expect(detail).toContain("preview");
+    expect(detail).toContain("onDraftCaptionChange={setPreviewCaption}");
+    expect(editor).toContain("onDraftCaptionChange?: (caption: string) => void");
+    expect(editor).toContain("setDraftCaption(caption)");
+    expect(editor).toContain("onDraftCaptionChange?.(caption)");
+    expect(saveChanges).toContain("caption: normalizedCaption,");
+    expect(saveChanges).toContain("durationSeconds: parsedDurationSeconds,");
+    expect(saveChanges).toContain("imageEdit: normalizedImageEdit,");
+    expect(saveChanges).not.toContain("previewCaption");
+  });
+
   it("offers image editing for images only", () => {
     const editor = functionBody("SlideEditForm");
 
