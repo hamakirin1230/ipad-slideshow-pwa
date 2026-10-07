@@ -9,6 +9,7 @@ import {
 } from "../drive-preflight-diagnostics";
 import {
   readDriveFileMetadata,
+  isDriveAuthError,
   readDriveTextFile,
   parseProjectManifest,
   type DriveFileCandidate,
@@ -29,6 +30,7 @@ import {
   buildProjectPublishInternalDiagnostics,
   buildProjectPublishReview,
   createPrepareReviewFailure,
+  PROJECT_PUBLISH_DRIVE_AUTH_REQUIRED,
   createRandomHexSuffix,
   getProjectPublishAssetDiagnosticCode,
   type PrepareProjectPublishReviewResult,
@@ -239,9 +241,11 @@ export async function prepareProjectPublishReviewWithAdapter(
     return createPrepareReviewFailure({
       code:
         input.signal.aborted ||
-        (error instanceof DOMException && error.name === "AbortError")
+        (error instanceof Error && error.name === "AbortError")
           ? "aborted"
-          : "driveReadFailed",
+          : isDriveAuthError(error)
+            ? PROJECT_PUBLISH_DRIVE_AUTH_REQUIRED
+            : "driveReadFailed",
     });
   }
 }

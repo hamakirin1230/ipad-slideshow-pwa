@@ -425,12 +425,12 @@ function mapRevisionFailure(
     if (code === "duplicateRevision") {
       return failure("currentRevisionDuplicate");
     }
-    if (code === "driveReadFailed") return failure("driveReadFailed");
+    if (code === "driveReadFailed" || code === "driveAuthRequired") return failure("driveReadFailed");
     return failure("currentRevisionInvalid");
   }
   if (code === "notFound") return failure("targetRevisionNotFound");
   if (code === "duplicateRevision") return failure("targetRevisionDuplicate");
-  if (code === "driveReadFailed") return failure("driveReadFailed");
+  if (code === "driveReadFailed" || code === "driveAuthRequired") return failure("driveReadFailed");
   return failure("targetRevisionInvalid");
 }
 

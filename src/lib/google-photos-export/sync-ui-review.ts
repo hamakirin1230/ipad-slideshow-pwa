@@ -1,5 +1,5 @@
 import type { ProjectSlideCaptionStyle } from "../project-slide-caption-style";
-import type { DriveProjectSummary } from "../google-drive";
+import { isDriveAuthError, type DriveProjectSummary } from "../google-drive";
 import {
   planProjectDiff,
   type ProjectDiffSummary,
@@ -10,7 +10,7 @@ import {
 import type { ProjectSlideImageEdit } from "../project-slide-image-edit";
 import {
   readDrivePhotosSyncBinding,
-  type ReadDrivePhotosSyncBindingResult,
+  type ReadDrivePhotosSyncBindingReviewResult,
 } from "./drive-sync-binding";
 import {
   parseGooglePhotosSyncBinding,
@@ -82,6 +82,7 @@ export type GooglePhotosSyncUiReview = {
 };
 
 export type GooglePhotosSyncUiReviewFailureReason =
+  | "driveAuthRequired"
   | "sourcePreparationFailed"
   | "bindingDuplicate"
   | "bindingInvalid"
@@ -98,8 +99,8 @@ export type GooglePhotosSyncUiReviewAdapters = {
     input: Parameters<typeof prepareGooglePhotosSyncSourceWithAdapter>[0],
   ) => Promise<PrepareGooglePhotosSyncSourceResult>;
   readBinding: (
-    input: Parameters<typeof readDrivePhotosSyncBinding>[0],
-  ) => Promise<ReadDrivePhotosSyncBindingResult>;
+    input: Parameters<typeof readDrivePhotosSyncBinding>[0] & { classifyAuthFailure: true },
+  ) => Promise<ReadDrivePhotosSyncBindingReviewResult>;
 };
 
 const defaultAdapters: GooglePhotosSyncUiReviewAdapters = {
@@ -134,14 +135,18 @@ export async function prepareGooglePhotosSyncUiReviewInDrive(
     input.signal.throwIfAborted();
   } catch (error) {
     rethrowAbort(error, input.signal);
+    if (isDriveAuthError(error)) return { ok: false, reason: "driveAuthRequired" };
     return { ok: false, reason: "sourcePreparationFailed" };
   }
   if (!sourceResult.ok) {
+    if (sourceResult.reason === "driveAuthRequired") {
+      return { ok: false, reason: "driveAuthRequired" };
+    }
     return { ok: false, reason: "sourcePreparationFailed" };
   }
   const source = sourceResult.source;
 
-  let bindingResult: ReadDrivePhotosSyncBindingResult;
+  let bindingResult: ReadDrivePhotosSyncBindingReviewResult;
   try {
     bindingResult = await adapters.readBinding({
       accessToken: input.accessToken,
@@ -149,14 +154,18 @@ export async function prepareGooglePhotosSyncUiReviewInDrive(
       workspaceId: input.workspaceId,
       projectId: input.selectedProjectId,
       signal: input.signal,
+      classifyAuthFailure: true,
     });
     input.signal.throwIfAborted();
   } catch (error) {
     rethrowAbort(error, input.signal);
+    if (isDriveAuthError(error)) return { ok: false, reason: "driveAuthRequired" };
     return { ok: false, reason: "bindingInaccessible" };
   }
 
   switch (bindingResult.status) {
+    case "authRequired":
+      return { ok: false, reason: "driveAuthRequired" };
     case "unbound":
       return success("initial", source, null);
     case "duplicate":
@@ -620,5 +629,5 @@ function formatImageEdit(edit: ProjectSlideImageEdit | undefined) {
 
 function rethrowAbort(error: unknown, signal: AbortSignal) {
   if (signal.aborted) signal.throwIfAborted();
-  if (error instanceof DOMException && error.name === "AbortError") throw error;
+  if (error instanceof Error && error.name === "AbortError") throw error;
 }

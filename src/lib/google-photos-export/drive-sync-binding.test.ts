@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { DriveApiError } from "../google-drive";
 import type { DriveFileCandidate } from "../google-drive";
 import {
   buildDrivePhotosSyncBindingAppProperties,
@@ -109,6 +110,35 @@ function readInput() {
     signal: new AbortController().signal,
   };
 }
+
+describe("binding review-only auth classification", () => {
+  for (const status of [401, 403]) {
+    it.each(["list", "text"])(`classifies ${status} on %s without changing default callers`, async phase => {
+      const options = { pages: [{ files: [candidate()] }],
+        ...(phase === "list" ? { listError: new DriveApiError(status) } : { readError: new DriveApiError(status) }) };
+      const readAdapter = adapter(options);
+      await expect(readDrivePhotosSyncBinding({ ...readInput(), classifyAuthFailure: true }, readAdapter))
+        .resolves.toEqual({ status: "authRequired" });
+      await expect(readDrivePhotosSyncBinding(readInput(), adapter(options)))
+        .resolves.toEqual({ status: "inaccessible" });
+      expect(readAdapter.createJson).not.toHaveBeenCalled();
+      expect(readAdapter.updateJson).not.toHaveBeenCalled();
+    });
+  }
+  it.each([new DriveApiError(500), new Error("fixture network"), new DOMException("fixture", "AbortError")])(
+    "preserves inaccessible for non-auth errors", async error => {
+      await expect(readDrivePhotosSyncBinding({ ...readInput(), classifyAuthFailure: true }, adapter({ listError: error })))
+        .resolves.toEqual({ status: "inaccessible" });
+    },
+  );
+  it("gives signal abort priority", async () => {
+    const controller = new AbortController();
+    const readAdapter = adapter();
+    readAdapter.listCandidates.mockImplementation(async () => { controller.abort(); throw new DriveApiError(401); });
+    await expect(readDrivePhotosSyncBinding({ ...readInput(), classifyAuthFailure: true, signal: controller.signal }, readAdapter))
+      .resolves.toEqual({ status: "inaccessible" });
+  });
+});
 
 describe("Drive Google Photos sync binding read", () => {
   it("queries the project root with exact app ownership metadata", () => {

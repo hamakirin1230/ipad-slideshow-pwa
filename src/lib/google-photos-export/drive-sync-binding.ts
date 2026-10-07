@@ -1,6 +1,7 @@
 import {
   createDriveJsonFileWithAppProperties,
   escapeDriveReadOnlyQueryValue,
+  isDriveAuthError,
   listDriveFilesReadOnlyPage,
   readDriveTextFile,
   updateDriveJsonFileContentWithAppProperties,
@@ -78,6 +79,18 @@ export type CreateDrivePhotosSyncBindingResult =
   | { status: "validationFailed" }
   | { status: "writeFailed" };
 
+export type ReadDrivePhotosSyncBindingReviewResult =
+  | ReadDrivePhotosSyncBindingResult
+  | { status: "authRequired" };
+
+type ReadDrivePhotosSyncBindingInput = {
+  accessToken: string;
+  projectRootFolderId: string;
+  workspaceId: string;
+  projectId: string;
+  signal: AbortSignal;
+};
+
 export type UpdateDrivePhotosSyncBindingResult =
   | {
       status: "updated";
@@ -139,16 +152,18 @@ export function buildDrivePhotosSyncBindingQuery(input: {
   ].join(" and ");
 }
 
+export function readDrivePhotosSyncBinding(
+  input: ReadDrivePhotosSyncBindingInput & { classifyAuthFailure: true },
+  adapter?: DrivePhotosSyncBindingAdapter,
+): Promise<ReadDrivePhotosSyncBindingReviewResult>;
+export function readDrivePhotosSyncBinding(
+  input: ReadDrivePhotosSyncBindingInput,
+  adapter?: DrivePhotosSyncBindingAdapter,
+): Promise<ReadDrivePhotosSyncBindingResult>;
 export async function readDrivePhotosSyncBinding(
-  input: {
-    accessToken: string;
-    projectRootFolderId: string;
-    workspaceId: string;
-    projectId: string;
-    signal: AbortSignal;
-  },
+  input: ReadDrivePhotosSyncBindingInput & { classifyAuthFailure?: true },
   adapter: DrivePhotosSyncBindingAdapter = defaultAdapter,
-): Promise<ReadDrivePhotosSyncBindingResult> {
+): Promise<ReadDrivePhotosSyncBindingReviewResult> {
   if (!ownershipInputIsValid(input)) {
     return { status: "invalid", reason: "metadata" };
   }
@@ -176,7 +191,15 @@ export async function readDrivePhotosSyncBinding(
       return { status: "invalid", reason: parsed.reason };
     }
     return { status: "ready", fileId: file.id, binding: parsed.value };
-  } catch {
+  } catch (error) {
+    if (
+      input.classifyAuthFailure &&
+      !input.signal.aborted &&
+      !(error instanceof Error && error.name === "AbortError") &&
+      isDriveAuthError(error)
+    ) {
+      return { status: "authRequired" };
+    }
     return { status: "inaccessible" };
   }
 }

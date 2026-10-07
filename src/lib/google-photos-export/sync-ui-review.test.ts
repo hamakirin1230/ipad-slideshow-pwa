@@ -1,6 +1,8 @@
 import { DEFAULT_PROJECT_SLIDE_CAPTION_STYLE as defaults, type ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { DriveApiError } from "../google-drive";
+import { createSanitizedGooglePhotosExportError } from "./contract";
 import type { DriveProjectSummary } from "../google-drive";
 import type { SafeSlideSnapshot } from "../project-diff";
 import {
@@ -26,6 +28,41 @@ const sourceText = readFileSync(
   new URL("./sync-ui-review.ts", import.meta.url),
   "utf8",
 );
+
+describe("sync review safe auth result", () => {
+  it("propagates source category without reading binding", async () => {
+    const { adapters, readBinding } = harness({ status: "unbound" });
+    await expect(prepareGooglePhotosSyncUiReviewInDrive(input(), {
+      ...adapters, prepareSource: async () => ({ ok: false, reason: "driveAuthRequired", error: createSanitizedGooglePhotosExportError("drivePreflightFailed") }),
+    })).resolves.toEqual({ ok: false, reason: "driveAuthRequired" });
+    expect(readBinding).not.toHaveBeenCalled();
+  });
+  it("opts into binding auth classification", async () => {
+    const { adapters, readBinding } = harness({ status: "authRequired" });
+    await expect(prepareGooglePhotosSyncUiReviewInDrive(input(), adapters))
+      .resolves.toEqual({ ok: false, reason: "driveAuthRequired" });
+    expect(readBinding).toHaveBeenCalledWith(expect.objectContaining({ classifyAuthFailure: true }));
+  });
+  for (const phase of ["source", "binding"] as const) {
+    it.each([401, 403, 500, "network"])(`classifies ${phase} thrown %s`, async status => {
+      const { adapters, prepareSource, readBinding } = harness({ status: "unbound" });
+      const error = typeof status === "number" ? new DriveApiError(status) : new Error("fixture network");
+      (phase === "source" ? prepareSource : readBinding).mockRejectedValue(error);
+      await expect(prepareGooglePhotosSyncUiReviewInDrive(input(), adapters)).resolves.toEqual({ ok: false,
+        reason: status === 401 || status === 403 ? "driveAuthRequired"
+          : phase === "source" ? "sourcePreparationFailed" : "bindingInaccessible" });
+    });
+    it(`gives abort priority during ${phase}`, async () => {
+      const controller = new AbortController();
+      const { adapters, prepareSource, readBinding } = harness({ status: "unbound" });
+      (phase === "source" ? prepareSource : readBinding).mockImplementation(async () => {
+        controller.abort(); throw new DriveApiError(401);
+      });
+      await expect(prepareGooglePhotosSyncUiReviewInDrive(input(controller.signal), adapters))
+        .rejects.toMatchObject({ name: "AbortError" });
+    });
+  }
+});
 
 const project: DriveProjectSummary = {
   projectId: PROJECT_ID,

@@ -1,6 +1,7 @@
 import { pickProjectSlideCaptionStyle, type ProjectSlideCaptionStyle } from "../project-slide-caption-style";
 import {
   readDriveFileMetadata,
+  isDriveAuthError,
   readDriveTextFile,
   type DriveFileCandidate,
   type DriveProjectSummary,
@@ -56,6 +57,7 @@ export type GooglePhotosSyncPreparedSource = {
 };
 
 export type GooglePhotosSyncSourcePreparationFailureReason =
+  | "driveAuthRequired"
   | "sourceMetadataUnavailable"
   | "renderIdentityFailed"
   | "sourceFingerprintFailed"
@@ -97,16 +99,41 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
 ): Promise<PrepareGooglePhotosSyncSourceResult> {
   const metadataCache = new Map<string, DriveFileCandidate>();
   let manifestText: string | undefined;
+  let driveAuthRequired = false;
+  let abortedRead = false;
+  function recordDriveReadFailure(error: unknown) {
+    if (input.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+      abortedRead = true;
+      return;
+    }
+    if (
+      isDriveAuthError(error)
+    ) {
+      driveAuthRequired = true;
+    }
+  }
   const cachedAdapter: GooglePhotosExportSourceAdapter = {
     async readMetadata(metadataInput) {
       const cached = metadataCache.get(metadataInput.fileId);
       if (cached) return cached;
-      const metadata = await adapter.readMetadata(metadataInput);
+      let metadata: DriveFileCandidate;
+      try {
+        metadata = await adapter.readMetadata(metadataInput);
+      } catch (error) {
+        recordDriveReadFailure(error);
+        throw error;
+      }
       metadataCache.set(metadataInput.fileId, metadata);
       return metadata;
     },
     async readText(accessToken, fileId, signal) {
-      const text = await adapter.readText(accessToken, fileId, signal);
+      let text: string;
+      try {
+        text = await adapter.readText(accessToken, fileId, signal);
+      } catch (error) {
+        recordDriveReadFailure(error);
+        throw error;
+      }
       if (fileId === input.project.manifestFileId) manifestText = text;
       return text;
     },
@@ -116,7 +143,11 @@ export async function prepareGooglePhotosSyncSourceWithAdapter(
     input,
     cachedAdapter,
   );
-  if (!prepared.ok) return prepared;
+  if (!prepared.ok) {
+    return driveAuthRequired && !abortedRead && !input.signal.aborted
+      ? { ...prepared, reason: "driveAuthRequired" }
+      : prepared;
+  }
   const snapshots = parseGooglePhotosSyncSnapshotSources(manifestText);
   if (!snapshots) {
     return fail("sourceMetadataUnavailable", "drivePreflightFailed");

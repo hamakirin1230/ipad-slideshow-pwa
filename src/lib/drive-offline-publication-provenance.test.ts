@@ -141,8 +141,13 @@ describe("Drive offline publication provenance", () => {
     ["invalidMetadata", "publicationInconsistent"],
     ["invalidJson", "publicationInconsistent"],
     ["invalidRevision", "publicationInconsistent"],
+    ["metadataBodyMismatch", "publicationInconsistent"],
     ["duplicateHistoryFolder", "historyStructureInvalid"],
+    ["invalidHistoryFolder", "historyStructureInvalid"],
+    ["duplicateRevisionsFolder", "historyStructureInvalid"],
+    ["invalidRevisionsFolder", "historyStructureInvalid"],
     ["driveReadFailed", "historyUnavailable"],
+    ["driveAuthRequired", "historyUnavailable"],
   ] as const)("maps %s to sanitized %s", async (code, reason) => {
     const result = await resolveDriveOfflinePublicationProvenanceWithLoader(
       input(buildManifest()),

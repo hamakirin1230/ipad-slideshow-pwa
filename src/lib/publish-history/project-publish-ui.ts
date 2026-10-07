@@ -15,6 +15,8 @@ export type ProjectPublishWarning = {
   message: string;
 };
 
+export const PROJECT_PUBLISH_DRIVE_AUTH_REQUIRED = "driveAuthRequired";
+
 export const PROJECT_PUBLISH_ASSET_DIAGNOSTIC_CODES = [
   "assetFileIdMismatch",
   "assetMimeTypeMismatch",
@@ -172,7 +174,9 @@ export function createPrepareReviewFailure(input?: {
     code: input?.code ?? "preflightFailed",
     message:
       input?.message ??
-      "公開前確認を完了できませんでした。現在のデータを再読込してから、もう一度確認してください。",
+      (input?.code === PROJECT_PUBLISH_DRIVE_AUTH_REQUIRED
+        ? "Googleへ再接続してから、もう一度公開前確認を実行してください。"
+        : "公開前確認を完了できませんでした。現在のデータを再読込してから、もう一度確認してください。"),
     ...(input?.diagnosticCode
       ? { diagnosticCode: input.diagnosticCode }
       : {}),

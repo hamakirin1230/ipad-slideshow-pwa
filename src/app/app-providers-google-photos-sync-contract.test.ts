@@ -36,6 +36,25 @@ function extractType(source: string, name: string) {
 }
 
 describe("AppProviders Google Photos same-album sync action", () => {
+  it("both read reviews reuse the existing reset after stale/abort guards", () => {
+    const publish = extractFunction(providers, "prepareProjectPublishReview");
+    const sync = extractFunction(providers, "prepareGooglePhotosSyncReview");
+    expect(publish.indexOf("requestSequence !== projectPublishRequestSequenceRef.current"))
+      .toBeLessThan(publish.indexOf("resetGoogleAfterDriveAuthFailure()"));
+    expect(publish).toContain("!controller.signal.aborted && result.code === PROJECT_PUBLISH_DRIVE_AUTH_REQUIRED");
+    expect(sync.indexOf("!googlePhotosSyncAuthorityIsCurrent(authoritySnapshot)"))
+      .toBeLessThan(sync.indexOf("resetGoogleAfterDriveAuthFailure()"));
+    expect(sync).toContain('result.reason === "driveAuthRequired"');
+    const reset = extractFunction(providers, "resetGoogleAfterDriveAuthFailure");
+    for (const text of ["accessTokenRef.current = null", "clearPhotosSyncAuthorization()",
+      "setWorkspaceReadyContext(null)", "resetProjectState()", "deleteAfterLocalDisconnect()"])
+      expect(reset).toContain(text);
+    expect(extractFunction(providers, "resetProjectState")).toContain("clearProjectReadyDetails()");
+    expect(extractFunction(providers, "clearProjectReadyDetails")).toContain("discardPendingProjectPublish()");
+    for (const text of ["projectPublishRequestSequenceRef.current += 1", "projectPublishInFlightRef.current = false",
+      "projectPublishAbortRef.current = null", "projectPublicationWriteInFlightRef.current = false"])
+      expect(extractFunction(providers, "discardPendingProjectPublish")).toContain(text);
+  });
   it("prepares UI review with Drive only and no Photos authorization", () => {
     const review = extractFunction(
       providers,

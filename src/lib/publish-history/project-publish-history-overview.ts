@@ -360,7 +360,7 @@ function classifyExactRevisionFailure(
   code: Extract<LoadProjectPublishRevisionResult, { ok: false }>["code"],
 ): "missingCurrentRevision" | "inconsistent" | "unavailable" {
   if (code === "notFound") return "missingCurrentRevision";
-  if (code === "driveReadFailed") return "unavailable";
+  if (code === "driveReadFailed" || code === "driveAuthRequired") return "unavailable";
   return "inconsistent";
 }
 

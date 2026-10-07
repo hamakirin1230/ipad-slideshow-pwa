@@ -31,6 +31,39 @@ const baseInput = {
   signal: new AbortController().signal,
 };
 
+describe("Drive auth classification across history reads", () => {
+  for (const status of [401, 403, 500]) {
+    it.each(["history", "revisions", "list", "detailList", "body"])(`HTTP ${status} at %s`, async stage => {
+      const queue: QueuedResponse[] = [];
+      if (stage !== "history") queue.push({ type: "json", body: { files: [historyFolder()] } });
+      if (!["history", "revisions"].includes(stage)) queue.push({ type: "json", body: { files: [revisionsFolder()] } });
+      if (stage === "body") queue.push({ type: "json", body: { files: [revisionFile({})] } });
+      queue.push({ type: "text", status, body: "fixture-raw-body" });
+      installFetchQueue(queue);
+      const result = stage === "detailList" || stage === "body"
+        ? await loadProjectPublishRevision({ ...baseInput, revisionId: REVISION_ID })
+        : await listProjectPublishRevisions(baseInput);
+      expect(result).toMatchObject({ ok: false, code: status === 500 ? "driveReadFailed" : "driveAuthRequired" });
+      const serialized = JSON.stringify(result);
+      for (const privateValue of [TOKEN_FIXTURE, PROJECT_FOLDER_ID, HISTORY_FOLDER_ID, REVISIONS_FOLDER_ID,
+        REVISION_FILE_ID, "fixture-raw-body", "Drive API request failed."]) expect(serialized).not.toContain(privateValue);
+    });
+  }
+  it.each([401, 403])( "location public result classifies HTTP %s", async status => {
+    installFetchQueue([{ type: "text", status, body: "fixture-raw-body" }]);
+    await expect(loadProjectPublishHistoryLocation(baseInput)).resolves.toMatchObject({ code: "driveAuthRequired" });
+  });
+  it.each(["network", "abort", "abortedAuth"])("preserves generic failure for %s", async kind => {
+    const controller = new AbortController();
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      if (kind === "abortedAuth") { controller.abort(); return new Response("fixture", { status: 401 }); }
+      throw kind === "abort" ? new DOMException("fixture", "AbortError") : new Error("fixture network");
+    }));
+    await expect(listProjectPublishRevisions({ ...baseInput, signal: controller.signal }))
+      .resolves.toMatchObject({ ok: false, code: "driveReadFailed" });
+  });
+});
+
 type QueuedResponse =
   | { type: "json"; body: unknown; ok?: boolean; status?: number }
   | { type: "text"; body: string; ok?: boolean; status?: number };

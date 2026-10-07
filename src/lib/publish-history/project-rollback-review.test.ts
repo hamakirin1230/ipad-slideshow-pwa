@@ -270,6 +270,21 @@ function run(
 }
 
 describe("prepareProjectRollbackPreviewWithAdapter", () => {
+  for (const owner of ["current", "target"] as const) {
+    it.each(["driveAuthRequired", "driveReadFailed", "notFound", "duplicateRevision", "invalidJson", "invalidMetadata", "invalidRevision", "metadataBodyMismatch"] as const)(
+      `${owner} revision failure %s keeps existing public classification`, async code => {
+        const result = await run(buildFixture({
+          [owner === "current" ? "currentResult" : "targetResult"]: { ok: false, code, message: "fixture raw error" },
+        }));
+        const expected = code === "driveAuthRequired" || code === "driveReadFailed" ? "driveReadFailed"
+          : code === "notFound" ? `${owner}RevisionNotFound`
+            : code === "duplicateRevision" ? `${owner}RevisionDuplicate` : `${owner}RevisionInvalid`;
+        expect(result).toMatchObject({ ok: false, code: expected });
+        for (const value of ["driveAuthRequired", "fixture raw error", "access-token-secret"])
+          expect(JSON.stringify(result)).not.toContain(value);
+      },
+    );
+  }
   it("fresh-reads current, target, target assets and rechecks current/target", async () => {
     const fixture = buildFixture();
     const result = await run(fixture);

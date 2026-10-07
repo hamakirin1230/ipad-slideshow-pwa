@@ -112,6 +112,7 @@ import {
   type CommitPreparedProjectPublishResult,
   type PendingProjectPublishOwner,
   type PrepareProjectPublishReviewResult,
+  PROJECT_PUBLISH_DRIVE_AUTH_REQUIRED,
 } from "@/lib/publish-history/project-publish-ui";
 import {
   PUBLICATION_WRITE_LOCKED_CODE,
@@ -7756,7 +7757,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
       ) {
         return createPrepareReviewFailure({ code: "stalePublishRequest" });
       }
-      if (!result.ok) return result;
+      if (!result.ok) {
+        if (!controller.signal.aborted && result.code === PROJECT_PUBLISH_DRIVE_AUTH_REQUIRED) {
+          resetGoogleAfterDriveAuthFailure();
+        }
+        return result;
+      }
 
       pendingProjectPublishRef.current = {
         owner: {
@@ -8009,6 +8015,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
         signal.aborted ||
         !googlePhotosSyncAuthorityIsCurrent(authoritySnapshot)
       ) {
+        return { ok: false, reason: "notReady" };
+      }
+      if (!result.ok && result.reason === "driveAuthRequired") {
+        resetGoogleAfterDriveAuthFailure();
         return { ok: false, reason: "notReady" };
       }
       return result;

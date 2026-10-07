@@ -5,6 +5,8 @@ import { buildEmptyGooglePhotosSyncBinding } from "./sync-binding";
 import { prepareGooglePhotosSyncUiReviewInDrive } from "./sync-ui-review";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { DriveApiError } from "../google-drive";
+import { prepareGooglePhotosExportSourceWithAdapter } from "./drive-source";
 import type {
   DriveFileCandidate,
   DriveProjectSummary,
@@ -46,6 +48,56 @@ function input() {
     signal: new AbortController().signal,
   };
 }
+
+describe("sync-only Drive auth propagation", () => {
+  for (const status of [401, 403]) {
+    it.each(["project-folder", "manifest-file", "assets-folder", "text", "image-a"])(
+      `classifies ${status} at %s, preserving one-shot export contract`, async target => {
+        function failingAdapter() {
+          const adapter = createAdapter();
+          const original = adapter.readMetadata;
+          adapter.readMetadata = vi.fn(async value => {
+            if (value.fileId === target) throw new DriveApiError(status);
+            return original(value);
+          });
+          if (target === "text") adapter.readText.mockRejectedValue(new DriveApiError(status));
+          return adapter;
+        }
+        const result = await prepareGooglePhotosSyncSourceWithAdapter(input(), failingAdapter());
+        expect(result).toMatchObject({ ok: false, reason: "driveAuthRequired" });
+        expect(JSON.stringify(result)).not.toContain("Drive API request failed.");
+        const oneShot = await prepareGooglePhotosExportSourceWithAdapter(input(), failingAdapter());
+        expect(oneShot).toMatchObject({ ok: false });
+        expect(JSON.stringify(oneShot)).not.toContain("driveAuthRequired");
+      },
+    );
+  }
+
+  it.each([new DriveApiError(500), new Error("fixture network"), new DOMException("fixture", "AbortError")])(
+    "keeps non-auth failures generic", async error => {
+      const result = await prepareGooglePhotosSyncSourceWithAdapter(input(), createAdapter({ readError: error }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).not.toBe("driveAuthRequired");
+    },
+  );
+
+  it("does not classify an aborted read as auth-required", async () => {
+    const controller = new AbortController();
+    const adapter = createAdapter();
+    adapter.readMetadata.mockImplementation(async () => { controller.abort(); throw new DriveApiError(401); });
+    const result = await prepareGooglePhotosSyncSourceWithAdapter({ ...input(), signal: controller.signal }, adapter);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).not.toBe("driveAuthRequired");
+  });
+  it("does not promote concurrent abort and auth failures into auth recovery", async () => {
+    const adapter = createAdapter();
+    adapter.readMetadata.mockRejectedValue(new DriveApiError(401));
+    adapter.readText.mockRejectedValue(new DOMException("fixture", "AbortError"));
+    const result = await prepareGooglePhotosSyncSourceWithAdapter(input(), adapter);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).not.toBe("driveAuthRequired");
+  });
+});
 
 function buildManifest(): ProjectManifest {
   return {

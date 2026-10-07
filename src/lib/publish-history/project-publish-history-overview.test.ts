@@ -189,6 +189,18 @@ async function load(input?: Parameters<typeof adapter>[0], signal?: AbortSignal)
 }
 
 describe("publication absent", () => {
+  it("keeps auth list failure in the existing generic public contract", async () => {
+    const result = await load({ history: { ok: false, code: "driveAuthRequired", message: RAW_ERROR } });
+    expect(result).toMatchObject({ ok: false, code: "driveReadFailed" });
+    for (const value of ["driveAuthRequired", RAW_ERROR, PROJECT_FOLDER_ID, MANIFEST_FILE_ID, "access-token-sensitive"])
+      expect(JSON.stringify(result)).not.toContain(value);
+  });
+  it("keeps auth exact revision failure unavailable, not inconsistent", async () => {
+    const result = await load({ exact: { ok: false, code: "driveAuthRequired", message: RAW_ERROR } });
+    expect(result).toMatchObject({ ok: true, overview: { publication: { status: "unavailable" } } });
+    for (const value of ["driveAuthRequired", RAW_ERROR, PROJECT_FOLDER_ID, MANIFEST_FILE_ID, "access-token-sensitive"])
+      expect(JSON.stringify(result)).not.toContain(value);
+  });
   it("reports unpublished when history is not configured", async () => {
     const result = await load({
       manifest: buildManifest(),

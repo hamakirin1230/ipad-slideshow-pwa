@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DRIVE_VIDEO_OFFLINE_MAX_BYTES } from "../drive-video-policy";
+import { DriveApiError } from "../google-drive";
+import { listProjectPublishRevisions } from "./project-publish-revision-loader";
 import type {
   DriveFileCandidate,
   DriveProjectSummary,
@@ -238,6 +240,65 @@ async function prepare(input?: {
     buildAdapter(input),
   );
 }
+
+describe("publish review Drive auth classification", () => {
+  it.each([401, 403, 500])("real history loader HTTP %s survives review without reclassification", async status => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("fixture-raw-body", { status })));
+    try {
+      const adapter = buildAdapter();
+      adapter.listRevisions = listProjectPublishRevisions;
+      const result = await prepareProjectPublishReviewWithAdapter({
+        accessToken: "fixture-only", workspaceId: WORKSPACE_ID, projectsRootFolderId: "projects-root",
+        project, publishedAt: PUBLISHED_AT, revisionRandomSuffix: "a1b2c3d4",
+        operationRandomSuffix: "1234abcd", signal: new AbortController().signal,
+      }, adapter);
+      expect(result).toMatchObject({ ok: false, code: status === 500 ? "driveReadFailed" : "driveAuthRequired" });
+      expect(JSON.stringify(result)).not.toContain("fixture-raw-body");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  for (const status of [401, 403]) {
+    it.each(["project-folder", "manifest-file", "assets-folder", "image-file"])(`metadata HTTP ${status} at %s`, async fileId => {
+      const adapter = buildAdapter();
+      const original = adapter.readMetadata;
+      adapter.readMetadata = async value => {
+        if (value.fileId === fileId) throw new DriveApiError(status);
+        return original(value);
+      };
+      await expect(prepareProjectPublishReviewWithAdapter({
+        accessToken: "fixture-only", workspaceId: WORKSPACE_ID, projectsRootFolderId: "projects-root",
+        project, publishedAt: PUBLISHED_AT, revisionRandomSuffix: "a1b2c3d4",
+        operationRandomSuffix: "1234abcd", signal: new AbortController().signal,
+      }, adapter)).resolves.toMatchObject({ ok: false, code: "driveAuthRequired" });
+    });
+  }
+  it.each([401, 403, 500, "network", "abort"])("classifies %s without raw errors", async status => {
+    const error = typeof status === "number" ? new DriveApiError(status)
+      : status === "abort" ? new DOMException("fixture", "AbortError") : new Error("fixture network");
+    const adapter = buildAdapter();
+    adapter.readText = vi.fn(async () => { throw error; });
+    const result = await prepareProjectPublishReviewWithAdapter({
+      accessToken: "fixture-only", workspaceId: WORKSPACE_ID,
+      projectsRootFolderId: "projects-root", project, publishedAt: PUBLISHED_AT,
+      revisionRandomSuffix: "a1b2c3d4", operationRandomSuffix: "1234abcd",
+      signal: new AbortController().signal,
+    }, adapter);
+    expect(result).toMatchObject({ ok: false, code: status === 401 || status === 403
+      ? "driveAuthRequired" : status === "abort" ? "aborted" : "driveReadFailed" });
+    expect(JSON.stringify(result)).not.toContain(error.message);
+    expect(JSON.stringify(result)).not.toContain("fixture-only");
+  });
+
+  it("gives an aborted signal priority over a simultaneous auth error", async () => {
+    const controller = new AbortController();
+    const adapter = buildAdapter();
+    adapter.readText = vi.fn(async () => { controller.abort(); throw new DriveApiError(401); });
+    await expect(prepareProjectPublishReviewWithAdapter({
+      accessToken: "fixture-only", workspaceId: WORKSPACE_ID,
+      projectsRootFolderId: "projects-root", project, publishedAt: PUBLISHED_AT,
+      revisionRandomSuffix: "a1b2c3d4", operationRandomSuffix: "1234abcd", signal: controller.signal,
+    }, adapter)).resolves.toMatchObject({ ok: false, code: "aborted" });
+  });
+});
 
 function reviewFixture(
   input: Partial<ProjectPublishReview> = {},

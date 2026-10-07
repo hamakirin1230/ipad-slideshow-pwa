@@ -166,6 +166,7 @@ function mapLoaderFailure(
     case "invalidRevisionsFolder":
       return "historyStructureInvalid";
     case "driveReadFailed":
+    case "driveAuthRequired":
       return "historyUnavailable";
     case "duplicateRevision":
     case "invalidMetadata":

@@ -1,5 +1,6 @@
 import {
   escapeDriveReadOnlyQueryValue,
+  isDriveAuthError,
   listDriveFilesReadOnlyPage,
   readDriveTextFile,
   type DriveFileCandidate,
@@ -65,6 +66,7 @@ export type LoadProjectPublishHistoryLocationResult =
         | "invalidHistoryFolder"
         | "duplicateRevisionsFolder"
         | "invalidRevisionsFolder"
+        | "driveAuthRequired"
         | "driveReadFailed";
       message: string;
     };
@@ -211,8 +213,8 @@ async function resolveHistoryLocation(
       status: "ready",
       location: { revisionsFolderId: revisionsFolder.id },
     };
-  } catch {
-    return locationError("driveReadFailed", "公開履歴フォルダを確認できませんでした。");
+  } catch (error) {
+    return locationError(classifyDriveReadFailure(error, input.signal), "公開履歴フォルダを確認できませんでした。");
   }
 }
 
@@ -288,8 +290,8 @@ async function listProjectPublishRevisionsWithDependencies(
       ignoredFileCount,
       duplicateRevisionIdCount,
     };
-  } catch {
-    return { ok: false, code: "driveReadFailed", message: "公開履歴を読み込めませんでした。" };
+  } catch (error) {
+    return { ok: false, code: classifyDriveReadFailure(error, input.signal), message: "公開履歴を読み込めませんでした。" };
   }
 }
 
@@ -340,7 +342,7 @@ async function loadProjectPublishRevisionWithDependencies(
     } catch (error) {
       return error instanceof SyntaxError
         ? { ok: false, code: "invalidJson", message: "公開履歴のJSONが正しくありません。" }
-        : { ok: false, code: "driveReadFailed", message: "公開履歴ファイルを読み込めませんでした。" };
+        : { ok: false, code: classifyDriveReadFailure(error, input.signal), message: "公開履歴ファイルを読み込めませんでした。" };
     }
 
     const parsed = parseProjectPublishRevision(body);
@@ -356,9 +358,16 @@ async function loadProjectPublishRevisionWithDependencies(
       return { ok: false, code: "metadataBodyMismatch", message: "公開履歴のmetadataと本文が一致しません。" };
     }
     return { ok: true, revision: parsed.value };
-  } catch {
-    return { ok: false, code: "driveReadFailed", message: "公開履歴ファイルを読み込めませんでした。" };
+  } catch (error) {
+    return { ok: false, code: classifyDriveReadFailure(error, input.signal), message: "公開履歴ファイルを読み込めませんでした。" };
   }
+}
+
+function classifyDriveReadFailure(error: unknown, signal: AbortSignal) {
+  if (signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+    return "driveReadFailed";
+  }
+  return isDriveAuthError(error) ? "driveAuthRequired" : "driveReadFailed";
 }
 
 async function listAllChildren(
