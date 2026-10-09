@@ -467,6 +467,18 @@ describe("Google Photos sync Drive-only UI review", () => {
     ).resolves.toEqual({ ok: false, reason: "sourceChanged" });
   });
 
+  it("retains finalizing pending after completed photo membership and a source edit", async () => {
+    const binding = pendingBinding("finalizing");
+    const snapshot = structuredClone(binding);
+    const source = preparedSource();
+    source.sourceFingerprint = OTHER_FINGERPRINT;
+    const { adapters } = harness(ready(binding), source);
+    await expect(prepareGooglePhotosSyncUiReviewInDrive(input(), adapters))
+      .resolves.toEqual({ ok: false, reason: "sourceChanged" });
+    expect(binding).toEqual(snapshot);
+    expect(binding.pending?.phase).toBe("finalizing");
+  });
+
   it("fails closed when the pending target title changed", async () => {
     const binding = pendingBinding("albumBound");
     binding.pending!.targetTitle = "以前のアルバム名";

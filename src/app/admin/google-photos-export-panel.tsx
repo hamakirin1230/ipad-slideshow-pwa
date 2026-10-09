@@ -20,6 +20,7 @@ import type {
   GooglePhotosSyncUiReview,
   GooglePhotosSyncUiReviewMode,
 } from "@/lib/google-photos-export/sync-ui-review";
+import type { GooglePhotosSyncPendingDiagnostics } from "@/lib/google-photos-export/sync-pending-diagnostics";
 
 type SyncUiState =
   | { status: "idle" }
@@ -51,6 +52,7 @@ function GooglePhotosSyncPanelSession() {
     selectedProjectId,
     projectSummary,
     prepareGooglePhotosSyncReview,
+    diagnoseGooglePhotosSync,
     syncSelectedProjectToGooglePhotos,
     abortGooglePhotosSync,
     isGooglePhotosSyncInFlight,
@@ -58,6 +60,11 @@ function GooglePhotosSyncPanelSession() {
   } = useAppState();
   const [uiState, setUiState] = useState<SyncUiState>({ status: "idle" });
   const [confirmed, setConfirmed] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<GooglePhotosSyncPendingDiagnostics | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnosticMessage, setDiagnosticMessage] = useState<string | null>(null);
+  const diagnosticsAbortRef = useRef<AbortController | null>(null);
+  const diagnosticsSequenceRef = useRef(0);
   const requestSequenceRef = useRef(0);
   const actionInFlightRef = useRef(false);
   const reviewAbortRef = useRef<AbortController | null>(null);
@@ -75,6 +82,8 @@ function GooglePhotosSyncPanelSession() {
       actionInFlightRef.current = false;
       reviewAbortRef.current?.abort();
       reviewAbortRef.current = null;
+      diagnosticsSequenceRef.current += 1;
+      diagnosticsAbortRef.current?.abort();
     };
   }, []);
 
@@ -89,6 +98,11 @@ function GooglePhotosSyncPanelSession() {
     }
 
     reviewAbortRef.current?.abort();
+    diagnosticsSequenceRef.current += 1;
+    diagnosticsAbortRef.current?.abort();
+    setDiagnosing(false);
+    setDiagnostics(null);
+    setDiagnosticMessage(null);
     const controller = new AbortController();
     reviewAbortRef.current = controller;
     const requestSequence = requestSequenceRef.current + 1;
@@ -148,6 +162,30 @@ function GooglePhotosSyncPanelSession() {
           message:
             "同期内容を確認できませんでした。Google接続と選択中のアルバムを確認してください。",
         });
+    }
+  }
+
+  async function startDiagnostics() {
+    if (!selectedProjectId || !isReady || diagnosing || actionInFlightRef.current || isGooglePhotosSyncInFlight || uiState.status !== "sourceChanged") return;
+    diagnosticsAbortRef.current?.abort();
+    const controller = new AbortController();
+    diagnosticsAbortRef.current = controller;
+    const sequence = ++diagnosticsSequenceRef.current;
+    setDiagnosing(true);
+    setDiagnostics(null);
+    setDiagnosticMessage(null);
+    try {
+      const result = await diagnoseGooglePhotosSync(selectedProjectId, controller.signal);
+      if (sequence !== diagnosticsSequenceRef.current || controller.signal.aborted) return;
+      if (result.ok) setDiagnostics(result.diagnostics);
+      else setDiagnosticMessage(result.reason === "cancelled" ? "確認を中止しました。写真や同期管理情報は変更していません。" : "未完了の同期状態を確認できませんでした。写真や同期管理情報は変更していません。");
+    } catch {
+      if (sequence === diagnosticsSequenceRef.current && !controller.signal.aborted) setDiagnosticMessage("未完了の同期状態を確認できませんでした。写真や同期管理情報は変更していません。");
+    } finally {
+      if (sequence === diagnosticsSequenceRef.current) {
+        setDiagnosing(false);
+        diagnosticsAbortRef.current = null;
+      }
     }
   }
 
@@ -374,6 +412,17 @@ function GooglePhotosSyncPanelSession() {
               >
                 状態を再確認
               </Button>
+              {uiState.status === "sourceChanged" ? (
+                <div className="space-y-3">
+                  <p>前回の未完了同期の内容と、現在の同期元が一致していません。テロップ変更やスライド追加でも発生します。</p>
+                  <Button type="button" className="min-h-11" disabled={!isReady || diagnosing || isGooglePhotosSyncInFlight} onClick={() => void startDiagnostics()}>
+                    未完了の同期状態を確認
+                  </Button>
+                  {diagnosing ? <p role="status">同期状態を確認しています。</p> : null}
+                  {diagnosticMessage ? <p role="alert">{diagnosticMessage}</p> : null}
+                  {diagnostics ? <GooglePhotosSyncDiagnosticsView diagnostics={diagnostics} /> : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -390,6 +439,35 @@ function GooglePhotosSyncPanelSession() {
         </CardContent>
       </Card>
     </section>
+  );
+}
+
+export function GooglePhotosSyncDiagnosticsView({ diagnostics }: { diagnostics: GooglePhotosSyncPendingDiagnostics }) {
+  const phaseLabel = diagnostics.phase
+    ? ({
+        creatingAlbum: "同期先アルバムの作成",
+        albumBound: "同期先との紐付け",
+        mediaCreating: "写真の作成",
+        mediaPrepared: "目標写真の準備",
+        membershipRemoving: "以前の写真構成の解除",
+        membershipAdding: "目標写真の追加",
+        titleUpdating: "アルバム名の更新",
+        finalizing: "最終確認",
+      } as const)[diagnostics.phase]
+    : "該当なし";
+  return (
+    <div className="space-y-2 rounded-xl border border-white/10 p-3" aria-live="polite">
+      <p>{diagnostics.hasPending ? "未完了の同期が記録されています。" : "未完了の同期は記録されていません。"}</p>
+      <p>停止した可能性がある段階: {phaseLabel}</p>
+      <p>{diagnostics.phaseExplanation}</p>
+      <p>{diagnostics.sourceChanged === true ? "前回の同期元と現在の同期元が一致していません。" : diagnostics.sourceChanged === false ? "同期元の不一致は確認されませんでした。" : "同期元との一致は確認できませんでした。"}</p>
+      <p>前回の目標写真: {diagnostics.targetCount ?? "未確定"} ／ 前回の管理対象: {diagnostics.previousManagedCount} ／ 確定済み管理対象: {diagnostics.stableManagedCount}</p>
+      <p>Googleフォト側の照合: {({ match: "目標と一致", missing: "目標写真が不足", extra: "目標以外の写真あり", indeterminate: "判定不能", unavailable: "未実施" })[diagnostics.membership.status]}</p>
+      <p>{diagnostics.membership.explanation}</p>
+      {diagnostics.membership.comparable ? <p>未確認の目標写真: {diagnostics.membership.missingCount} ／ 目標以外: {diagnostics.membership.extraCount} ／ 管理外: {diagnostics.membership.unmanagedCount}</p> : null}
+      <p>写真の作成経緯や実際の処理完了は、この確認だけでは確定できません。要手動確認です。</p>
+      <p>この確認操作では写真や同期管理情報は変更していません。自動再開・自動復旧は行いません。</p>
+    </div>
   );
 }
 

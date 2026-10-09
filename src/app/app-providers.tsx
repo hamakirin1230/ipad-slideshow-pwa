@@ -65,6 +65,10 @@ import {
   type GooglePhotosSyncUiReviewResult,
 } from "@/lib/google-photos-export/sync-ui-review";
 import {
+  diagnoseGooglePhotosSyncPending,
+  type GooglePhotosSyncDiagnosticsResult,
+} from "@/lib/google-photos-export/sync-pending-diagnostics";
+import {
   prepareOfflineSaveUiReview,
   type OfflineSaveUiReviewResult,
 } from "@/lib/offline-save-ui-review";
@@ -847,6 +851,10 @@ type AppContextValue = {
     projectId: string,
     signal: AbortSignal,
   ) => Promise<GooglePhotosSyncReviewActionResult>;
+  diagnoseGooglePhotosSync: (
+    projectId: string,
+    signal: AbortSignal,
+  ) => Promise<GooglePhotosSyncDiagnosticsResult>;
   abortGooglePhotosSync: () => void;
   isGooglePhotosSyncInFlight: boolean;
   googlePhotosSyncProgress: GooglePhotosSameAlbumSyncCoordinatorProgress | null;
@@ -1066,6 +1074,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const googlePhotosSyncAbortRef = useRef<AbortController | null>(null);
   const googlePhotosSyncRequestSequenceRef = useRef(0);
   const googlePhotosSyncInFlightRef = useRef(false);
+  const googlePhotosDiagnosticsSequenceRef = useRef(0);
+  const googlePhotosDiagnosticsAbortRef = useRef<AbortController | null>(null);
   const pendingGooglePhotosExportRef = useRef<GooglePhotosExportPlan | null>(
     null,
   );
@@ -1358,6 +1368,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       project: driveProjectReadyContext,
       selectedProjectId,
     };
+    googlePhotosDiagnosticsSequenceRef.current += 1;
+    googlePhotosDiagnosticsAbortRef.current?.abort();
+    googlePhotosDiagnosticsAbortRef.current = null;
   }, [
     driveFileGranted,
     driveProjectReadyContext,
@@ -1383,6 +1396,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       projectRollbackAbortRef.current = null;
       projectRollbackInFlightRef.current = false;
       googlePhotosSyncRequestSequenceRef.current += 1;
+      googlePhotosDiagnosticsSequenceRef.current += 1;
+      googlePhotosDiagnosticsAbortRef.current?.abort();
+      googlePhotosDiagnosticsAbortRef.current = null;
       googlePhotosSyncAbortRef.current?.abort();
       googlePhotosSyncAbortRef.current = null;
       googlePhotosSyncInFlightRef.current = false;
@@ -7954,6 +7970,68 @@ export function AppProviders({ children }: { children: ReactNode }) {
     discardPendingProjectPublish();
   }
 
+  async function diagnoseGooglePhotosSync(
+    projectId: string,
+    signal: AbortSignal,
+  ): Promise<GooglePhotosSyncDiagnosticsResult> {
+    const driveAccessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+    const hasConflictingOperation = () =>
+      googlePhotosSyncInFlightRef.current ||
+      googlePhotosExportInFlightRef.current ||
+      driveOperationInFlightRef.current ||
+      assetImportInFlightRef.current ||
+      offlineSyncInFlightRef.current ||
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current ||
+      projectDeleteInFlightRef.current;
+    if (
+      signal.aborted || googleStatus !== "connected" || driveFileGranted !== true ||
+      driveStatus !== "ready" || projectStatus !== "ready" ||
+      projectConsistencyRef.current !== "synced" || !driveAccessToken || !workspace || !project ||
+      selectedProjectId !== projectId || project.projectId !== projectId || hasConflictingOperation()
+    ) return { ok: false, reason: signal.aborted ? "cancelled" : "notReady" };
+
+    googlePhotosDiagnosticsAbortRef.current?.abort();
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    googlePhotosDiagnosticsAbortRef.current = controller;
+    const requestSequence = ++googlePhotosDiagnosticsSequenceRef.current;
+    const photosAccessToken = photosSyncAccessTokenRef.current;
+    const authoritySnapshot: GooglePhotosSyncAuthoritySnapshot = {
+      driveAccessToken, workspaceId: workspace.workspaceId,
+      projectsRootFolderId: workspace.projectsRootFolderId,
+      projectId: project.projectId, projectFolderId: project.projectFolderId,
+    };
+    const isCurrent = () =>
+      requestSequence === googlePhotosDiagnosticsSequenceRef.current &&
+      !controller.signal.aborted && !hasConflictingOperation() &&
+      photosSyncAccessTokenRef.current === photosAccessToken &&
+      googlePhotosSyncDriveAuthorityRef.current.project === project &&
+      googlePhotosSyncDriveAuthorityRef.current.workspace === workspace &&
+      googlePhotosSyncAuthorityIsCurrent(authoritySnapshot);
+    try {
+      const result = await diagnoseGooglePhotosSyncPending({
+        accessToken: driveAccessToken, photosAccessToken,
+        selectedProjectId: project.projectId, workspaceId: workspace.workspaceId,
+        projectsRootFolderId: workspace.projectsRootFolderId, project,
+        signal: controller.signal, isCurrent,
+      });
+      if (!isCurrent()) return { ok: false, reason: "cancelled" };
+      return result;
+    } catch {
+      return { ok: false, reason: isCurrent() ? "bindingUnavailable" : "cancelled" };
+    } finally {
+      signal.removeEventListener("abort", abort);
+      if (googlePhotosDiagnosticsAbortRef.current === controller) {
+        googlePhotosDiagnosticsAbortRef.current = null;
+      }
+    }
+  }
+
   async function prepareGooglePhotosSyncReview(
     projectId: string,
     signal: AbortSignal,
@@ -8998,6 +9076,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     googlePhotosExportResult,
     canResumeGooglePhotosExport,
     prepareGooglePhotosSyncReview,
+    diagnoseGooglePhotosSync,
     syncSelectedProjectToGooglePhotos,
     abortGooglePhotosSync,
     isGooglePhotosSyncInFlight,

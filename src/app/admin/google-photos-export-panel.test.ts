@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { GooglePhotosSyncPendingDiagnostics } from "@/lib/google-photos-export/sync-pending-diagnostics";
+vi.mock("@/app/app-providers", () => ({ useAppState: vi.fn() }));
+import { GooglePhotosSyncDiagnosticsView } from "./google-photos-export-panel";
 
 const source = {
   panel: read("./google-photos-export-panel.tsx"),
@@ -8,6 +13,35 @@ const source = {
 };
 
 describe("Google Photos same-album sync UI", () => {
+  it("starts diagnosis only on the sourceChanged button and discards stale results", () => {
+    const action = extractFunction(source.panel, "startDiagnostics");
+    expect(action).toContain('uiState.status !== "sourceChanged"');
+    expect(action).toContain("diagnoseGooglePhotosSync(selectedProjectId, controller.signal)");
+    expect(action).toContain("sequence !== diagnosticsSequenceRef.current || controller.signal.aborted");
+    expect(action).not.toContain("setUiState");
+    expect(action).not.toContain("syncSelectedProjectToGooglePhotos");
+    expect(source.panel).toContain("onClick={() => void startDiagnostics()}");
+    expect(source.panel).toContain("diagnosticsAbortRef.current?.abort()");
+  });
+  it.each(["match", "missing", "extra", "indeterminate", "unavailable"] as const)("renders %s safely without recovery controls", status => {
+    const diagnostics: GooglePhotosSyncPendingDiagnostics = {
+      hasPending: true, phase: "finalizing", phaseExplanation: "前回の同期は最終確認の途中だった可能性があります。",
+      sourceChanged: true, targetCount: 13, previousManagedCount: 13, stableManagedCount: 13,
+      membership: { status, explanation: "確認できない項目は要手動確認です。", comparable: status !== "indeterminate" && status !== "unavailable",
+        missingCount: 0, extraCount: 0, unmanagedCount: 0 }, manualConfirmationRequired: true, autoResume: false,
+    };
+    const html = renderToStaticMarkup(createElement(GooglePhotosSyncDiagnosticsView, { diagnostics }));
+    expect(html).toContain("未完了の同期が記録されています。");
+    expect(html).toContain("現在の同期元が一致していません。");
+    expect(html).toContain("最終確認の途中だった可能性");
+    expect(html).toContain("停止した可能性がある段階: 最終確認");
+    expect(html).toContain("写真や同期管理情報は変更していません。");
+    expect(html).toContain("自動再開・自動復旧は行いません。");
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("同期は成功しています");
+    if (status === "unavailable") expect(html).toContain("未実施");
+    if (status === "indeterminate") expect(html).toContain("判定不能");
+  });
   it("places a same-album sync card above Drive publish", () => {
     expect(source.workspace).toContain("<GooglePhotosExportPanel />");
     expect(source.workspace.indexOf("<GooglePhotosExportPanel />")).toBeLessThan(
