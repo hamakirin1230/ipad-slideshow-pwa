@@ -526,6 +526,7 @@ function GooglePhotosSyncPanelSession() {
 }
 
 export function GooglePhotosSyncDiagnosticsView({ diagnostics }: { diagnostics: GooglePhotosSyncPendingDiagnostics }) {
+  const membershipDetails = getKnownMembershipDetails(diagnostics);
   const phaseLabel = diagnostics.phase
     ? ({
         creatingAlbum: "同期先アルバムの作成",
@@ -547,11 +548,48 @@ export function GooglePhotosSyncDiagnosticsView({ diagnostics }: { diagnostics: 
       <p>前回の目標写真: {diagnostics.targetCount ?? "未確定"} ／ 前回の管理対象: {diagnostics.previousManagedCount} ／ 確定済み管理対象: {diagnostics.stableManagedCount}</p>
       <p>Googleフォト側の照合: {({ match: "目標と一致", missing: "目標写真が不足", extra: "目標以外の写真あり", indeterminate: "判定不能", unavailable: "未実施" })[diagnostics.membership.status]}</p>
       <p>{diagnostics.membership.explanation}</p>
-      {diagnostics.membership.comparable ? <p>未確認の目標写真: {diagnostics.membership.missingCount} ／ 目標以外: {diagnostics.membership.extraCount} ／ 管理外: {diagnostics.membership.unmanagedCount}</p> : null}
+      {membershipDetails ? (
+        <div className="space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm">
+          <p className="font-medium">読み取り専用照合で確認できた件数</p>
+          <p>前回の目標写真IDの確認: {membershipDetails.targetCount - membershipDetails.missingCount} / {membershipDetails.targetCount}</p>
+          <p>不足: {membershipDetails.missingCount} ／ 目標外: {membershipDetails.extraCount} ／ 管理外: {membershipDetails.unmanagedCount}</p>
+          <p>{orderStatusMessage(membershipDetails.orderStatus)}</p>
+        </div>
+      ) : null}
       <p>写真の作成経緯や実際の処理完了は、この確認だけでは確定できません。要手動確認です。</p>
       <p>この確認操作では写真や同期管理情報は変更していません。自動再開・自動復旧は行いません。</p>
     </div>
   );
+}
+
+function getKnownMembershipDetails(diagnostics: GooglePhotosSyncPendingDiagnostics) {
+  const membership = diagnostics.membership;
+  if (membership.status === "unavailable" ||
+    diagnostics.targetCount === null ||
+    membership.missingCount === null ||
+    membership.extraCount === null ||
+    membership.unmanagedCount === null ||
+    membership.orderStatus === undefined) {
+    return null;
+  }
+  return {
+    targetCount: diagnostics.targetCount,
+    missingCount: membership.missingCount,
+    extraCount: membership.extraCount,
+    unmanagedCount: membership.unmanagedCount,
+    orderStatus: membership.orderStatus,
+  };
+}
+
+function orderStatusMessage(status: "matched" | "mismatched" | "unknown" | undefined) {
+  switch (status) {
+    case "matched":
+      return "APIで取得した順序は前回の目標順と一致しています。";
+    case "mismatched":
+      return "APIで取得した順序は前回の目標順と一致しません。自動再開は行いません。";
+    default:
+      return "写真IDの順序は判定できません。";
+  }
 }
 
 function SyncReview({

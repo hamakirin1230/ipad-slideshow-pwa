@@ -14,6 +14,8 @@ export type GooglePhotosSyncMembershipDiagnostic = {
   missingCount: number | null;
   extraCount: number | null;
   unmanagedCount: number | null;
+  // Present only after every page was read and the target IDs were comparable.
+  orderStatus?: "matched" | "mismatched" | "unknown";
 };
 
 // Only categorical explanations and counts cross the Provider/UI boundary.
@@ -58,7 +60,7 @@ const defaultAdapters: GooglePhotosSyncDiagnosticsAdapters = {
 };
 
 function unknownMembership(status: "indeterminate" | "unavailable", explanation: string): GooglePhotosSyncMembershipDiagnostic {
-  return { status, explanation, comparable: false, missingCount: null, extraCount: null, unmanagedCount: null };
+  return { status, explanation, comparable: false, missingCount: null, extraCount: null, unmanagedCount: null, orderStatus: "unknown" };
 }
 
 export async function diagnoseGooglePhotosSyncPending(
@@ -172,9 +174,10 @@ export async function diagnoseGooglePhotosSyncPending(
       const unmanagedCount = membership.mediaItemIds.filter(id => !known.has(id)).length;
       const ordered = membership.mediaItemIds.filter(id => targetSet.has(id));
       const orderMatches = ordered.length === targets.length && ordered.every((id, index) => id === targets[index]);
+      const orderStatus = missingCount > 0 ? "unknown" : orderMatches ? "matched" : "mismatched";
       const status = missingCount > 0 ? "missing" : !orderMatches ? "indeterminate" : extraCount > 0 ? "extra" : "match";
       diagnostics.membership = {
-        status, comparable: status !== "indeterminate", missingCount, extraCount, unmanagedCount,
+        status, comparable: status !== "indeterminate", missingCount, extraCount, unmanagedCount, orderStatus,
         explanation: status === "match" ? "前回の目標写真と順序が一致しています。未完了同期の完了を意味しません。"
           : status === "missing" ? "前回の目標写真の一部がアルバム内で確認できません。要手動確認です。"
           : status === "extra" ? "前回の目標以外の写真もあります。手動追加・管理外の写真を含む可能性があり、削除対象とは判断しません。"

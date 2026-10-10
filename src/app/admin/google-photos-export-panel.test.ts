@@ -115,7 +115,7 @@ describe("Google Photos same-album sync UI", () => {
       hasPending: true, phase: "finalizing", phaseExplanation: "前回の同期は最終確認の途中だった可能性があります。",
       sourceChanged: true, targetCount: 13, previousManagedCount: 13, stableManagedCount: 13,
       membership: { status, explanation: "確認できない項目は要手動確認です。", comparable: status !== "indeterminate" && status !== "unavailable",
-        missingCount: 0, extraCount: 0, unmanagedCount: 0 }, manualConfirmationRequired: true, autoResume: false,
+        missingCount: 0, extraCount: 0, unmanagedCount: 0, orderStatus: "matched" }, manualConfirmationRequired: true, autoResume: false,
     };
     const html = renderToStaticMarkup(createElement(GooglePhotosSyncDiagnosticsView, { diagnostics }));
     expect(html).toContain("未完了の同期が記録されています。");
@@ -128,6 +128,43 @@ describe("Google Photos same-album sync UI", () => {
     expect(html).not.toContain("同期は成功しています");
     if (status === "unavailable") expect(html).toContain("未実施");
     if (status === "indeterminate") expect(html).toContain("判定不能");
+  });
+  it("shows complete counts and API order mismatch without claiming recovery", () => {
+    const diagnostics: GooglePhotosSyncPendingDiagnostics = {
+      hasPending: true, phase: "membershipAdding", phaseExplanation: "目標写真の追加が途中の可能性があります。",
+      sourceChanged: true, targetCount: 13, previousManagedCount: 11, stableManagedCount: 11,
+      membership: { status: "indeterminate", explanation: "前回の目標写真の順序を確認できません。要手動確認です。", comparable: false,
+        missingCount: 0, extraCount: 0, unmanagedCount: 0, orderStatus: "mismatched" }, manualConfirmationRequired: true, autoResume: false,
+    };
+    const html = renderToStaticMarkup(createElement(GooglePhotosSyncDiagnosticsView, { diagnostics }));
+    expect(html).toContain("前回の目標写真IDの確認: 13 / 13");
+    expect(html).toContain("不足: 0 ／ 目標外: 0 ／ 管理外: 0");
+    expect(html).toContain("APIで取得した順序は前回の目標順と一致しません。");
+    expect(html).toContain("自動再開は行いません。");
+    expect(html).toContain("判定不能");
+    expect(html).not.toContain("同期は成功しています");
+  });
+  it("shows target-external and unmanaged counts without adding them together", () => {
+    const diagnostics: GooglePhotosSyncPendingDiagnostics = {
+      hasPending: true, phase: "membershipAdding", phaseExplanation: "目標写真の追加が途中の可能性があります。",
+      sourceChanged: true, targetCount: 13, previousManagedCount: 11, stableManagedCount: 11,
+      membership: { status: "extra", explanation: "前回の目標以外の写真もあります。", comparable: true,
+        missingCount: 0, extraCount: 2, unmanagedCount: 1, orderStatus: "matched" }, manualConfirmationRequired: true, autoResume: false,
+    };
+    const html = renderToStaticMarkup(createElement(GooglePhotosSyncDiagnosticsView, { diagnostics }));
+    expect(html).toContain("不足: 0 ／ 目標外: 2 ／ 管理外: 1");
+    expect(html).not.toContain("目標外: 3");
+  });
+  it("does not show counts or an order result when membership details are unknown", () => {
+    const diagnostics: GooglePhotosSyncPendingDiagnostics = {
+      hasPending: true, phase: "mediaCreating", phaseExplanation: "写真が作成された可能性があります。",
+      sourceChanged: true, targetCount: null, previousManagedCount: 11, stableManagedCount: 11,
+      membership: { status: "indeterminate", explanation: "目標写真の情報が未確定です。", comparable: false,
+        missingCount: null, extraCount: null, unmanagedCount: null, orderStatus: "unknown" }, manualConfirmationRequired: true, autoResume: false,
+    };
+    const html = renderToStaticMarkup(createElement(GooglePhotosSyncDiagnosticsView, { diagnostics }));
+    expect(html).not.toContain("読み取り専用照合で確認できた件数");
+    expect(html).not.toContain("写真IDの順序は判定できません。");
   });
   it("places a same-album sync card above Drive publish", () => {
     expect(source.workspace).toContain("<GooglePhotosExportPanel />");

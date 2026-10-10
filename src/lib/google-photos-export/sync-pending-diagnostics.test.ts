@@ -87,7 +87,38 @@ describe("read-only pending diagnostics", () => {
           status: "missing",
           missingCount: 2,
           extraCount: 0,
+          orderStatus: "unknown",
         },
+      },
+    });
+  });
+  it("retains indeterminate while exposing complete thirteen-target counts for an order mismatch", async () => {
+    const h = harness("membershipAdding");
+    const targets = Array.from({ length: 13 }, (_, index) => ({
+      slideId: `fixture-slide-${index}`,
+      renderKey: fingerprint,
+      mediaItemId: `fixture-media-${index}`,
+      snapshot: null,
+    }));
+    h.remote.pending!.targetItems = targets;
+    vi.mocked(h.adapters.searchAlbumMediaItemsPage).mockResolvedValue({
+      status: "ready",
+      mediaItemIds: targets.map((item) => item.mediaItemId).reverse(),
+      nextPageToken: null,
+    });
+
+    expect(await diagnoseGooglePhotosSyncPending(h.input, h.adapters)).toMatchObject({
+      diagnostics: {
+        targetCount: 13,
+        membership: {
+          status: "indeterminate",
+          comparable: false,
+          missingCount: 0,
+          extraCount: 0,
+          unmanagedCount: 0,
+          orderStatus: "mismatched",
+        },
+        autoResume: false,
       },
     });
   });
@@ -96,14 +127,14 @@ describe("read-only pending diagnostics", () => {
     expect(await h.run()).toMatchObject({ diagnostics: { sourceChanged: true } });
   });
   it.each([
-    ["missing", ["fixture-media-a"], "missing", 1, 0, 0],
-    ["previous managed extra", ["fixture-media-a", "fixture-media-b", "fixture-media-old"], "extra", 0, 1, 0],
-    ["unmanaged photo", ["fixture-media-a", "fixture-unmanaged", "fixture-media-b"], "extra", 0, 1, 1],
-    ["wrong order", ["fixture-media-b", "fixture-media-a"], "indeterminate", 0, 0, 0],
-    ["missing plus unmanaged", ["fixture-media-a", "fixture-unmanaged"], "missing", 1, 1, 1],
-  ] as const)("compares %s without removing or re-registering", async (_name, media, status, missingCount, extraCount, unmanagedCount) => {
+    ["missing", ["fixture-media-a"], "missing", 1, 0, 0, "unknown"],
+    ["previous managed extra", ["fixture-media-a", "fixture-media-b", "fixture-media-old"], "extra", 0, 1, 0, "matched"],
+    ["unmanaged photo", ["fixture-media-a", "fixture-unmanaged", "fixture-media-b"], "extra", 0, 1, 1, "matched"],
+    ["wrong order", ["fixture-media-b", "fixture-media-a"], "indeterminate", 0, 0, 0, "mismatched"],
+    ["missing plus unmanaged", ["fixture-media-a", "fixture-unmanaged"], "missing", 1, 1, 1, "unknown"],
+  ] as const)("compares %s without removing or re-registering", async (_name, media, status, missingCount, extraCount, unmanagedCount, orderStatus) => {
     const h = harness(); vi.mocked(h.adapters.searchAlbumMediaItemsPage).mockResolvedValue({ status: "ready", mediaItemIds: [...media], nextPageToken: null });
-    expect(await h.run()).toMatchObject({ diagnostics: { membership: { status, missingCount, extraCount, unmanagedCount } } });
+    expect(await h.run()).toMatchObject({ diagnostics: { membership: { status, missingCount, extraCount, unmanagedCount, orderStatus } } });
   });
   it("does not treat empty targets in mediaCreating as a match", async () => {
     const h = harness("mediaCreating");
@@ -117,7 +148,7 @@ describe("read-only pending diagnostics", () => {
   });
   it("uses unavailable when no existing Photos token exists", async () => {
     const h = harness(); h.input.photosAccessToken = null;
-    expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "unavailable", comparable: false } } });
+    expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "unavailable", comparable: false, missingCount: null, extraCount: null, unmanagedCount: null, orderStatus: "unknown" } } });
     expect(h.adapters.getAlbum).not.toHaveBeenCalled(); expect(h.adapters.searchAlbumMediaItemsPage).not.toHaveBeenCalled();
   });
   it.each(["inaccessible", "notFound", "invalidResponse"] as const)("handles album read %s", async status => {
@@ -194,7 +225,7 @@ describe("read-only pending diagnostics", () => {
     const h = harness(); vi.mocked(h.adapters.searchAlbumMediaItemsPage)
       .mockResolvedValueOnce({ status: "ready", mediaItemIds: ["fixture-media-a"], nextPageToken: "fixture-page" })
       .mockResolvedValueOnce({ status: "inaccessible" });
-    expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "indeterminate", missingCount: null } } });
+    expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "indeterminate", missingCount: null, extraCount: null, unmanagedCount: null, orderStatus: "unknown" } } });
   });
   it("rejects pagination cycles", async () => {
     const h = harness(); vi.mocked(h.adapters.searchAlbumMediaItemsPage)
