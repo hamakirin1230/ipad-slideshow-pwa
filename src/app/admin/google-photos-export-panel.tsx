@@ -53,6 +53,7 @@ function GooglePhotosSyncPanelSession() {
     projectSummary,
     prepareGooglePhotosSyncReview,
     diagnoseGooglePhotosSync,
+    verifyGooglePhotosSyncMembership,
     syncSelectedProjectToGooglePhotos,
     abortGooglePhotosSync,
     isGooglePhotosSyncInFlight,
@@ -62,6 +63,7 @@ function GooglePhotosSyncPanelSession() {
   const [confirmed, setConfirmed] = useState(false);
   const [diagnostics, setDiagnostics] = useState<GooglePhotosSyncPendingDiagnostics | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
+  const [verifyingMembership, setVerifyingMembership] = useState(false);
   const [diagnosticMessage, setDiagnosticMessage] = useState<string | null>(null);
   const diagnosticsAbortRef = useRef<AbortController | null>(null);
   const diagnosticsSequenceRef = useRef(0);
@@ -101,6 +103,7 @@ function GooglePhotosSyncPanelSession() {
     diagnosticsSequenceRef.current += 1;
     diagnosticsAbortRef.current?.abort();
     setDiagnosing(false);
+    setVerifyingMembership(false);
     setDiagnostics(null);
     setDiagnosticMessage(null);
     const controller = new AbortController();
@@ -166,7 +169,7 @@ function GooglePhotosSyncPanelSession() {
   }
 
   async function startDiagnostics() {
-    if (!selectedProjectId || !isReady || diagnosing || actionInFlightRef.current || isGooglePhotosSyncInFlight || uiState.status !== "sourceChanged") return;
+    if (!selectedProjectId || !isReady || diagnosing || verifyingMembership || actionInFlightRef.current || isGooglePhotosSyncInFlight || uiState.status !== "sourceChanged") return;
     diagnosticsAbortRef.current?.abort();
     const controller = new AbortController();
     diagnosticsAbortRef.current = controller;
@@ -184,6 +187,69 @@ function GooglePhotosSyncPanelSession() {
     } finally {
       if (sequence === diagnosticsSequenceRef.current) {
         setDiagnosing(false);
+        diagnosticsAbortRef.current = null;
+      }
+    }
+  }
+
+  async function startMembershipVerification() {
+    if (
+      !selectedProjectId ||
+      !isReady ||
+      !diagnostics ||
+      diagnosing ||
+      verifyingMembership ||
+      actionInFlightRef.current ||
+      isGooglePhotosSyncInFlight ||
+      uiState.status !== "sourceChanged"
+    ) {
+      return;
+    }
+
+    diagnosticsAbortRef.current?.abort();
+    const controller = new AbortController();
+    diagnosticsAbortRef.current = controller;
+    const sequence = ++diagnosticsSequenceRef.current;
+    setVerifyingMembership(true);
+    setDiagnosticMessage(null);
+
+    // Start GIS from this click stack before the first await.
+    const resultPromise = verifyGooglePhotosSyncMembership(
+      selectedProjectId,
+      controller.signal,
+    );
+
+    try {
+      const result = await resultPromise;
+      if (
+        sequence !== diagnosticsSequenceRef.current ||
+        controller.signal.aborted
+      ) {
+        return;
+      }
+      if (result.ok) {
+        setDiagnostics(result.diagnostics);
+        return;
+      }
+      setDiagnosticMessage(
+        result.reason === "authorizationCancelled"
+          ? "Googleフォトの読み取り許可を中止しました。写真や同期管理情報は変更していません。"
+          : result.reason === "authorizationUnavailable"
+            ? "Googleフォトの写真構成を確認できませんでした。許可の拒否・期限切れ・通信失敗を含みます。写真や同期管理情報は変更していません。"
+            : "現在はGoogleフォトの写真構成を確認できません。写真や同期管理情報は変更していません。",
+      );
+    } catch {
+      if (
+        sequence === diagnosticsSequenceRef.current &&
+        !controller.signal.aborted
+      ) {
+        setDiagnosticMessage(
+          "Googleフォトの写真構成を確認できませんでした。写真や同期管理情報は変更していません。",
+        );
+      }
+    } finally {
+      if (sequence === diagnosticsSequenceRef.current) {
+        setVerifyingMembership(false);
         diagnosticsAbortRef.current = null;
       }
     }
@@ -415,12 +481,27 @@ function GooglePhotosSyncPanelSession() {
               {uiState.status === "sourceChanged" ? (
                 <div className="space-y-3">
                   <p>前回の未完了同期の内容と、現在の同期元が一致していません。テロップ変更やスライド追加でも発生します。</p>
-                  <Button type="button" className="min-h-11" disabled={!isReady || diagnosing || isGooglePhotosSyncInFlight} onClick={() => void startDiagnostics()}>
+                  <Button type="button" className="min-h-11" disabled={!isReady || diagnosing || verifyingMembership || isGooglePhotosSyncInFlight} onClick={() => void startDiagnostics()}>
                     未完了の同期状態を確認
                   </Button>
                   {diagnosing ? <p role="status">同期状態を確認しています。</p> : null}
+                  {verifyingMembership ? <p role="status">Googleフォトの写真構成を読み取り専用で確認しています。</p> : null}
                   {diagnosticMessage ? <p role="alert">{diagnosticMessage}</p> : null}
-                  {diagnostics ? <GooglePhotosSyncDiagnosticsView diagnostics={diagnostics} /> : null}
+                  {diagnostics ? (
+                    <div className="space-y-3">
+                      <GooglePhotosSyncDiagnosticsView diagnostics={diagnostics} />
+                      <p>この許可では、このアプリが作成したGoogleフォトアルバムだけを読み取ります。写真や同期管理情報は変更しません。</p>
+                      <p>アプリ作成外の写真や手動追加した内容は見えない場合があるため、アルバム内の全写真の完全性は確認できません。</p>
+                      <Button
+                        type="button"
+                        className="min-h-11"
+                        disabled={!isReady || diagnosing || verifyingMembership || isGooglePhotosSyncInFlight}
+                        onClick={() => void startMembershipVerification()}
+                      >
+                        Googleフォトの読み取りを許可して照合
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>

@@ -9,10 +9,13 @@ import {
 } from "../google-auth";
 import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
+  GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE,
   GOOGLE_PHOTOS_SYNC_SCOPES,
   isPhotosExportScopeRequest,
+  isPhotosMembershipReadScopeRequest,
   isPhotosLibrarySyncScopeRequest,
   tokenResponseGrantsPhotosLibraryAppendonly,
+  tokenResponseGrantsPhotosMembershipRead,
   tokenResponseGrantsPhotosLibrarySync,
   tokenScopeList,
 } from "./authorization";
@@ -158,5 +161,46 @@ describe("google photos export authorization", () => {
     expect(GOOGLE_PHOTOS_EXPORT_SCOPE).toBe(PHOTOS_LIBRARY_APPENDONLY_SCOPE);
     expect(isPhotosExportScopeRequest(GOOGLE_PHOTOS_EXPORT_SCOPE)).toBe(true);
     expect(isPhotosExportScopeRequest(GOOGLE_PHOTOS_SYNC_SCOPES)).toBe(false);
+  });
+
+  it("defines an exact app-created-data read-only membership scope", () => {
+    expect(GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE).toBe(
+      PHOTOS_LIBRARY_READONLY_APPCREATEDDATA_SCOPE,
+    );
+    expect(
+      isPhotosMembershipReadScopeRequest(
+        GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE,
+      ),
+    ).toBe(true);
+    for (const forbidden of [
+      DRIVE_FILE_SCOPE,
+      PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
+      PHOTOS_LIBRARY_APPENDONLY_SCOPE,
+      PHOTOS_LIBRARY_EDIT_APPCREATEDDATA_SCOPE,
+      `${GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE} ${PHOTOS_LIBRARY_APPENDONLY_SCOPE}`,
+    ]) {
+      expect(isPhotosMembershipReadScopeRequest(forbidden)).toBe(false);
+    }
+  });
+
+  it("accepts only a response that grants app-created-data read access", () => {
+    expect(
+      tokenResponseGrantsPhotosMembershipRead({
+        scope: GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE,
+      }),
+    ).toBe(true);
+    expect(
+      tokenResponseGrantsPhotosMembershipRead({
+        scope: `${DRIVE_FILE_SCOPE} ${GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE}`,
+      }),
+    ).toBe(true);
+    for (const scope of [
+      DRIVE_FILE_SCOPE,
+      PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
+      PHOTOS_LIBRARY_APPENDONLY_SCOPE,
+      PHOTOS_LIBRARY_EDIT_APPCREATEDDATA_SCOPE,
+    ]) {
+      expect(tokenResponseGrantsPhotosMembershipRead({ scope })).toBe(false);
+    }
   });
 });

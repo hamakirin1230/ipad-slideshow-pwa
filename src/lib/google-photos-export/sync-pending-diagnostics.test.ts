@@ -63,6 +63,34 @@ describe("read-only pending diagnostics", () => {
     expect(await h.run()).toMatchObject({ ok: true, diagnostics: { phase: "finalizing", sourceChanged: true, targetCount: 2,
       previousManagedCount: 1, stableManagedCount: 1, membership: { status: "match" }, autoResume: false } });
   });
+  it("reports two missing app-created targets from a thirteen-item pending goal", async () => {
+    const h = harness("membershipAdding");
+    const targets = Array.from({ length: 13 }, (_, index) => ({
+      slideId: `fixture-slide-${index}`,
+      renderKey: fingerprint,
+      mediaItemId: `fixture-media-${index}`,
+      snapshot: null,
+    }));
+    h.remote.pending!.targetItems = targets;
+    vi.mocked(h.adapters.searchAlbumMediaItemsPage).mockResolvedValue({
+      status: "ready",
+      mediaItemIds: targets.slice(0, 11).map((item) => item.mediaItemId),
+      nextPageToken: null,
+    });
+
+    expect(
+      await diagnoseGooglePhotosSyncPending(h.input, h.adapters),
+    ).toMatchObject({
+      diagnostics: {
+        targetCount: 13,
+        membership: {
+          status: "missing",
+          missingCount: 2,
+          extraCount: 0,
+        },
+      },
+    });
+  });
   it("detects changed title even if the source digest fixture matches", async () => {
     const h = harness(); h.source.targetAlbumTitle = "changed fixture title";
     expect(await h.run()).toMatchObject({ diagnostics: { sourceChanged: true } });
@@ -116,6 +144,10 @@ describe("read-only pending diagnostics", () => {
       .mockResolvedValueOnce({ status: "ready", mediaItemIds: ["fixture-media-b"], nextPageToken: null });
     expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "match" } } });
     expect(h.adapters.searchAlbumMediaItemsPage).toHaveBeenCalledTimes(2);
+    expect(h.adapters.searchAlbumMediaItemsPage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ pageToken: "fixture-page" }),
+    );
   });
   it("does not classify partially retrieved pages as missing or match", async () => {
     const h = harness(); vi.mocked(h.adapters.searchAlbumMediaItemsPage)

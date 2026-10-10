@@ -33,8 +33,10 @@ import {
 } from "@/lib/google-photos-picker-availability";
 import {
   GOOGLE_PHOTOS_EXPORT_SCOPE,
+  GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE,
   GOOGLE_PHOTOS_SYNC_SCOPES,
   tokenResponseGrantsPhotosLibraryAppendonly,
+  tokenResponseGrantsPhotosMembershipRead,
   tokenResponseGrantsPhotosLibrarySync,
 } from "@/lib/google-photos-export/authorization";
 import {
@@ -289,6 +291,7 @@ const ASSET_IMPORT_MAX_SLIDE_COUNT = 50;
 const ASSET_IMPORT_MAX_BATCH_COUNT = 10;
 const PHOTOS_TOKEN_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const PHOTOS_EXPORT_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
+const PHOTOS_MEMBERSHIP_READ_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const PHOTOS_SYNC_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -592,6 +595,7 @@ type TokenRequestKind =
   | "drive"
   | "photos"
   | "photosExport"
+  | "photosMembershipRead"
   | "photosSync"
   | null;
 
@@ -628,6 +632,16 @@ export type GooglePhotosSyncActionResult =
 export type GooglePhotosSyncReviewActionResult =
   | GooglePhotosSyncUiReviewResult
   | { ok: false; reason: "notReady" | "cancelled" };
+
+export type GooglePhotosSyncMembershipVerificationResult =
+  | GooglePhotosSyncDiagnosticsResult
+  | {
+      ok: false;
+      reason:
+        | "authorizationCancelled"
+        | "authorizationUnavailable"
+        | "notReady";
+    };
 
 function toPhotosExportTokenPopupFailure(
   error?: GoogleTokenError,
@@ -855,6 +869,10 @@ type AppContextValue = {
     projectId: string,
     signal: AbortSignal,
   ) => Promise<GooglePhotosSyncDiagnosticsResult>;
+  verifyGooglePhotosSyncMembership: (
+    projectId: string,
+    signal: AbortSignal,
+  ) => Promise<GooglePhotosSyncMembershipVerificationResult>;
   abortGooglePhotosSync: () => void;
   isGooglePhotosSyncInFlight: boolean;
   googlePhotosSyncProgress: GooglePhotosSameAlbumSyncCoordinatorProgress | null;
@@ -1065,6 +1083,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const pendingPhotosSyncTokenRequestRef =
     useRef<PendingPhotosSyncTokenRequest | null>(null);
   const photosSyncTokenRequestIdRef = useRef(0);
+  const photosMembershipReadAccessTokenRef = useRef<string | null>(null);
+  const photosMembershipReadTokenClientRef =
+    useRef<GoogleTokenClient | null>(null);
+  const pendingPhotosMembershipReadTokenRequestRef =
+    useRef<PendingPhotosSyncTokenRequest | null>(null);
+  const photosMembershipReadTokenRequestIdRef = useRef(0);
+  const googlePhotosMembershipVerificationInFlightRef = useRef(false);
+  const googlePhotosMembershipVerificationSequenceRef = useRef(0);
+  const googlePhotosMembershipVerificationAbortRef =
+    useRef<AbortController | null>(null);
   const googlePhotosSyncMediaRuntimeRef =
     useRef<GooglePhotosSyncMediaRuntime | null>(null);
   const googlePhotosSyncMediaRuntimeOwnerRef =
@@ -1371,6 +1399,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
     googlePhotosDiagnosticsSequenceRef.current += 1;
     googlePhotosDiagnosticsAbortRef.current?.abort();
     googlePhotosDiagnosticsAbortRef.current = null;
+    googlePhotosMembershipVerificationSequenceRef.current += 1;
+    googlePhotosMembershipVerificationAbortRef.current?.abort();
+    googlePhotosMembershipVerificationAbortRef.current = null;
+    googlePhotosMembershipVerificationInFlightRef.current = false;
+    clearPhotosMembershipReadAuthorization();
   }, [
     driveFileGranted,
     driveProjectReadyContext,
@@ -1399,6 +1432,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       googlePhotosDiagnosticsSequenceRef.current += 1;
       googlePhotosDiagnosticsAbortRef.current?.abort();
       googlePhotosDiagnosticsAbortRef.current = null;
+      googlePhotosMembershipVerificationSequenceRef.current += 1;
+      googlePhotosMembershipVerificationAbortRef.current?.abort();
+      googlePhotosMembershipVerificationAbortRef.current = null;
       googlePhotosSyncAbortRef.current?.abort();
       googlePhotosSyncAbortRef.current = null;
       googlePhotosSyncInFlightRef.current = false;
@@ -1423,6 +1459,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
         );
       }
       photosSyncAccessTokenRef.current = null;
+      photosMembershipReadTokenRequestIdRef.current += 1;
+      if (tokenRequestKindRef.current === "photosMembershipRead") {
+        tokenRequestKindRef.current = null;
+      }
+      const pendingMembershipReadAuthorization =
+        pendingPhotosMembershipReadTokenRequestRef.current;
+      if (pendingMembershipReadAuthorization) {
+        clearTimeout(pendingMembershipReadAuthorization.timeoutId);
+        pendingPhotosMembershipReadTokenRequestRef.current = null;
+        pendingMembershipReadAuthorization.reject(
+          new PhotosTokenRequestError({
+            status: "cancelled",
+            message: "Photos membership read permission was cleared.",
+            diagnostics: ["Googleフォト読み取り許可を破棄しました。"],
+          }),
+        );
+      }
+      photosMembershipReadAccessTokenRef.current = null;
+      googlePhotosMembershipVerificationInFlightRef.current = false;
       assetCleanupDeleteRequestIdRef.current += 1;
       pendingAssetCleanupDeletePlanRef.current = null;
       assetCleanupDeletePreflightOwnerRef.current = null;
@@ -1600,6 +1655,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const restoredPhotosAccessToken = photosPickerAccessTokenRef.current;
     if (options.reuseRestoredToken && restoredPhotosAccessToken) {
       return Promise.resolve(restoredPhotosAccessToken);
+    }
+
+    if (tokenRequestKindRef.current !== null) {
+      return Promise.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Another Google permission request is in progress.",
+          diagnostics: ["別のGoogle利用許可を確認中です。"],
+        }),
+      );
     }
 
     const tokenClient = tokenClientRef.current;
@@ -1810,6 +1875,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return Promise.resolve(existingToken);
     }
 
+    if (tokenRequestKindRef.current !== null) {
+      return Promise.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Another Google permission request is in progress.",
+          diagnostics: ["別のGoogle利用許可を確認中です。"],
+        }),
+      );
+    }
+
     const tokenClient = photosExportTokenClientRef.current;
     if (!tokenClient) {
       return Promise.reject(
@@ -1965,6 +2040,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const pendingRequest = pendingPhotosSyncTokenRequestRef.current;
     if (pendingRequest) {
       return pendingRequest.promise;
+    }
+
+    if (tokenRequestKindRef.current !== null) {
+      return Promise.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Another Google permission request is in progress.",
+          diagnostics: ["別のGoogle利用許可を確認中です。"],
+        }),
+      );
     }
 
     const tokenClient = photosSyncTokenClientRef.current;
@@ -2130,6 +2215,210 @@ export function AppProviders({ children }: { children: ReactNode }) {
       }),
     );
     return true;
+  }
+
+  function requestPhotosMembershipReadAccessToken(requestId: number) {
+    const pendingRequest = pendingPhotosMembershipReadTokenRequestRef.current;
+    if (pendingRequest) {
+      return pendingRequest.promise;
+    }
+
+    if (tokenRequestKindRef.current !== null) {
+      return Promise.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Another Google permission request is in progress.",
+          diagnostics: ["別のGoogle利用許可を確認中です。"],
+        }),
+      );
+    }
+
+    const tokenClient = photosMembershipReadTokenClientRef.current;
+    if (!tokenClient) {
+      return Promise.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Google Photos membership read token client was not ready.",
+          diagnostics: ["Googleフォト読み取り許可の準備が完了していません。"],
+        }),
+      );
+    }
+
+    let resolveRequest!: (accessToken: string) => void;
+    let rejectRequest!: (error: unknown) => void;
+    const promise = new Promise<string>((resolve, reject) => {
+      resolveRequest = resolve;
+      rejectRequest = reject;
+    });
+    const timeoutId = setTimeout(() => {
+      const currentRequest =
+        pendingPhotosMembershipReadTokenRequestRef.current;
+      if (!currentRequest || currentRequest.requestId !== requestId) {
+        return;
+      }
+      pendingPhotosMembershipReadTokenRequestRef.current = null;
+      if (tokenRequestKindRef.current === "photosMembershipRead") {
+        tokenRequestKindRef.current = null;
+      }
+      currentRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos membership read permission timed out.",
+          diagnostics: ["Googleフォト読み取り許可待ちがタイムアウトしました。"],
+        }),
+      );
+    }, PHOTOS_MEMBERSHIP_READ_TOKEN_REQUEST_TIMEOUT_MS);
+
+    photosMembershipReadTokenRequestIdRef.current = requestId;
+    pendingPhotosMembershipReadTokenRequestRef.current = {
+      requestId,
+      timeoutId,
+      resolve: resolveRequest,
+      reject: rejectRequest,
+      promise,
+    };
+    tokenRequestKindRef.current = "photosMembershipRead";
+
+    try {
+      tokenClient.requestAccessToken({
+        scope: GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE,
+        include_granted_scopes: false,
+        prompt: "consent",
+      });
+    } catch {
+      const currentRequest =
+        pendingPhotosMembershipReadTokenRequestRef.current;
+      if (currentRequest?.requestId === requestId) {
+        clearTimeout(currentRequest.timeoutId);
+        pendingPhotosMembershipReadTokenRequestRef.current = null;
+      }
+      tokenRequestKindRef.current = null;
+      rejectRequest(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos membership read permission could not be started.",
+          diagnostics: ["Googleフォト読み取り許可を開始できませんでした。"],
+        }),
+      );
+    }
+
+    return promise;
+  }
+
+  function handlePhotosMembershipReadTokenResponse(
+    tokenResponse: GoogleTokenResponse,
+  ) {
+    const pendingRequest =
+      pendingPhotosMembershipReadTokenRequestRef.current;
+    if (!pendingRequest) {
+      if (tokenRequestKindRef.current === "photosMembershipRead") {
+        tokenRequestKindRef.current = null;
+      }
+      return;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingPhotosMembershipReadTokenRequestRef.current = null;
+    tokenRequestKindRef.current = null;
+
+    if (
+      pendingRequest.requestId !==
+      photosMembershipReadTokenRequestIdRef.current
+    ) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos membership read response was stale.",
+          diagnostics: ["以前のGoogleフォト読み取り許可応答を破棄しました。"],
+        }),
+      );
+      return;
+    }
+
+    if (tokenResponse.error === "access_denied") {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos membership read permission was cancelled.",
+          diagnostics: ["Googleフォト読み取り許可がキャンセルされました。"],
+        }),
+      );
+      return;
+    }
+
+    if (
+      tokenResponse.error ||
+      !tokenResponse.access_token ||
+      !tokenResponseGrantsPhotosMembershipRead(tokenResponse)
+    ) {
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "error",
+          message: "Photos membership read permission was unavailable.",
+          diagnostics: ["Googleフォト読み取りに必要な許可を確認できませんでした。"],
+        }),
+      );
+      return;
+    }
+
+    photosMembershipReadAccessTokenRef.current = tokenResponse.access_token;
+    pendingRequest.resolve(tokenResponse.access_token);
+  }
+
+  function handlePhotosMembershipReadTokenErrorCallback(
+    error?: GoogleTokenError,
+  ) {
+    const pendingRequest =
+      pendingPhotosMembershipReadTokenRequestRef.current;
+    if (!pendingRequest) {
+      if (tokenRequestKindRef.current === "photosMembershipRead") {
+        tokenRequestKindRef.current = null;
+      }
+      return;
+    }
+
+    clearTimeout(pendingRequest.timeoutId);
+    pendingPhotosMembershipReadTokenRequestRef.current = null;
+    tokenRequestKindRef.current = null;
+    const failure = toPhotosExportTokenPopupFailure(error);
+    pendingRequest.reject(
+      new PhotosTokenRequestError({
+        ...failure,
+        message:
+          failure.category === "popupBlocked"
+            ? "Photos membership read popup could not be opened."
+            : failure.status === "cancelled"
+              ? "Photos membership read permission was cancelled."
+              : "Photos membership read permission did not complete.",
+        diagnostics:
+          failure.category === "popupBlocked"
+            ? ["Googleフォト読み取り認証画面を開けませんでした。"]
+            : failure.status === "cancelled"
+              ? ["Googleフォト読み取り許可がキャンセルされました。"]
+              : ["Googleフォト読み取り許可が完了しませんでした。"],
+      }),
+    );
+  }
+
+  function clearPhotosMembershipReadAuthorization() {
+    photosMembershipReadTokenRequestIdRef.current += 1;
+    if (tokenRequestKindRef.current === "photosMembershipRead") {
+      tokenRequestKindRef.current = null;
+    }
+    const pendingRequest =
+      pendingPhotosMembershipReadTokenRequestRef.current;
+    if (pendingRequest) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingPhotosMembershipReadTokenRequestRef.current = null;
+      pendingRequest.reject(
+        new PhotosTokenRequestError({
+          status: "cancelled",
+          message: "Photos membership read permission was cleared.",
+          diagnostics: ["Googleフォト読み取り許可を破棄しました。"],
+        }),
+      );
+    }
+    photosMembershipReadAccessTokenRef.current = null;
   }
 
   function clearPhotosSyncAuthorization() {
@@ -2920,6 +3209,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     tokenRequestKindRef.current = null;
     accessTokenRef.current = null;
     clearPhotosSyncAuthorization();
+    clearPhotosMembershipReadAuthorization();
     setDriveFileGranted(null);
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
     setGoogleMessage(
@@ -2978,6 +3268,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       photosExportTokenClientRef.current = null;
       clearPhotosSyncAuthorization();
       photosSyncTokenClientRef.current = null;
+      clearPhotosMembershipReadAuthorization();
+      photosMembershipReadTokenClientRef.current = null;
       setDriveFileGranted(null);
       setGoogleStatus("missingClientId");
       setGoogleMessage("NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。");
@@ -2994,6 +3286,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       photosExportTokenClientRef.current = null;
       clearPhotosSyncAuthorization();
       photosSyncTokenClientRef.current = null;
+      clearPhotosMembershipReadAuthorization();
+      photosMembershipReadTokenClientRef.current = null;
       setDriveFileGranted(null);
       setGoogleStatus("error");
       setGoogleMessage("Google認証ライブラリを利用できませんでした。");
@@ -3108,6 +3402,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
       },
     });
 
+    photosMembershipReadTokenClientRef.current = oauth2.initTokenClient({
+      client_id: clientId,
+      scope: GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE,
+      prompt: "consent",
+      include_granted_scopes: false,
+      callback: (tokenResponse) => {
+        handlePhotosMembershipReadTokenResponse(tokenResponse);
+      },
+      error_callback: (error) => {
+        handlePhotosMembershipReadTokenErrorCallback(error);
+      },
+    });
+
     if (accessTokenRef.current) {
       setDriveFileGranted(true);
       setGoogleStatus("connected");
@@ -3127,6 +3434,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     clearGoogleAuthTimeout();
     invalidateGoogleSessionForConnectionChange();
     clearPhotosSyncAuthorization();
+    clearPhotosMembershipReadAuthorization();
 
     if (!hasClientId) {
       accessTokenRef.current = null;
@@ -3198,6 +3506,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     accessTokenRef.current = null;
     clearPhotosExportAuthorization();
     clearPhotosSyncAuthorization();
+    clearPhotosMembershipReadAuthorization();
     discardPendingGooglePhotosExport();
     setDriveFileGranted(null);
     abortDriveOperation();
@@ -3221,6 +3530,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     accessTokenRef.current = null;
     clearPhotosExportAuthorization();
     clearPhotosSyncAuthorization();
+    clearPhotosMembershipReadAuthorization();
     discardPendingGooglePhotosExport();
     setDriveFileGranted(null);
     setGoogleStatus(hasClientId ? "notConnected" : "missingClientId");
@@ -8000,7 +8310,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     signal.addEventListener("abort", abort, { once: true });
     googlePhotosDiagnosticsAbortRef.current = controller;
     const requestSequence = ++googlePhotosDiagnosticsSequenceRef.current;
-    const photosAccessToken = photosSyncAccessTokenRef.current;
+    const photosAccessToken = photosMembershipReadAccessTokenRef.current;
     const authoritySnapshot: GooglePhotosSyncAuthoritySnapshot = {
       driveAccessToken, workspaceId: workspace.workspaceId,
       projectsRootFolderId: workspace.projectsRootFolderId,
@@ -8009,7 +8319,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const isCurrent = () =>
       requestSequence === googlePhotosDiagnosticsSequenceRef.current &&
       !controller.signal.aborted && !hasConflictingOperation() &&
-      photosSyncAccessTokenRef.current === photosAccessToken &&
+      photosMembershipReadAccessTokenRef.current === photosAccessToken &&
       googlePhotosSyncDriveAuthorityRef.current.project === project &&
       googlePhotosSyncDriveAuthorityRef.current.workspace === workspace &&
       googlePhotosSyncAuthorityIsCurrent(authoritySnapshot);
@@ -8028,6 +8338,120 @@ export function AppProviders({ children }: { children: ReactNode }) {
       signal.removeEventListener("abort", abort);
       if (googlePhotosDiagnosticsAbortRef.current === controller) {
         googlePhotosDiagnosticsAbortRef.current = null;
+      }
+    }
+  }
+
+  async function verifyGooglePhotosSyncMembership(
+    projectId: string,
+    signal: AbortSignal,
+  ): Promise<GooglePhotosSyncMembershipVerificationResult> {
+    const driveAccessToken = accessTokenRef.current;
+    const workspace = workspaceReadyContext;
+    const project = driveProjectReadyContext;
+    const hasConflictingOperation = () =>
+      googlePhotosSyncInFlightRef.current ||
+      googlePhotosExportInFlightRef.current ||
+      driveOperationInFlightRef.current ||
+      assetImportInFlightRef.current ||
+      offlineSyncInFlightRef.current ||
+      projectPublishInFlightRef.current ||
+      projectRollbackInFlightRef.current ||
+      projectPublicationWriteInFlightRef.current ||
+      projectDeleteInFlightRef.current;
+    if (
+      signal.aborted ||
+      googlePhotosMembershipVerificationInFlightRef.current ||
+      tokenRequestKindRef.current !== null ||
+      googleStatus !== "connected" ||
+      driveFileGranted !== true ||
+      driveStatus !== "ready" ||
+      projectStatus !== "ready" ||
+      projectConsistencyRef.current !== "synced" ||
+      !driveAccessToken ||
+      !workspace ||
+      !project ||
+      selectedProjectId !== projectId ||
+      project.projectId !== projectId ||
+      hasConflictingOperation()
+    ) {
+      return { ok: false, reason: "notReady" };
+    }
+
+    const authoritySnapshot: GooglePhotosSyncAuthoritySnapshot = {
+      driveAccessToken,
+      workspaceId: workspace.workspaceId,
+      projectsRootFolderId: workspace.projectsRootFolderId,
+      projectId: project.projectId,
+      projectFolderId: project.projectFolderId,
+    };
+    const controller = new AbortController();
+    const sequence =
+      ++googlePhotosMembershipVerificationSequenceRef.current;
+    const abort = () => {
+      controller.abort();
+      if (
+        sequence === googlePhotosMembershipVerificationSequenceRef.current
+      ) {
+        clearPhotosMembershipReadAuthorization();
+      }
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    googlePhotosMembershipVerificationAbortRef.current = controller;
+    googlePhotosMembershipVerificationInFlightRef.current = true;
+    const tokenRequestId =
+      photosMembershipReadTokenRequestIdRef.current + 1;
+    photosMembershipReadAccessTokenRef.current = null;
+
+    // Keep this call in the original click stack for mobile Safari/PWA.
+    const tokenPromise =
+      requestPhotosMembershipReadAccessToken(tokenRequestId);
+
+    const isCurrent = () =>
+      sequence === googlePhotosMembershipVerificationSequenceRef.current &&
+      !controller.signal.aborted &&
+      googlePhotosMembershipVerificationInFlightRef.current &&
+      !hasConflictingOperation() &&
+      googlePhotosSyncDriveAuthorityRef.current.project === project &&
+      googlePhotosSyncDriveAuthorityRef.current.workspace === workspace &&
+      googlePhotosSyncAuthorityIsCurrent(authoritySnapshot);
+
+    try {
+      const photosAccessToken = await tokenPromise;
+      if (
+        !isCurrent() ||
+        photosMembershipReadAccessTokenRef.current !== photosAccessToken
+      ) {
+        return { ok: false, reason: "authorizationCancelled" };
+      }
+
+      const result = await diagnoseGooglePhotosSync(
+        projectId,
+        controller.signal,
+      );
+      if (!isCurrent()) {
+        return { ok: false, reason: "authorizationCancelled" };
+      }
+      return result;
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        !isCurrent() ||
+        (error instanceof PhotosTokenRequestError &&
+          error.status === "cancelled")
+      ) {
+        return { ok: false, reason: "authorizationCancelled" };
+      }
+      return { ok: false, reason: "authorizationUnavailable" };
+    } finally {
+      signal.removeEventListener("abort", abort);
+      if (sequence === googlePhotosMembershipVerificationSequenceRef.current) {
+        googlePhotosMembershipVerificationInFlightRef.current = false;
+        if (
+          googlePhotosMembershipVerificationAbortRef.current === controller
+        ) {
+          googlePhotosMembershipVerificationAbortRef.current = null;
+        }
       }
     }
   }
@@ -9077,6 +9501,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     canResumeGooglePhotosExport,
     prepareGooglePhotosSyncReview,
     diagnoseGooglePhotosSync,
+    verifyGooglePhotosSyncMembership,
     syncSelectedProjectToGooglePhotos,
     abortGooglePhotosSync,
     isGooglePhotosSyncInFlight,
@@ -9130,6 +9555,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
             accessTokenRef.current = null;
             clearPhotosSyncAuthorization();
             photosSyncTokenClientRef.current = null;
+            clearPhotosMembershipReadAuthorization();
+            photosMembershipReadTokenClientRef.current = null;
             setDriveFileGranted(null);
             setGoogleStatus("error");
             setGoogleMessage("Google認証ライブラリの読み込みに失敗しました。");

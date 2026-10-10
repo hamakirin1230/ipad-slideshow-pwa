@@ -101,6 +101,25 @@ describe("google auth does not auto-restore after refresh", () => {
     expect(exportInit).not.toContain("GOOGLE_PHOTOS_SYNC_SCOPES");
   });
 
+  it("defines an isolated read-only membership token client with one exact scope", () => {
+    const readInitStart = providers.indexOf(
+      "photosMembershipReadTokenClientRef.current = oauth2.initTokenClient({",
+    );
+    const readInit = providers.slice(
+      readInitStart,
+      providers.indexOf("if (accessTokenRef.current)", readInitStart),
+    );
+
+    expect(readInitStart).toBeGreaterThan(-1);
+    expect(readInit).toContain("scope: GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE");
+    expect(readInit).toContain("include_granted_scopes: false");
+    expect(readInit).toContain('prompt: "consent"');
+    expect(readInit).not.toContain("DRIVE_FILE_SCOPE");
+    expect(readInit).not.toContain("DRIVE_AND_PHOTOS_PICKER_SCOPES");
+    expect(readInit).not.toContain("GOOGLE_PHOTOS_EXPORT_SCOPE");
+    expect(readInit).not.toContain("GOOGLE_PHOTOS_SYNC_SCOPES");
+  });
+
   it("keeps the same-album sync token in private refs only", () => {
     expect(providers).toContain(
       "const photosSyncAccessTokenRef = useRef<string | null>(null)",
@@ -114,6 +133,62 @@ describe("google auth does not auto-restore after refresh", () => {
     expect(providers).not.toContain("setPhotosSyncAccessToken");
     expect(providers).not.toContain("photosSyncAccessToken:");
     expect(providers).not.toContain("getPhotosSyncAccessToken");
+  });
+
+  it("keeps membership read authorization private and starts it synchronously", () => {
+    const request = extractFunction(
+      providers,
+      "requestPhotosMembershipReadAccessToken",
+    );
+    const response = extractFunction(
+      providers,
+      "handlePhotosMembershipReadTokenResponse",
+    );
+    const action = extractFunction(
+      providers,
+      "verifyGooglePhotosSyncMembership",
+    );
+    const requestStart = request.indexOf("tokenClient.requestAccessToken({");
+    const actionRequest = action.indexOf(
+      "requestPhotosMembershipReadAccessToken(tokenRequestId)",
+    );
+
+    expect(providers).toContain(
+      "const photosMembershipReadAccessTokenRef = useRef<string | null>(null)",
+    );
+    expect(providers).not.toContain("setPhotosMembershipReadAccessToken");
+    expect(providers).not.toContain("photosMembershipReadAccessToken:");
+    expect(requestStart).toBeGreaterThan(-1);
+    expect(request.slice(0, requestStart)).not.toContain("await ");
+    expect(request).toContain("scope: GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE");
+    expect(request).toContain("include_granted_scopes: false");
+    expect(request).toContain('prompt: "consent"');
+    expect(actionRequest).toBeGreaterThan(-1);
+    expect(actionRequest).toBeLessThan(action.indexOf("await tokenPromise"));
+    expect(response).toContain(
+      "tokenResponseGrantsPhotosMembershipRead(tokenResponse)",
+    );
+    expect(response).not.toContain("error_description");
+    expect(response).not.toContain("error_uri");
+  });
+
+  it("clears membership read authorization on authority lifecycle changes", () => {
+    const reset = extractFunction(providers, "resetGoogleAuthFlow");
+    const disconnect = extractFunction(providers, "disconnectGoogle");
+    const clearRead = extractFunction(
+      providers,
+      "clearPhotosMembershipReadAuthorization",
+    );
+
+    expect(reset).toContain("clearPhotosMembershipReadAuthorization()");
+    expect(disconnect).toContain("clearPhotosMembershipReadAuthorization()");
+    expect(clearRead).toContain(
+      "photosMembershipReadAccessTokenRef.current = null",
+    );
+    expect(providers).toContain(
+      "googlePhotosMembershipVerificationAbortRef.current?.abort()",
+    );
+    expect(providers).not.toContain("setPhotosMembershipReadAccessToken");
   });
 
   it("starts a guarded sync scope request synchronously and reuses only its own token", () => {

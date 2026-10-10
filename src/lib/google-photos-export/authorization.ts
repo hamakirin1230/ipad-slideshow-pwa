@@ -6,10 +6,13 @@ import {
   PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE,
   type GoogleTokenResponse,
   hasGrantedPhotosLibraryAppendonlyScope,
+  hasGrantedPhotosLibraryReadonlyAppCreatedDataScope,
   hasGrantedPhotosLibrarySyncScopes,
 } from "../google-auth";
 
 export const GOOGLE_PHOTOS_EXPORT_SCOPE = PHOTOS_LIBRARY_APPENDONLY_SCOPE;
+export const GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE =
+  PHOTOS_LIBRARY_READONLY_APPCREATEDDATA_SCOPE;
 export const GOOGLE_PHOTOS_SYNC_SCOPES = PHOTOS_LIBRARY_SYNC_SCOPES;
 
 const GOOGLE_PHOTOS_SYNC_SCOPE_LIST = [
@@ -34,6 +37,22 @@ export function tokenResponseGrantsPhotosLibraryAppendonly(
     return false;
   }
   return hasGrantedPhotosLibraryAppendonlyScope(tokenResponse);
+}
+
+export function tokenResponseGrantsPhotosMembershipRead(
+  tokenResponse: GoogleTokenResponse,
+) {
+  if (
+    tokenScopeList(tokenResponse.scope).includes(
+      GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE,
+    )
+  ) {
+    return true;
+  }
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return hasGrantedPhotosLibraryReadonlyAppCreatedDataScope(tokenResponse);
 }
 
 export function tokenResponseGrantsPhotosLibrarySync(
@@ -62,6 +81,14 @@ export function isPhotosExportScopeRequest(scope: string) {
     scopes.length === 1 &&
     scopes[0] === GOOGLE_PHOTOS_EXPORT_SCOPE &&
     !scopes.includes(PHOTOS_PICKER_MEDIA_ITEMS_READONLY_SCOPE)
+  );
+}
+
+export function isPhotosMembershipReadScopeRequest(scope: string) {
+  const scopes = tokenScopeList(scope);
+  return (
+    scopes.length === 1 &&
+    scopes[0] === GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE
   );
 }
 

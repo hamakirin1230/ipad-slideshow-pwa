@@ -45,12 +45,50 @@ function collect(node: ts.Node) {
 }
 collect(provider);
 function render() {
+  const result = renderProvider();
+  return result.props.value as ReturnType<typeof import("./app-providers").useAppState>;
+}
+function renderProvider() {
   hooks.cursor = 0;
   const result = AppProviders({ children: null });
   expect(hooks.cursor).toBe(hooks.names.length);
-  return result.props.value as ReturnType<typeof import("./app-providers").useAppState>;
+  return result;
 }
 function ref(name: string) { return hooks.values.get(name) as { current: unknown }; }
+function initializeGoogleTokenClients() {
+  const configs: Array<{
+    scope: string;
+    callback: (response: { access_token?: string; scope?: string; error?: string }) => void;
+    error_callback?: (error?: { type?: "popup_failed_to_open" | "popup_closed" | "unknown" }) => void;
+  }> = [];
+  vi.stubGlobal("window", {
+    google: {
+      accounts: {
+        oauth2: {
+          initTokenClient: vi.fn((config) => {
+            configs.push(config);
+            return { requestAccessToken: oauth };
+          }),
+          hasGrantedAllScopes: vi.fn(() => false),
+        },
+      },
+    },
+  });
+  const result = renderProvider();
+  const children = Array.isArray(result.props.children)
+    ? result.props.children
+    : [result.props.children];
+  const script = children.find(
+    (child: { props?: { onReady?: () => void } } | null) =>
+      typeof child?.props?.onReady === "function",
+  );
+  expect(script).toBeDefined();
+  script!.props.onReady!();
+  return {
+    context: result.props.value as ReturnType<typeof import("./app-providers").useAppState>,
+    membershipConfig: configs.at(-1)!,
+  };
+}
 const safe: GooglePhotosSyncDiagnosticsResult = { ok: true, diagnostics: {
   hasPending: true, phase: "finalizing", phaseExplanation: "最終確認の途中の可能性があります。", sourceChanged: true,
   targetCount: 13, previousManagedCount: 13, stableManagedCount: 13,
@@ -59,12 +97,14 @@ const safe: GooglePhotosSyncDiagnosticsResult = { ok: true, diagnostics: {
 } };
 const oauth = vi.fn();
 beforeEach(() => {
-  hooks.values.clear(); vi.clearAllMocks();
+  hooks.values.clear(); vi.clearAllMocks(); oauth.mockReset();
   vi.stubGlobal("navigator", {});
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("No real Google access"); }));
   hooks.values.set("accessTokenRef", { current: "fixture-drive-token" });
   hooks.values.set("photosSyncAccessTokenRef", { current: "fixture-photos-token" });
   hooks.values.set("photosSyncTokenClientRef", { current: { requestAccessToken: oauth } });
+  hooks.values.set("photosMembershipReadAccessTokenRef", { current: "fixture-membership-token" });
+  hooks.values.set("photosMembershipReadTokenClientRef", { current: { requestAccessToken: oauth } });
   const fixture = projectReadFixture();
   for (const [name, value] of Object.entries({ googleStatus: "connected", driveFileGranted: true, driveStatus: "ready",
     projectStatus: "ready", selectedProjectId: projectId, driveProjectReadyContext: fixture.project, projectConsistency: "synced",
@@ -74,7 +114,8 @@ beforeEach(() => {
   read.mockResolvedValue(safe);
 });
 afterEach(() => {
-  expect(oauth).not.toHaveBeenCalled(); expect(runGooglePhotosSameAlbumSync).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+  expect(runGooglePhotosSameAlbumSync).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 describe("Provider read-only Photos diagnostics", () => {
@@ -82,16 +123,18 @@ describe("Provider read-only Photos diagnostics", () => {
     const context = render();
     const result = await context.diagnoseGooglePhotosSync(projectId, new AbortController().signal);
     expect(result).toEqual(safe);
-    expect(read).toHaveBeenCalledWith(expect.objectContaining({ accessToken: "fixture-drive-token", photosAccessToken: "fixture-photos-token" }));
-    for (const text of ["fixture-drive-token", "fixture-photos-token", projectId, workspaceId]) expect(JSON.stringify(result)).not.toContain(text);
+    expect(read).toHaveBeenCalledWith(expect.objectContaining({ accessToken: "fixture-drive-token", photosAccessToken: "fixture-membership-token" }));
+    for (const text of ["fixture-drive-token", "fixture-membership-token", projectId, workspaceId]) expect(JSON.stringify(result)).not.toContain(text);
     expect(ref("googlePhotosSyncInFlightRef").current).toBe(false);
     expect(ref("pendingPhotosSyncTokenRequestRef").current).toBeNull();
-    expect(ref("photosSyncAccessTokenRef").current).toBe("fixture-photos-token");
+    expect(ref("photosMembershipReadAccessTokenRef").current).toBe("fixture-membership-token");
+    expect(oauth).not.toHaveBeenCalled();
   });
   it("passes null Photos token without requesting one", async () => {
-    const context = render(); ref("photosSyncAccessTokenRef").current = null;
+    const context = render(); ref("photosMembershipReadAccessTokenRef").current = null;
     expect(await context.diagnoseGooglePhotosSync(projectId, new AbortController().signal)).toEqual(safe);
     expect(read).toHaveBeenCalledWith(expect.objectContaining({ photosAccessToken: null }));
+    expect(oauth).not.toHaveBeenCalled();
   });
   it.each(["googlePhotosSyncInFlightRef", "googlePhotosExportInFlightRef", "driveOperationInFlightRef", "assetImportInFlightRef",
     "offlineSyncInFlightRef", "projectPublishInFlightRef", "projectRollbackInFlightRef", "projectPublicationWriteInFlightRef", "projectDeleteInFlightRef"])("blocks concurrent %s", async name => {
@@ -113,7 +156,7 @@ describe("Provider read-only Photos diagnostics", () => {
     read.mockImplementation(async input => {
       if (kind === "owner") ref("googlePhotosSyncDriveAuthorityRef").current = {};
       if (kind === "Drive token") ref("accessTokenRef").current = "fixture-new-token";
-      if (kind === "Photos token") ref("photosSyncAccessTokenRef").current = null;
+      if (kind === "Photos token") ref("photosMembershipReadAccessTokenRef").current = null;
       if (kind === "write") ref("driveOperationInFlightRef").current = true;
       if (kind === "sequence") ref("googlePhotosDiagnosticsSequenceRef").current = 99;
       expect(input.isCurrent()).toBe(false);
@@ -140,12 +183,197 @@ describe("Provider read-only Photos diagnostics", () => {
     read.mockRejectedValue(new Error("raw fixture token error"));
     expect(await context.diagnoseGooglePhotosSync(projectId, new AbortController().signal)).toEqual({ ok: false, reason: "bindingUnavailable" });
     expect(ref("googlePhotosSyncMediaRuntimeRef").current).toBe(runtime);
-    expect(ref("photosSyncAccessTokenRef").current).toBe("fixture-photos-token");
+    expect(ref("photosMembershipReadAccessTokenRef").current).toBe("fixture-membership-token");
     expect(render().googleStatus).toBe("connected");
   });
   it("does not reset auth, write, persist, or log in the diagnostics action", () => {
-    const action = source.slice(source.indexOf("async function diagnoseGooglePhotosSync("), source.indexOf("async function prepareGooglePhotosSyncReview("));
+    const action = source.slice(source.indexOf("async function diagnoseGooglePhotosSync("), source.indexOf("async function verifyGooglePhotosSyncMembership("));
     for (const forbidden of ["requestPhotosSyncAccessToken", "requestAccessToken", "resetGoogleAfterDriveAuthFailure", "executeGooglePhotosSameAlbumSync", "updateBinding", "console.", "localStorage", "indexedDB"])
       expect(action).not.toContain(forbidden);
+  });
+
+  it("starts an exact read-only membership request only from the explicit action", async () => {
+    const context = render();
+    oauth.mockImplementation((options: { scope?: string; include_granted_scopes?: boolean }) => {
+      expect(options).toEqual({
+        scope: "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
+        include_granted_scopes: false,
+        prompt: "consent",
+      });
+      ref("photosMembershipReadAccessTokenRef").current = "fixture-new-membership-token";
+      const pending = ref("pendingPhotosMembershipReadTokenRequestRef").current as {
+        resolve: (token: string) => void;
+      };
+      pending.resolve("fixture-new-membership-token");
+    });
+
+    expect(
+      await context.verifyGooglePhotosSyncMembership(
+        projectId,
+        new AbortController().signal,
+      ),
+    ).toEqual(safe);
+    expect(oauth).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith(
+      expect.objectContaining({
+        photosAccessToken: "fixture-new-membership-token",
+      }),
+    );
+  });
+
+  it("accepts the isolated GIS callback and rejects denial or missing scope", async () => {
+    const { context, membershipConfig } = initializeGoogleTokenClients();
+    const success = context.verifyGooglePhotosSyncMembership(
+      projectId,
+      new AbortController().signal,
+    );
+    membershipConfig.callback({
+      access_token: "fixture-callback-token",
+      scope: "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
+    });
+    expect(await success).toEqual(safe);
+    expect(read).toHaveBeenCalledWith(
+      expect.objectContaining({ photosAccessToken: "fixture-callback-token" }),
+    );
+
+    read.mockClear();
+    const denied = context.verifyGooglePhotosSyncMembership(
+      projectId,
+      new AbortController().signal,
+    );
+    membershipConfig.callback({ error: "access_denied" });
+    expect(await denied).toEqual({
+      ok: false,
+      reason: "authorizationCancelled",
+    });
+
+    const wrongScope = context.verifyGooglePhotosSyncMembership(
+      projectId,
+      new AbortController().signal,
+    );
+    membershipConfig.callback({
+      access_token: "fixture-wrong-scope-token",
+      scope: "https://www.googleapis.com/auth/photoslibrary.appendonly",
+    });
+    expect(await wrongScope).toEqual({
+      ok: false,
+      reason: "authorizationUnavailable",
+    });
+    expect(read).not.toHaveBeenCalled();
+
+    const controller = new AbortController();
+    const stale = context.verifyGooglePhotosSyncMembership(
+      projectId,
+      controller.signal,
+    );
+    controller.abort();
+    expect(await stale).toEqual({
+      ok: false,
+      reason: "authorizationCancelled",
+    });
+    membershipConfig.callback({
+      access_token: "fixture-stale-token",
+      scope: "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
+    });
+    expect(ref("photosMembershipReadAccessTokenRef").current).toBeNull();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("blocks a double request and discards an aborted authorization", async () => {
+    const context = render();
+    const controller = new AbortController();
+    const first = context.verifyGooglePhotosSyncMembership(
+      projectId,
+      controller.signal,
+    );
+    expect(
+      await context.verifyGooglePhotosSyncMembership(
+        projectId,
+        new AbortController().signal,
+      ),
+    ).toEqual({ ok: false, reason: "notReady" });
+    controller.abort();
+    expect(await first).toEqual({
+      ok: false,
+      reason: "authorizationCancelled",
+    });
+    expect(read).not.toHaveBeenCalled();
+    expect(ref("photosMembershipReadAccessTokenRef").current).toBeNull();
+  });
+
+  it("discards authorization when a Drive write starts before the callback", async () => {
+    const context = render();
+    const result = context.verifyGooglePhotosSyncMembership(
+      projectId,
+      new AbortController().signal,
+    );
+    ref("driveOperationInFlightRef").current = true;
+    ref("photosMembershipReadAccessTokenRef").current =
+      "fixture-late-membership-token";
+    const pending = ref("pendingPhotosMembershipReadTokenRequestRef").current as {
+      resolve: (token: string) => void;
+    };
+    pending.resolve("fixture-late-membership-token");
+
+    expect(await result).toEqual({
+      ok: false,
+      reason: "authorizationCancelled",
+    });
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the read-only permission request cannot start", async () => {
+    const context = render();
+    oauth.mockImplementation(() => {
+      throw new Error("fixture popup blocked");
+    });
+    expect(
+      await context.verifyGooglePhotosSyncMembership(
+        projectId,
+        new AbortController().signal,
+      ),
+    ).toEqual({ ok: false, reason: "authorizationUnavailable" });
+    expect(read).not.toHaveBeenCalled();
+    expect(ref("photosMembershipReadAccessTokenRef").current).toBeNull();
+  });
+
+  it("times out safely without reading or retaining a token", async () => {
+    vi.useFakeTimers();
+    const context = render();
+    const result = context.verifyGooglePhotosSyncMembership(
+      projectId,
+      new AbortController().signal,
+    );
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(await result).toEqual({
+      ok: false,
+      reason: "authorizationCancelled",
+    });
+    expect(read).not.toHaveBeenCalled();
+    expect(ref("photosMembershipReadAccessTokenRef").current).toBeNull();
+  });
+
+  it("classifies a blocked or closed GIS popup without reading", async () => {
+    const { context, membershipConfig } = initializeGoogleTokenClients();
+    const blocked = context.verifyGooglePhotosSyncMembership(
+      projectId,
+      new AbortController().signal,
+    );
+    membershipConfig.error_callback?.({ type: "popup_failed_to_open" });
+    expect(await blocked).toEqual({
+      ok: false,
+      reason: "authorizationUnavailable",
+    });
+
+    const closed = context.verifyGooglePhotosSyncMembership(
+      projectId,
+      new AbortController().signal,
+    );
+    membershipConfig.error_callback?.({ type: "popup_closed" });
+    expect(await closed).toEqual({
+      ok: false,
+      reason: "authorizationCancelled",
+    });
+    expect(read).not.toHaveBeenCalled();
   });
 });

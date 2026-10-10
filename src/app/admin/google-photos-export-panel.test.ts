@@ -22,6 +22,32 @@ describe("Google Photos same-album sync UI", () => {
     expect(action).not.toContain("syncSelectedProjectToGooglePhotos");
     expect(source.panel).toContain("onClick={() => void startDiagnostics()}");
     expect(source.panel).toContain("diagnosticsAbortRef.current?.abort()");
+    expect(action).not.toContain("verifyGooglePhotosSyncMembership");
+    expect(action).not.toContain("requestAccessToken");
+  });
+  it("starts read-only membership authorization only from the explicit second action", () => {
+    const action = extractFunction(source.panel, "startMembershipVerification");
+    const call = action.indexOf(
+      "verifyGooglePhotosSyncMembership(\n      selectedProjectId,",
+    );
+    const firstAwait = action.indexOf("await ");
+
+    expect(source.panel).toContain(
+      "Googleフォトの読み取りを許可して照合",
+    );
+    expect(call).toBeGreaterThan(-1);
+    expect(call).toBeLessThan(firstAwait);
+    expect(action).toContain("const resultPromise =");
+    expect(action).toContain("sequence !== diagnosticsSequenceRef.current");
+    expect(action).toContain("controller.signal.aborted");
+    expect(action).not.toContain("syncSelectedProjectToGooglePhotos");
+    expect(source.panel).toContain(
+      "このアプリが作成したGoogleフォトアルバムだけを読み取ります。写真や同期管理情報は変更しません。",
+    );
+    expect(source.panel).toContain(
+      "アルバム内の全写真の完全性は確認できません。",
+    );
+    expect(source.panel).not.toContain("余分な写真を削除");
   });
   it.each(["match", "missing", "extra", "indeterminate", "unavailable"] as const)("renders %s safely without recovery controls", status => {
     const diagnostics: GooglePhotosSyncPendingDiagnostics = {

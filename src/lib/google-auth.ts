@@ -117,6 +117,17 @@ export function hasGrantedPhotosLibraryAppendonlyScope(
   );
 }
 
+export function hasGrantedPhotosLibraryReadonlyAppCreatedDataScope(
+  tokenResponse: GoogleTokenResponse,
+) {
+  return (
+    window.google?.accounts?.oauth2?.hasGrantedAllScopes(
+      tokenResponse,
+      PHOTOS_LIBRARY_READONLY_APPCREATEDDATA_SCOPE,
+    ) ?? false
+  );
+}
+
 export function hasGrantedPhotosLibrarySyncScopes(
   tokenResponse: GoogleTokenResponse,
 ) {
