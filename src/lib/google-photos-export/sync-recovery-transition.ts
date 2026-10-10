@@ -2,6 +2,7 @@ import { recoveryTargetIdsAppearInRelativeOrder } from "./sync-recovery-plan";
 import type {
   GooglePhotosSyncRecoveryAuthority,
   GooglePhotosSyncRecoveryClassification,
+  GooglePhotosSyncRecoveryCreatedItem,
   GooglePhotosSyncRecoveryEvent,
   GooglePhotosSyncRecoveryManagedItem,
   GooglePhotosSyncRecoveryPendingSnapshot,
@@ -27,6 +28,7 @@ export function createGooglePhotosSyncRecoveryState(input: {
   originalStable: GooglePhotosSyncRecoveryStableSnapshot;
   originalPending: GooglePhotosSyncRecoveryPendingSnapshot;
   initialMembershipMediaItemIds: string[];
+  confirmedPendingMediaItemIds: string[];
   recoverySourceFingerprint: string;
   orderedTargetSlideIds: string[];
   classifications: GooglePhotosSyncRecoveryClassification[];
@@ -37,12 +39,19 @@ export function createGooglePhotosSyncRecoveryState(input: {
     !validStable(input.originalStable) ||
     !validPending(input.originalPending) ||
     !uniqueNonBlank(input.initialMembershipMediaItemIds) ||
+    !uniqueNonBlankOrEmpty(input.confirmedPendingMediaItemIds) ||
     !uniqueNonBlank(input.orderedTargetSlideIds)
   ) {
     return { ok: false, reason: "INVALID_INPUT" };
   }
   if (input.originalPending.sourceFingerprint === input.recoverySourceFingerprint) {
     return { ok: false, reason: "RECOVERY_SOURCE_NOT_CHANGED" };
+  }
+  const pendingIds = new Set(
+    input.originalPending.targetItems.map((item) => item.mediaItemId),
+  );
+  if (input.confirmedPendingMediaItemIds.some((id) => !pendingIds.has(id))) {
+    return { ok: false, reason: "INVALID_INPUT" };
   }
   const stableIds = input.originalStable?.items.map((item) => item.mediaItemId) ?? [];
   if (!arraysEqual(stableIds, input.originalPending.previousManagedMediaItemIds)) {
@@ -52,6 +61,12 @@ export function createGooglePhotosSyncRecoveryState(input: {
     input.classifications.length !== input.orderedTargetSlideIds.length ||
     input.classifications.some(
       (item, index) => item.slideId !== input.orderedTargetSlideIds[index],
+    ) ||
+    !classificationsMatchSnapshots(
+      input.classifications,
+      input.originalStable,
+      input.originalPending,
+      new Set(input.confirmedPendingMediaItemIds),
     )
   ) {
     return { ok: false, reason: "TARGET_CLASSIFICATION_MISMATCH" };
@@ -66,6 +81,7 @@ export function createGooglePhotosSyncRecoveryState(input: {
       originalPending: clonePending(input.originalPending),
       baseStableGeneration: input.originalStable?.generation ?? 0,
       initialMembershipMediaItemIds: [...input.initialMembershipMediaItemIds],
+      confirmedPendingMediaItemIds: [...input.confirmedPendingMediaItemIds],
       recoverySourceFingerprint: input.recoverySourceFingerprint,
       orderedTargetSlideIds: [...input.orderedTargetSlideIds],
       classifications: input.classifications.map(cloneClassification),
@@ -76,6 +92,7 @@ export function createGooglePhotosSyncRecoveryState(input: {
         confirmedItems: [],
       },
       membershipPlan: null,
+      verifiedMembershipMediaItemIds: null,
       finalVerification: "not_started",
       canResume: true,
       retryPolicy: "SAFE_FROM_CHECKPOINT",
@@ -184,6 +201,9 @@ export function transitionGooglePhotosSyncRecovery(
           "AUTOMATIC_RETRY_FORBIDDEN",
         );
       }
+      if (!createdItemsAreCompatible(state, created)) {
+        return stop(state, "CREATED_ITEM_CONFLICT", "AUTOMATIC_RETRY_FORBIDDEN");
+      }
       return {
         ...advance(state, "MEDIA_VERIFIED"),
         mediaCreation: {
@@ -194,6 +214,9 @@ export function transitionGooglePhotosSyncRecovery(
     }
     case "MEMBERSHIP_PLAN_CONFIRMED":
       if (state.phase !== "MEDIA_VERIFIED") return invalidPhase(state);
+      if (!membershipPlanMatchesState(state, event.plan)) {
+        return stop(state, "MEMBERSHIP_PLAN_INVALID", "AUTOMATIC_RETRY_FORBIDDEN");
+      }
       return {
         ...advance(state, "MEMBERSHIP_PLANNED"),
         membershipPlan: cloneMembershipPlan(event.plan),
@@ -205,14 +228,29 @@ export function transitionGooglePhotosSyncRecovery(
       const observed = event.observedMediaItemIds;
       if (
         !uniqueNonBlank(observed) ||
+        !membershipPlanMatchesState(state, state.membershipPlan) ||
         !membershipMatchesPlan(observed, state.membershipPlan)
       ) {
         return stop(state, "MEMBERSHIP_MISMATCH", "AUTOMATIC_RETRY_FORBIDDEN");
       }
-      return advance(state, "MEMBERSHIP_VERIFIED");
+      return {
+        ...advance(state, "MEMBERSHIP_VERIFIED"),
+        verifiedMembershipMediaItemIds: [...observed],
+      };
     }
     case "FINAL_VERIFICATION_PASSED":
-      if (state.phase !== "MEMBERSHIP_VERIFIED") return invalidPhase(state);
+      if (
+        state.phase !== "MEMBERSHIP_VERIFIED" ||
+        state.membershipPlan === null ||
+        state.verifiedMembershipMediaItemIds === null ||
+        !membershipPlanMatchesState(state, state.membershipPlan) ||
+        !membershipMatchesPlan(
+          state.verifiedMembershipMediaItemIds,
+          state.membershipPlan,
+        )
+      ) {
+        return stop(state, "MEMBERSHIP_MISMATCH", "AUTOMATIC_RETRY_FORBIDDEN");
+      }
       return {
         ...advance(state, "FINAL_READY"),
         finalVerification: "passed",
@@ -249,6 +287,131 @@ function membershipMatchesPlan(
   );
 }
 
+function createdItemsAreCompatible(
+  state: GooglePhotosSyncRecoveryState,
+  createdItems: GooglePhotosSyncRecoveryCreatedItem[],
+) {
+  const alreadyConfirmed = new Set(
+    state.mediaCreation.confirmedItems.map((item) => item.mediaItemId),
+  );
+  return (
+    createdItemsDoNotCollideWithAnchors(state, createdItems) &&
+    createdItems.every((item) => !alreadyConfirmed.has(item.mediaItemId))
+  );
+}
+
+function createdItemsDoNotCollideWithAnchors(
+  state: GooglePhotosSyncRecoveryState,
+  createdItems: GooglePhotosSyncRecoveryCreatedItem[],
+) {
+  const historicalIds = new Set([
+    ...(state.originalStable?.items.map((item) => item.mediaItemId) ?? []),
+    ...state.originalPending.targetItems.map((item) => item.mediaItemId),
+  ]);
+  const initialMembership = new Set(state.initialMembershipMediaItemIds);
+  const reusedIds = new Set(
+    state.classifications.flatMap((item) =>
+      item.classification === "REUSE_CANDIDATE" ? [item.mediaItemId] : [],
+    ),
+  );
+  return createdItems.every(
+    (item) =>
+      !historicalIds.has(item.mediaItemId) &&
+      !initialMembership.has(item.mediaItemId) &&
+      !reusedIds.has(item.mediaItemId),
+  );
+}
+
+function membershipPlanMatchesState(
+  state: GooglePhotosSyncRecoveryState,
+  plan: NonNullable<GooglePhotosSyncRecoveryState["membershipPlan"]>,
+) {
+  if (
+    !uniqueNonBlank(plan.retainMediaItemIds) ||
+    !uniqueNonBlank(plan.createSlideIds) ||
+    !uniqueNonBlank(plan.removeMembershipMediaItemIds) ||
+    !uniqueNonBlank(plan.addMembershipMediaItemIds) ||
+    !uniqueNonBlank(plan.unmanagedMediaItemIds) ||
+    !uniqueNonBlank(plan.expectedRelativeOrder) ||
+    !Array.isArray(plan.libraryDeleteMediaItemIds) ||
+    plan.libraryDeleteMediaItemIds.length !== 0 ||
+    plan.verificationRequired !== true ||
+    !["fully_provable_local_plan", "requires_remote_verification"].includes(
+      plan.disposition,
+    ) ||
+    !["unverified", "request_order_documented"].includes(
+      plan.remoteOrderAssumption,
+    )
+  ) {
+    return false;
+  }
+
+  const targetIds = targetMediaItemIds(state);
+  if (!targetIds) return false;
+  const historicalManaged = new Set([
+    ...(state.originalStable?.items.map((item) => item.mediaItemId) ?? []),
+    ...state.originalPending.targetItems.map((item) => item.mediaItemId),
+  ]);
+  const unmanaged = state.initialMembershipMediaItemIds.filter(
+    (id) => !historicalManaged.has(id),
+  );
+  const currentManaged = state.initialMembershipMediaItemIds.filter((id) =>
+    historicalManaged.has(id),
+  );
+  const initialMembership = new Set(state.initialMembershipMediaItemIds);
+  const targetSet = new Set(targetIds);
+  const noMutationRequired =
+    targetIds.every((id) => initialMembership.has(id)) &&
+    currentManaged.every((id) => targetSet.has(id)) &&
+    recoveryTargetIdsAppearInRelativeOrder(state.initialMembershipMediaItemIds, targetIds);
+  const expectedRemove = noMutationRequired ? [] : currentManaged;
+  const expectedAdd = noMutationRequired ? [] : targetIds;
+  const expectedDisposition = noMutationRequired
+    ? "fully_provable_local_plan"
+    : "requires_remote_verification";
+
+  return (
+    plan.disposition === expectedDisposition &&
+    arraysEqual(plan.retainMediaItemIds, unmanaged) &&
+    arraysEqual(plan.unmanagedMediaItemIds, unmanaged) &&
+    arraysEqual(plan.createSlideIds, state.mediaCreation.requiredSlideIds) &&
+    arraysEqual(plan.removeMembershipMediaItemIds, expectedRemove) &&
+    arraysEqual(plan.addMembershipMediaItemIds, expectedAdd) &&
+    arraysEqual(plan.expectedRelativeOrder, targetIds)
+  );
+}
+
+function targetMediaItemIds(state: GooglePhotosSyncRecoveryState) {
+  const normalizedCreated = normalizeCreatedItems(state.mediaCreation.confirmedItems);
+  if (
+    !normalizedCreated ||
+    !createdItemsDoNotCollideWithAnchors(state, normalizedCreated)
+  ) {
+    return null;
+  }
+  const createdBySlide = new Map(
+    normalizedCreated.map((item) => [item.slideId, item.mediaItemId]),
+  );
+  if (
+    createdBySlide.size !== state.mediaCreation.requiredSlideIds.length ||
+    !arraysEqual([...createdBySlide.keys()], state.mediaCreation.requiredSlideIds)
+  ) {
+    return null;
+  }
+  const targetIds: string[] = [];
+  for (const classification of state.classifications) {
+    if (classification.classification === "INDETERMINATE") return null;
+    if (classification.classification === "REUSE_CANDIDATE") {
+      targetIds.push(classification.mediaItemId);
+      continue;
+    }
+    const createdId = createdBySlide.get(classification.slideId);
+    if (!createdId) return null;
+    targetIds.push(createdId);
+  }
+  return uniqueNonBlank(targetIds) ? targetIds : null;
+}
+
 function stateIntegrityIsValid(state: GooglePhotosSyncRecoveryState) {
   if (
     !isNonBlankTrimmedString(state.recoveryId) ||
@@ -257,12 +420,82 @@ function stateIntegrityIsValid(state: GooglePhotosSyncRecoveryState) {
     state.baseStableGeneration !== (state.originalStable?.generation ?? 0) ||
     state.originalPending.sourceFingerprint === state.recoverySourceFingerprint ||
     !uniqueNonBlank(state.initialMembershipMediaItemIds) ||
-    !uniqueNonBlank(state.orderedTargetSlideIds)
+    !uniqueNonBlankOrEmpty(state.confirmedPendingMediaItemIds) ||
+    !uniqueNonBlank(state.orderedTargetSlideIds) ||
+    state.classifications.length !== state.orderedTargetSlideIds.length ||
+    state.classifications.some(
+      (item, index) => item.slideId !== state.orderedTargetSlideIds[index],
+    ) ||
+    !classificationsMatchSnapshots(
+      state.classifications,
+      state.originalStable,
+      state.originalPending,
+      new Set(state.confirmedPendingMediaItemIds),
+    ) ||
+    !arraysEqual(
+      state.mediaCreation.requiredSlideIds,
+      state.classifications.flatMap((item) =>
+        item.classification === "CREATE_REQUIRED" ? [item.slideId] : [],
+      ),
+    ) ||
+    (state.verifiedMembershipMediaItemIds !== null &&
+      !uniqueNonBlank(state.verifiedMembershipMediaItemIds))
   ) {
     return false;
   }
   const stableIds = state.originalStable?.items.map((item) => item.mediaItemId) ?? [];
-  return arraysEqual(stableIds, state.originalPending.previousManagedMediaItemIds);
+  if (!arraysEqual(stableIds, state.originalPending.previousManagedMediaItemIds)) {
+    return false;
+  }
+  if (
+    state.membershipPlan !== null &&
+    !membershipPlanMatchesState(state, state.membershipPlan)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function classificationsMatchSnapshots(
+  classifications: GooglePhotosSyncRecoveryClassification[],
+  stable: GooglePhotosSyncRecoveryStableSnapshot,
+  pending: GooglePhotosSyncRecoveryPendingSnapshot,
+  confirmedPending: Set<string>,
+) {
+  if (!Array.isArray(classifications)) return false;
+  const stableBySlide = new Map(stable?.items.map((item) => [item.slideId, item]) ?? []);
+  const pendingBySlide = new Map(pending.targetItems.map((item) => [item.slideId, item]));
+  const slides = new Set<string>();
+  for (const item of classifications) {
+    if (
+      !isNonBlankTrimmedString(item.slideId) ||
+      !isNonBlankTrimmedString(item.renderKey) ||
+      slides.has(item.slideId)
+    ) {
+      return false;
+    }
+    slides.add(item.slideId);
+    if (item.classification !== "REUSE_CANDIDATE") continue;
+    const stableItem = stableBySlide.get(item.slideId);
+    const pendingItem = pendingBySlide.get(item.slideId);
+    const stableMatches =
+      stableItem?.mediaItemId === item.mediaItemId &&
+      stableItem.renderKey === item.renderKey;
+    const pendingSnapshotMatches =
+      pendingItem?.mediaItemId === item.mediaItemId &&
+      pendingItem.renderKey === item.renderKey;
+    const pendingMatches =
+      pendingSnapshotMatches && confirmedPending.has(item.mediaItemId);
+    if (
+      (item.provenance === "stable" && !stableMatches) ||
+      (item.provenance === "pending" && !pendingMatches) ||
+      (item.provenance === "stable_and_pending" &&
+        (!stableMatches || !pendingSnapshotMatches))
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function validStable(value: GooglePhotosSyncRecoveryStableSnapshot) {
@@ -362,6 +595,7 @@ function cloneState(state: GooglePhotosSyncRecoveryState): GooglePhotosSyncRecov
     originalStable: cloneStable(state.originalStable),
     originalPending: clonePending(state.originalPending),
     initialMembershipMediaItemIds: [...state.initialMembershipMediaItemIds],
+    confirmedPendingMediaItemIds: [...state.confirmedPendingMediaItemIds],
     orderedTargetSlideIds: [...state.orderedTargetSlideIds],
     classifications: state.classifications.map(cloneClassification),
     mediaCreation: {
@@ -370,6 +604,9 @@ function cloneState(state: GooglePhotosSyncRecoveryState): GooglePhotosSyncRecov
     },
     membershipPlan: state.membershipPlan
       ? cloneMembershipPlan(state.membershipPlan)
+      : null,
+    verifiedMembershipMediaItemIds: state.verifiedMembershipMediaItemIds
+      ? [...state.verifiedMembershipMediaItemIds]
       : null,
   };
 }
@@ -433,6 +670,11 @@ function uniqueNonBlank(values: readonly string[]) {
     values.every(isNonBlankTrimmedString) &&
     new Set(values).size === values.length
   );
+}
+
+function uniqueNonBlankOrEmpty(values: readonly string[]) {
+  return Array.isArray(values) && values.every(isNonBlankTrimmedString) &&
+    new Set(values).size === values.length;
 }
 
 function arraysEqual<T>(left: readonly T[], right: readonly T[]) {

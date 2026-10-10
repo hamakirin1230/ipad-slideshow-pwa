@@ -94,6 +94,8 @@ function membershipInput() {
       reusable("slide-a", KEY_A, "pending-a"),
       reusable("slide-b", KEY_B, "pending-b"),
     ],
+    confirmedCreatedItems: [] as Array<{ slideId: string; mediaItemId: string }>,
+    confirmedPendingMediaItemIds: ["pending-a", "pending-b"],
     provenManagedMediaItemIds: ["stable-a", "stable-b", "pending-a", "pending-b"],
     remoteOrderCapability: "unverified" as const,
     differentIdContentDuplicateRisk: false,
@@ -157,7 +159,7 @@ describe("Google Photos sync recovery classification", () => {
     ]);
   });
 
-  it("uses an explicitly verified successor relation without trusting pending by position", () => {
+  it("FAIL-2 does not treat a successor relation as pending provenance evidence", () => {
     const input = classificationInput();
     input.pendingTargetItems = [managed("slide-a", KEY_A, "pending-media-a")];
     input.albumMediaItemIds.push("pending-media-a");
@@ -168,6 +170,24 @@ describe("Google Photos sync recovery classification", () => {
         pendingMediaItemId: "pending-media-a",
       },
     ];
+    expect(classify(input)).toEqual([
+      expect.objectContaining({
+        classification: "REUSE_CANDIDATE",
+        mediaItemId: "stable-media-a",
+        provenance: "stable",
+      }),
+    ]);
+
+    input.desiredSlides[0]!.renderKey = KEY_B;
+    input.pendingTargetItems[0]!.renderKey = KEY_B;
+    expect(classify(input)).toEqual([
+      expect.objectContaining({
+        classification: "INDETERMINATE",
+        reason: "UNVERIFIED_PENDING_PROVENANCE",
+      }),
+    ]);
+
+    input.confirmedPendingMediaItemIds = ["pending-media-a"];
     expect(classify(input)).toEqual([
       expect.objectContaining({
         classification: "REUSE_CANDIDATE",
@@ -251,6 +271,15 @@ describe("Google Photos sync recovery classification", () => {
 });
 
 describe("Google Photos sync recovery membership plan", () => {
+  it("FAIL-2 rejects a direct planner call with unconfirmed pending provenance", () => {
+    const input = membershipInput();
+    input.confirmedPendingMediaItemIds = [];
+    expect(planGooglePhotosSyncRecoveryMembership(input)).toEqual({
+      ok: false,
+      reason: "TARGET_CLASSIFICATION_MISMATCH",
+    });
+  });
+
   it("returns a local no-mutation plan when targets already appear in relative order", () => {
     const result = planGooglePhotosSyncRecoveryMembership(membershipInput());
     expect(result).toEqual({
@@ -293,6 +322,7 @@ describe("Google Photos sync recovery membership plan", () => {
       reusable("slide-a", KEY_A, "pending-a"),
       createRequired("slide-c", KEY_C),
     ];
+    input.confirmedCreatedItems = [{ slideId: "slide-c", mediaItemId: "created-c" }];
     input.provenManagedMediaItemIds.push("created-c");
     const result = planGooglePhotosSyncRecoveryMembership(input);
     expect(result).toEqual({
@@ -303,6 +333,62 @@ describe("Google Photos sync recovery membership plan", () => {
         addMembershipMediaItemIds: ["pending-a", "created-c"],
         libraryDeleteMediaItemIds: [],
       }),
+    });
+  });
+
+  it("FAIL-1 rejects classification and future-target provenance contradictions", () => {
+    const oldPending = membershipInput();
+    oldPending.classifications[0] = createRequired("slide-a", KEY_A);
+    expect(planGooglePhotosSyncRecoveryMembership(oldPending)).toEqual({
+      ok: false,
+      reason: "CREATED_TARGET_NOT_CONFIRMED",
+    });
+
+    const oldStable = membershipInput();
+    oldStable.futureTargetItems[0] = {
+      slideId: "slide-a",
+      mediaItemId: "stable-a",
+      provenance: "stable",
+    };
+    oldStable.classifications[0] = createRequired("slide-a", KEY_A);
+    expect(planGooglePhotosSyncRecoveryMembership(oldStable)).toEqual({
+      ok: false,
+      reason: "CREATED_TARGET_NOT_CONFIRMED",
+    });
+
+    const wrongReuseId = membershipInput();
+    wrongReuseId.futureTargetItems[0] = {
+      slideId: "slide-a",
+      mediaItemId: "stable-a",
+      provenance: "stable",
+    };
+    expect(planGooglePhotosSyncRecoveryMembership(wrongReuseId)).toEqual({
+      ok: false,
+      reason: "TARGET_CLASSIFICATION_MISMATCH",
+    });
+  });
+
+  it("FAIL-1 requires an exact created-media checkpoint before planning membership", () => {
+    const input = membershipInput();
+    input.futureTargetItems[1] = {
+      slideId: "slide-b",
+      mediaItemId: "created-b",
+      provenance: "created_verified",
+    };
+    input.classifications[1] = createRequired("slide-b", KEY_B);
+    input.provenManagedMediaItemIds.push("created-b");
+
+    expect(planGooglePhotosSyncRecoveryMembership(input)).toEqual({
+      ok: false,
+      reason: "CREATED_TARGET_NOT_CONFIRMED",
+    });
+
+    input.confirmedCreatedItems = [{ slideId: "slide-b", mediaItemId: "created-b" }];
+    expect(planGooglePhotosSyncRecoveryMembership(input)).toMatchObject({
+      ok: true,
+      plan: {
+        expectedRelativeOrder: ["pending-a", "created-b"],
+      },
     });
   });
 

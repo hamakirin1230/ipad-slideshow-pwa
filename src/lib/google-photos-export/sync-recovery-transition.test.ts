@@ -53,7 +53,8 @@ function recoveryInput() {
         { slideId: "slide-b", renderKey: "render-b-old", mediaItemId: "pending-b" },
       ],
     },
-    initialMembershipMediaItemIds: ["pending-a", "pending-b"],
+    initialMembershipMediaItemIds: ["unmanaged", "pending-a", "pending-b"],
+    confirmedPendingMediaItemIds: ["pending-a"],
     recoverySourceFingerprint: CURRENT_SOURCE,
     orderedTargetSlideIds: ["slide-a", "slide-b"],
     classifications,
@@ -197,6 +198,15 @@ describe("Google Photos sync recovery state model", () => {
     });
   });
 
+  it("FAIL-2 rejects an unconfirmed pending classification at state creation", () => {
+    const input = recoveryInput();
+    input.confirmedPendingMediaItemIds = [];
+    expect(createGooglePhotosSyncRecoveryState(input)).toEqual({
+      ok: false,
+      reason: "TARGET_CLASSIFICATION_MISMATCH",
+    });
+  });
+
   it("reaches FINAL_READY without finalizing production stable or pending", () => {
     const final = dispatch(membershipVerified(), { type: "FINAL_VERIFICATION_PASSED" });
     expect(final).toMatchObject({
@@ -323,6 +333,8 @@ describe("Google Photos sync recovery fault cases 1-17", () => {
           renderKey: "render-a",
         },
       ],
+      confirmedCreatedItems: [{ slideId: "slide-a", mediaItemId: "media-a" }],
+      confirmedPendingMediaItemIds: [],
       provenManagedMediaItemIds: ["media-a"],
       remoteOrderCapability: "unverified" as const,
       differentIdContentDuplicateRisk: false,
@@ -448,6 +460,123 @@ describe("Google Photos sync recovery conflict guards", () => {
       incomplete,
       "CREATED_ITEMS_INCOMPLETE",
       "AUTOMATIC_RETRY_FORBIDDEN",
+    );
+  });
+
+  it.each([
+    ["stable", "stable-a"],
+    ["pending", "pending-b"],
+    ["initial unmanaged membership", "unmanaged"],
+    ["reuse candidate", "pending-a"],
+  ])("FAIL-4 rejects a created ID that collides with %s ownership", (_label, mediaItemId) => {
+    expectStopped(
+      dispatch(mediaCreating(), {
+        type: "MEDIA_CREATION_CONFIRMED",
+        createdItems: [{ slideId: "slide-b", mediaItemId }],
+      }),
+      "CREATED_ITEM_CONFLICT",
+      "AUTOMATIC_RETRY_FORBIDDEN",
+    );
+  });
+
+  it("FAIL-4 rejects duplicate created IDs within one checkpoint", () => {
+    const input = recoveryInput();
+    input.classifications[0] = {
+      classification: "CREATE_REQUIRED",
+      reason: "RENDER_KEY_CHANGED",
+      slideId: "slide-a",
+      renderKey: "render-a-new",
+    };
+    const created = createGooglePhotosSyncRecoveryState(input);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const creating = dispatch(
+      dispatch(created.state, { type: "PREFLIGHT_CONFIRMED" }),
+      { type: "MEDIA_CREATION_STARTED" },
+    );
+    expectStopped(
+      dispatch(creating, {
+        type: "MEDIA_CREATION_CONFIRMED",
+        createdItems: [
+          { slideId: "slide-a", mediaItemId: "created-duplicate" },
+          { slideId: "slide-b", mediaItemId: "created-duplicate" },
+        ],
+      }),
+      "CREATED_ITEMS_INCOMPLETE",
+      "AUTOMATIC_RETRY_FORBIDDEN",
+    );
+  });
+
+  it("accepts a non-conflicting complete created-media checkpoint", () => {
+    expect(mediaVerified()).toMatchObject({
+      phase: "MEDIA_VERIFIED",
+      mediaCreation: {
+        confirmedItems: [{ slideId: "slide-b", mediaItemId: "created-b" }],
+      },
+    });
+  });
+});
+
+describe("Google Photos sync recovery membership plan guards", () => {
+  it("FAIL-3 rejects removal of an independently derived unmanaged membership", () => {
+    const plan = membershipPlan();
+    plan.removeMembershipMediaItemIds = ["unmanaged"];
+    expectStopped(
+      dispatch(mediaVerified(), { type: "MEMBERSHIP_PLAN_CONFIRMED", plan }),
+      "MEMBERSHIP_PLAN_INVALID",
+      "AUTOMATIC_RETRY_FORBIDDEN",
+    );
+  });
+
+  it("FAIL-3 rejects a plan that hides the protected unmanaged membership", () => {
+    const plan = membershipPlan();
+    plan.retainMediaItemIds = [];
+    plan.unmanagedMediaItemIds = [];
+    expectStopped(
+      dispatch(mediaVerified(), { type: "MEMBERSHIP_PLAN_CONFIRMED", plan }),
+      "MEMBERSHIP_PLAN_INVALID",
+      "AUTOMATIC_RETRY_FORBIDDEN",
+    );
+  });
+
+  it("FAIL-3 rejects reordered targets and state-plan contradictions", () => {
+    const reordered = membershipPlan();
+    reordered.expectedRelativeOrder.reverse();
+    reordered.addMembershipMediaItemIds.reverse();
+    expectStopped(
+      dispatch(mediaVerified(), {
+        type: "MEMBERSHIP_PLAN_CONFIRMED",
+        plan: reordered,
+      }),
+      "MEMBERSHIP_PLAN_INVALID",
+      "AUTOMATIC_RETRY_FORBIDDEN",
+    );
+
+    const contradictory = membershipPlan();
+    contradictory.createSlideIds = [];
+    expectStopped(
+      dispatch(mediaVerified(), {
+        type: "MEMBERSHIP_PLAN_CONFIRMED",
+        plan: contradictory,
+      }),
+      "MEMBERSHIP_PLAN_INVALID",
+      "AUTOMATIC_RETRY_FORBIDDEN",
+    );
+  });
+
+  it("allows the managed-only plan and revalidates observed membership before final", () => {
+    const plannedState = membershipPlanned();
+    expect(plannedState.phase).toBe("MEMBERSHIP_PLANNED");
+    const verified = dispatch(plannedState, {
+      type: "MEMBERSHIP_VERIFIED_MATCH",
+      observedMediaItemIds: ["unmanaged", "pending-a", "created-b"],
+    });
+    expect(verified).toMatchObject({
+      phase: "MEMBERSHIP_VERIFIED",
+      verifiedMembershipMediaItemIds: ["unmanaged", "pending-a", "created-b"],
+    });
+    expect(dispatch(verified, { type: "FINAL_VERIFICATION_PASSED" }).phase).toBe(
+      "FINAL_READY",
     );
   });
 });

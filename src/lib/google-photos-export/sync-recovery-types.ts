@@ -74,6 +74,11 @@ export type GooglePhotosSyncRecoveryFutureTarget = {
   provenance: "stable" | "pending" | "created_verified";
 };
 
+export type GooglePhotosSyncRecoveryCreatedItem = {
+  slideId: string;
+  mediaItemId: string;
+};
+
 export type GooglePhotosSyncRecoveryMembershipPlan = {
   disposition: "fully_provable_local_plan" | "requires_remote_verification";
   retainMediaItemIds: string[];
@@ -97,6 +102,7 @@ export type GooglePhotosSyncRecoveryMembershipFailureReason =
   | "FUTURE_TARGET_NOT_PROVEN"
   | "CLASSIFICATION_INDETERMINATE"
   | "TARGET_CLASSIFICATION_MISMATCH"
+  | "CREATED_TARGET_NOT_CONFIRMED"
   | "REMOTE_ORDER_UNSUPPORTED"
   | "CONTENT_DUPLICATION_UNVERIFIABLE";
 
@@ -122,10 +128,12 @@ export type GooglePhotosSyncRecoveryStopReason =
   | "MEDIA_CREATION_RESULT_UNKNOWN"
   | "MEDIA_CREATION_PARTIAL"
   | "CREATED_ITEMS_INCOMPLETE"
+  | "CREATED_ITEM_CONFLICT"
   | "CHECKPOINT_FAILED"
   | "MEMBERSHIP_RESULT_UNKNOWN"
   | "MEMBERSHIP_PARTIAL"
   | "MEMBERSHIP_MISMATCH"
+  | "MEMBERSHIP_PLAN_INVALID"
   | "MEMBERSHIP_DRIFT"
   | "SOURCE_DRIFT"
   | "STABLE_CHANGED"
@@ -154,14 +162,16 @@ export type GooglePhotosSyncRecoveryState = {
   originalPending: GooglePhotosSyncRecoveryPendingSnapshot;
   baseStableGeneration: number;
   initialMembershipMediaItemIds: string[];
+  confirmedPendingMediaItemIds: string[];
   recoverySourceFingerprint: string;
   orderedTargetSlideIds: string[];
   classifications: GooglePhotosSyncRecoveryClassification[];
   mediaCreation: {
     requiredSlideIds: string[];
-    confirmedItems: Array<{ slideId: string; mediaItemId: string }>;
+    confirmedItems: GooglePhotosSyncRecoveryCreatedItem[];
   };
   membershipPlan: GooglePhotosSyncRecoveryMembershipPlan | null;
+  verifiedMembershipMediaItemIds: string[] | null;
   finalVerification: "not_started" | "passed";
   canResume: boolean;
   retryPolicy: GooglePhotosSyncRecoveryRetryPolicy;
@@ -177,7 +187,7 @@ export type GooglePhotosSyncRecoveryEvent =
   | {
       type: "MEDIA_CREATION_CONFIRMED";
       authority: GooglePhotosSyncRecoveryAuthority;
-      createdItems: Array<{ slideId: string; mediaItemId: string }>;
+      createdItems: GooglePhotosSyncRecoveryCreatedItem[];
     }
   | { type: "MEDIA_CREATION_RESULT_UNKNOWN"; authority: GooglePhotosSyncRecoveryAuthority }
   | { type: "MEDIA_CREATION_PARTIAL"; authority: GooglePhotosSyncRecoveryAuthority }

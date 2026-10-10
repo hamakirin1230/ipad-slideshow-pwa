@@ -1,6 +1,7 @@
 import type {
   GooglePhotosSyncRecoveryClassification,
   GooglePhotosSyncRecoveryClassificationFailureReason,
+  GooglePhotosSyncRecoveryCreatedItem,
   GooglePhotosSyncRecoveryDesiredSlide,
   GooglePhotosSyncRecoveryFutureTarget,
   GooglePhotosSyncRecoveryManagedItem,
@@ -116,11 +117,20 @@ export function classifyGooglePhotosSyncRecoveryTargets(input: {
       (candidate) => candidate.renderKey === desired.renderKey,
     );
     if (matching.length === 0) {
+      if (history.unverifiedPending?.renderKey === desired.renderKey) {
+        return indeterminate(desired, "UNVERIFIED_PENDING_PROVENANCE");
+      }
       return createRequired(desired, "RENDER_KEY_CHANGED");
     }
     const selected =
       matching.find((candidate) => candidate.provenance === "pending") ?? matching[0]!;
     if (!albumMembership.has(selected.mediaItemId)) {
+      if (
+        history.unverifiedPending?.renderKey === desired.renderKey &&
+        albumMembership.has(history.unverifiedPending.mediaItemId)
+      ) {
+        return indeterminate(desired, "UNVERIFIED_PENDING_PROVENANCE");
+      }
       return createRequired(desired, "CANDIDATE_MISSING_FROM_MEMBERSHIP");
     }
     return {
@@ -144,12 +154,15 @@ export function planGooglePhotosSyncRecoveryMembership(input: {
   pendingTargetItems: GooglePhotosSyncRecoveryManagedItem[];
   futureTargetItems: GooglePhotosSyncRecoveryFutureTarget[];
   classifications: GooglePhotosSyncRecoveryClassification[];
+  confirmedCreatedItems: GooglePhotosSyncRecoveryCreatedItem[];
+  confirmedPendingMediaItemIds: string[];
   provenManagedMediaItemIds: string[];
   remoteOrderCapability: "unverified" | "request_order_documented" | "unsupported";
   differentIdContentDuplicateRisk: boolean;
 }): GooglePhotosSyncRecoveryMembershipPlanResult {
   if (
     !arraysContainOnlyNonBlankStrings(input.currentAlbumMediaItemIds) ||
+    !arraysContainOnlyNonBlankStrings(input.confirmedPendingMediaItemIds) ||
     !arraysContainOnlyNonBlankStrings(input.provenManagedMediaItemIds) ||
     typeof input.differentIdContentDuplicateRisk !== "boolean"
   ) {
@@ -160,6 +173,9 @@ export function planGooglePhotosSyncRecoveryMembership(input: {
   }
   if (hasDuplicates(input.provenManagedMediaItemIds)) {
     return failMembership("DUPLICATE_PROVEN_MEDIA_ID");
+  }
+  if (hasDuplicates(input.confirmedPendingMediaItemIds)) {
+    return failMembership("INVALID_INPUT");
   }
   const stableValidation = validateManagedItems(input.stableItems, "stable");
   const pendingValidation = validateManagedItems(input.pendingTargetItems, "pending");
@@ -187,11 +203,27 @@ export function planGooglePhotosSyncRecoveryMembership(input: {
   ) {
     return failMembership("TARGET_CLASSIFICATION_MISMATCH");
   }
+  if (!validateCreatedItems(input.confirmedCreatedItems)) {
+    return failMembership("INVALID_INPUT");
+  }
+  const confirmedCreatedBySlide = new Map(
+    input.confirmedCreatedItems.map((item) => [item.slideId, item.mediaItemId]),
+  );
+  const createRequiredCount = input.classifications.filter(
+    (item) => item.classification === "CREATE_REQUIRED",
+  ).length;
+  if (confirmedCreatedBySlide.size !== createRequiredCount) {
+    return failMembership("CREATED_TARGET_NOT_CONFIRMED");
+  }
 
   const knownStable = new Map(input.stableItems.map((item) => [item.mediaItemId, item]));
   const knownPending = new Map(
     input.pendingTargetItems.map((item) => [item.mediaItemId, item]),
   );
+  if (input.confirmedPendingMediaItemIds.some((id) => !knownPending.has(id))) {
+    return failMembership("INVALID_INPUT");
+  }
+  const confirmedPending = new Set(input.confirmedPendingMediaItemIds);
   const futureByMedia = new Map(
     input.futureTargetItems.map((item) => [item.mediaItemId, item]),
   );
@@ -201,6 +233,43 @@ export function planGooglePhotosSyncRecoveryMembership(input: {
     return failMembership("UNPROVEN_MANAGED_IDENTITY");
   }
   for (const target of input.futureTargetItems) {
+    const classification = classificationsBySlide.get(target.slideId)!;
+    if (classification.classification === "REUSE_CANDIDATE") {
+      const stableEvidence = knownStable.get(classification.mediaItemId);
+      const pendingEvidence = knownPending.get(classification.mediaItemId);
+      const stableMatches =
+        stableEvidence?.slideId === classification.slideId &&
+        stableEvidence.renderKey === classification.renderKey;
+      const pendingMatches =
+        pendingEvidence?.slideId === classification.slideId &&
+        pendingEvidence.renderKey === classification.renderKey &&
+        confirmedPending.has(classification.mediaItemId);
+      const evidenceMatches =
+        classification.provenance === "stable"
+          ? stableMatches
+          : classification.provenance === "pending"
+            ? pendingMatches
+            : stableMatches &&
+              pendingEvidence?.slideId === classification.slideId &&
+              pendingEvidence.renderKey === classification.renderKey;
+      const provenanceMatches =
+        classification.provenance === "stable_and_pending"
+          ? target.provenance === "stable" || target.provenance === "pending"
+          : target.provenance === classification.provenance;
+      if (
+        target.mediaItemId !== classification.mediaItemId ||
+        !evidenceMatches ||
+        !provenanceMatches ||
+        confirmedCreatedBySlide.has(target.slideId)
+      ) {
+        return failMembership("TARGET_CLASSIFICATION_MISMATCH");
+      }
+    } else if (
+      target.provenance !== "created_verified" ||
+      confirmedCreatedBySlide.get(target.slideId) !== target.mediaItemId
+    ) {
+      return failMembership("CREATED_TARGET_NOT_CONFIRMED");
+    }
     if (!proven.has(target.mediaItemId)) {
       return failMembership("FUTURE_TARGET_NOT_PROVEN");
     }
@@ -299,19 +368,21 @@ function resolveHistory(input: {
         GooglePhotosSyncRecoveryManagedItem & { provenance: "stable" | "pending" }
       >;
       combined: boolean;
+      unverifiedPending: GooglePhotosSyncRecoveryManagedItem | null;
     }
   | {
       ok: false;
       reason: "CONFLICTING_MANAGED_HISTORY" | "UNVERIFIED_PENDING_PROVENANCE";
     } {
   if (!input.stable && !input.pending) {
-    return { ok: true, candidates: [], combined: false };
+    return { ok: true, candidates: [], combined: false, unverifiedPending: null };
   }
   if (input.stable && !input.pending) {
     return {
       ok: true,
       candidates: [{ ...input.stable, provenance: "stable" }],
       combined: false,
+      unverifiedPending: null,
     };
   }
   if (!input.stable && input.pending) {
@@ -322,6 +393,7 @@ function resolveHistory(input: {
       ok: true,
       candidates: [{ ...input.pending, provenance: "pending" }],
       combined: false,
+      unverifiedPending: null,
     };
   }
 
@@ -333,12 +405,21 @@ function resolveHistory(input: {
     }
     return {
       ok: true,
-      candidates: [{ ...pending, provenance: "pending" }],
+      candidates: [{ ...stable, provenance: "stable" }],
       combined: true,
+      unverifiedPending: null,
     };
   }
   if (!input.successor) {
     return { ok: false, reason: "CONFLICTING_MANAGED_HISTORY" };
+  }
+  if (!input.confirmedPending.has(pending.mediaItemId)) {
+    return {
+      ok: true,
+      candidates: [{ ...stable, provenance: "stable" }],
+      combined: false,
+      unverifiedPending: { ...pending },
+    };
   }
   return {
     ok: true,
@@ -347,6 +428,7 @@ function resolveHistory(input: {
       { ...pending, provenance: "pending" },
     ],
     combined: false,
+    unverifiedPending: null,
   };
 }
 
@@ -395,6 +477,25 @@ function validateDesired(
     slideIds.add(item.slideId);
   }
   return { ok: true };
+}
+
+function validateCreatedItems(items: GooglePhotosSyncRecoveryCreatedItem[]) {
+  if (!Array.isArray(items)) return false;
+  const slides = new Set<string>();
+  const media = new Set<string>();
+  for (const item of items) {
+    if (
+      !isNonBlankTrimmedString(item.slideId) ||
+      !isNonBlankTrimmedString(item.mediaItemId) ||
+      slides.has(item.slideId) ||
+      media.has(item.mediaItemId)
+    ) {
+      return false;
+    }
+    slides.add(item.slideId);
+    media.add(item.mediaItemId);
+  }
+  return true;
 }
 
 function validateManagedItems(
