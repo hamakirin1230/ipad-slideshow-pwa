@@ -123,20 +123,61 @@ describe("read-only pending diagnostics", () => {
   it.each(["inaccessible", "notFound", "invalidResponse"] as const)("handles album read %s", async status => {
     const h = harness(); vi.mocked(h.adapters.getAlbum).mockResolvedValue({ status });
     expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "indeterminate" } } });
+    expect(h.adapters.searchAlbumMediaItemsPage).not.toHaveBeenCalled();
   });
   it("sanitizes a thrown Photos read error", async () => {
     const h = harness(); vi.mocked(h.adapters.getAlbum).mockRejectedValue(new Error("raw fixture error"));
     expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "indeterminate" } } });
+    expect(h.adapters.searchAlbumMediaItemsPage).not.toHaveBeenCalled();
   });
   it("fails closed for a different returned album", async () => {
     const h = harness(); vi.mocked(h.adapters.getAlbum).mockResolvedValue({ status: "ready", album: { id: "fixture-other-album", title: "fixture-title", isWriteable: true, mediaItemsCount: "2" } });
     expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "indeterminate" } } });
     expect(h.adapters.searchAlbumMediaItemsPage).not.toHaveBeenCalled();
   });
-  it("does not classify a non-writeable album as a membership match", async () => {
-    const h = harness(); vi.mocked(h.adapters.getAlbum).mockResolvedValue({ status: "ready", album: { id: "fixture-album", title: "fixture-title", isWriteable: false, mediaItemsCount: "2" } });
-    expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "indeterminate" } } });
-    expect(h.adapters.searchAlbumMediaItemsPage).not.toHaveBeenCalled();
+  it.each([true, false, null])("inspects read-only membership with isWriteable=%s", async isWriteable => {
+    const h = harness(); vi.mocked(h.adapters.getAlbum).mockResolvedValue({ status: "ready", album: { id: "fixture-album", title: "fixture-title", isWriteable, mediaItemsCount: "2" } });
+    expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "match" }, autoResume: false, manualConfirmationRequired: true } });
+    expect(h.adapters.searchAlbumMediaItemsPage).toHaveBeenCalledOnce();
+  });
+  describe.each([false, null])("read-only album isWriteable=%s", isWriteable => {
+    function readOnlyHarness() {
+      const h = harness();
+      vi.mocked(h.adapters.getAlbum).mockResolvedValue({ status: "ready", album: { id: "fixture-album", title: "fixture-title", isWriteable, mediaItemsCount: "2" } });
+      return h;
+    }
+    it.each([
+      ["missing", ["fixture-media-a"], 1, 0],
+      ["extra", ["fixture-media-a", "fixture-media-b", "fixture-unmanaged"], 0, 1],
+    ] as const)("classifies %s without writes", async (status, media, missingCount, extraCount) => {
+      const h = readOnlyHarness();
+      vi.mocked(h.adapters.searchAlbumMediaItemsPage).mockResolvedValue({ status: "ready", mediaItemIds: [...media], nextPageToken: null });
+      expect(await h.run()).toMatchObject({ diagnostics: { membership: { status, missingCount, extraCount }, autoResume: false } });
+    });
+    it("fails closed on search failure", async () => {
+      const h = readOnlyHarness();
+      vi.mocked(h.adapters.searchAlbumMediaItemsPage).mockRejectedValue(new Error("raw fixture error"));
+      expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "indeterminate", comparable: false } } });
+    });
+    it("does not compare incomplete pagination", async () => {
+      const h = readOnlyHarness();
+      vi.mocked(h.adapters.searchAlbumMediaItemsPage)
+        .mockResolvedValueOnce({ status: "ready", mediaItemIds: ["fixture-media-a"], nextPageToken: "fixture-page" })
+        .mockResolvedValueOnce({ status: "inaccessible" });
+      expect(await h.run()).toMatchObject({ diagnostics: { membership: { status: "indeterminate", missingCount: null } } });
+      expect(h.adapters.searchAlbumMediaItemsPage).toHaveBeenCalledTimes(2);
+    });
+    it.each(["abort", "authority"] as const)("discards %s during membership read", async kind => {
+      const h = readOnlyHarness();
+      const controller = new AbortController(); let current = true;
+      h.input.signal = controller.signal; h.input.isCurrent = () => current;
+      vi.mocked(h.adapters.searchAlbumMediaItemsPage).mockImplementationOnce(async () => {
+        if (kind === "abort") controller.abort(); else current = false;
+        return { status: "ready", mediaItemIds: ["fixture-media-a"], nextPageToken: "fixture-page" };
+      });
+      expect(await h.run()).toEqual({ ok: false, reason: "cancelled" });
+      expect(h.adapters.searchAlbumMediaItemsPage).toHaveBeenCalledOnce();
+    });
   });
   it("waits for every page before comparing", async () => {
     const h = harness(); vi.mocked(h.adapters.searchAlbumMediaItemsPage)

@@ -149,10 +149,7 @@ export async function diagnoseGooglePhotosSyncPending(
         diagnostics.membership = unknownMembership("indeterminate", "Googleフォト側のアルバムを確認できませんでした。");
         return { ok: true, diagnostics };
       }
-      if (album.album.isWriteable !== true) {
-        diagnostics.membership = unknownMembership("indeterminate", "Googleフォト側のアルバム状態を安全に確認できませんでした。");
-        return { ok: true, diagnostics };
-      }
+      // isWriteable describes creation permission, not read-only inspection.
       const membership = await readAllGooglePhotosSyncAlbumMediaItemIds({
         accessToken: input.photosAccessToken, albumId: binding.album.albumId, signal: input.signal,
       }, async page => {
