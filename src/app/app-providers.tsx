@@ -2233,8 +2233,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
     }
 
-    const tokenClient = photosMembershipReadTokenClientRef.current;
-    if (!tokenClient) {
+    const oauth2 = window.google?.accounts?.oauth2;
+    if (!photosMembershipReadTokenClientRef.current || !oauth2) {
       return Promise.reject(
         new PhotosTokenRequestError({
           status: "error",
@@ -2280,6 +2280,20 @@ export function AppProviders({ children }: { children: ReactNode }) {
     tokenRequestKindRef.current = "photosMembershipRead";
 
     try {
+      // Each request owns immutable callbacks, including after cancellation.
+      const tokenClient = oauth2.initTokenClient({
+        client_id: clientId,
+        scope: GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE,
+        include_granted_scopes: false,
+        prompt: "consent",
+        callback: (response) => {
+          handlePhotosMembershipReadTokenResponse(response, requestId);
+        },
+        error_callback: (error) => {
+          handlePhotosMembershipReadTokenErrorCallback(error, requestId);
+        },
+      });
+      photosMembershipReadTokenClientRef.current = tokenClient;
       tokenClient.requestAccessToken({
         scope: GOOGLE_PHOTOS_MEMBERSHIP_READ_SCOPE,
         include_granted_scopes: false,
@@ -2307,13 +2321,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   function handlePhotosMembershipReadTokenResponse(
     tokenResponse: GoogleTokenResponse,
+    requestId: number,
   ) {
     const pendingRequest =
       pendingPhotosMembershipReadTokenRequestRef.current;
-    if (!pendingRequest) {
-      if (tokenRequestKindRef.current === "photosMembershipRead") {
-        tokenRequestKindRef.current = null;
-      }
+    if (
+      !pendingRequest ||
+      pendingRequest.requestId !== requestId ||
+      photosMembershipReadTokenRequestIdRef.current !== requestId
+    ) {
       return;
     }
 
@@ -2366,14 +2382,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
   }
 
   function handlePhotosMembershipReadTokenErrorCallback(
-    error?: GoogleTokenError,
+    error: GoogleTokenError | undefined,
+    requestId: number,
   ) {
     const pendingRequest =
       pendingPhotosMembershipReadTokenRequestRef.current;
-    if (!pendingRequest) {
-      if (tokenRequestKindRef.current === "photosMembershipRead") {
-        tokenRequestKindRef.current = null;
-      }
+    if (
+      !pendingRequest ||
+      pendingRequest.requestId !== requestId ||
+      photosMembershipReadTokenRequestIdRef.current !== requestId
+    ) {
       return;
     }
 
@@ -3408,10 +3426,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       prompt: "consent",
       include_granted_scopes: false,
       callback: (tokenResponse) => {
-        handlePhotosMembershipReadTokenResponse(tokenResponse);
+        handlePhotosMembershipReadTokenResponse(tokenResponse, -1);
       },
       error_callback: (error) => {
-        handlePhotosMembershipReadTokenErrorCallback(error);
+        handlePhotosMembershipReadTokenErrorCallback(error, -1);
       },
     });
 
@@ -8446,6 +8464,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     } finally {
       signal.removeEventListener("abort", abort);
       if (sequence === googlePhotosMembershipVerificationSequenceRef.current) {
+        if (!isCurrent()) {
+          clearPhotosMembershipReadAuthorization();
+        }
         googlePhotosMembershipVerificationInFlightRef.current = false;
         if (
           googlePhotosMembershipVerificationAbortRef.current === controller

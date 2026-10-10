@@ -86,7 +86,7 @@ function initializeGoogleTokenClients() {
   script!.props.onReady!();
   return {
     context: result.props.value as ReturnType<typeof import("./app-providers").useAppState>,
-    membershipConfig: configs.at(-1)!,
+    get membershipConfig() { return configs.at(-1)!; },
   };
 }
 const safe: GooglePhotosSyncDiagnosticsResult = { ok: true, diagnostics: {
@@ -99,6 +99,10 @@ const oauth = vi.fn();
 beforeEach(() => {
   hooks.values.clear(); vi.clearAllMocks(); oauth.mockReset();
   vi.stubGlobal("navigator", {});
+  vi.stubGlobal("window", { google: { accounts: { oauth2: {
+    initTokenClient: vi.fn(() => ({ requestAccessToken: oauth })),
+    hasGrantedAllScopes: vi.fn(() => false),
+  } } } });
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("No real Google access"); }));
   hooks.values.set("accessTokenRef", { current: "fixture-drive-token" });
   hooks.values.set("photosSyncAccessTokenRef", { current: "fixture-photos-token" });
@@ -222,12 +226,13 @@ describe("Provider read-only Photos diagnostics", () => {
   });
 
   it("accepts the isolated GIS callback and rejects denial or missing scope", async () => {
-    const { context, membershipConfig } = initializeGoogleTokenClients();
+    const clients = initializeGoogleTokenClients();
+    const { context } = clients;
     const success = context.verifyGooglePhotosSyncMembership(
       projectId,
       new AbortController().signal,
     );
-    membershipConfig.callback({
+    clients.membershipConfig.callback({
       access_token: "fixture-callback-token",
       scope: "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
     });
@@ -241,7 +246,7 @@ describe("Provider read-only Photos diagnostics", () => {
       projectId,
       new AbortController().signal,
     );
-    membershipConfig.callback({ error: "access_denied" });
+    clients.membershipConfig.callback({ error: "access_denied" });
     expect(await denied).toEqual({
       ok: false,
       reason: "authorizationCancelled",
@@ -251,7 +256,7 @@ describe("Provider read-only Photos diagnostics", () => {
       projectId,
       new AbortController().signal,
     );
-    membershipConfig.callback({
+    clients.membershipConfig.callback({
       access_token: "fixture-wrong-scope-token",
       scope: "https://www.googleapis.com/auth/photoslibrary.appendonly",
     });
@@ -266,12 +271,13 @@ describe("Provider read-only Photos diagnostics", () => {
       projectId,
       controller.signal,
     );
+    const staleConfig = clients.membershipConfig;
     controller.abort();
     expect(await stale).toEqual({
       ok: false,
       reason: "authorizationCancelled",
     });
-    membershipConfig.callback({
+    staleConfig.callback({
       access_token: "fixture-stale-token",
       scope: "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
     });
@@ -299,6 +305,44 @@ describe("Provider read-only Photos diagnostics", () => {
     });
     expect(read).not.toHaveBeenCalled();
     expect(ref("photosMembershipReadAccessTokenRef").current).toBeNull();
+  });
+
+  it("ignores A's late success and popup error while B awaits its own response", async () => {
+    const clients = initializeGoogleTokenClients();
+    const controllerA = new AbortController();
+    const a = clients.context.verifyGooglePhotosSyncMembership(projectId, controllerA.signal);
+    const configA = clients.membershipConfig;
+    controllerA.abort();
+    expect(await a).toEqual({ ok: false, reason: "authorizationCancelled" });
+
+    let bSettled = false;
+    const b = clients.context.verifyGooglePhotosSyncMembership(projectId, new AbortController().signal);
+    void b.then(() => { bSettled = true; });
+    const configB = clients.membershipConfig;
+    expect(configB).not.toBe(configA);
+    const pendingB = ref("pendingPhotosMembershipReadTokenRequestRef").current;
+    configA.callback({ access_token: "fixture-A-late-token", scope: configA.scope });
+    configA.error_callback?.({ type: "popup_closed" });
+    await Promise.resolve();
+    expect(bSettled).toBe(false);
+    expect(ref("pendingPhotosMembershipReadTokenRequestRef").current).toBe(pendingB);
+    expect(ref("tokenRequestKindRef").current).toBe("photosMembershipRead");
+    expect(ref("photosMembershipReadAccessTokenRef").current).toBeNull();
+    expect(read).not.toHaveBeenCalled();
+
+    configB.callback({ access_token: "fixture-B-token", scope: configB.scope });
+    expect(await b).toEqual(safe);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith(expect.objectContaining({ photosAccessToken: "fixture-B-token" }));
+  });
+
+  it("discards an OAuth result after project authority changes", async () => {
+    const clients = initializeGoogleTokenClients();
+    const result = clients.context.verifyGooglePhotosSyncMembership(projectId, new AbortController().signal);
+    ref("googlePhotosSyncDriveAuthorityRef").current = {};
+    clients.membershipConfig.callback({ access_token: "fixture-owner-stale-token", scope: clients.membershipConfig.scope });
+    expect(await result).toEqual({ ok: false, reason: "authorizationCancelled" });
+    expect(read).not.toHaveBeenCalled();
   });
 
   it("discards authorization when a Drive write starts before the callback", async () => {
@@ -354,12 +398,13 @@ describe("Provider read-only Photos diagnostics", () => {
   });
 
   it("classifies a blocked or closed GIS popup without reading", async () => {
-    const { context, membershipConfig } = initializeGoogleTokenClients();
+    const clients = initializeGoogleTokenClients();
+    const { context } = clients;
     const blocked = context.verifyGooglePhotosSyncMembership(
       projectId,
       new AbortController().signal,
     );
-    membershipConfig.error_callback?.({ type: "popup_failed_to_open" });
+    clients.membershipConfig.error_callback?.({ type: "popup_failed_to_open" });
     expect(await blocked).toEqual({
       ok: false,
       reason: "authorizationUnavailable",
@@ -369,7 +414,7 @@ describe("Provider read-only Photos diagnostics", () => {
       projectId,
       new AbortController().signal,
     );
-    membershipConfig.error_callback?.({ type: "popup_closed" });
+    clients.membershipConfig.error_callback?.({ type: "popup_closed" });
     expect(await closed).toEqual({
       ok: false,
       reason: "authorizationCancelled",

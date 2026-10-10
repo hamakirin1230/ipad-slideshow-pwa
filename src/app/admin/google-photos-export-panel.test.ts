@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import ts from "typescript";
 import type { GooglePhotosSyncPendingDiagnostics } from "@/lib/google-photos-export/sync-pending-diagnostics";
 vi.mock("@/app/app-providers", () => ({ useAppState: vi.fn() }));
 import { GooglePhotosSyncDiagnosticsView } from "./google-photos-export-panel";
@@ -13,6 +14,66 @@ const source = {
 };
 
 describe("Google Photos same-album sync UI", () => {
+  it("blocks recheck during OAuth and releases verification after Abort for a new diagnosis", async () => {
+    const values: Record<string, unknown> = {
+      selectedProjectId: "fixture-project", isReady: true,
+      diagnostics: { hasPending: true }, diagnosing: false, verifyingMembership: false,
+      isGooglePhotosSyncInFlight: false, uiState: { status: "sourceChanged" },
+      actionInFlightRef: { current: false },
+      diagnosticsAbortRef: { current: null }, diagnosticsSequenceRef: { current: 0 },
+      reviewAbortRef: { current: null }, requestSequenceRef: { current: 0 },
+    };
+    for (const [setter, key] of Object.entries({
+      setVerifyingMembership: "verifyingMembership", setDiagnostics: "diagnostics",
+      setDiagnosticMessage: "diagnosticMessage", setDiagnosing: "diagnosing",
+      setUiState: "uiState", setConfirmed: "confirmed",
+    })) values[setter] = (value: unknown) => { values[key] = value; };
+    let resolve!: (value: unknown) => void;
+    const verify = vi.fn(() => new Promise(done => { resolve = done; }));
+    const review = vi.fn(async () => ({ ok: false, reason: "sourceChanged" }));
+    const diagnose = vi.fn(async () => ({ ok: true, diagnostics: { hasPending: true } }));
+    Object.assign(values, {
+      verifyGooglePhotosSyncMembership: verify,
+      prepareGooglePhotosSyncReview: review,
+      diagnoseGooglePhotosSync: diagnose,
+    });
+    function action(name: string) {
+      const file = ts.createSourceFile("panel.tsx", source.panel, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      let declaration: ts.FunctionDeclaration | undefined;
+      function visit(node: ts.Node) {
+        if (ts.isFunctionDeclaration(node) && node.name?.text === name) declaration = node;
+        ts.forEachChild(node, visit);
+      }
+      visit(file);
+      expect(declaration).toBeDefined();
+      const code = ts.transpileModule(declaration!.getText(file), {
+        compilerOptions: { target: ts.ScriptTarget.ES2022 },
+      }).outputText;
+      return new Function(...Object.keys(values), `${code}; return ${name};`)(...Object.values(values)) as () => Promise<void>;
+    }
+
+    const first = action("startMembershipVerification")();
+    expect(values.verifyingMembership).toBe(true);
+    expect(verify).toHaveBeenCalledTimes(1);
+    await action("startReview")();
+    expect(review).not.toHaveBeenCalled();
+    const controller = (values.diagnosticsAbortRef as { current: AbortController }).current;
+    controller.abort();
+    resolve({ ok: false, reason: "authorizationCancelled" });
+    await first;
+    expect(values.verifyingMembership).toBe(false);
+    expect((values.actionInFlightRef as { current: boolean }).current).toBe(false);
+    expect(values.diagnostics).toEqual({ hasPending: true });
+    await action("startReview")();
+    expect(values.uiState).toMatchObject({ status: "sourceChanged" });
+    await action("startDiagnostics")();
+    expect(diagnose).toHaveBeenCalledTimes(1);
+    const second = action("startMembershipVerification")();
+    expect(verify).toHaveBeenCalledTimes(2);
+    resolve({ ok: false, reason: "authorizationUnavailable" });
+    await second;
+    expect(values.verifyingMembership).toBe(false);
+  });
   it("starts diagnosis only on the sourceChanged button and discards stale results", () => {
     const action = extractFunction(source.panel, "startDiagnostics");
     expect(action).toContain('uiState.status !== "sourceChanged"');

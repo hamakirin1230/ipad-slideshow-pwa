@@ -170,6 +170,12 @@ describe("google auth does not auto-restore after refresh", () => {
     );
     expect(response).not.toContain("error_description");
     expect(response).not.toContain("error_uri");
+    expect(request).toContain("oauth2.initTokenClient({");
+    expect(request).toContain("handlePhotosMembershipReadTokenResponse(response, requestId)");
+    expect(request).toContain("handlePhotosMembershipReadTokenErrorCallback(error, requestId)");
+    expect(response.indexOf("pendingRequest.requestId !== requestId")).toBeLessThan(
+      response.indexOf("clearTimeout(pendingRequest.timeoutId)"),
+    );
   });
 
   it("clears membership read authorization on authority lifecycle changes", () => {
@@ -400,7 +406,7 @@ describe("google auth does not auto-restore after refresh", () => {
     expect(photosExportRequest).not.toContain("persistAfterPhotosPickerConnect");
     const driveCallback = providers.slice(
       providers.indexOf("accessTokenRef.current = tokenResponse.access_token"),
-      providers.indexOf("error_callback: (error) => {"),
+      providers.indexOf("error_callback: (error) => {", providers.indexOf("function handleScriptReady(")),
     );
     expect(driveCallback).toContain("persistAfterManualConnect");
     expect(driveCallback).toContain("queueDriveWorkspaceAutoCheckRef.current()");
@@ -444,11 +450,11 @@ describe("restored google session auto-checks drive workspace", () => {
   it("auto-checks Drive once after manual connect without waiting for session create", () => {
     const driveCallback = providers.slice(
       providers.indexOf("accessTokenRef.current = tokenResponse.access_token"),
-      providers.indexOf("error_callback: (error) => {"),
+      providers.indexOf("error_callback: (error) => {", providers.indexOf("function handleScriptReady(")),
     );
     const driveSuccess = providers.slice(
       providers.indexOf("const granted = hasGrantedDriveFileScope(tokenResponse);"),
-      providers.indexOf("error_callback: (error) => {"),
+      providers.indexOf("error_callback: (error) => {", providers.indexOf("function handleScriptReady(")),
     );
     expect(driveSuccess.indexOf("hasGrantedDriveFileScope")).toBeLessThan(
       driveSuccess.indexOf("accessTokenRef.current = tokenResponse.access_token"),

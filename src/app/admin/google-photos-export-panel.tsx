@@ -211,6 +211,7 @@ function GooglePhotosSyncPanelSession() {
     diagnosticsAbortRef.current = controller;
     const sequence = ++diagnosticsSequenceRef.current;
     setVerifyingMembership(true);
+    actionInFlightRef.current = true;
     setDiagnosticMessage(null);
 
     // Start GIS from this click stack before the first await.
@@ -250,6 +251,7 @@ function GooglePhotosSyncPanelSession() {
     } finally {
       if (sequence === diagnosticsSequenceRef.current) {
         setVerifyingMembership(false);
+        actionInFlightRef.current = false;
         diagnosticsAbortRef.current = null;
       }
     }
@@ -473,7 +475,7 @@ function GooglePhotosSyncPanelSession() {
               <Button
                 type="button"
                 className="min-h-11"
-                disabled={!isReady || isGooglePhotosSyncInFlight}
+                disabled={!isReady || diagnosing || verifyingMembership || isGooglePhotosSyncInFlight}
                 onClick={() => void startReview()}
               >
                 状態を再確認
