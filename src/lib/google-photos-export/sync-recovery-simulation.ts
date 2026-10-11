@@ -432,6 +432,12 @@ export function createInMemoryGooglePhotosSyncRecoveryJournalStore() {
       ) {
         return { outcome: "rejected" as const, reason: "REVISION_CONFLICT" as const };
       }
+      if (!journalCasTransitionAllowed(current, parsed.journal)) {
+        return {
+          outcome: "rejected" as const,
+          reason: "INVALID_STATE_TRANSITION" as const,
+        };
+      }
       if (input.fault === "fail_before_commit") {
         return { outcome: "rejected" as const, reason: "STORE_FAILURE" as const };
       }
@@ -445,6 +451,95 @@ export function createInMemoryGooglePhotosSyncRecoveryJournalStore() {
       };
     },
   };
+}
+
+/**
+ * A parser validates one journal snapshot. CAS must additionally prove that the
+ * next snapshot is the exact result of one supported transition from the stored
+ * snapshot. Replaying the pure transition keeps phase, checkpoint revision,
+ * confirmed results, retry policy, and stop/resume state monotonic together.
+ */
+function journalCasTransitionAllowed(
+  current: GooglePhotosSyncRecoveryJournalV3,
+  next: GooglePhotosSyncRecoveryJournalV3,
+) {
+  return casTransitionCandidates(next).some((event) => {
+    const advanced = advanceGooglePhotosSyncRecoverySimulation({
+      journal: current,
+      expectedRevision: current.revision,
+      now: next.updatedAt,
+      event,
+    });
+    return advanced.ok && deepEqual(advanced.journal, next);
+  });
+}
+
+function casTransitionCandidates(
+  next: GooglePhotosSyncRecoveryJournalV3,
+): GooglePhotosSyncRecoverySimulationEvent[] {
+  const candidates: GooglePhotosSyncRecoverySimulationEvent[] = [
+    { type: "PREFLIGHT_CONFIRMED" },
+    { type: "MEDIA_PREPARED" },
+    { type: "MEDIA_STARTED" },
+    { type: "MEDIA_RESULT_UNKNOWN" },
+    { type: "MEDIA_REMOTE_REVERIFICATION_REQUIRED" },
+    { type: "MEMBERSHIP_PREPARED" },
+    { type: "MEMBERSHIP_STARTED" },
+    { type: "MEMBERSHIP_RESULT_UNKNOWN" },
+    { type: "MEMBERSHIP_REMOTE_REVERIFICATION_REQUIRED" },
+  ];
+
+  if (next.createdItems.length > 0) {
+    candidates.push({
+      type: "MEDIA_PARTIAL",
+      createdItems: cloneCreatedItems(next.createdItems),
+    });
+  }
+  candidates.push(
+    {
+      type: "MEDIA_VERIFIED",
+      createdItems: cloneCreatedItems(next.createdItems),
+      proof: "direct_response",
+    },
+    {
+      type: "MEDIA_VERIFIED",
+      createdItems: cloneCreatedItems(next.createdItems),
+      proof: "remote_snapshot",
+    },
+  );
+
+  if (next.membershipCheckpoint.confirmedResultIds.length > 0) {
+    candidates.push({
+      type: "MEMBERSHIP_PARTIAL",
+      observedMediaItemIds: [...next.membershipCheckpoint.confirmedResultIds],
+    });
+  }
+  if (next.verifiedMembershipMediaItemIds !== null) {
+    candidates.push(
+      {
+        type: "MEMBERSHIP_VERIFIED",
+        observedMediaItemIds: [...next.verifiedMembershipMediaItemIds],
+        proof: "direct_response",
+      },
+      {
+        type: "MEMBERSHIP_VERIFIED",
+        observedMediaItemIds: [...next.verifiedMembershipMediaItemIds],
+        proof: "remote_snapshot",
+      },
+    );
+  }
+  if (next.finalCandidate.status === "final_candidate") {
+    candidates.push({
+      type: "FINAL_VERIFY",
+      observedMediaItemIds: [
+        ...next.finalCandidate.observedMembershipMediaItemIds,
+      ],
+    });
+  }
+  if (next.stopReason !== null) {
+    candidates.push({ type: "STOP", reason: next.stopReason });
+  }
+  return candidates;
 }
 
 function immutableJournalAuthorityMatches(

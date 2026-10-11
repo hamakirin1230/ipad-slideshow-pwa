@@ -189,6 +189,65 @@ function finalReadyJournal() {
   });
 }
 
+function toMembershipPlanned() {
+  let journal = toMediaCreating();
+  journal = advanceOk(journal, {
+    type: "MEDIA_VERIFIED",
+    createdItems: [createdItem()],
+    proof: "direct_response",
+  });
+  journal = advanceOk(journal, { type: "MEMBERSHIP_PREPARED" });
+  return advanceOk(journal, { type: "MEMBERSHIP_STARTED" });
+}
+
+function nextTimestamp() {
+  tick += 1;
+  return new Date(Date.parse(INITIAL_TIME) + tick * 1_000).toISOString();
+}
+
+function expectParserValidCasMutationRejected(
+  current: GooglePhotosSyncRecoveryJournalV3,
+  mutate: (next: GooglePhotosSyncRecoveryJournalV3) => void,
+) {
+  const store = createInMemoryGooglePhotosSyncRecoveryJournalStore();
+  expect(store.initialize(current)).toEqual({ ok: true });
+  const next = structuredClone(current);
+  next.revision = current.revision + 1;
+  next.updatedAt = nextTimestamp();
+  mutate(next);
+  expect(parseGooglePhotosSyncRecoveryJournalV3(next).ok).toBe(true);
+  expect(
+    store.compareAndSwap({
+      recoveryId: current.recoveryId,
+      expectedRevision: current.revision,
+      nextJournal: next,
+      writerId: "device-a",
+    }),
+  ).toEqual({
+    outcome: "rejected",
+    reason: "INVALID_STATE_TRANSITION",
+  });
+  expect(store.read(current.recoveryId)).toEqual(current);
+}
+
+function commitSimulationEvent(
+  store: ReturnType<typeof createInMemoryGooglePhotosSyncRecoveryJournalStore>,
+  current: GooglePhotosSyncRecoveryJournalV3,
+  event: GooglePhotosSyncRecoverySimulationEvent,
+) {
+  const next = advanceOk(current, event);
+  expect(
+    store.compareAndSwap({
+      recoveryId: current.recoveryId,
+      expectedRevision: current.revision,
+      nextJournal: next,
+      writerId: "device-a",
+    }).outcome,
+  ).toBe("committed");
+  expect(store.read(current.recoveryId)).toEqual(next);
+  return next;
+}
+
 describe("Google Photos Stage 2A local recovery simulation", () => {
   it("restarts from serialized journal and reaches only a local final candidate", () => {
     let journal = toMediaCreating();
@@ -359,6 +418,199 @@ describe("Google Photos Stage 2A local recovery simulation", () => {
 });
 
 describe("Stage 2A in-memory CAS and conflict guards", () => {
+  it("T1/T6 rejects a parser-valid checkpoint reset despite a valid journal revision", () => {
+    let current = journalFixture();
+    current = advanceOk(current, { type: "PREFLIGHT_CONFIRMED" });
+    current = advanceOk(current, { type: "MEDIA_PREPARED" });
+    expect(current.mediaCheckpoint.status).toBe("preflight_checkpointed");
+
+    expectParserValidCasMutationRejected(current, (next) => {
+      next.mediaCheckpoint.status = "not_started";
+      next.mediaCheckpoint.revision = 0;
+      next.mediaCheckpoint.journalRevision = next.revision;
+      next.mediaCheckpoint.confirmedResultIds = [];
+      next.mediaCheckpoint.automaticRetryAllowed = true;
+    });
+  });
+
+  it("T2 rejects in-progress to preflight checkpoint rollback", () => {
+    const current = toMediaCreating();
+    expectParserValidCasMutationRejected(current, (next) => {
+      next.mediaCheckpoint.status = "preflight_checkpointed";
+      next.mediaCheckpoint.revision = 1;
+      next.mediaCheckpoint.journalRevision = next.revision;
+      next.mediaCheckpoint.confirmedResultIds = [];
+      next.mediaCheckpoint.automaticRetryAllowed = true;
+    });
+  });
+
+  it("T3 rejects succeeded checkpoint rollback", () => {
+    let current = toMediaCreating();
+    current = advanceOk(current, {
+      type: "MEDIA_VERIFIED",
+      createdItems: [createdItem()],
+      proof: "direct_response",
+    });
+    expectParserValidCasMutationRejected(current, (next) => {
+      next.mediaCheckpoint.status = "in_progress";
+      next.mediaCheckpoint.revision = 2;
+      next.mediaCheckpoint.journalRevision = next.revision;
+      next.mediaCheckpoint.confirmedResultIds = [];
+      next.mediaCheckpoint.automaticRetryAllowed = false;
+    });
+  });
+
+  it("T4 rejects unknown, partial, and reverify states returning to auto-retry", () => {
+    const unknown = advanceOk(toMediaCreating(), { type: "MEDIA_RESULT_UNKNOWN" });
+    const partial = advanceOk(toMembershipPlanned(), {
+      type: "MEMBERSHIP_PARTIAL",
+      observedMediaItemIds: [mediaId(1)],
+    });
+    const reverify = advanceOk(partial, {
+      type: "MEMBERSHIP_REMOTE_REVERIFICATION_REQUIRED",
+    });
+    const cases = [
+      ["unknown", unknown, "mediaCheckpoint"],
+      ["partial", partial, "membershipCheckpoint"],
+      ["reverify", reverify, "membershipCheckpoint"],
+    ] as const;
+
+    for (const [, current, checkpointKey] of cases) {
+      expectParserValidCasMutationRejected(current, (next) => {
+        const checkpoint = next[checkpointKey];
+        checkpoint.status = "preflight_checkpointed";
+        checkpoint.revision = 1;
+        checkpoint.journalRevision = next.revision;
+        checkpoint.confirmedResultIds = [];
+        checkpoint.automaticRetryAllowed = true;
+        next.canResume = false;
+      });
+    }
+  });
+
+  it("T5 rejects deletion or replacement of confirmed result IDs", () => {
+    const current = advanceOk(toMembershipPlanned(), {
+      type: "MEMBERSHIP_PARTIAL",
+      observedMediaItemIds: [mediaId(1)],
+    });
+
+    expectParserValidCasMutationRejected(current, (next) => {
+      next.membershipCheckpoint.status = "result_unknown";
+      next.membershipCheckpoint.revision += 1;
+      next.membershipCheckpoint.journalRevision = next.revision;
+      next.membershipCheckpoint.confirmedResultIds = [];
+      next.membershipCheckpoint.automaticRetryAllowed = false;
+    });
+    expectParserValidCasMutationRejected(current, (next) => {
+      next.membershipCheckpoint.revision += 1;
+      next.membershipCheckpoint.journalRevision = next.revision;
+      next.membershipCheckpoint.confirmedResultIds = [mediaId(2)];
+    });
+  });
+
+  it("T8 accepts canonical prepare and start transitions through CAS", () => {
+    const store = createInMemoryGooglePhotosSyncRecoveryJournalStore();
+    let current = journalFixture();
+    expect(store.initialize(current)).toEqual({ ok: true });
+    current = commitSimulationEvent(store, current, {
+      type: "PREFLIGHT_CONFIRMED",
+    });
+    current = commitSimulationEvent(store, current, { type: "MEDIA_PREPARED" });
+    current = commitSimulationEvent(store, current, { type: "MEDIA_STARTED" });
+    expect(current).toMatchObject({
+      phase: "MEDIA_CREATING",
+      mediaCheckpoint: { status: "in_progress", revision: 2 },
+      productionWriteAllowed: false,
+    });
+  });
+
+  it("T8 preserves response-unknown restart and remote verification through CAS", () => {
+    const store = createInMemoryGooglePhotosSyncRecoveryJournalStore();
+    let current = journalFixture();
+    expect(store.initialize(current)).toEqual({ ok: true });
+    current = commitSimulationEvent(store, current, {
+      type: "PREFLIGHT_CONFIRMED",
+    });
+    current = commitSimulationEvent(store, current, { type: "MEDIA_PREPARED" });
+    current = commitSimulationEvent(store, current, { type: "MEDIA_STARTED" });
+    current = commitSimulationEvent(store, current, {
+      type: "MEDIA_RESULT_UNKNOWN",
+    });
+    expect(current).toMatchObject({
+      phase: "RECOVERY_REQUIRED",
+      mediaCheckpoint: {
+        status: "result_unknown",
+        automaticRetryAllowed: false,
+      },
+    });
+
+    const restarted = store.read(current.recoveryId);
+    expect(restarted).not.toBeNull();
+    if (restarted === null) throw new Error("stored recovery journal is missing");
+    current = commitSimulationEvent(store, restarted, {
+      type: "MEDIA_REMOTE_REVERIFICATION_REQUIRED",
+    });
+    current = commitSimulationEvent(store, current, {
+      type: "MEDIA_VERIFIED",
+      createdItems: [createdItem()],
+      proof: "remote_snapshot",
+    });
+    expect(current).toMatchObject({
+      phase: "MEDIA_VERIFIED",
+      mediaCheckpoint: {
+        status: "succeeded_verified",
+        automaticRetryAllowed: false,
+      },
+      productionWriteAllowed: false,
+    });
+  });
+
+  it("T9 accepts verified checkpoints and final verification through CAS", () => {
+    const store = createInMemoryGooglePhotosSyncRecoveryJournalStore();
+    let current = journalFixture();
+    expect(store.initialize(current)).toEqual({ ok: true });
+    current = commitSimulationEvent(store, current, {
+      type: "PREFLIGHT_CONFIRMED",
+    });
+    current = commitSimulationEvent(store, current, { type: "MEDIA_PREPARED" });
+    current = commitSimulationEvent(store, current, { type: "MEDIA_STARTED" });
+    current = commitSimulationEvent(store, current, {
+      type: "MEDIA_VERIFIED",
+      createdItems: [createdItem()],
+      proof: "direct_response",
+    });
+    current = commitSimulationEvent(store, current, {
+      type: "MEMBERSHIP_PREPARED",
+    });
+    current = commitSimulationEvent(store, current, {
+      type: "MEMBERSHIP_STARTED",
+    });
+    current = commitSimulationEvent(store, current, {
+      type: "MEMBERSHIP_VERIFIED",
+      observedMediaItemIds: finalMembership(),
+      proof: "direct_response",
+    });
+    current = commitSimulationEvent(store, current, {
+      type: "FINAL_VERIFY",
+      observedMediaItemIds: finalMembership(),
+    });
+    expect(current).toMatchObject({
+      phase: "FINAL_READY",
+      mediaCheckpoint: { status: "succeeded_verified" },
+      membershipCheckpoint: { status: "succeeded_verified" },
+      finalCandidate: { status: "final_candidate" },
+      productionWriteAllowed: false,
+      atomicCommitProven: false,
+    });
+  });
+
+  it("T11 rejects a parser-valid phase and checkpoint mismatch", () => {
+    const current = toMediaCreating();
+    expectParserValidCasMutationRejected(current, (next) => {
+      next.phase = "PLANNED";
+    });
+  });
+
   it("models pre-commit failure without changing the stored journal", () => {
     const store = createInMemoryGooglePhotosSyncRecoveryJournalStore();
     const initial = journalFixture();
