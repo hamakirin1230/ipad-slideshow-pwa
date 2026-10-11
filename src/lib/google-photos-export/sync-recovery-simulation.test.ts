@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { classifyGooglePhotosSyncRecoveryTargets } from "./sync-recovery-plan";
 import {
   createGooglePhotosSyncRecoveryJournalV3FromBinding,
+  parseGooglePhotosSyncRecoveryJournalV3,
   parseGooglePhotosSyncRecoveryJournalV3Json,
   stringifyGooglePhotosSyncRecoveryJournalV3,
   type GooglePhotosSyncRecoveryJournalV3,
@@ -131,7 +132,7 @@ function advance(
   return advanceGooglePhotosSyncRecoverySimulation({
     journal,
     expectedRevision: journal.revision,
-    now: `2026-10-10T00:00:${String(tick).padStart(2, "0")}.000Z`,
+    now: new Date(Date.parse(INITIAL_TIME) + tick * 1_000).toISOString(),
     event,
   });
 }
@@ -166,6 +167,26 @@ function finalMembership() {
     "fixture-created-media-12",
     mediaId(13),
   ];
+}
+
+function finalReadyJournal() {
+  let journal = toMediaCreating();
+  journal = advanceOk(journal, {
+    type: "MEDIA_VERIFIED",
+    createdItems: [createdItem()],
+    proof: "direct_response",
+  });
+  journal = advanceOk(journal, { type: "MEMBERSHIP_PREPARED" });
+  journal = advanceOk(journal, { type: "MEMBERSHIP_STARTED" });
+  journal = advanceOk(journal, {
+    type: "MEMBERSHIP_VERIFIED",
+    observedMediaItemIds: finalMembership(),
+    proof: "direct_response",
+  });
+  return advanceOk(journal, {
+    type: "FINAL_VERIFY",
+    observedMediaItemIds: finalMembership(),
+  });
 }
 
 describe("Google Photos Stage 2A local recovery simulation", () => {
@@ -289,6 +310,41 @@ describe("Google Photos Stage 2A local recovery simulation", () => {
     ).toEqual({ ok: false, reason: "INVALID_RESULT_SET" });
   });
 
+  it.each([
+    [
+      "unrelated IDs",
+      () => Array.from({ length: 14 }, (_, index) => `unrelated-media-${index}`),
+    ],
+    [
+      "a missing target",
+      () => finalMembership().filter((id) => id !== mediaId(1)),
+    ],
+    [
+      "a missing unmanaged item",
+      () => finalMembership().filter((id) => id !== "fixture-unmanaged-media"),
+    ],
+    ["reversed target order", () => [...finalMembership()].reverse()],
+    ["an unexpected extra", () => [...finalMembership(), "fixture-extra-media"]],
+  ] as const)("rejects FINAL_READY with %s", (_label, replacement) => {
+    const candidate = structuredClone(finalReadyJournal());
+    const observed = replacement();
+    candidate.verifiedMembershipMediaItemIds = observed;
+    candidate.membershipCheckpoint.confirmedResultIds = observed;
+    candidate.finalCandidate.observedMembershipMediaItemIds = observed;
+    expect(parseGooglePhotosSyncRecoveryJournalV3(candidate)).toEqual({
+      ok: false,
+      reason: "INVALID_INVARIANT",
+    });
+  });
+
+  it("accepts the untampered FINAL_READY journal", () => {
+    const journal = finalReadyJournal();
+    expect(parseGooglePhotosSyncRecoveryJournalV3(journal)).toEqual({
+      ok: true,
+      journal,
+    });
+  });
+
   it("rejects stale journal revisions", () => {
     const journal = journalFixture();
     expect(
@@ -368,6 +424,71 @@ describe("Stage 2A in-memory CAS and conflict guards", () => {
     ).toEqual({ outcome: "rejected", reason: "REVISION_CONFLICT" });
   });
 
+  it.each([
+    [
+      "stable snapshot",
+      (journal: GooglePhotosSyncRecoveryJournalV3) => {
+        journal.sourceBinding.stable!.generation += 1;
+        journal.originalStable!.generation += 1;
+        journal.baseStableGeneration += 1;
+      },
+    ],
+    [
+      "pending snapshot",
+      (journal: GooglePhotosSyncRecoveryJournalV3) => {
+        journal.sourceBinding.pending!.operationId = "fixture-replaced-pending";
+        journal.originalPending.pendingIdentity = "fixture-replaced-pending";
+      },
+    ],
+    [
+      "initial membership",
+      (journal: GooglePhotosSyncRecoveryJournalV3) => {
+        journal.initialMembershipMediaItemIds.push("fixture-new-unmanaged");
+        journal.protectedUnmanagedMediaItemIds.push("fixture-new-unmanaged");
+      },
+    ],
+    [
+      "classification result",
+      (journal: GooglePhotosSyncRecoveryJournalV3) => {
+        const changed = journal.classifications.find(
+          (item) => item.classification === "CREATE_REQUIRED",
+        );
+        if (changed) changed.renderKey = "fixture-reclassified-render";
+      },
+    ],
+  ] as const)("rejects CAS that rewrites the immutable %s", (_label, mutate) => {
+    const store = createInMemoryGooglePhotosSyncRecoveryJournalStore();
+    const initial = journalFixture();
+    store.initialize(initial);
+    const next = advanceOk(initial, { type: "PREFLIGHT_CONFIRMED" });
+    mutate(next);
+    expect(
+      store.compareAndSwap({
+        recoveryId: initial.recoveryId,
+        expectedRevision: initial.revision,
+        nextJournal: next,
+        writerId: "device-a",
+      }),
+    ).toEqual({
+      outcome: "rejected",
+      reason: "IMMUTABLE_SNAPSHOT_CHANGED",
+    });
+  });
+
+  it("rejects a second recovery identity for the same workspace and project", () => {
+    const store = createInMemoryGooglePhotosSyncRecoveryJournalStore();
+    const first = journalFixture();
+    const second = structuredClone(first);
+    second.recoveryId = "fixture-recovery-stage2a-other-device";
+    second.mediaCheckpoint.recoveryId = second.recoveryId;
+    second.membershipCheckpoint.recoveryId = second.recoveryId;
+    expect(store.initialize(first)).toEqual({ ok: true });
+    expect(store.initialize(second)).toEqual({
+      ok: false,
+      reason: "WORKSPACE_PROJECT_CONFLICT",
+    });
+  });
+
   it("fails closed on recovery, source, stable, pending, membership, and concurrency drift", () => {
     const journal = journalFixture();
     const inspection = inspectGooglePhotosSyncRecoveryConflicts({
@@ -392,6 +513,74 @@ describe("Stage 2A in-memory CAS and conflict guards", () => {
       simulationMayContinue: false,
       productionWriteAllowed: false,
       atomicCommitProven: false,
+    });
+  });
+
+  it("does not let caller-supplied expected membership hide drift", () => {
+    const journal = journalFixture();
+    const changed = ["fixture-caller-controlled-membership"];
+    expect(
+      inspectGooglePhotosSyncRecoveryConflicts({
+        journal,
+        observedRecoveryId: journal.recoveryId,
+        observedSourceFingerprint: journal.recoverySourceFingerprint,
+        observedStableGeneration: journal.baseStableGeneration,
+        observedPendingIdentity: journal.originalPending.pendingIdentity,
+        expectedMembershipMediaItemIds: changed,
+        observedMembershipMediaItemIds: changed,
+        concurrentOperationDetected: false,
+      }),
+    ).toEqual({
+      conflicts: ["MEMBERSHIP_DRIFT"],
+      simulationMayContinue: false,
+      productionWriteAllowed: false,
+      atomicCommitProven: false,
+    });
+  });
+
+  it("allows a matching authoritative observation but fails closed mid-update", () => {
+    const journal = journalFixture();
+    expect(
+      inspectGooglePhotosSyncRecoveryConflicts({
+        journal,
+        observedRecoveryId: journal.recoveryId,
+        observedSourceFingerprint: journal.recoverySourceFingerprint,
+        observedStableGeneration: journal.baseStableGeneration,
+        observedPendingIdentity: journal.originalPending.pendingIdentity,
+        expectedMembershipMediaItemIds: journal.initialMembershipMediaItemIds,
+        observedMembershipMediaItemIds: journal.initialMembershipMediaItemIds,
+        concurrentOperationDetected: false,
+      }),
+    ).toEqual({
+      conflicts: [],
+      simulationMayContinue: true,
+      productionWriteAllowed: false,
+      atomicCommitProven: false,
+    });
+
+    let updating = toMediaCreating();
+    updating = advanceOk(updating, {
+      type: "MEDIA_VERIFIED",
+      createdItems: [createdItem()],
+      proof: "direct_response",
+    });
+    updating = advanceOk(updating, { type: "MEMBERSHIP_PREPARED" });
+    updating = advanceOk(updating, { type: "MEMBERSHIP_STARTED" });
+    expect(
+      inspectGooglePhotosSyncRecoveryConflicts({
+        journal: updating,
+        observedRecoveryId: updating.recoveryId,
+        observedSourceFingerprint: updating.recoverySourceFingerprint,
+        observedStableGeneration: updating.baseStableGeneration,
+        observedPendingIdentity: updating.originalPending.pendingIdentity,
+        expectedMembershipMediaItemIds: finalMembership(),
+        observedMembershipMediaItemIds: finalMembership(),
+        concurrentOperationDetected: false,
+      }),
+    ).toMatchObject({
+      conflicts: ["REMOTE_STATE_UNVERIFIED"],
+      simulationMayContinue: false,
+      productionWriteAllowed: false,
     });
   });
 

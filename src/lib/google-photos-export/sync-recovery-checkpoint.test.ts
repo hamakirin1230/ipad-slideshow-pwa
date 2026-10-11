@@ -125,6 +125,39 @@ describe("Google Photos recovery checkpoint", () => {
     });
   });
 
+  it("rejects a revision-zero forged success snapshot", () => {
+    expect(
+      parseGooglePhotosSyncRecoveryCheckpoint({
+        ...checkpoint(),
+        status: "succeeded_verified",
+        confirmedResultIds: ["created-media-12"],
+        automaticRetryAllowed: false,
+      }),
+    ).toEqual({ ok: false, reason: "INVALID_CHECKPOINT" });
+  });
+
+  it("rejects incomplete or duplicate media success results", () => {
+    const source = checkpoint();
+    source.targetIdentities = ["slide-11", "slide-12"];
+    const inProgress = advanceOk(advanceOk(source, { type: "PREPARE" }), {
+      type: "START",
+    });
+    expect(
+      advance(inProgress, {
+        type: "VERIFY_SUCCESS",
+        confirmedResultIds: ["created-media-11"],
+        proof: "direct_response",
+      }),
+    ).toEqual({ ok: false, reason: "INVALID_RESULT_SET" });
+    expect(
+      advance(inProgress, {
+        type: "VERIFY_SUCCESS",
+        confirmedResultIds: ["created-media-11", "created-media-11"],
+        proof: "direct_response",
+      }),
+    ).toEqual({ ok: false, reason: "INVALID_RESULT_SET" });
+  });
+
   it.each([
     ["recovery", { recoveryId: "other" }, "RECOVERY_ID_MISMATCH"],
     ["operation", { operation: "membership_update" }, "OPERATION_MISMATCH"],

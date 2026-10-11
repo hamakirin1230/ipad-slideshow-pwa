@@ -20,6 +20,7 @@ export type GooglePhotosSyncRecoveryConflictReason =
   | "STABLE_CHANGED"
   | "PENDING_CHANGED"
   | "MEMBERSHIP_DRIFT"
+  | "REMOTE_STATE_UNVERIFIED"
   | "CONCURRENT_OPERATION";
 
 export type GooglePhotosSyncRecoveryConflictInspection = {
@@ -92,11 +93,14 @@ export function inspectGooglePhotosSyncRecoveryConflicts(input: {
   if (input.observedPendingIdentity !== input.journal.originalPending.pendingIdentity) {
     conflicts.push("PENDING_CHANGED");
   }
-  if (
-    !arraysEqual(
-      input.expectedMembershipMediaItemIds,
-      input.observedMembershipMediaItemIds,
-    )
+  const authoritativeMembership = parsed.ok
+    ? authoritativeMembershipSnapshot(parsed.journal)
+    : null;
+  if (authoritativeMembership === null) {
+    conflicts.push("REMOTE_STATE_UNVERIFIED");
+  } else if (
+    !arraysEqual(input.expectedMembershipMediaItemIds, authoritativeMembership) ||
+    !arraysEqual(input.observedMembershipMediaItemIds, authoritativeMembership)
   ) {
     conflicts.push("MEMBERSHIP_DRIFT");
   }
@@ -108,6 +112,24 @@ export function inspectGooglePhotosSyncRecoveryConflicts(input: {
     productionWriteAllowed: false,
     atomicCommitProven: false,
   };
+}
+
+function authoritativeMembershipSnapshot(
+  journal: GooglePhotosSyncRecoveryJournalV3,
+) {
+  switch (journal.membershipCheckpoint.status) {
+    case "in_progress":
+    case "result_unknown":
+    case "partial":
+    case "remote_reverification_required":
+      return null;
+    case "succeeded_verified":
+      return journal.verifiedMembershipMediaItemIds;
+    case "not_started":
+    case "preflight_checkpointed":
+    case "stopped":
+      return journal.initialMembershipMediaItemIds;
+  }
 }
 
 /**
@@ -353,6 +375,18 @@ export function createInMemoryGooglePhotosSyncRecoveryJournalStore() {
       if (records.has(parsed.journal.recoveryId)) {
         return { ok: false as const, reason: "ALREADY_EXISTS" as const };
       }
+      if (
+        [...records.values()].some(
+          (record) =>
+            record.workspaceId === parsed.journal.workspaceId &&
+            record.projectId === parsed.journal.projectId,
+        )
+      ) {
+        return {
+          ok: false as const,
+          reason: "WORKSPACE_PROJECT_CONFLICT" as const,
+        };
+      }
       records.set(parsed.journal.recoveryId, structuredClone(parsed.journal));
       return { ok: true as const };
     },
@@ -386,6 +420,12 @@ export function createInMemoryGooglePhotosSyncRecoveryJournalStore() {
       ) {
         return { outcome: "rejected" as const, reason: "RECOVERY_ID_MISMATCH" as const };
       }
+      if (!immutableJournalAuthorityMatches(current, parsed.journal)) {
+        return {
+          outcome: "rejected" as const,
+          reason: "IMMUTABLE_SNAPSHOT_CHANGED" as const,
+        };
+      }
       if (
         current.revision !== input.expectedRevision ||
         parsed.journal.revision !== input.expectedRevision + 1
@@ -405,6 +445,59 @@ export function createInMemoryGooglePhotosSyncRecoveryJournalStore() {
       };
     },
   };
+}
+
+function immutableJournalAuthorityMatches(
+  current: GooglePhotosSyncRecoveryJournalV3,
+  next: GooglePhotosSyncRecoveryJournalV3,
+) {
+  return (
+    current.workspaceId === next.workspaceId &&
+    current.projectId === next.projectId &&
+    current.createdAt === next.createdAt &&
+    current.baseStableGeneration === next.baseStableGeneration &&
+    current.recoverySourceFingerprint === next.recoverySourceFingerprint &&
+    current.remotePixelEquality === next.remotePixelEquality &&
+    deepEqual(current.sourceBinding, next.sourceBinding) &&
+    deepEqual(current.originalStable, next.originalStable) &&
+    deepEqual(current.originalPending, next.originalPending) &&
+    deepEqual(
+      current.initialMembershipMediaItemIds,
+      next.initialMembershipMediaItemIds,
+    ) &&
+    deepEqual(
+      current.confirmedPendingMediaItemIds,
+      next.confirmedPendingMediaItemIds,
+    ) &&
+    deepEqual(current.orderedTargetSlideIds, next.orderedTargetSlideIds) &&
+    deepEqual(current.classifications, next.classifications) &&
+    deepEqual(
+      current.protectedUnmanagedMediaItemIds,
+      next.protectedUnmanagedMediaItemIds,
+    ) &&
+    checkpointAuthorityMatches(current.mediaCheckpoint, next.mediaCheckpoint) &&
+    checkpointAuthorityMatches(
+      current.membershipCheckpoint,
+      next.membershipCheckpoint,
+    )
+  );
+}
+
+function checkpointAuthorityMatches(
+  current: GooglePhotosSyncRecoveryCheckpoint,
+  next: GooglePhotosSyncRecoveryCheckpoint,
+) {
+  return (
+    current.checkpointId === next.checkpointId &&
+    current.recoveryId === next.recoveryId &&
+    current.operation === next.operation &&
+    current.expectedPhase === next.expectedPhase &&
+    deepEqual(current.targetIdentities, next.targetIdentities)
+  );
+}
+
+function deepEqual(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function transitionCheckpoint(

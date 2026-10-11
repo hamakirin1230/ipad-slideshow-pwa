@@ -216,6 +216,12 @@ export function transitionGooglePhotosSyncRecoveryCheckpoint(input: {
       if (!validResultIds(input.event.confirmedResultIds, true)) {
         return failure("INVALID_RESULT_SET");
       }
+      if (
+        current.operation === "media_creation" &&
+        input.event.confirmedResultIds.length !== current.targetIdentities.length
+      ) {
+        return failure("INVALID_RESULT_SET");
+      }
       status = "succeeded_verified";
       confirmedResultIds = [...input.event.confirmedResultIds];
       break;
@@ -252,6 +258,13 @@ function checkpointInvariantsHold(checkpoint: GooglePhotosSyncRecoveryCheckpoint
     checkpoint.status === "preflight_checkpointed";
   if (checkpoint.automaticRetryAllowed !== shouldAllowRetry) return false;
   if (
+    checkpoint.journalRevision < checkpoint.revision + 1 ||
+    checkpoint.revision < minimumRevisionForStatus(checkpoint.status) ||
+    (checkpoint.status === "not_started" && checkpoint.revision !== 0)
+  ) {
+    return false;
+  }
+  if (
     [
       "not_started",
       "preflight_checkpointed",
@@ -265,16 +278,25 @@ function checkpointInvariantsHold(checkpoint: GooglePhotosSyncRecoveryCheckpoint
   ) {
     return false;
   }
-  if (
-    checkpoint.status === "succeeded_verified" &&
-    checkpoint.targetIdentities.length > 0 &&
-    checkpoint.confirmedResultIds.length === 0
-  ) {
-    return false;
+  if (checkpoint.status === "succeeded_verified") {
+    if (
+      checkpoint.operation === "media_creation" &&
+      checkpoint.confirmedResultIds.length !== checkpoint.targetIdentities.length
+    ) {
+      return false;
+    }
+    if (
+      checkpoint.operation === "membership_update" &&
+      checkpoint.targetIdentities.length > 0 &&
+      checkpoint.confirmedResultIds.length === 0
+    ) {
+      return false;
+    }
   }
   if (checkpoint.status === "partial") {
     if (checkpoint.confirmedResultIds.length === 0) return false;
     if (
+      checkpoint.operation === "media_creation" &&
       checkpoint.targetIdentities.length > 0 &&
       checkpoint.confirmedResultIds.length >= checkpoint.targetIdentities.length
     ) {
@@ -282,6 +304,31 @@ function checkpointInvariantsHold(checkpoint: GooglePhotosSyncRecoveryCheckpoint
     }
   }
   return true;
+}
+
+/**
+ * These minima reject impossible local snapshots. They do not prove that an
+ * external operation occurred; only the journal and a verified remote snapshot
+ * can provide that wider evidence.
+ */
+function minimumRevisionForStatus(
+  status: GooglePhotosSyncRecoveryCheckpointStatus,
+) {
+  switch (status) {
+    case "not_started":
+      return 0;
+    case "preflight_checkpointed":
+    case "stopped":
+      return 1;
+    case "in_progress":
+      return 2;
+    case "result_unknown":
+    case "partial":
+    case "succeeded_verified":
+      return 3;
+    case "remote_reverification_required":
+      return 4;
+  }
 }
 
 function validResultIds(values: unknown, complete: boolean) {

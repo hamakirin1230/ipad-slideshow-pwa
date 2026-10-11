@@ -7,6 +7,7 @@ import {
   parseGooglePhotosSyncRecoveryCheckpoint,
   type GooglePhotosSyncRecoveryCheckpoint,
 } from "./sync-recovery-checkpoint";
+import { recoveryTargetIdsAppearInRelativeOrder } from "./sync-recovery-plan";
 import { createGooglePhotosSyncRecoveryState } from "./sync-recovery-transition";
 import type {
   GooglePhotosSyncRecoveryClassification,
@@ -475,7 +476,11 @@ function journalInvariantsHold(journal: GooglePhotosSyncRecoveryJournalV3) {
   }
   if (
     journal.mediaCheckpoint.status === "succeeded_verified" &&
-    journal.createdItems.length !== required.length
+    (journal.createdItems.length !== required.length ||
+      !arraysEqual(
+        journal.mediaCheckpoint.confirmedResultIds,
+        journal.createdItems.map((item) => item.mediaItemId),
+      ))
   ) {
     return false;
   }
@@ -487,6 +492,22 @@ function journalInvariantsHold(journal: GooglePhotosSyncRecoveryJournalV3) {
   ) {
     return false;
   }
+  const membershipSucceeded =
+    journal.membershipCheckpoint.status === "succeeded_verified";
+  if (
+    membershipSucceeded !== (journal.verifiedMembershipMediaItemIds !== null) ||
+    (membershipSucceeded &&
+      (!arraysEqual(
+        journal.membershipCheckpoint.confirmedResultIds,
+        journal.verifiedMembershipMediaItemIds ?? [],
+      ) ||
+        !membershipSnapshotMatchesExpected(
+          journal,
+          journal.verifiedMembershipMediaItemIds ?? [],
+        )))
+  ) {
+    return false;
+  }
   const finalReady = journal.finalCandidate.status === "final_candidate";
   if (
     finalReady !== (journal.phase === "FINAL_READY") ||
@@ -495,6 +516,10 @@ function journalInvariantsHold(journal: GooglePhotosSyncRecoveryJournalV3) {
         journal.membershipCheckpoint.status !== "succeeded_verified" ||
         journal.expectedTargetMediaItemIds === null ||
         journal.verifiedMembershipMediaItemIds === null ||
+        !membershipSnapshotMatchesExpected(
+          journal,
+          journal.finalCandidate.observedMembershipMediaItemIds,
+        ) ||
         !arraysEqual(
           journal.finalCandidate.observedMembershipMediaItemIds,
           journal.verifiedMembershipMediaItemIds,
@@ -509,6 +534,24 @@ function journalInvariantsHold(journal: GooglePhotosSyncRecoveryJournalV3) {
   }
   if (journal.canResume !== expectedCanResume(journal)) return false;
   return true;
+}
+
+function membershipSnapshotMatchesExpected(
+  journal: GooglePhotosSyncRecoveryJournalV3,
+  observed: string[],
+) {
+  const target = journal.expectedTargetMediaItemIds;
+  if (target === null) return false;
+  const protectedUnmanaged = journal.protectedUnmanagedMediaItemIds;
+  const allowed = new Set([...target, ...protectedUnmanaged]);
+  if (allowed.size !== target.length + protectedUnmanaged.length) return false;
+  return (
+    observed.length === allowed.size &&
+    observed.every((id) => allowed.has(id)) &&
+    target.every((id) => observed.includes(id)) &&
+    protectedUnmanaged.every((id) => observed.includes(id)) &&
+    recoveryTargetIdsAppearInRelativeOrder(observed, target)
+  );
 }
 
 function expectedCanResume(journal: GooglePhotosSyncRecoveryJournalV3) {
