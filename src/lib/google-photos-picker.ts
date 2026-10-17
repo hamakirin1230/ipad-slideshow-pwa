@@ -6,6 +6,7 @@ export const PHOTOS_PICKER_DEFAULT_POLL_INTERVAL_SECONDS = 3;
 export const PHOTOS_PICKER_MIN_POLL_INTERVAL_SECONDS = 1;
 export const PHOTOS_PICKER_DEFAULT_TIMEOUT_SECONDS = 30 * 60;
 export const PHOTOS_PICKER_MAX_APP_WAIT_SECONDS = 30 * 60;
+export const PHOTOS_PICKER_REQUEST_TIMEOUT_MS = 30_000;
 export const PHOTOS_PICKER_PHOTO_ONLY_MESSAGE =
   "Googleフォトからは写真のみ追加できます。動画は「動画を選ぶ」から追加してください。";
 
@@ -131,6 +132,87 @@ async function createPhotosPickerApiError(
   return new PhotosPickerApiError(response.status, operation, diagnostics);
 }
 
+function createPhotosPickerRequestTimeoutError(
+  operation: PhotosPickerApiOperation,
+  responseStatus: number | null,
+) {
+  return new PhotosPickerApiError(responseStatus ?? 0, operation, [
+    `Photos Picker API operation: ${operation}`,
+    ...(responseStatus === null
+      ? ["Photos Picker API request timed out before the response completed."]
+      : [
+          `Photos Picker API status: ${responseStatus}`,
+          "Photos Picker API response body timed out.",
+        ]),
+  ]);
+}
+
+function createPhotosPickerAbortError() {
+  if (typeof DOMException === "function") {
+    return new DOMException("The operation was aborted.", "AbortError");
+  }
+
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+async function runPhotosPickerRequestWithTimeout<T>(input: {
+  operation: PhotosPickerApiOperation;
+  signal: AbortSignal;
+  execute: (
+    requestSignal: AbortSignal,
+    recordResponseStatus: (status: number) => void,
+  ) => Promise<T>;
+}): Promise<T> {
+  if (input.signal.aborted) {
+    throw createPhotosPickerAbortError();
+  }
+
+  const requestController = new AbortController();
+  let responseStatus: number | null = null;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let handleParentAbort: (() => void) | null = null;
+
+  const deadline = new Promise<never>((_resolve, reject) => {
+    handleParentAbort = () => {
+      reject(createPhotosPickerAbortError());
+      requestController.abort();
+    };
+    input.signal.addEventListener("abort", handleParentAbort, { once: true });
+
+    timeoutId = setTimeout(() => {
+      if (input.signal.aborted) {
+        reject(createPhotosPickerAbortError());
+      } else {
+        reject(
+          createPhotosPickerRequestTimeoutError(
+            input.operation,
+            responseStatus,
+          ),
+        );
+      }
+      requestController.abort();
+    }, PHOTOS_PICKER_REQUEST_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      input.execute(requestController.signal, (status) => {
+        responseStatus = status;
+      }),
+      deadline,
+    ]);
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+    if (handleParentAbort) {
+      input.signal.removeEventListener("abort", handleParentAbort);
+    }
+  }
+}
+
 function extractPhotosPickerApiErrorDiagnostics(body: unknown) {
   if (!isRecord(body)) {
     return ["Photos Picker API error body was not an object."];
@@ -220,29 +302,36 @@ export async function createPhotosPickerSession(
   signal: AbortSignal,
   maxItemCount = 1,
 ): Promise<PhotosPickerCreatedSession> {
-  const response = await fetch(`${PHOTOS_PICKER_API_BASE_URL}/sessions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      pickingConfig: {
-        maxItemCount: String(Math.max(1, Math.floor(maxItemCount))),
-      },
-    }),
-    cache: "no-store",
-    credentials: "omit",
+  return runPhotosPickerRequestWithTimeout({
+    operation: "createSession",
     signal,
+    execute: async (requestSignal, recordResponseStatus) => {
+      const response = await fetch(`${PHOTOS_PICKER_API_BASE_URL}/sessions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          pickingConfig: {
+            maxItemCount: String(Math.max(1, Math.floor(maxItemCount))),
+          },
+        }),
+        cache: "no-store",
+        credentials: "omit",
+        signal: requestSignal,
+      });
+      recordResponseStatus(response.status);
+
+      if (!response.ok) {
+        throw await createPhotosPickerApiError(response, "createSession");
+      }
+
+      return normalizeCreatedPickingSessionResponse(
+        (await response.json()) as unknown,
+      );
+    },
   });
-
-  if (!response.ok) {
-    throw await createPhotosPickerApiError(response, "createSession");
-  }
-
-  return normalizeCreatedPickingSessionResponse(
-    (await response.json()) as unknown,
-  );
 }
 
 export async function getPhotosPickerSession(
@@ -250,26 +339,33 @@ export async function getPhotosPickerSession(
   sessionId: string,
   signal: AbortSignal,
 ): Promise<PhotosPickerSessionSnapshot> {
-  const response = await fetch(
-    `${PHOTOS_PICKER_API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: "no-store",
-      credentials: "omit",
-      signal,
+  return runPhotosPickerRequestWithTimeout({
+    operation: "getSession",
+    signal,
+    execute: async (requestSignal, recordResponseStatus) => {
+      const response = await fetch(
+        `${PHOTOS_PICKER_API_BASE_URL}/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          cache: "no-store",
+          credentials: "omit",
+          signal: requestSignal,
+        },
+      );
+      recordResponseStatus(response.status);
+
+      if (!response.ok) {
+        throw await createPhotosPickerApiError(response, "getSession");
+      }
+
+      return normalizePickingSessionSnapshotResponse(
+        (await response.json()) as unknown,
+      );
     },
-  );
-
-  if (!response.ok) {
-    throw await createPhotosPickerApiError(response, "getSession");
-  }
-
-  return normalizePickingSessionSnapshotResponse(
-    (await response.json()) as unknown,
-  );
+  });
 }
 
 export async function deletePhotosPickerSession(
@@ -306,24 +402,33 @@ export async function listPickedMediaItems(
     pageSize: String(Math.max(1, Math.floor(pageSize))),
   });
 
-  const response = await fetch(
-    `${PHOTOS_PICKER_API_BASE_URL}/mediaItems?${params.toString()}`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: "no-store",
-      credentials: "omit",
-      signal,
+  return runPhotosPickerRequestWithTimeout({
+    operation: "listMediaItems",
+    signal,
+    execute: async (requestSignal, recordResponseStatus) => {
+      const response = await fetch(
+        `${PHOTOS_PICKER_API_BASE_URL}/mediaItems?${params.toString()}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          cache: "no-store",
+          credentials: "omit",
+          signal: requestSignal,
+        },
+      );
+      recordResponseStatus(response.status);
+
+      if (!response.ok) {
+        throw await createPhotosPickerApiError(response, "listMediaItems");
+      }
+
+      return normalizePickedMediaItemsResponse(
+        (await response.json()) as unknown,
+      );
     },
-  );
-
-  if (!response.ok) {
-    throw await createPhotosPickerApiError(response, "listMediaItems");
-  }
-
-  return normalizePickedMediaItemsResponse((await response.json()) as unknown);
+  });
 }
 
 export function extractSinglePickedMediaItem(

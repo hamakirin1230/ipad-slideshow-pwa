@@ -100,10 +100,21 @@ describe("AssetImportPanel device photo picker", () => {
     expect(source).toContain('target="_blank"');
     expect(source).toContain('rel="noopener noreferrer"');
     expect(source).toContain("Googleフォトを開く");
-    expect(source).toContain("Googleフォトの写真選択画面が開きます");
+    expect(source).toContain("次の操作が必要です");
+    expect(source).toContain(
+      "「Googleフォトを開く」をタップして写真を選択してください。",
+    );
+    expect(source).toContain("選択が終わったら、この画面に戻ってください。");
     expect(source).not.toContain("Googleフォトで検索して写真を選べます");
     expect(source).not.toContain("window.open");
     expect(source).not.toContain("window.location");
+  });
+
+  it("distinguishes Google Photos selection wait from ordinary import work", () => {
+    expect(source).toContain("isWaitingForGooglePhotosSelection");
+    expect(source).toContain('assetImportStatus === "waitingForSelection"');
+    expect(source).toContain("Googleフォトでの写真選択を待っています。");
+    expect(source).toContain("素材追加を中止");
   });
 
   it("renders the Google Photos action from the supported client snapshot", () => {

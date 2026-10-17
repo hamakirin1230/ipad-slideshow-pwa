@@ -75,6 +75,9 @@ export function AssetImportPanel() {
     isAssetImportInFlight ||
     assetImportBatch.length > 0 ||
     ["invalid", "error", "cancelled"].includes(assetImportStatus);
+  const isWaitingForGooglePhotosSelection =
+    Boolean(assetImportPickerHref) &&
+    assetImportStatus === "waitingForSelection";
 
   return (
     <div className="text-sm text-slate-600">
@@ -164,9 +167,20 @@ export function AssetImportPanel() {
       </div>
 
       {offerGooglePhotosPicker && assetImportPickerHref ? (
-        <p className="mt-2 text-xs text-slate-500">
-          Googleフォトの写真選択画面が開きます
-        </p>
+        <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950">
+          <p className="font-medium">次の操作が必要です</p>
+          <p className="mt-1">
+            「Googleフォトを開く」をタップして写真を選択してください。
+          </p>
+          <p className="mt-1 text-xs">
+            選択が終わったら、この画面に戻ってください。
+          </p>
+          {isWaitingForGooglePhotosSelection ? (
+            <p className="mt-2 text-xs font-medium">
+              Googleフォトでの写真選択を待っています。
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {!canStartAssetImport && assetImportBlockedReason ? (

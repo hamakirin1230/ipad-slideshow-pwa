@@ -2,6 +2,7 @@
 
 import { getProjectConsistencyBlockedReason, PROJECT_SUMMARY_STALE_REASON } from "@/lib/project-consistency";
 import Script from "next/script";
+import { usePathname } from "next/navigation";
 import { areProjectSlideCaptionStylesEqual, parseProjectSlideCaptionStyle, pickProjectSlideCaptionStyle, type ProjectSlideCaptionStyle } from "@/lib/project-slide-caption-style";
 import { updateDriveProjectCaptionStyle, DriveProjectCaptionStyleUpdateError } from "@/lib/google-drive";
 import {
@@ -27,6 +28,11 @@ import {
 import { createGoogleSessionClientController } from "@/lib/google-session/browser-session";
 import { createGooglePhotosPickerSessionClientController } from "@/lib/google-photos-picker-session/browser-session";
 import { createGooglePhotosPickerHref } from "@/lib/google-photos-picker-link";
+import {
+  classifyGooglePhotosPickerTokenError,
+  createGooglePhotosPickerTokenFailure,
+  type GooglePhotosPickerTokenFailureReason,
+} from "@/lib/google-photos-picker-token-error";
 import {
   readGooglePhotosPickerClientPlatform,
   shouldReuseGooglePhotosPickerOAuthToken,
@@ -294,6 +300,10 @@ const PHOTOS_EXPORT_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const PHOTOS_MEMBERSHIP_READ_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const PHOTOS_SYNC_TOKEN_REQUEST_TIMEOUT_MS = 45_000;
 const PHOTOS_PICKER_CLEANUP_TIMEOUT_MS = 10_000;
+const PHOTOS_PICKER_APP_WAIT_TIMEOUT_ERROR_MESSAGE =
+  "Photos Picker selection wait reached the app timeout.";
+const PHOTOS_PICKER_APP_WAIT_TIMEOUT_USER_MESSAGE =
+  "Googleフォトでの写真選択が30分以内に完了しなかったため、素材追加を終了しました。";
 const ASSET_IMPORT_DIAGNOSTIC_MAX_LENGTH = 160;
 const OFFLINE_SYNC_DIAGNOSTIC_MAX_LENGTH = 160;
 const ASSET_CLEANUP_PREVIEW_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -605,11 +615,13 @@ type PhotosTokenRequestFailureCategory = "popupBlocked";
 class PhotosTokenRequestError extends Error {
   readonly status: PhotosTokenRequestFailureStatus;
   readonly category?: PhotosTokenRequestFailureCategory;
+  readonly pickerFailureReason?: GooglePhotosPickerTokenFailureReason;
   readonly diagnostics: string[];
 
   constructor(input: {
     status: PhotosTokenRequestFailureStatus;
     category?: PhotosTokenRequestFailureCategory;
+    pickerFailureReason?: GooglePhotosPickerTokenFailureReason;
     message: string;
     diagnostics: string[];
   }) {
@@ -617,6 +629,7 @@ class PhotosTokenRequestError extends Error {
     this.name = "PhotosTokenRequestError";
     this.status = input.status;
     this.category = input.category;
+    this.pickerFailureReason = input.pickerFailureReason;
     this.diagnostics = [...input.diagnostics];
   }
 }
@@ -1040,6 +1053,66 @@ const initialAssetCleanupDeletePreflightMessage =
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+export function AssetImportLifecycleBridge({
+  onRouteLeave,
+  onDocumentLeave,
+  onPersistedPageShow,
+  onUnmount,
+}: {
+  onRouteLeave: () => void;
+  onDocumentLeave: () => void;
+  onPersistedPageShow: () => void;
+  onUnmount: () => void;
+}) {
+  const pathname = usePathname();
+  const previousPathnameRef = useRef(pathname);
+  const callbacksRef = useRef({
+    onRouteLeave,
+    onDocumentLeave,
+    onPersistedPageShow,
+    onUnmount,
+  });
+
+  useEffect(() => {
+    callbacksRef.current = {
+      onRouteLeave,
+      onDocumentLeave,
+      onPersistedPageShow,
+      onUnmount,
+    };
+  }, [onRouteLeave, onDocumentLeave, onPersistedPageShow, onUnmount]);
+
+  useEffect(() => {
+    const previousPathname = previousPathnameRef.current;
+    previousPathnameRef.current = pathname;
+
+    if (previousPathname === "/admin" && pathname !== "/admin") {
+      callbacksRef.current.onRouteLeave();
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      callbacksRef.current.onDocumentLeave();
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        callbacksRef.current.onPersistedPageShow();
+      }
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
+
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
+      callbacksRef.current.onUnmount();
+    };
+  }, []);
+
+  return null;
+}
+
 export function AppProviders({ children }: { children: ReactNode }) {
   const clientId = getGoogleClientId();
   const hasClientId = hasGoogleClientId();
@@ -1121,6 +1194,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const assetImportAbortRef = useRef<AbortController | null>(null);
   const assetImportRequestIdRef = useRef(0);
   const assetImportInFlightRef = useRef(false);
+  const assetImportExternalWritePossiblyStartedRef = useRef(false);
+  const assetImportPageHideRecoveryRef = useRef<{
+    requestId: number;
+    driveOrManifestPossiblyStarted: boolean;
+  } | null>(null);
+  const cancelledPhotosTokenCallbackPendingRef = useRef(false);
 
   const offlineSyncRuntimeRef =
     useRef<DriveOfflineStagingSyncRuntime | null>(null);
@@ -1606,6 +1685,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
   function clearPendingPhotosTokenRequest(reason?: PhotosTokenRequestError) {
     const pendingRequest = pendingPhotosTokenRequestRef.current;
 
+    if (tokenRequestKindRef.current === "photos") {
+      tokenRequestKindRef.current = null;
+      cancelledPhotosTokenCallbackPendingRef.current = Boolean(
+        pendingRequest && reason,
+      );
+    }
+
     if (!pendingRequest) {
       return;
     }
@@ -1621,6 +1707,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
   function clearAssetImportRuntimeRefs(options: {
     abort: boolean;
     rejectPendingPhotosTokenRequest: boolean;
+    updatePickerHref?: boolean;
   }) {
     clearPendingPhotosTokenRequest(
       options.rejectPendingPhotosTokenRequest
@@ -1633,13 +1720,110 @@ export function AppProviders({ children }: { children: ReactNode }) {
     );
     currentAssetImportAccessTokenRef.current = null;
     currentAssetImportSessionIdRef.current = null;
-    setAssetImportPickerHref(null);
+    if (options.updatePickerHref !== false) {
+      setAssetImportPickerHref(null);
+    }
 
     if (options.abort && assetImportAbortRef.current) {
       assetImportAbortRef.current.abort();
     }
 
     assetImportAbortRef.current = null;
+  }
+
+  function invalidateAssetImportRuntimeWithoutStateUpdate() {
+    if (
+      !assetImportInFlightRef.current &&
+      !pendingPhotosTokenRequestRef.current &&
+      !assetImportAbortRef.current
+    ) {
+      return;
+    }
+
+    assetImportRequestIdRef.current += 1;
+    clearAssetImportRuntimeRefs({
+      abort: true,
+      rejectPendingPhotosTokenRequest: true,
+      updatePickerHref: false,
+    });
+    assetImportInFlightRef.current = false;
+  }
+
+  function wasAssetImportDriveOrManifestPossiblyStarted() {
+    return (
+      assetImportStatus === "uploadingToDrive" ||
+      assetImportStatus === "savedToDrive" ||
+      assetImportStatus === "updatingManifest" ||
+      assetImportStatus === "verifying" ||
+      assetImportBatch.some(
+        (item) =>
+          item.status === "savedToDrive" || item.status === "manifestUpdated",
+      ) ||
+      assetImportSelection?.driveSaved === true ||
+      assetImportExternalWritePossiblyStartedRef.current
+    );
+  }
+
+  function invalidateAssetImportRuntimeForDocumentLeave() {
+    if (
+      !assetImportInFlightRef.current &&
+      !pendingPhotosTokenRequestRef.current &&
+      !assetImportAbortRef.current
+    ) {
+      return;
+    }
+
+    const driveOrManifestPossiblyStarted =
+      wasAssetImportDriveOrManifestPossiblyStarted();
+    invalidateAssetImportRuntimeWithoutStateUpdate();
+    assetImportExternalWritePossiblyStartedRef.current = false;
+    assetImportPageHideRecoveryRef.current = {
+      requestId: assetImportRequestIdRef.current,
+      driveOrManifestPossiblyStarted,
+    };
+  }
+
+  function syncAssetImportStateAfterPersistedPageShow() {
+    const recovery = assetImportPageHideRecoveryRef.current;
+
+    if (!recovery) {
+      return;
+    }
+
+    assetImportPageHideRecoveryRef.current = null;
+
+    if (
+      recovery.requestId !== assetImportRequestIdRef.current ||
+      assetImportInFlightRef.current ||
+      pendingPhotosTokenRequestRef.current ||
+      assetImportAbortRef.current
+    ) {
+      return;
+    }
+
+    setAssetImportInFlightState(false);
+    setAssetImportPickerHref(null);
+    setAssetImportSelection(null);
+    setAssetImportBatch([]);
+    setAssetImportStatus("cancelled");
+    setAssetImportMessage(
+      "ページを離れたため素材追加を終了しました。必要に応じてDrive状態を再確認してください。",
+    );
+    setSafeAssetImportDiagnostics(
+      recovery.driveOrManifestPossiblyStarted
+        ? [
+            "ページ離脱により素材追加を終了しました。",
+            "Drive上に素材ファイルが作成済みの可能性があります。",
+            "プロジェクト設定またはプロジェクト一覧が更新済みの可能性があります。",
+            "自動削除・自動修復は行いません。",
+            "Drive状態を再確認してください。",
+          ]
+        : [
+            "ページ離脱により素材追加を終了しました。",
+            "Drive保存: 未実行",
+            "プロジェクト反映: 未実行",
+          ],
+    );
   }
 
   function invalidatePhotosPickerSession() {
@@ -1683,6 +1867,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       );
     }
 
+    const shouldAwaitCancelledCallback =
+      cancelledPhotosTokenCallbackPendingRef.current;
+
     return new Promise<string>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         const pendingRequest = pendingPhotosTokenRequestRef.current;
@@ -1692,13 +1879,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
         }
 
         pendingPhotosTokenRequestRef.current = null;
+        cancelledPhotosTokenCallbackPendingRef.current = false;
         tokenRequestKindRef.current = null;
+        const failure = createGooglePhotosPickerTokenFailure("timeout");
         reject(
           new PhotosTokenRequestError({
-            status: "cancelled",
+            status: failure.status,
+            pickerFailureReason: failure.reason,
             message: "Photos token request timed out.",
             diagnostics: [
-              "Google Photosの利用許可または素材選択待ちが30分でタイムアウトしました。",
+              ...failure.diagnostics,
               "Drive保存: 未実行",
               "プロジェクト反映: 未実行",
             ],
@@ -1715,6 +1905,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       tokenRequestKindRef.current = "photos";
 
+      if (shouldAwaitCancelledCallback) {
+        return;
+      }
+
       try {
         tokenClient.requestAccessToken({
           scope: DRIVE_AND_PHOTOS_PICKER_SCOPES,
@@ -1730,6 +1924,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         }
 
         tokenRequestKindRef.current = null;
+        cancelledPhotosTokenCallbackPendingRef.current = false;
         reject(
           new PhotosTokenRequestError({
             status: "error",
@@ -1750,6 +1945,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     if (!pendingRequest) {
       if (
+        cancelledPhotosTokenCallbackPendingRef.current &&
+        (tokenRequestKindRef.current === null ||
+          tokenResponseIncludesPhotosPickerScope(tokenResponse))
+      ) {
+        cancelledPhotosTokenCallbackPendingRef.current = false;
+        return true;
+      }
+
+      if (
         tokenRequestKindRef.current === "photos" ||
         tokenResponseIncludesPhotosPickerScope(tokenResponse)
       ) {
@@ -1763,21 +1967,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
     if (pendingRequest.requestId !== assetImportRequestIdRef.current) {
       clearTimeout(pendingRequest.timeoutId);
       pendingPhotosTokenRequestRef.current = null;
+      cancelledPhotosTokenCallbackPendingRef.current = false;
       tokenRequestKindRef.current = null;
       return true;
     }
 
     clearTimeout(pendingRequest.timeoutId);
     pendingPhotosTokenRequestRef.current = null;
+    cancelledPhotosTokenCallbackPendingRef.current = false;
     tokenRequestKindRef.current = null;
 
     if (tokenResponse.error === "access_denied") {
+      const failure = createGooglePhotosPickerTokenFailure("denied");
       pendingRequest.reject(
         new PhotosTokenRequestError({
-          status: "cancelled",
+          status: failure.status,
+          pickerFailureReason: failure.reason,
           message: "Photos permission was cancelled.",
           diagnostics: [
-            "Google Photosの利用許可がキャンセルされました。",
+            ...failure.diagnostics,
             "Drive保存: 未実行",
             "プロジェクト反映: 未実行",
           ],
@@ -1839,10 +2047,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return true;
   }
 
-  function handlePhotosTokenErrorCallback() {
+  function handlePhotosTokenErrorCallback(error?: GoogleTokenError) {
     const pendingRequest = pendingPhotosTokenRequestRef.current;
 
     if (!pendingRequest) {
+      if (cancelledPhotosTokenCallbackPendingRef.current) {
+        cancelledPhotosTokenCallbackPendingRef.current = false;
+        return true;
+      }
+
       if (tokenRequestKindRef.current === "photos") {
         tokenRequestKindRef.current = null;
         return true;
@@ -1853,13 +2066,16 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     clearTimeout(pendingRequest.timeoutId);
     pendingPhotosTokenRequestRef.current = null;
+    cancelledPhotosTokenCallbackPendingRef.current = false;
     tokenRequestKindRef.current = null;
+    const failure = classifyGooglePhotosPickerTokenError(error);
     pendingRequest.reject(
       new PhotosTokenRequestError({
-        status: "cancelled",
+        status: failure.status,
+        pickerFailureReason: failure.reason,
         message: "Photos permission did not complete.",
         diagnostics: [
-          "Google Photosの利用許可が完了しませんでした。",
+          ...failure.diagnostics,
           "Drive保存: 未実行",
           "プロジェクト反映: 未実行",
         ],
@@ -3379,7 +3595,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         queueDriveWorkspaceAutoCheckRef.current();
       },
       error_callback: (error) => {
-        if (handlePhotosTokenErrorCallback()) {
+        if (handlePhotosTokenErrorCallback(error)) {
           return;
         }
 
@@ -3564,6 +3780,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
   async function startAssetImport() {
     const blockedReason = getAssetImportBlockedReason();
 
+    assetImportPageHideRecoveryRef.current = null;
+    assetImportExternalWritePossiblyStartedRef.current = false;
     assetImportRequestIdRef.current += 1;
     const requestId = assetImportRequestIdRef.current;
 
@@ -3750,6 +3968,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
             signal: abortSignal,
           });
 
+          if (requestId !== assetImportRequestIdRef.current) {
+            return;
+          }
+
           updateAssetImportBatchItem(clientItemId, {
             status: "downloaded",
             downloadedContentType: downloadResult.downloadedContentType,
@@ -3762,6 +3984,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           );
           updateAssetImportBatchItem(clientItemId, { status: "uploading" });
 
+          assetImportExternalWritePossiblyStartedRef.current = true;
           const savedAsset = await saveDriveProjectAsset({
             accessToken: photosAccessToken,
             workspaceId: readyWorkspace.workspaceId,
@@ -3771,6 +3994,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
             sizeBytes: downloadResult.downloadedSizeBytes,
             signal: abortSignal,
           });
+
+          if (requestId !== assetImportRequestIdRef.current) {
+            return;
+          }
 
           updateAssetImportBatchItem(clientItemId, {
             status: "savedToDrive",
@@ -3799,6 +4026,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
             ...savedAsset.diagnostics,
           );
         } catch (itemError) {
+          if (requestId !== assetImportRequestIdRef.current) {
+            return;
+          }
+
           if (isAbortError(itemError)) {
             throw itemError;
           }
@@ -3886,15 +4117,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
       if (error instanceof PhotosTokenRequestError) {
         finalStatus = error.status;
-        finalMessage =
-          error.status === "cancelled"
+        finalMessage = error.pickerFailureReason
+          ? createGooglePhotosPickerTokenFailure(error.pickerFailureReason).message
+          : error.status === "cancelled"
             ? "Google Photosの利用許可がキャンセルされました。"
             : "Google Photosの利用許可を確認できませんでした。";
         finalDiagnostics = error.diagnostics;
       } else if (error instanceof PhotosPickerSelectionError) {
         finalStatus = error.status;
         finalMessage =
-          error.status === "cancelled"
+          error.message === PHOTOS_PICKER_APP_WAIT_TIMEOUT_ERROR_MESSAGE
+            ? PHOTOS_PICKER_APP_WAIT_TIMEOUT_USER_MESSAGE
+            : error.status === "cancelled"
             ? "Photos Pickerでの選択がキャンセルされました。"
             : error.status === "invalid"
               ? error.message === PHOTOS_PICKER_PHOTO_ONLY_MESSAGE
@@ -4024,6 +4258,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const blockedReason = getAssetImportBlockedReason();
     const selectedFiles = Array.from(files);
 
+    assetImportExternalWritePossiblyStartedRef.current = false;
     assetImportRequestIdRef.current += 1;
     const requestId = assetImportRequestIdRef.current;
 
@@ -4186,6 +4421,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           );
           updateAssetImportBatchItem(localItem.clientItemId, { status: "uploading" });
 
+          assetImportExternalWritePossiblyStartedRef.current = true;
           const savedAsset = await saveDriveProjectAsset({
             accessToken,
             workspaceId: readyWorkspace.workspaceId,
@@ -4399,6 +4635,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const blockedReason = getAssetImportBlockedReason();
     const selectedFiles = Array.from(files);
 
+    assetImportExternalWritePossiblyStartedRef.current = false;
     assetImportRequestIdRef.current += 1;
     const requestId = assetImportRequestIdRef.current;
 
@@ -4567,6 +4804,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           );
           updateAssetImportBatchItem(localItem.clientItemId, { status: "uploading" });
 
+          assetImportExternalWritePossiblyStartedRef.current = true;
           const savedAsset = await saveDriveProjectAsset({
             accessToken,
             workspaceId: readyWorkspace.workspaceId,
@@ -4809,16 +5047,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       rejectPendingPhotosTokenRequest: true,
     });
     const wasDriveOrManifestPossiblyStarted =
-      assetImportStatus === "uploadingToDrive" ||
-      assetImportStatus === "savedToDrive" ||
-      assetImportStatus === "updatingManifest" ||
-      assetImportStatus === "verifying" ||
-      assetImportBatch.some(
-        (item) =>
-          item.status === "savedToDrive" ||
-          item.status === "manifestUpdated",
-      ) ||
-      assetImportSelection?.driveSaved === true;
+      wasAssetImportDriveOrManifestPossiblyStarted();
+    assetImportExternalWritePossiblyStartedRef.current = false;
 
     setAssetImportInFlightState(false);
     setAssetImportSelection(null);
@@ -9565,6 +9795,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <AppContext.Provider value={value}>
+      <AssetImportLifecycleBridge
+        onRouteLeave={cancelAssetImport}
+        onDocumentLeave={invalidateAssetImportRuntimeForDocumentLeave}
+        onPersistedPageShow={syncAssetImportStateAfterPersistedPageShow}
+        onUnmount={invalidateAssetImportRuntimeWithoutStateUpdate}
+      />
       {shouldLoadGoogleIdentityScript ? (
         <Script
           src="https://accounts.google.com/gsi/client"
@@ -10368,60 +10604,96 @@ export async function waitForPhotosPickerSelection(input: {
     return { diagnostics };
   }
 
-  while (true) {
-    throwIfAborted(input.signal);
+  throwIfAborted(input.signal);
 
-    const elapsedSeconds = (Date.now() - startedAtMs) / 1000;
-    const remainingAppWaitSeconds =
-      PHOTOS_PICKER_MAX_APP_WAIT_SECONDS - elapsedSeconds;
-
-    if (remainingAppWaitSeconds <= 0) {
-      throw new PhotosPickerSelectionError({
-        status: "cancelled",
-        message: "Photos Picker polling reached the app timeout.",
-        diagnostics: [
-          "Photos Pickerの選択待ちが30分でタイムアウトしました。",
-          "Drive保存: 未実行",
-          "プロジェクト反映: 未実行",
-        ],
-      });
+  const waitController = new AbortController();
+  let rejectWait: (reason: unknown) => void = () => {};
+  const waitEnded = new Promise<never>((_resolve, reject) => {
+    rejectWait = reject;
+  });
+  const handleParentAbort = () => {
+    rejectWait(createAbortError());
+    waitController.abort();
+  };
+  input.signal.addEventListener("abort", handleParentAbort, { once: true });
+  const appTimeoutId = setTimeout(() => {
+    if (input.signal.aborted) {
+      rejectWait(createAbortError());
+    } else {
+      rejectWait(createPhotosPickerAppWaitTimeoutError());
     }
+    waitController.abort();
+  }, PHOTOS_PICKER_MAX_APP_WAIT_SECONDS * 1000);
 
-    if (pollingTiming.timeoutInSeconds <= 0) {
-      throw new PhotosPickerSelectionError({
-        status: "cancelled",
-        message: "Photos Picker polling reached the session timeout.",
-        diagnostics: [
-          "Photos Pickerの選択待ちがタイムアウトしました。",
-          "Drive保存: 未実行",
-          "プロジェクト反映: 未実行",
-        ],
-      });
+  try {
+    while (true) {
+      throwIfAborted(input.signal);
+
+      const elapsedSeconds = (Date.now() - startedAtMs) / 1000;
+      const remainingAppWaitSeconds =
+        PHOTOS_PICKER_MAX_APP_WAIT_SECONDS - elapsedSeconds;
+
+      if (remainingAppWaitSeconds <= 0) {
+        throw createPhotosPickerAppWaitTimeoutError();
+      }
+
+      if (pollingTiming.timeoutInSeconds <= 0) {
+        throw new PhotosPickerSelectionError({
+          status: "cancelled",
+          message: "Photos Picker polling reached the session timeout.",
+          diagnostics: [
+            "Photos Pickerの選択待ちがタイムアウトしました。",
+            "Drive保存: 未実行",
+            "プロジェクト反映: 未実行",
+          ],
+        });
+      }
+
+      await Promise.race([
+        abortableSleep(
+          resolvePhotosPickerPollingDelayMs(
+            pollingTiming,
+            remainingAppWaitSeconds,
+          ),
+          waitController.signal,
+        ),
+        waitEnded,
+      ]);
+
+      const snapshot = await Promise.race([
+        getPhotosPickerSession(
+          input.accessToken,
+          input.session.id,
+          waitController.signal,
+        ),
+        waitEnded,
+      ]);
+
+      input.onSnapshot?.(snapshot);
+      diagnostics.push(...snapshot.diagnostics);
+
+      if (snapshot.mediaItemsSet) {
+        return { diagnostics };
+      }
+
+      pollingTiming = snapshot.pollingTiming;
     }
-
-    await abortableSleep(
-      resolvePhotosPickerPollingDelayMs(
-        pollingTiming,
-        remainingAppWaitSeconds,
-      ),
-      input.signal,
-    );
-
-    const snapshot = await getPhotosPickerSession(
-      input.accessToken,
-      input.session.id,
-      input.signal,
-    );
-
-    input.onSnapshot?.(snapshot);
-    diagnostics.push(...snapshot.diagnostics);
-
-    if (snapshot.mediaItemsSet) {
-      return { diagnostics };
-    }
-
-    pollingTiming = snapshot.pollingTiming;
+  } finally {
+    clearTimeout(appTimeoutId);
+    input.signal.removeEventListener("abort", handleParentAbort);
   }
+}
+
+function createPhotosPickerAppWaitTimeoutError() {
+  return new PhotosPickerSelectionError({
+    status: "error",
+    message: PHOTOS_PICKER_APP_WAIT_TIMEOUT_ERROR_MESSAGE,
+    diagnostics: [
+      "Photos Pickerの選択待ちが30分でタイムアウトしました。",
+      "Drive保存: 未実行",
+      "プロジェクト反映: 未実行",
+    ],
+  });
 }
 
 export async function cleanupPhotosPickerSessionOnce(input: {
