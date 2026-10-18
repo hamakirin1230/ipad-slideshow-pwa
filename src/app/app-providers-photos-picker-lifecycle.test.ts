@@ -108,6 +108,7 @@ vi.mock("@/lib/google-drive", async (importOriginal) => ({
 import {
   AppProviders,
   AssetImportLifecycleBridge,
+  waitForPhotosPickerSelection,
 } from "./app-providers";
 
 const providersSource = readFileSync(
@@ -205,7 +206,17 @@ function dispatchPageShow(persisted: boolean) {
   window.dispatchEvent(event);
 }
 
-function createPickerSession() {
+function createPickerSession(
+  overrides: Partial<{
+    mediaItemsSet: boolean;
+    pollingTiming: {
+      pollIntervalSeconds: number;
+      timeoutInSeconds: number;
+      diagnostics: string[];
+    };
+    diagnostics: string[];
+  }> = {},
+) {
   return {
     id: "fixture-session",
     pickerUri: "fixture-picker-uri",
@@ -216,6 +227,25 @@ function createPickerSession() {
       diagnostics: [],
     },
     diagnostics: [],
+    ...overrides,
+  };
+}
+
+function createPickerSnapshot(
+  overrides: Partial<{
+    mediaItemsSet: boolean;
+    pollingTiming: {
+      pollIntervalSeconds: number;
+      timeoutInSeconds: number;
+      diagnostics: string[];
+    };
+    diagnostics: string[];
+  }> = {},
+) {
+  return {
+    ...createPickerSession(),
+    pickerUri: null,
+    ...overrides,
   };
 }
 
@@ -279,9 +309,14 @@ beforeEach(() => {
   driveMocks.appendDriveProjectAssetsToManifest.mockReset();
   driveMocks.saveDriveProjectAsset.mockReset();
   vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal(
+    "document",
+    Object.assign(new EventTarget(), { visibilityState: "visible" }),
+  );
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -381,10 +416,358 @@ describe("Photos Picker page lifecycle", () => {
     expect(providersSource).toContain(
       "onUnmount={invalidateAssetImportRuntimeWithoutStateUpdate}",
     );
-    expect(providersSource).not.toContain(
-      'addEventListener("visibilitychange"',
+    expect(providersSource).toContain(
+      'document.addEventListener("visibilitychange", handleVisibilityChange)',
     );
-    expect(providersSource).not.toContain('addEventListener("blur"');
+    expect(providersSource).toContain(
+      'window.addEventListener("focus", handleWindowFocus)',
+    );
+    expect(providersSource).toContain(
+      'window.addEventListener("blur", handleWindowBlur)',
+    );
+    expect(providersSource).toContain("foregroundReturnPending = true");
+  });
+});
+
+describe("Photos Picker foreground wake-up", () => {
+  it("T1: keeps a 60-second polling interval after an immediate foreground return", async () => {
+    vi.useFakeTimers();
+    pickerMocks.getPhotosPickerSession.mockResolvedValue(
+      createPickerSnapshot({ mediaItemsSet: true }),
+    );
+    const wait = waitForPhotosPickerSelection({
+      accessToken: "fixture-credential",
+      session: createPickerSession({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+      signal: new AbortController().signal,
+    });
+
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    await flushPromises();
+    expect(pickerMocks.getPhotosPickerSession).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(pickerMocks.getPhotosPickerSession).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(wait).resolves.toEqual({ diagnostics: [] });
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("T2: polls immediately on a foreground return only after its scheduled time elapsed", async () => {
+    vi.useFakeTimers();
+    let resolveSnapshot:
+      | ((value: ReturnType<typeof createPickerSnapshot>) => void)
+      | undefined;
+    pickerMocks.getPhotosPickerSession.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSnapshot = resolve;
+        }),
+    );
+    const wait = waitForPhotosPickerSelection({
+      accessToken: "fixture-credential",
+      session: createPickerSession({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+      signal: new AbortController().signal,
+    });
+
+    vi.setSystemTime(Date.now() + 60_000);
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    await flushPromises();
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledOnce();
+
+    resolveSnapshot?.(createPickerSnapshot({ mediaItemsSet: true }));
+    await expect(wait).resolves.toEqual({ diagnostics: [] });
+  });
+
+  it("T3: coalesces duplicate foreground events without skipping the next interval", async () => {
+    vi.useFakeTimers();
+    pickerMocks.getPhotosPickerSession
+      .mockResolvedValueOnce(
+        createPickerSnapshot({
+          mediaItemsSet: false,
+          pollingTiming: {
+            pollIntervalSeconds: 60,
+            timeoutInSeconds: 60,
+            diagnostics: [],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(createPickerSnapshot({ mediaItemsSet: true }));
+    const wait = waitForPhotosPickerSelection({
+      accessToken: "fixture-credential",
+      session: createPickerSession({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+      signal: new AbortController().signal,
+    });
+
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("focus"));
+    await flushPromises();
+    expect(pickerMocks.getPhotosPickerSession).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledOnce();
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(wait).resolves.toEqual({ diagnostics: [] });
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("T4: does not start a parallel request for foreground events during a GET", async () => {
+    vi.useFakeTimers();
+    let resolveSnapshot:
+      | ((value: ReturnType<typeof createPickerSnapshot>) => void)
+      | undefined;
+    pickerMocks.getPhotosPickerSession.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSnapshot = resolve;
+        }),
+    );
+    const wait = waitForPhotosPickerSelection({
+      accessToken: "fixture-credential",
+      session: createPickerSession({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+      signal: new AbortController().signal,
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledOnce();
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledOnce();
+
+    resolveSnapshot?.(createPickerSnapshot({ mediaItemsSet: true }));
+    await expect(wait).resolves.toEqual({ diagnostics: [] });
+  });
+
+  it("T5: uses the latest snapshot timing before polling again and completes on selection", async () => {
+    vi.useFakeTimers();
+    const firstSnapshot = createPickerSnapshot({
+      mediaItemsSet: false,
+      pollingTiming: {
+        pollIntervalSeconds: 30,
+        timeoutInSeconds: 60,
+        diagnostics: [],
+      },
+    });
+    const selectedSnapshot = createPickerSnapshot({ mediaItemsSet: true });
+    pickerMocks.getPhotosPickerSession
+      .mockResolvedValueOnce(firstSnapshot)
+      .mockResolvedValueOnce(selectedSnapshot);
+    const onSnapshot = vi.fn();
+    const wait = waitForPhotosPickerSelection({
+      accessToken: "fixture-credential",
+      session: createPickerSession({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+      signal: new AbortController().signal,
+      onSnapshot,
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onSnapshot).toHaveBeenCalledWith(firstSnapshot);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(wait).resolves.toEqual({ diagnostics: [] });
+    expect(onSnapshot).toHaveBeenLastCalledWith(selectedSnapshot);
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("T6: does not start a hidden foreground poll before its scheduled time", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    pickerMocks.getPhotosPickerSession.mockResolvedValue(
+      createPickerSnapshot({ mediaItemsSet: true }),
+    );
+    const wait = waitForPhotosPickerSelection({
+      accessToken: "fixture-credential",
+      session: createPickerSession({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("blur"));
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(controller.signal.aborted).toBe(false);
+    expect(pickerMocks.getPhotosPickerSession).not.toHaveBeenCalled();
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(wait).resolves.toEqual({ diagnostics: [] });
+    expect(pickerMocks.getPhotosPickerSession).toHaveBeenCalledOnce();
+  });
+
+  it("does not list media or start Drive work until a resumed poll reports selection", async () => {
+    prepareProviderState();
+    pickerMocks.createPhotosPickerSession.mockResolvedValue(
+      createPickerSession({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+    );
+    pickerMocks.getPhotosPickerSession.mockResolvedValue(
+      createPickerSnapshot({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+    );
+    const context = renderProvider();
+    const importRun = context.startAssetImport();
+    await flushPromises();
+
+    window.dispatchEvent(new Event("blur"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+
+    expect(pickerMocks.getPhotosPickerSession).not.toHaveBeenCalled();
+    expect(pickerMocks.listPickedMediaItems).not.toHaveBeenCalled();
+    expect(driveMocks.saveDriveProjectAsset).not.toHaveBeenCalled();
+    expect(driveMocks.appendDriveProjectAssetsToManifest).not.toHaveBeenCalled();
+
+    context.cancelAssetImport();
+    await importRun;
+  });
+
+  it("removes foreground listeners when the parent signal aborts", async () => {
+    const controller = new AbortController();
+    const removeDocumentListener = vi.spyOn(document, "removeEventListener");
+    const removeWindowListener = vi.spyOn(window, "removeEventListener");
+    const wait = waitForPhotosPickerSelection({
+      accessToken: "fixture-credential",
+      session: createPickerSession({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    controller.abort();
+
+    await expect(wait).rejects.toMatchObject({ name: "AbortError" });
+    expect(removeDocumentListener).toHaveBeenCalledWith(
+      "visibilitychange",
+      expect.any(Function),
+    );
+    expect(removeWindowListener).toHaveBeenCalledWith(
+      "blur",
+      expect.any(Function),
+    );
+    expect(removeWindowListener).toHaveBeenCalledWith(
+      "focus",
+      expect.any(Function),
+    );
+  });
+
+  it("removes foreground listeners when a resumed poll fails", async () => {
+    vi.useFakeTimers();
+    const removeDocumentListener = vi.spyOn(document, "removeEventListener");
+    const removeWindowListener = vi.spyOn(window, "removeEventListener");
+    pickerMocks.getPhotosPickerSession.mockRejectedValue(
+      new Error("fixture session request failed"),
+    );
+    const wait = waitForPhotosPickerSelection({
+      accessToken: "fixture-credential",
+      session: createPickerSession({
+        mediaItemsSet: false,
+        pollingTiming: {
+          pollIntervalSeconds: 60,
+          timeoutInSeconds: 60,
+          diagnostics: [],
+        },
+      }),
+      signal: new AbortController().signal,
+    });
+
+    vi.setSystemTime(Date.now() + 60_000);
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+
+    await expect(wait).rejects.toThrow("fixture session request failed");
+    expect(removeDocumentListener).toHaveBeenCalledWith(
+      "visibilitychange",
+      expect.any(Function),
+    );
+    expect(removeWindowListener).toHaveBeenCalledWith(
+      "blur",
+      expect.any(Function),
+    );
+    expect(removeWindowListener).toHaveBeenCalledWith(
+      "focus",
+      expect.any(Function),
+    );
   });
 });
 

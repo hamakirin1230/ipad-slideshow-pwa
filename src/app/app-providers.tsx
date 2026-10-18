@@ -10624,6 +10624,48 @@ export async function waitForPhotosPickerSelection(input: {
     }
     waitController.abort();
   }, PHOTOS_PICKER_MAX_APP_WAIT_SECONDS * 1000);
+  let foregroundWakeRequested = false;
+  let foregroundReturnPending = false;
+  let isPolling = false;
+  let resolveForegroundWake: (() => void) | null = null;
+  let nextPollAtMs: number | null = null;
+  const canListenForForegroundWake =
+    typeof document !== "undefined" && typeof window !== "undefined";
+  const requestForegroundWake = () => {
+    if (isPolling || foregroundWakeRequested) {
+      return false;
+    }
+
+    foregroundWakeRequested = true;
+    resolveForegroundWake?.();
+    return true;
+  };
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      foregroundReturnPending = true;
+      return;
+    }
+
+    if (document.visibilityState === "visible" && foregroundReturnPending) {
+      foregroundReturnPending = false;
+      requestForegroundWake();
+    }
+  };
+  const handleWindowBlur = () => {
+    foregroundReturnPending = true;
+  };
+  const handleWindowFocus = () => {
+    if (document.visibilityState === "visible" && foregroundReturnPending) {
+      foregroundReturnPending = false;
+      requestForegroundWake();
+    }
+  };
+
+  if (canListenForForegroundWake) {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("focus", handleWindowFocus);
+  }
 
   try {
     while (true) {
@@ -10649,25 +10691,79 @@ export async function waitForPhotosPickerSelection(input: {
         });
       }
 
-      await Promise.race([
-        abortableSleep(
+      if (nextPollAtMs === null) {
+        nextPollAtMs =
+          Date.now() +
           resolvePhotosPickerPollingDelayMs(
             pollingTiming,
             remainingAppWaitSeconds,
-          ),
-          waitController.signal,
-        ),
-        waitEnded,
-      ]);
+          );
+      }
 
-      const snapshot = await Promise.race([
-        getPhotosPickerSession(
-          input.accessToken,
-          input.session.id,
-          waitController.signal,
-        ),
-        waitEnded,
-      ]);
+      while (Date.now() < nextPollAtMs) {
+        const sleepController = new AbortController();
+        let wokeSleepingPoll = false;
+        const handleWaitAbort = () => {
+          sleepController.abort();
+        };
+        const sleep = abortableSleep(
+          nextPollAtMs - Date.now(),
+          sleepController.signal,
+        ).catch((error) => {
+          if (wokeSleepingPoll) {
+            return;
+          }
+
+          throw error;
+        });
+        const foregroundWake = new Promise<void>((resolve) => {
+          resolveForegroundWake = () => {
+            if (wokeSleepingPoll) {
+              return;
+            }
+
+            wokeSleepingPoll = true;
+            foregroundWakeRequested = false;
+            sleepController.abort();
+            resolve();
+          };
+        });
+
+        waitController.signal.addEventListener("abort", handleWaitAbort, {
+          once: true,
+        });
+
+        try {
+          if (foregroundWakeRequested) {
+            resolveForegroundWake();
+          }
+
+          await Promise.race([waitEnded, sleep, foregroundWake]);
+        } finally {
+          resolveForegroundWake = null;
+          waitController.signal.removeEventListener(
+            "abort",
+            handleWaitAbort,
+          );
+          foregroundWakeRequested = false;
+        }
+      }
+
+      isPolling = true;
+      let snapshot: PhotosPickerSessionSnapshot;
+
+      try {
+        snapshot = await Promise.race([
+          getPhotosPickerSession(
+            input.accessToken,
+            input.session.id,
+            waitController.signal,
+          ),
+          waitEnded,
+        ]);
+      } finally {
+        isPolling = false;
+      }
 
       input.onSnapshot?.(snapshot);
       diagnostics.push(...snapshot.diagnostics);
@@ -10677,10 +10773,17 @@ export async function waitForPhotosPickerSelection(input: {
       }
 
       pollingTiming = snapshot.pollingTiming;
+      nextPollAtMs = null;
     }
   } finally {
     clearTimeout(appTimeoutId);
     input.signal.removeEventListener("abort", handleParentAbort);
+    foregroundWakeRequested = false;
+    if (canListenForForegroundWake) {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleWindowBlur);
+      window.removeEventListener("focus", handleWindowFocus);
+    }
   }
 }
 
