@@ -10627,7 +10627,9 @@ export async function waitForPhotosPickerSelection(input: {
   let foregroundWakeRequested = false;
   let foregroundReturnPending = false;
   let isPolling = false;
-  let resolveForegroundWake: (() => void) | null = null;
+  const resolveForegroundWakeRef: { current: (() => void) | null } = {
+    current: null,
+  };
   let nextPollAtMs: number | null = null;
   const canListenForForegroundWake =
     typeof document !== "undefined" && typeof window !== "undefined";
@@ -10637,7 +10639,7 @@ export async function waitForPhotosPickerSelection(input: {
     }
 
     foregroundWakeRequested = true;
-    resolveForegroundWake?.();
+    resolveForegroundWakeRef.current?.();
     return true;
   };
   const handleVisibilityChange = () => {
@@ -10717,7 +10719,7 @@ export async function waitForPhotosPickerSelection(input: {
           throw error;
         });
         const foregroundWake = new Promise<void>((resolve) => {
-          resolveForegroundWake = () => {
+          resolveForegroundWakeRef.current = () => {
             if (wokeSleepingPoll) {
               return;
             }
@@ -10735,12 +10737,12 @@ export async function waitForPhotosPickerSelection(input: {
 
         try {
           if (foregroundWakeRequested) {
-            resolveForegroundWake();
+            resolveForegroundWakeRef.current?.();
           }
 
           await Promise.race([waitEnded, sleep, foregroundWake]);
         } finally {
-          resolveForegroundWake = null;
+          resolveForegroundWakeRef.current = null;
           waitController.signal.removeEventListener(
             "abort",
             handleWaitAbort,
